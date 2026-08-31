@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 
 import { CodexSession, accountLabel, formFields, inputQuestions, type Snapshot } from '../codex/session'
 import type { Block } from '../codex/blocks'
-import { C, FONT, LIGHT, PAGE_WIDTH, TITLEBAR } from './theme'
+import { C, FONT, LIGHT, PAGE_WIDTH, TITLEBAR, HOME_MAX, CARD_COLS, CARD_ROW_H, TEMPLATE_H, THUMB_H, CARD_W, SHADOW, SHADOW_HOVER } from './theme'
 
 type MenuId = 'file' | 'edit' | 'view' | 'tools' | 'account' | 'model' | 'effort' | 'mode' | null
 
@@ -40,9 +40,13 @@ export function AppRoot({ session }: { session: CodexSession }) {
       {menu && menu !== 'model' && menu !== 'effort' && menu !== 'mode' ? (
         <MenuPanel snap={snap} session={session} menu={menu} onClose={closeMenu} />
       ) : null}
-      <Toolbar snap={snap} session={session} menu={menu} toggle={toggle} onClose={closeMenu} />
+      {snap.route.kind === 'home' ? (
+        <HomeSearch snap={snap} session={session} />
+      ) : (
+        <Toolbar snap={snap} session={session} menu={menu} toggle={toggle} onClose={closeMenu} />
+      )}
       {snap.showFolder ? <FolderBar session={session} snap={snap} /> : null}
-      {snap.requiresAuth && snap.status === 'ready' ? (
+      {snap.requiresAuth && snap.status === 'ready' && !snap.account ? (
         <Banner
           testId="auth-banner"
           text="Sign in with ChatGPT to use Docs."
@@ -50,6 +54,17 @@ export function AppRoot({ session }: { session: CodexSession }) {
           onAction={() => void session.login()}
         />
       ) : null}
+      {snap.status === 'ready'
+        ? toolsNeedingConnect(snap.mcpServers).map((server) => (
+            <Banner
+              key={server.name}
+              testId={`mcp-banner-${server.name}`}
+              text={`${displayServerName(server.name)} needs to be reconnected.`}
+              action="Connect"
+              onAction={() => void session.connectMcp(server.name)}
+            />
+          ))
+        : null}
       {snap.loginUrl && snap.status === 'ready' ? (
         <Banner testId="login-url" text={snap.loginUrl} />
       ) : null}
@@ -100,18 +115,18 @@ function Menubar({
           display: 'flex',
           flexDirection: 'row',
           alignItems: 'center',
-          height: 28,
+          height: 40,
           paddingLeft: 78,
-          paddingRight: 12,
+          paddingRight: 16,
         }}
       >
-      <text style={{ fontSize: 13, fontFamily: FONT, color: C.blue, paddingRight: 16 }}>Docs</text>
+      <DocsWordmark />
       <MenuLabel id="file" label="File" menu={menu} toggle={toggle} />
       <MenuLabel id="edit" label="Edit" menu={menu} toggle={toggle} />
       <MenuLabel id="view" label="View" menu={menu} toggle={toggle} />
       <MenuLabel id="tools" label="Tools" menu={menu} toggle={toggle} />
       <div style={{ flexGrow: 1 }} />
-      <MenuLabel id="account" label={accountLabel(snap.account)} menu={menu} toggle={toggle} />
+      <MenuLabel id="account" label={snap.status === 'connecting' ? '…' : accountLabel(snap.account)} menu={menu} toggle={toggle} />
       </div>
     </div>
   )
@@ -175,12 +190,7 @@ function MenuPanel({
         : menu === 'tools'
           ? [
               { id: 'refresh', label: 'Refresh from Codex', run: () => void session.start().then(() => session.refreshCatalog()) },
-              ...snap.mcpServers
-                .filter(
-                  (server) =>
-                    server.authStatus === 'notLoggedIn' || server.runtimeStatus === 'authenticationRequired',
-                )
-                .map((server) => ({
+              ...snap.mcpServers.filter(needsReconnect).map((server) => ({
                   id: `mcp-${server.name}`,
                   label: `Connect ${server.name}`,
                   run: () => void session.connectMcp(server.name),
@@ -469,8 +479,9 @@ function Banner({
         alignItems: 'center',
         paddingLeft: 12,
         paddingRight: 12,
-        paddingTop: 6,
-        paddingBottom: 6,
+        paddingTop: 8,
+        paddingBottom: 8,
+        backgroundColor: C.gallery,
         gap: 8,
         flexShrink: 0,
       }}
@@ -495,6 +506,77 @@ function Banner({
   )
 }
 
+function HomeSearch({ snap, session }: { snap: Snapshot; session: CodexSession }) {
+  return (
+    <div
+      style={{
+        backgroundColor: C.header,
+        paddingTop: 4,
+        paddingBottom: 10,
+        paddingLeft: 160,
+        paddingRight: 160,
+        borderBottomWidth: 1,
+        borderColor: C.menuLine,
+        flexShrink: 0,
+      }}
+    >
+      <div
+        style={{
+          backgroundColor: C.search,
+          borderRadius: 8,
+          height: 42,
+          paddingLeft: 16,
+          paddingRight: 16,
+          display: 'flex',
+          alignItems: 'center',
+        }}
+      >
+        <input
+          testId="home-search"
+          value={snap.search}
+          placeholder="Search documents"
+          onChange={(event) => session.setSearch(event.value ?? '')}
+          onSubmit={() => void session.applySearch()}
+          theme={LIGHT}
+          style={{ flexGrow: 1, fontSize: 16, fontFamily: FONT, color: C.text }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function DocsWordmark() {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingRight: 20,
+        gap: 10,
+      }}
+    >
+      <div
+        style={{
+          width: 28,
+          height: 36,
+          borderRadius: 2,
+          backgroundColor: C.page,
+          borderWidth: 1,
+          borderColor: C.line,
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ height: 10, backgroundColor: C.blue }} />
+        <div style={{ height: 2, backgroundColor: C.line, marginTop: 5, marginLeft: 5, marginRight: 5 }} />
+        <div style={{ height: 2, backgroundColor: C.line, marginTop: 3, marginLeft: 5, marginRight: 8 }} />
+        <div style={{ height: 2, backgroundColor: C.line, marginTop: 3, marginLeft: 5, marginRight: 6 }} />
+      </div>
+      <text style={{ fontSize: 22, fontFamily: FONT, color: C.secondary }}>Docs</text>
+    </div>
+  )
+}
+
 function Status({ text, onClick }: { text: string; onClick?: () => void }) {
   return (
     <div
@@ -504,6 +586,7 @@ function Status({ text, onClick }: { text: string; onClick?: () => void }) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        backgroundColor: C.surround,
         cursor: onClick ? 'pointer' : undefined,
       }}
     >
@@ -539,85 +622,155 @@ function Home({ snap, session }: { snap: Snapshot; session: CodexSession }) {
     return { byProject, loose, orphans }
   }, [snap.threads, snap.projects, snap.search])
 
+  const sections: Array<{ key: string; title: string; threads: typeof snap.threads }> = [
+    ...snap.projects.map((project) => ({
+      key: `p-${project.id}`,
+      title: project.name,
+      threads: grouped.byProject.get(project.id) ?? [],
+    })),
+    ...grouped.orphans.map(([id, threads]) => ({
+      key: `orphan-${id}`,
+      title: 'Folder',
+      threads,
+    })),
+    { key: 'recent', title: 'Recent documents', threads: grouped.loose },
+  ]
+
+  const items: Array<
+    | { key: string; kind: 'gallery' }
+    | { key: string; kind: 'heading'; title: string }
+    | { key: string; kind: 'empty'; text: string }
+    | { key: string; kind: 'row'; threads: typeof snap.threads }
+  > = [{ key: 'gallery', kind: 'gallery' }]
+
+  for (const section of sections) {
+    if (section.threads.length === 0 && section.key !== 'recent') continue
+    items.push({ key: `${section.key}-h`, kind: 'heading', title: section.title })
+    if (section.threads.length === 0) {
+      items.push({
+        key: `${section.key}-empty`,
+        kind: 'empty',
+        text:
+          snap.threads.length === 0
+            ? 'No documents yet'
+            : snap.search.trim()
+              ? 'No matching documents'
+              : 'All documents are in folders',
+      })
+      continue
+    }
+    chunk(section.threads, CARD_COLS).forEach((row, index) => {
+      items.push({ key: `${section.key}-row-${index}`, kind: 'row', threads: row })
+    })
+  }
+
   return (
     <virtual-list
-      estimatedItemHeight={72}
-      style={{ flexGrow: 1, minHeight: 0, paddingLeft: 48, paddingRight: 48, paddingTop: 24 }}
+      estimatedItemHeight={CARD_ROW_H}
+      style={{ flexGrow: 1, minHeight: 0, backgroundColor: C.surround }}
     >
-      <div key="new" style={{ paddingBottom: 24 }}>
-        <text testId="docs-home" style={{ fontSize: 14, fontFamily: FONT, color: C.secondary, paddingBottom: 12 }}>
-          Start a new document
-        </text>
-        <div
-          testId="new-doc"
-          onClick={() => void session.newDocument()}
-          style={{
-            width: 140,
-            height: 180,
-            borderRadius: 2,
-            borderWidth: 1,
-            borderColor: C.line,
-            backgroundColor: C.page,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            hover: { borderColor: C.blue },
-          }}
-        >
-          <text style={{ fontSize: 36, fontFamily: FONT, color: C.blue }}>+</text>
-        </div>
-      </div>
-      <div key="search" style={{ paddingBottom: 16 }}>
-        <input
-          testId="home-search"
-          value={snap.search}
-          placeholder="Search documents"
-          onChange={(event) => session.setSearch(event.value ?? '')}
-          onSubmit={() => void session.applySearch()}
-          theme={LIGHT}
-          style={{ fontSize: 14, fontFamily: FONT, color: C.text }}
-        />
-      </div>
-      {snap.projects.map((project) => (
-        <div key={`p-${project.id}`} style={{ paddingBottom: 16 }}>
-          <text style={{ fontSize: 14, fontFamily: FONT, color: C.secondary, paddingBottom: 8 }}>
-            {project.name}
-          </text>
-          {(grouped.byProject.get(project.id) ?? []).map((thread) => (
-            <ThreadRow key={thread.id} thread={thread} onOpen={() => void session.openThread(thread.id)} />
-          ))}
-        </div>
-      ))}
-      {grouped.orphans.map(([id, threads]) => (
-        <div key={`orphan-${id}`} style={{ paddingBottom: 16 }}>
-          <text style={{ fontSize: 14, fontFamily: FONT, color: C.secondary, paddingBottom: 8 }}>Folder</text>
-          {threads.map((thread) => (
-            <ThreadRow key={thread.id} thread={thread} onOpen={() => void session.openThread(thread.id)} />
-          ))}
-        </div>
-      ))}
-      <div key="recent" style={{ paddingBottom: 16 }}>
-        <text style={{ fontSize: 14, fontFamily: FONT, color: C.secondary, paddingBottom: 8 }}>
-          Recent
-        </text>
-        {grouped.loose.length === 0 && snap.threads.length === 0 ? (
-          <text style={{ fontSize: 13, fontFamily: FONT, color: C.muted }}>No documents yet</text>
-        ) : grouped.loose.length === 0 ? (
-          <text style={{ fontSize: 13, fontFamily: FONT, color: C.muted }}>
-            {snap.search.trim() ? 'No matching documents' : 'All documents are in folders'}
-          </text>
-        ) : (
-          grouped.loose.map((thread) => (
-            <ThreadRow key={thread.id} thread={thread} onOpen={() => void session.openThread(thread.id)} />
-          ))
-        )}
-      </div>
+      {items.map((item) => {
+        if (item.kind === 'gallery') {
+          return (
+            <div
+              key={item.key}
+              style={{
+                backgroundColor: C.gallery,
+                paddingTop: 28,
+                paddingBottom: 28,
+                height: TEMPLATE_H,
+              }}
+            >
+              <div style={{ width: HOME_MAX, paddingLeft: 48 }}>
+                <text
+                  testId="docs-home"
+                  style={{
+                    fontSize: 16,
+                    fontFamily: FONT,
+                    color: C.secondary,
+                    paddingBottom: 16,
+                    fontWeight: 500,
+                  }}
+                >
+                  Start a new document
+                </text>
+                <div
+                  testId="new-doc"
+                  onClick={() => void session.newDocument()}
+                  style={{
+                    width: 126,
+                    height: 158,
+                    borderRadius: 2,
+                    borderWidth: 1,
+                    borderColor: C.line,
+                    backgroundColor: C.page,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    boxShadow: SHADOW,
+                    hover: { borderColor: C.blue, boxShadow: SHADOW_HOVER },
+                  }}
+                >
+                  <text style={{ fontSize: 40, fontFamily: FONT, color: C.blue, pointerEvents: 'none' }}>+</text>
+                </div>
+                <text style={{ fontSize: 13, fontFamily: FONT, color: C.text, paddingTop: 10 }}>Blank</text>
+              </div>
+            </div>
+          )
+        }
+        if (item.kind === 'heading') {
+          return (
+            <div
+              key={item.key}
+              style={{
+                backgroundColor: C.page,
+                paddingLeft: 48,
+                paddingRight: 48,
+                paddingTop: 24,
+                paddingBottom: 12,
+                height: 56,
+              }}
+            >
+              <text style={{ fontSize: 16, fontFamily: FONT, color: C.secondary, fontWeight: 500 }}>
+                {item.title}
+              </text>
+            </div>
+          )
+        }
+        if (item.kind === 'empty') {
+          return (
+            <div key={item.key} style={{ backgroundColor: C.page, paddingLeft: 48, paddingBottom: 32, height: 48 }}>
+              <text style={{ fontSize: 13, fontFamily: FONT, color: C.muted }}>{item.text}</text>
+            </div>
+          )
+        }
+        return (
+          <div
+            key={item.key}
+            style={{
+              backgroundColor: C.page,
+              width: HOME_MAX,
+              paddingLeft: 48,
+              paddingRight: 48,
+              paddingBottom: 8,
+              display: 'flex',
+              flexDirection: 'row',
+              gap: 16,
+              height: CARD_ROW_H,
+            }}
+          >
+            {item.threads.map((thread) => (
+              <DocCard key={thread.id} thread={thread} onOpen={() => void session.openThread(thread.id)} />
+            ))}
+          </div>
+        )
+      })}
     </virtual-list>
   )
 }
 
-function ThreadRow({
+function DocCard({
   thread,
   onOpen,
 }: {
@@ -625,23 +778,59 @@ function ThreadRow({
   onOpen: () => void
 }) {
   const title = thread.name?.trim() || thread.preview?.trim() || 'Untitled document'
+  const preview = thread.preview?.trim() || title
   return (
     <div
       testId={`thread-${thread.id}`}
       onClick={onOpen}
       style={{
-        height: 44,
-        paddingLeft: 8,
-        paddingRight: 8,
-        borderRadius: 4,
+        width: CARD_W,
         display: 'flex',
-        flexDirection: 'row',
-        alignItems: 'center',
+        flexDirection: 'column',
         cursor: 'pointer',
-        hover: { backgroundColor: C.chip },
       }}
     >
-      <text style={{ flexGrow: 1, fontSize: 14, fontFamily: FONT, color: C.text }}>{title}</text>
+      <div
+        style={{
+          height: THUMB_H,
+          borderRadius: 2,
+          borderWidth: 1,
+          borderColor: C.line,
+          backgroundColor: C.page,
+          paddingLeft: 14,
+          paddingRight: 14,
+          paddingTop: 14,
+          paddingBottom: 14,
+          pointerEvents: 'none',
+          boxShadow: SHADOW,
+          hover: { borderColor: C.blue, boxShadow: SHADOW_HOVER },
+        }}
+      >
+        <text
+          style={{
+            fontSize: 11,
+            fontFamily: FONT,
+            color: C.muted,
+            lineHeight: 16,
+          }}
+        >
+          {preview.length > 180 ? `${preview.slice(0, 180)}…` : preview}
+        </text>
+      </div>
+      <text
+        style={{
+          fontSize: 13,
+          fontFamily: FONT,
+          color: C.text,
+          paddingTop: 10,
+          fontWeight: 500,
+        }}
+      >
+        {title}
+      </text>
+      <text style={{ fontSize: 12, fontFamily: FONT, color: C.muted, paddingTop: 2 }}>
+        {formatOpened(thread.recencyAt ?? thread.updatedAt)}
+      </text>
     </div>
   )
 }
@@ -686,12 +875,13 @@ function Document({
           backgroundColor: C.page,
           paddingLeft: 72,
           paddingRight: 72,
-          paddingTop: 48,
+          paddingTop: 56,
           paddingBottom: 8,
+          boxShadow: SHADOW,
         }}
       >
         <div key="title" style={{ paddingBottom: 28 }}>
-          <text style={{ fontSize: 28, fontFamily: FONT, color: C.text }}>{snap.title}</text>
+          <text style={{ fontSize: 34, fontFamily: FONT, color: C.text, lineHeight: 40 }}>{snap.title}</text>
         </div>
         {snap.olderTurnsCursor ? (
           <div
@@ -902,4 +1092,35 @@ function BlockView({ block, session }: { block: Block; session: CodexSession }) 
       )}
     </div>
   )
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const rows: T[][] = []
+  for (let i = 0; i < items.length; i += size) rows.push(items.slice(i, i + size))
+  return rows
+}
+
+function formatOpened(unixSeconds: number | null) {
+  if (!unixSeconds) return ''
+  return `Opened ${new Date(unixSeconds * 1000).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  })}`
+}
+
+function needsReconnect(server: Snapshot['mcpServers'][number]) {
+  return (
+    server.authStatus === 'notLoggedIn' ||
+    server.runtimeStatus === 'authenticationRequired' ||
+    server.runtimeStatus === 'failed'
+  )
+}
+
+function toolsNeedingConnect(servers: Snapshot['mcpServers']) {
+  return servers.filter(needsReconnect)
+}
+
+function displayServerName(name: string) {
+  if (!name) return 'A connected app'
+  return name.charAt(0).toUpperCase() + name.slice(1)
 }

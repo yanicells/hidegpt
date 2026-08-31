@@ -221,7 +221,7 @@ export class CodexSession {
       visibleModels.find((model) => model.isDefault) ?? visibleModels[0] ?? models.data[0]
     this.patch({
       account: account.account,
-      requiresAuth: account.account == null || account.requiresOpenaiAuth,
+      requiresAuth: account.account == null,
       models: visibleModels.length > 0 ? visibleModels : models.data,
       model: this.snapshot.model ?? selected?.model ?? null,
       effort: this.snapshot.effort ?? selected?.defaultReasoningEffort ?? null,

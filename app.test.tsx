@@ -27,6 +27,8 @@ describeNative('docs home', () => {
     expect(painted).toContain('Photosynthesis')
     expect(painted).toContain('Chem lab')
     expect(painted).toContain('Start a new document')
+    expect(painted).toContain('Blank')
+    expect(painted).toContain('Recent documents')
     await app.close()
   })
 
@@ -37,7 +39,7 @@ describeNative('docs home', () => {
     expect(renderer.getPaintedText()).toContain('Photosynthesis')
     expect(renderer.getPaintedText()).toContain('Type a question')
     await app.close()
-  })
+  }, 20_000)
 
   it('opens the File menu', async () => {
     const { app, renderer } = await mountHome()

@@ -93,6 +93,7 @@ export function createFakeTransport(options?: {
   olderTurns?: Turn[]
   failResume?: string
   resumeGate?: { wait: Promise<void> }
+  requiresOpenaiAuth?: boolean
 }): FakeTransport {
   const threads = options?.threads ?? [
     stubThread('thr_1', 'Essay on photosynthesis', 'Photosynthesis'),
@@ -112,7 +113,10 @@ export function createFakeTransport(options?: {
 
   const handlers: Record<string, (params: unknown) => unknown> = {
     initialize: () => ({ userAgent: 'hidegpt-test', codexHome: '/tmp' }),
-    'account/read': () => ({ account, requiresOpenaiAuth: account == null }),
+    'account/read': () => ({
+      account,
+      requiresOpenaiAuth: options?.requiresOpenaiAuth ?? account == null,
+    }),
     'model/list': () => ({ data: [model], nextCursor: null }),
     'thread/list': (params) => {
       const search = (params as { searchTerm?: string | null }).searchTerm?.toLowerCase()

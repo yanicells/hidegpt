@@ -25,6 +25,12 @@ describe('CodexSession', () => {
     expect(session.snapshot.threads.map((thread) => thread.id)).toEqual(['thr_1', 'thr_2'])
   })
 
+  it('does not ask for ChatGPT login when an account is already present', async () => {
+    const { session } = await readySession({ requiresOpenaiAuth: true })
+    expect(session.snapshot.account).toBeTruthy()
+    expect(session.snapshot.requiresAuth).toBe(false)
+  })
+
   it('resumes recent turns in chronological order and keeps an older cursor', async () => {
     const { session, transport } = await readySession({
       turns: [
