@@ -1,0 +1,6 @@
+dist/
+web-dist/
+tmp/
+screenshots/
+node_modules/
+.DS_Store
