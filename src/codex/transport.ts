@@ -132,7 +132,9 @@ export function spawnCodexAppServer(options?: { bin?: string }): CodexTransport 
   child.stderr.setEncoding('utf8')
   child.stderr.on('data', (chunk: string) => {
     const text = chunk.trim()
-    if (text) console.error(text)
+    if (!text) return
+    if (/failed to refresh OAuth tokens/i.test(text) && /invalid_grant/i.test(text)) return
+    console.error(text)
   })
 
   const transport = createTransportFromStdio({
