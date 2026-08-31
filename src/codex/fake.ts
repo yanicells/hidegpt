@@ -3,10 +3,11 @@ import type { Model } from '../generated/codex/v2/Model'
 import type { Thread } from '../generated/codex/v2/Thread'
 import type { ThreadStartResponse } from '../generated/codex/v2/ThreadStartResponse'
 import type { ThreadResumeResponse } from '../generated/codex/v2/ThreadResumeResponse'
+import type { Turn } from '../generated/codex/v2/Turn'
 import type { JsonRpcId } from './jsonrpc'
 import type { CodexTransport, NotificationHandler, ServerRequestHandler } from './transport'
 
-export function stubThread(id: string, preview: string, name?: string): Thread {
+export function stubThread(id: string, preview: string, name?: string, projectId?: string | null): Thread {
   return {
     id,
     extra: null,
@@ -17,7 +18,7 @@ export function stubThread(id: string, preview: string, name?: string): Thread {
     ephemeral: false,
     section: null,
     sectionEnteredAt: null,
-    projectId: null,
+    projectId: projectId ?? null,
     historyMode: 'legacy',
     modelProvider: 'openai',
     createdAt: 1_700_000_000,
@@ -65,10 +66,34 @@ export function stubModel(): Model {
   }
 }
 
+export function stubTurn(id: string, items: Turn['items'] = []): Turn {
+  return {
+    id,
+    items,
+    itemsView: 'full',
+    status: 'completed',
+    error: null,
+    startedAt: 1,
+    completedAt: 2,
+    durationMs: 1,
+  }
+}
+
+export type FakeTransport = CodexTransport & {
+  calls: Array<{ method: string; params: unknown }>
+  emitNotification: (method: string, params: unknown) => void
+  emitRequest: (id: JsonRpcId, method: string, params: unknown) => void
+  responses: Array<{ id: JsonRpcId; result: unknown }>
+}
+
 export function createFakeTransport(options?: {
   threads?: Thread[]
   account?: Account | null
-}): CodexTransport {
+  turns?: Turn[]
+  olderTurns?: Turn[]
+  failResume?: string
+  resumeGate?: { wait: Promise<void> }
+}): FakeTransport {
   const threads = options?.threads ?? [
     stubThread('thr_1', 'Essay on photosynthesis', 'Photosynthesis'),
     stubThread('thr_2', 'Lab notes', 'Chem lab'),
@@ -80,13 +105,38 @@ export function createFakeTransport(options?: {
   const notes = new Set<NotificationHandler>()
   const reqs = new Set<ServerRequestHandler>()
   const model = stubModel()
+  const turns = options?.turns ?? []
+  const olderTurns = options?.olderTurns ?? []
+  const calls: FakeTransport['calls'] = []
+  const responses: FakeTransport['responses'] = []
 
   const handlers: Record<string, (params: unknown) => unknown> = {
     initialize: () => ({ userAgent: 'hidegpt-test', codexHome: '/tmp' }),
     'account/read': () => ({ account, requiresOpenaiAuth: account == null }),
     'model/list': () => ({ data: [model], nextCursor: null }),
-    'thread/list': () => ({ data: threads, nextCursor: null, backwardsCursor: null }),
+    'thread/list': (params) => {
+      const search = (params as { searchTerm?: string | null }).searchTerm?.toLowerCase()
+      const data = search
+        ? threads.filter(
+            (thread) =>
+              thread.name?.toLowerCase().includes(search) || thread.preview.toLowerCase().includes(search),
+          )
+        : threads
+      return { data, nextCursor: null, backwardsCursor: null }
+    },
     'project/list': () => ({ data: [], nextCursor: null }),
+    'mcpServerStatus/list': () => ({ data: [], nextCursor: null }),
+    'thread/unsubscribe': () => ({ status: 'unsubscribed' }),
+    'thread/turns/list': (params) => {
+      const cursor = (params as { cursor?: string | null }).cursor
+      return cursor
+        ? { data: olderTurns, nextCursor: null, backwardsCursor: null }
+        : {
+            data: [...turns].reverse(),
+            nextCursor: null,
+            backwardsCursor: olderTurns.length ? 'older' : null,
+          }
+    },
     'collaborationMode/list': () => ({
       data: [{ name: 'Default', mode: 'default', model: null, reasoning_effort: null }],
     }),
@@ -127,8 +177,12 @@ export function createFakeTransport(options?: {
         reasoningEffort: 'medium',
         multiAgentMode: 'explicitRequestOnly',
       }) as ThreadStartResponse,
-    'thread/resume': (params) => {
+    'thread/resume': async (params) => {
+      if (options?.resumeGate) await options.resumeGate.wait
       const threadId = (params as { threadId: string }).threadId
+      if (options?.failResume === threadId) {
+        throw new Error('thread-store conflict: already has an active writer')
+      }
       const thread = threads.find((item) => item.id === threadId) ?? stubThread(threadId, 'Untitled')
       return {
         thread: { ...thread, turns: [] },
@@ -150,25 +204,52 @@ export function createFakeTransport(options?: {
         activePermissionProfile: null,
         reasoningEffort: 'medium',
         multiAgentMode: 'explicitRequestOnly',
-        initialTurnsPage: null,
-        turnsBackwardsCursor: null,
+        initialTurnsPage: {
+          data: [...turns].reverse(),
+          nextCursor: null,
+          backwardsCursor: olderTurns.length ? 'older' : null,
+        },
+        turnsBackwardsCursor: olderTurns.length ? 'older' : null,
         itemsBackwardsCursor: null,
       } as ThreadResumeResponse
     },
-    'turn/start': () => ({ turn: { id: 'turn_1', items: [], itemsView: 'full', status: 'inProgress', error: null, startedAt: 1, completedAt: null, durationMs: null } }),
+    'turn/start': () => ({
+      turn: {
+        id: 'turn_1',
+        items: [],
+        itemsView: 'full',
+        status: 'inProgress',
+        error: null,
+        startedAt: 1,
+        completedAt: null,
+        durationMs: null,
+      },
+    }),
     'turn/interrupt': () => ({}),
     'account/logout': () => ({}),
     'account/login/start': () => ({ type: 'chatgpt', loginId: 'login', authUrl: 'https://example.test/login' }),
+    'mcpServer/oauth/login': () => ({ authorizationUrl: 'https://example.test/mcp' }),
+    'thread/increment_elicitation': () => ({}),
+    'thread/decrement_elicitation': () => ({}),
   }
 
   return {
+    calls,
+    responses,
     request<T>(method: string, params?: unknown) {
+      calls.push({ method, params })
       const handler = handlers[method]
       if (!handler) return Promise.reject(new Error(`unexpected ${method}`))
-      return Promise.resolve(handler(params)) as Promise<T>
+      try {
+        return Promise.resolve(handler(params)) as Promise<T>
+      } catch (error) {
+        return Promise.reject(error)
+      }
     },
     notify() {},
-    respond(_id: JsonRpcId, _result: unknown) {},
+    respond(id: JsonRpcId, result: unknown) {
+      responses.push({ id, result })
+    },
     reject() {},
     onNotification(handler) {
       notes.add(handler)
@@ -182,5 +263,11 @@ export function createFakeTransport(options?: {
       return () => {}
     },
     async close() {},
+    emitNotification(method, params) {
+      for (const handler of notes) handler(method, params)
+    },
+    emitRequest(id, method, params) {
+      for (const handler of reqs) handler({ id, method, params })
+    },
   }
 }
