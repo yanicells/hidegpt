@@ -46,4 +46,11 @@ describeNative('docs home', () => {
     expect(renderer.getPaintedText()).toContain('Open folder…')
     await app.close()
   })
+
+  it('shows a search field on the homepage', async () => {
+    const { app, renderer } = await mountHome()
+    await app.getByTestId('home-search').waitFor({ timeoutMs: 10_000 })
+    expect(renderer.getPaintedText()).toContain('Search documents')
+    await app.close()
+  })
 })

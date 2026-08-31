@@ -15,6 +15,7 @@ export type PendingApproval = {
   body: string
   resolved: 'accepted' | 'skipped' | null
   extra?: unknown
+  drafts: Record<string, string>
 }
 
 export type Block = AgentBlock | UserBlock | CalloutBlock | PendingApproval
@@ -41,12 +42,16 @@ export function itemToBlock(item: ThreadItem): Block {
       body: item.summary.join('\n') || item.content.join('\n'),
     }
   }
+  if (item.type === 'plan') {
+    return { kind: 'callout', id: item.id, title: 'Plan', body: item.text }
+  }
   if (item.type === 'commandExecution') {
+    const output = item.aggregatedOutput?.trim()
     return {
       kind: 'callout',
       id: item.id,
       title: item.status === 'completed' ? 'Ran a command' : 'Running a command',
-      body: item.command,
+      body: output ? `${item.command}\n${output}` : item.command,
     }
   }
   if (item.type === 'fileChange') {
@@ -58,15 +63,52 @@ export function itemToBlock(item: ThreadItem): Block {
     }
   }
   if (item.type === 'mcpToolCall') {
+    const detail = item.error?.message ?? item.status
     return {
       kind: 'callout',
       id: item.id,
       title: `${item.server} · ${item.tool}`,
+      body: detail,
+    }
+  }
+  if (item.type === 'dynamicToolCall') {
+    return {
+      kind: 'callout',
+      id: item.id,
+      title: item.namespace ? `${item.namespace} · ${item.tool}` : item.tool,
       body: item.status,
     }
   }
   if (item.type === 'webSearch') {
     return { kind: 'callout', id: item.id, title: 'Looked something up', body: item.query }
+  }
+  if (item.type === 'imageView') {
+    return { kind: 'callout', id: item.id, title: 'Image', body: item.path }
+  }
+  if (item.type === 'imageGeneration') {
+    return {
+      kind: 'callout',
+      id: item.id,
+      title: 'Generated image',
+      body: item.savedPath ?? item.revisedPrompt ?? item.status,
+    }
+  }
+  if (item.type === 'collabAgentToolCall') {
+    return {
+      kind: 'callout',
+      id: item.id,
+      title: `Agent · ${item.tool}`,
+      body: item.prompt ?? item.status,
+    }
+  }
+  if (item.type === 'contextCompaction') {
+    return { kind: 'callout', id: item.id, title: 'Compacted context', body: '' }
+  }
+  if (item.type === 'enteredReviewMode' || item.type === 'exitedReviewMode') {
+    return { kind: 'callout', id: item.id, title: item.type === 'enteredReviewMode' ? 'Review' : 'Left review', body: item.review }
+  }
+  if (item.type === 'functionCallOutput') {
+    return { kind: 'callout', id: item.id, title: item.name, body: item.namespace ?? '' }
   }
   return { kind: 'callout', id: item.id, title: item.type, body: '' }
 }
@@ -77,4 +119,9 @@ export function blocksFromTurns(turns: Turn[]): Block[] {
     for (const item of turn.items) blocks.push(itemToBlock(item))
   }
   return blocks
+}
+
+export function mergeOlderBlocks(older: Block[], current: Block[]): Block[] {
+  const seen = new Set(current.map((block) => block.id))
+  return [...older.filter((block) => !seen.has(block.id)), ...current]
 }

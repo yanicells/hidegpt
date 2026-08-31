@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 
-import { CodexSession, accountLabel, type Snapshot } from '../codex/session'
+import { CodexSession, accountLabel, formFields, inputQuestions, type Snapshot } from '../codex/session'
 import type { Block } from '../codex/blocks'
 import { C, FONT, LIGHT, PAGE_WIDTH, TITLEBAR } from './theme'
 
@@ -17,6 +17,10 @@ export function AppRoot({ session }: { session: CodexSession }) {
       void session.close()
     }
   }, [session])
+
+  useEffect(() => {
+    setDraft('')
+  }, [snap.route.kind, snap.route.kind === 'doc' ? snap.route.threadId : null])
 
   const closeMenu = () => setMenu(null)
   const toggle = (id: MenuId) => setMenu((current) => (current === id ? null : id))
@@ -38,21 +42,19 @@ export function AppRoot({ session }: { session: CodexSession }) {
       ) : null}
       <Toolbar snap={snap} session={session} menu={menu} toggle={toggle} onClose={closeMenu} />
       {snap.showFolder ? <FolderBar session={session} snap={snap} /> : null}
+      {snap.requiresAuth && snap.status === 'ready' ? (
+        <Banner
+          testId="auth-banner"
+          text="Sign in with ChatGPT to use Docs."
+          action="Sign in"
+          onAction={() => void session.login()}
+        />
+      ) : null}
+      {snap.loginUrl && snap.status === 'ready' ? (
+        <Banner testId="login-url" text={snap.loginUrl} />
+      ) : null}
       {snap.error && snap.status === 'ready' ? (
-        <text
-          testId="error-banner"
-          style={{
-            fontSize: 12,
-            fontFamily: FONT,
-            color: C.danger,
-            paddingLeft: 12,
-            paddingTop: 6,
-            paddingBottom: 6,
-            flexShrink: 0,
-          }}
-        >
-          {snap.error}
-        </text>
+        <Banner testId="error-banner" text={snap.error} danger />
       ) : null}
       {snap.status === 'connecting' ? (
         <Status text="Opening…" />
@@ -171,7 +173,19 @@ function MenuPanel({
           ? [{ id: 'logout', label: 'Log out', run: () => void session.logout() }]
           : [{ id: 'login', label: 'Log in with ChatGPT', run: () => void session.login() }]
         : menu === 'tools'
-          ? [{ id: 'refresh', label: 'Refresh from Codex', run: () => void session.start().then(() => session.refreshCatalog()) }]
+          ? [
+              { id: 'refresh', label: 'Refresh from Codex', run: () => void session.start().then(() => session.refreshCatalog()) },
+              ...snap.mcpServers
+                .filter(
+                  (server) =>
+                    server.authStatus === 'notLoggedIn' || server.runtimeStatus === 'authenticationRequired',
+                )
+                .map((server) => ({
+                  id: `mcp-${server.name}`,
+                  label: `Connect ${server.name}`,
+                  run: () => void session.connectMcp(server.name),
+                })),
+            ]
           : [{ id: 'home', label: 'Home', run: () => session.goHome() }]
 
   return (
@@ -259,12 +273,14 @@ function Toolbar({
           open={menu === 'model'}
           onClick={() => toggle('model')}
         />
-        <Chip
-          testId="chip-effort"
-          label={snap.effort ?? 'Effort'}
-          open={menu === 'effort'}
-          onClick={() => toggle('effort')}
-        />
+        {efforts.length > 0 ? (
+          <Chip
+            testId="chip-effort"
+            label={snap.effort ?? 'Effort'}
+            open={menu === 'effort'}
+            onClick={() => toggle('effort')}
+          />
+        ) : null}
         {snap.collaborationModes.length > 0 ? (
           <Chip
             testId="chip-mode"
@@ -412,6 +428,69 @@ function FolderBar({ session, snap }: { session: CodexSession; snap: Snapshot })
       >
         <text style={{ fontSize: 13, fontFamily: FONT, color: C.page }}>Use</text>
       </div>
+      <div
+        testId="folder-cancel"
+        onClick={() => session.toggleFolder(false)}
+        style={{
+          height: 28,
+          paddingLeft: 12,
+          paddingRight: 12,
+          borderRadius: 4,
+          backgroundColor: C.chip,
+          display: 'flex',
+          alignItems: 'center',
+          cursor: 'pointer',
+        }}
+      >
+        <text style={{ fontSize: 13, fontFamily: FONT, color: C.text }}>Cancel</text>
+      </div>
+    </div>
+  )
+}
+
+function Banner({
+  text,
+  testId,
+  danger,
+  action,
+  onAction,
+}: {
+  text: string
+  testId: string
+  danger?: boolean
+  action?: string
+  onAction?: () => void
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingLeft: 12,
+        paddingRight: 12,
+        paddingTop: 6,
+        paddingBottom: 6,
+        gap: 8,
+        flexShrink: 0,
+      }}
+    >
+      <text
+        testId={testId}
+        style={{
+          fontSize: 12,
+          fontFamily: FONT,
+          color: danger ? C.danger : C.secondary,
+          flexGrow: 1,
+        }}
+      >
+        {text}
+      </text>
+      {action && onAction ? (
+        <div onClick={onAction} style={{ cursor: 'pointer' }}>
+          <text style={{ fontSize: 12, fontFamily: FONT, color: C.blue }}>{action}</text>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -437,9 +516,16 @@ function Status({ text, onClick }: { text: string; onClick?: () => void }) {
 
 function Home({ snap, session }: { snap: Snapshot; session: CodexSession }) {
   const grouped = useMemo(() => {
+    const query = snap.search.trim().toLowerCase()
+    const visible = query
+      ? snap.threads.filter((thread) => {
+          const title = `${thread.name ?? ''} ${thread.preview}`.toLowerCase()
+          return title.includes(query)
+        })
+      : snap.threads
     const byProject = new Map<string, typeof snap.threads>()
     const loose: typeof snap.threads = []
-    for (const thread of snap.threads) {
+    for (const thread of visible) {
       if (thread.projectId) {
         const list = byProject.get(thread.projectId) ?? []
         list.push(thread)
@@ -448,12 +534,14 @@ function Home({ snap, session }: { snap: Snapshot; session: CodexSession }) {
         loose.push(thread)
       }
     }
-    return { byProject, loose }
-  }, [snap.threads])
+    const known = new Set(snap.projects.map((project) => project.id))
+    const orphans = [...byProject.entries()].filter(([id]) => !known.has(id))
+    return { byProject, loose, orphans }
+  }, [snap.threads, snap.projects, snap.search])
 
   return (
     <virtual-list
-      estimatedItemHeight={48}
+      estimatedItemHeight={72}
       style={{ flexGrow: 1, minHeight: 0, paddingLeft: 48, paddingRight: 48, paddingTop: 24 }}
     >
       <div key="new" style={{ paddingBottom: 24 }}>
@@ -480,12 +568,31 @@ function Home({ snap, session }: { snap: Snapshot; session: CodexSession }) {
           <text style={{ fontSize: 36, fontFamily: FONT, color: C.blue }}>+</text>
         </div>
       </div>
+      <div key="search" style={{ paddingBottom: 16 }}>
+        <input
+          testId="home-search"
+          value={snap.search}
+          placeholder="Search documents"
+          onChange={(event) => session.setSearch(event.value ?? '')}
+          onSubmit={() => void session.applySearch()}
+          theme={LIGHT}
+          style={{ fontSize: 14, fontFamily: FONT, color: C.text }}
+        />
+      </div>
       {snap.projects.map((project) => (
         <div key={`p-${project.id}`} style={{ paddingBottom: 16 }}>
           <text style={{ fontSize: 14, fontFamily: FONT, color: C.secondary, paddingBottom: 8 }}>
             {project.name}
           </text>
           {(grouped.byProject.get(project.id) ?? []).map((thread) => (
+            <ThreadRow key={thread.id} thread={thread} onOpen={() => void session.openThread(thread.id)} />
+          ))}
+        </div>
+      ))}
+      {grouped.orphans.map(([id, threads]) => (
+        <div key={`orphan-${id}`} style={{ paddingBottom: 16 }}>
+          <text style={{ fontSize: 14, fontFamily: FONT, color: C.secondary, paddingBottom: 8 }}>Folder</text>
+          {threads.map((thread) => (
             <ThreadRow key={thread.id} thread={thread} onOpen={() => void session.openThread(thread.id)} />
           ))}
         </div>
@@ -497,7 +604,9 @@ function Home({ snap, session }: { snap: Snapshot; session: CodexSession }) {
         {grouped.loose.length === 0 && snap.threads.length === 0 ? (
           <text style={{ fontSize: 13, fontFamily: FONT, color: C.muted }}>No documents yet</text>
         ) : grouped.loose.length === 0 ? (
-          <text style={{ fontSize: 13, fontFamily: FONT, color: C.muted }}>All documents are in folders</text>
+          <text style={{ fontSize: 13, fontFamily: FONT, color: C.muted }}>
+            {snap.search.trim() ? 'No matching documents' : 'All documents are in folders'}
+          </text>
         ) : (
           grouped.loose.map((thread) => (
             <ThreadRow key={thread.id} thread={thread} onOpen={() => void session.openThread(thread.id)} />
@@ -549,6 +658,7 @@ function Document({
   setDraft: (value: string) => void
 }) {
   const submit = () => {
+    if (snap.streaming) return
     const text = draft
     setDraft('')
     void session.send(text)
@@ -567,7 +677,7 @@ function Document({
       }}
     >
       <virtual-list
-        estimatedItemHeight={48}
+        estimatedItemHeight={80}
         followTail={snap.streaming}
         style={{
           width: PAGE_WIDTH,
@@ -583,6 +693,18 @@ function Document({
         <div key="title" style={{ paddingBottom: 28 }}>
           <text style={{ fontSize: 28, fontFamily: FONT, color: C.text }}>{snap.title}</text>
         </div>
+        {snap.olderTurnsCursor ? (
+          <div
+            key="older"
+            testId="load-older"
+            onClick={() => void session.loadOlderTurns()}
+            style={{ paddingBottom: 16, cursor: 'pointer' }}
+          >
+            <text style={{ fontSize: 13, fontFamily: FONT, color: C.blue }}>
+              {snap.loadingOlder ? 'Loading…' : 'Load earlier'}
+            </text>
+          </div>
+        ) : null}
         {snap.blocks.map((block) => (
           <div key={block.id} style={{ paddingBottom: 16 }}>
             <BlockView block={block} session={session} />
@@ -600,6 +722,27 @@ function Document({
           flexShrink: 0,
         }}
       >
+        {snap.streaming ? (
+          <div
+            testId="stop-turn"
+            onClick={() => void session.interrupt()}
+            style={{
+              height: 28,
+              paddingLeft: 12,
+              paddingRight: 12,
+              marginBottom: 8,
+              borderRadius: 4,
+              backgroundColor: C.chip,
+              display: 'flex',
+              alignItems: 'center',
+              alignSelf: 'flex-start',
+              cursor: 'pointer',
+              hover: { backgroundColor: C.chipActive },
+            }}
+          >
+            <text style={{ fontSize: 13, fontFamily: FONT, color: C.text }}>Stop</text>
+          </div>
+        ) : null}
         <textarea
           testId="composer"
           value={draft}
@@ -646,6 +789,8 @@ function BlockView({ block, session }: { block: Block; session: CodexSession }) 
       </div>
     )
   }
+  const fields = formFields(block)
+  const questions = inputQuestions(block)
   return (
     <div
       testId={`approval-${block.id}`}
@@ -662,6 +807,60 @@ function BlockView({ block, session }: { block: Block; session: CodexSession }) 
     >
       <text style={{ fontSize: 14, fontFamily: FONT, color: C.text, paddingBottom: 4 }}>{block.title}</text>
       <text style={{ fontSize: 13, fontFamily: FONT, color: C.secondary, paddingBottom: 8 }}>{block.body}</text>
+      {!block.resolved
+        ? fields.map((field) => (
+            <div key={field.key} style={{ paddingBottom: 8 }}>
+              <text style={{ fontSize: 12, fontFamily: FONT, color: C.secondary, paddingBottom: 4 }}>
+                {field.label}
+              </text>
+              <input
+                testId={`draft-${block.id}-${field.key}`}
+                value={block.drafts[field.key] ?? ''}
+                onChange={(event) => session.setApprovalDraft(block.id, field.key, event.value ?? '')}
+                theme={LIGHT}
+                style={{ fontSize: 13, fontFamily: FONT, color: C.text }}
+              />
+            </div>
+          ))
+        : null}
+      {!block.resolved
+        ? questions.map((question) => (
+            <div key={question.id} style={{ paddingBottom: 8 }}>
+              <text style={{ fontSize: 13, fontFamily: FONT, color: C.text, paddingBottom: 4 }}>
+                {question.question}
+              </text>
+              <div style={{ display: 'flex', flexDirection: 'row', gap: 6 }}>
+                {(question.options ?? []).map((option) => (
+                  <div
+                    key={option.label}
+                    onClick={() => session.setApprovalDraft(block.id, question.id, option.label)}
+                    style={{
+                      height: 24,
+                      paddingLeft: 8,
+                      paddingRight: 8,
+                      borderRadius: 4,
+                      backgroundColor: block.drafts[question.id] === option.label ? C.chipActive : C.chip,
+                      display: 'flex',
+                      alignItems: 'center',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <text style={{ fontSize: 12, fontFamily: FONT, color: C.text }}>{option.label}</text>
+                  </div>
+                ))}
+              </div>
+              {question.isOther || !question.options?.length ? (
+                <input
+                  testId={`draft-${block.id}-${question.id}`}
+                  value={block.drafts[question.id] ?? ''}
+                  onChange={(event) => session.setApprovalDraft(block.id, question.id, event.value ?? '')}
+                  theme={LIGHT}
+                  style={{ fontSize: 13, fontFamily: FONT, color: C.text }}
+                />
+              ) : null}
+            </div>
+          ))
+        : null}
       {block.resolved ? (
         <text style={{ fontSize: 12, fontFamily: FONT, color: C.muted }}>{block.resolved}</text>
       ) : (
