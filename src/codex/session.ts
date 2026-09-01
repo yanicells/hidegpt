@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 
-import type { Account } from '../generated/codex/v2/Account'
 import type { AccountRateLimitsUpdatedNotification } from '../generated/codex/v2/AccountRateLimitsUpdatedNotification'
 import type { ChatgptAuthTokensRefreshResponse } from '../generated/codex/v2/ChatgptAuthTokensRefreshResponse'
 import type { CollaborationModeMask } from '../generated/codex/v2/CollaborationModeMask'
@@ -15,7 +14,6 @@ import type { LoginAccountResponse } from '../generated/codex/v2/LoginAccountRes
 import type { McpServerElicitationRequestParams } from '../generated/codex/v2/McpServerElicitationRequestParams'
 import type { McpServerOauthLoginResponse } from '../generated/codex/v2/McpServerOauthLoginResponse'
 import type { McpServerStatus } from '../generated/codex/v2/McpServerStatus'
-import type { Model } from '../generated/codex/v2/Model'
 import type { ModelListResponse } from '../generated/codex/v2/ModelListResponse'
 import type { PermissionsRequestApprovalParams } from '../generated/codex/v2/PermissionsRequestApprovalParams'
 import type { Project } from '../generated/codex/v2/Project'
@@ -41,72 +39,18 @@ import {
   type PendingApproval,
 } from './blocks'
 import type { JsonRpcId } from './jsonrpc'
+import { elicitationProperties, formatCodexError } from './labels'
 import { spawnCodexAppServer, type CodexTransport } from './transport'
+import { emptySnapshot, type Snapshot } from './types'
+
+export type { Route, Snapshot } from './types'
 
 const INTERACTIVE_SOURCES: ThreadSourceKind[] = ['cli', 'vscode', 'appServer']
 
-export type Route = { kind: 'home' } | { kind: 'doc'; threadId: string }
-
-export type Snapshot = {
-  status: 'connecting' | 'ready' | 'error'
-  error: string | null
-  account: Account | null
-  requiresAuth: boolean
-  models: Model[]
-  model: string | null
-  effort: string | null
-  collaborationModes: CollaborationModeMask[]
-  collaborationMode: string | null
-  projects: Project[]
-  threads: Thread[]
-  cwd: string
-  rateLimits: GetAccountRateLimitsResponse | null
-  route: Route
-  title: string
-  blocks: Block[]
-  streaming: boolean
-  loginUrl: string | null
-  folderDraft: string
-  showFolder: boolean
-  olderTurnsCursor: string | null
-  loadingOlder: boolean
-  search: string
-  mcpServers: McpServerStatus[]
-}
-
-export const defaultCwd = () => `${process.env.HOME ?? ''}/.codex/threads`
-
-function emptySnapshot(): Snapshot {
-  return {
-    status: 'connecting',
-    error: null,
-    account: null,
-    requiresAuth: false,
-    models: [],
-    model: null,
-    effort: null,
-    collaborationModes: [],
-    collaborationMode: null,
-    projects: [],
-    threads: [],
-    cwd: defaultCwd(),
-    rateLimits: null,
-    route: { kind: 'home' },
-    title: 'Docs',
-    blocks: [],
-    streaming: false,
-    loginUrl: null,
-    folderDraft: defaultCwd(),
-    showFolder: false,
-    olderTurnsCursor: null,
-    loadingOlder: false,
-    search: '',
-    mcpServers: [],
-  }
-}
+export const defaultCwd = () => `${process.env.HOME ?? process.env.USERPROFILE ?? ''}/.codex/threads`
 
 export class CodexSession {
-  snapshot: Snapshot = emptySnapshot()
+  snapshot: Snapshot = emptySnapshot(defaultCwd())
   private listeners = new Set<() => void>()
   private transport: CodexTransport | null = null
   private unsubNote: (() => void) | null = null
@@ -116,7 +60,10 @@ export class CodexSession {
   private openInFlight: Promise<void> = Promise.resolve()
   private nav = 0
 
-  constructor(private readonly createTransport: () => CodexTransport = spawnCodexAppServer) {}
+  constructor(
+    private readonly createTransport: () => CodexTransport = spawnCodexAppServer,
+    private readonly openUrlFn: (url: string) => void = defaultOpenUrl,
+  ) {}
 
   subscribe = (listener: () => void) => {
     this.listeners.add(listener)
@@ -575,6 +522,23 @@ export class CodexSession {
     this.patch({ streaming: false })
   }
 
+  async setDocumentName(name: string) {
+    const threadId = this.activeThreadId
+    const trimmed = name.trim()
+    if (!threadId || !trimmed || trimmed === this.snapshot.title) return
+    try {
+      await this.rpc('thread/name/set', { threadId, name: trimmed })
+      this.patch({
+        title: trimmed,
+        threads: this.snapshot.threads.map((thread) =>
+          thread.id === threadId ? { ...thread, name: trimmed } : thread,
+        ),
+      })
+    } catch (error) {
+      this.patch({ error: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
   async logout() {
     await this.rpc('account/logout', {})
     await this.refreshCatalog()
@@ -588,7 +552,7 @@ export class CodexSession {
     })
     if (result.type === 'chatgpt') {
       this.patch({ loginUrl: result.authUrl })
-      openUrl(result.authUrl)
+      this.openUrlFn(result.authUrl)
     }
   }
 
@@ -596,7 +560,7 @@ export class CodexSession {
     try {
       const result = await this.rpc<McpServerOauthLoginResponse>('mcpServer/oauth/login', { name })
       this.patch({ loginUrl: result.authorizationUrl, error: null })
-      openUrl(result.authorizationUrl)
+      this.openUrlFn(result.authorizationUrl)
     } catch (error) {
       this.patch({ error: error instanceof Error ? error.message : String(error) })
     }
@@ -790,7 +754,7 @@ export class CodexSession {
         void this.rpc('thread/increment_elicitation', { threadId: params.threadId }).catch(() => {})
         if (params.mode === 'url') {
           this.patch({ loginUrl: params.url })
-          openUrl(params.url)
+          this.openUrlFn(params.url)
         }
       }
       return
@@ -814,16 +778,11 @@ export class CodexSession {
   }
 }
 
-function openUrl(url: string) {
+function defaultOpenUrl(url: string) {
   spawn('open', [url], { stdio: 'ignore', detached: true }).unref()
 }
 
-export function formatCodexError(message: string): string {
-  if (/active writer|thread-store conflict/i.test(message)) {
-    return 'This document is open in ChatGPT or another window. Close it there, then open it here.'
-  }
-  return message
-}
+export { formatCodexError } from './labels'
 
 export function readCodexAuthTokens(): ChatgptAuthTokensRefreshResponse | null {
   const home = process.env.CODEX_HOME ?? `${process.env.HOME ?? ''}/.codex`
@@ -1017,35 +976,4 @@ function approvalResult(block: PendingApproval, accept: boolean): unknown {
   return {}
 }
 
-export function accountLabel(account: Account | null): string {
-  if (!account) return 'Sign in'
-  if (account.type === 'chatgpt') return account.email ?? 'ChatGPT'
-  if (account.type === 'apiKey') return 'API key'
-  return 'Account'
-}
-
-export function formFields(block: PendingApproval): { key: string; label: string }[] {
-  if (block.method !== 'mcpServer/elicitation/request') return []
-  const params = block.extra as McpServerElicitationRequestParams | undefined
-  if (!params) return []
-  return Object.entries(elicitationProperties(params)).map(([key, schema]) => ({
-    key,
-    label: (schema && typeof schema === 'object' && 'title' in schema && schema.title) || key,
-  }))
-}
-
-function elicitationProperties(
-  params: McpServerElicitationRequestParams,
-): Record<string, { title?: string; default?: unknown } | undefined> {
-  if (params.mode === 'form') return params.requestedSchema.properties ?? {}
-  if (params.mode === 'openai/form') {
-    const schema = params.requestedSchema as { properties?: Record<string, { title?: string; default?: unknown }> }
-    return schema.properties ?? {}
-  }
-  return {}
-}
-
-export function inputQuestions(block: PendingApproval): ToolRequestUserInputParams['questions'] {
-  if (block.method !== 'item/tool/requestUserInput') return []
-  return (block.extra as ToolRequestUserInputParams | undefined)?.questions ?? []
-}
+export { accountLabel, formFields, inputQuestions } from './labels'
