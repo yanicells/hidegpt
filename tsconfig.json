@@ -5,13 +5,18 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "jsxImportSource": "@gpuix/react",
-    "types": ["bun"],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "types": ["node"],
+    "isolatedModules": true
   },
-  "include": ["*.ts", "*.tsx", "*.d.ts", "src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["src/generated", "node_modules", "dist", "web-dist"]
+  "include": [
+    "electron.vite.config.ts",
+    "vitest.config.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "exclude": ["src/generated", "node_modules", "out", "dist"]
 }
