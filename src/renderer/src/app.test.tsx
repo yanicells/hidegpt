@@ -70,7 +70,8 @@ describe('docs home', () => {
     mount()
     expect(screen.getByText('Docs')).toBeInTheDocument()
     expect(screen.getByTestId('docs-home')).toHaveTextContent('Start a new document')
-    expect(screen.getByText('Blank')).toBeInTheDocument()
+    expect(screen.getByText('Blank document')).toBeInTheDocument()
+    expect(screen.getByTestId('template-essay')).toBeInTheDocument()
     expect(screen.getByText('Recent documents')).toBeInTheDocument()
     expect(screen.getByTestId('thread-thr_1')).toHaveTextContent('Photosynthesis')
     expect(screen.getByTestId('thread-thr_2')).toHaveTextContent('Chem lab')
@@ -107,8 +108,8 @@ describe('docs home', () => {
     await user.click(screen.getByLabelText('List view'))
     const list = screen.getByText('Name').closest('.list')
     expect(list).toBeTruthy()
-    expect(within(list as HTMLElement).getByText('Owner')).toBeInTheDocument()
-    expect(within(list as HTMLElement).getAllByText('yan@school.edu').length).toBeGreaterThan(0)
+    expect(within(list as HTMLElement).getByText('Owned by')).toBeInTheDocument()
+    expect(within(list as HTMLElement).getAllByText('me').length).toBeGreaterThan(0)
   })
 
   it('creates a document from the blank template', async () => {
