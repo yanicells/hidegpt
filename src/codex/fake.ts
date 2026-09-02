@@ -235,6 +235,12 @@ export function createFakeTransport(options?: {
     'mcpServer/oauth/login': () => ({ authorizationUrl: 'https://example.test/mcp' }),
     'thread/increment_elicitation': () => ({}),
     'thread/decrement_elicitation': () => ({}),
+    'thread/name/set': (params) => {
+      const { threadId, name } = params as { threadId: string; name: string }
+      const thread = threads.find((item) => item.id === threadId)
+      if (thread) thread.name = name
+      return {}
+    },
   }
 
   return {

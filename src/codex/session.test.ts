@@ -217,6 +217,15 @@ describe('CodexSession', () => {
     expect(session.snapshot.error).toContain('open in ChatGPT')
   })
 
+  it('renames the open document', async () => {
+    const { session, transport } = await readySession()
+    await session.openThread('thr_1')
+    await session.setDocumentName('Lab report')
+    expect(session.snapshot.title).toBe('Lab report')
+    expect(transport.calls.some((call) => call.method === 'thread/name/set')).toBe(true)
+    expect(session.snapshot.threads.find((thread) => thread.id === 'thr_1')?.name).toBe('Lab report')
+  })
+
   it('does not reopen a document after the user goes home', async () => {
     let release = () => {}
     const wait = new Promise<void>((resolve) => {
