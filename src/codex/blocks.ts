@@ -20,7 +20,7 @@ export type PendingApproval = {
 
 export type Block = AgentBlock | UserBlock | CalloutBlock | PendingApproval
 
-export function userText(content: UserInput[]): string {
+function userText(content: UserInput[]): string {
   return content
     .map((part) => (part.type === 'text' ? part.text : `[${part.type}]`))
     .filter(Boolean)
@@ -120,4 +120,62 @@ export function blocksFromTurns(turns: Turn[]): Block[] {
 export function mergeOlderBlocks(older: Block[], current: Block[]): Block[] {
   const seen = new Set(current.map((block) => block.id))
   return [...older.filter((block) => !seen.has(block.id)), ...current]
+}
+
+export function upsertAgentDelta(blocks: Block[], itemId: string, delta: string): Block[] {
+  const index = blocks.findIndex((block) => block.id === itemId)
+  if (index === -1) {
+    return [...blocks, { kind: 'agent', id: itemId, text: delta }]
+  }
+  const current = blocks[index]
+  if (current.kind !== 'agent') return blocks
+  const next = blocks.slice()
+  next[index] = { ...current, text: current.text + delta }
+  return next
+}
+
+export function upsertCalloutDelta(blocks: Block[], itemId: string, title: string, delta: string): Block[] {
+  const index = blocks.findIndex((block) => block.id === itemId)
+  if (index === -1) {
+    return [...blocks, { kind: 'callout', id: itemId, title, body: delta }]
+  }
+  const current = blocks[index]
+  if (current.kind !== 'callout') return blocks
+  const next = blocks.slice()
+  next[index] = { ...current, body: current.body + delta }
+  return next
+}
+
+export function upsertCalloutReplace(blocks: Block[], itemId: string, title: string, body: string): Block[] {
+  const index = blocks.findIndex((block) => block.id === itemId)
+  if (index === -1) return [...blocks, { kind: 'callout', id: itemId, title, body }]
+  const next = blocks.slice()
+  const current = next[index]
+  next[index] = current.kind === 'callout' ? { ...current, body } : { kind: 'callout', id: itemId, title, body }
+  return next
+}
+
+export function upsertItem(blocks: Block[], item: ThreadItem): Block[] {
+  const next = itemToBlock(item)
+  // Hidden items (reasoning, plans) never touch the page.
+  if (!next) return blocks
+  const index = blocks.findIndex((block) => block.id === item.id)
+  if (index === -1) {
+    // The optimistic user echo (local-* id) is replaced by the server-echoed
+    // item with the same text, so a sent message never appears twice.
+    if (next.kind === 'user') {
+      const last = blocks[blocks.length - 1]
+      if (last && last.kind === 'user' && last.id.startsWith('local-') && last.text === next.text) {
+        return [...blocks.slice(0, -1), next]
+      }
+    }
+    return [...blocks, next]
+  }
+  const copy = blocks.slice()
+  const previous = copy[index]
+  if (previous.kind === 'agent' && next.kind === 'agent' && previous.text.length > next.text.length) {
+    return copy
+  }
+  copy[index] = next
+  return copy
 }
