@@ -470,8 +470,9 @@ export class CodexSession {
       clientId: null,
       content: [{ type: 'text', text: trimmed, text_elements: [] }],
     }
+    const userBlock = itemToBlock(userItem)
     this.patch({
-      blocks: [...this.snapshot.blocks, itemToBlock(userItem)],
+      blocks: userBlock ? [...this.snapshot.blocks, userBlock] : this.snapshot.blocks,
       streaming: true,
       error: null,
     })
@@ -617,13 +618,11 @@ export class CodexSession {
       return
     }
     if (method === 'item/plan/delta') {
-      const delta = params as { itemId: string; delta: string }
-      this.patch({ blocks: upsertCalloutDelta(this.snapshot.blocks, delta.itemId, 'Plan', delta.delta) })
+      // Plans stay off the page (outputs only).
       return
     }
     if (method === 'item/reasoning/summaryTextDelta' || method === 'item/reasoning/textDelta') {
-      const delta = params as { itemId: string; delta: string }
-      this.patch({ blocks: upsertCalloutDelta(this.snapshot.blocks, delta.itemId, 'Notes', delta.delta) })
+      // Reasoning stays off the page (outputs only).
       return
     }
     if (method === 'item/commandExecution/outputDelta') {
@@ -836,8 +835,20 @@ function upsertCalloutReplace(blocks: Block[], itemId: string, title: string, bo
 
 function upsertItem(blocks: Block[], item: ThreadItem): Block[] {
   const next = itemToBlock(item)
+  // Hidden items (reasoning, plans) never touch the page.
+  if (!next) return blocks
   const index = blocks.findIndex((block) => block.id === item.id)
-  if (index === -1) return [...blocks, next]
+  if (index === -1) {
+    // The optimistic user echo (local-* id) is replaced by the server-echoed
+    // item with the same text, so a sent message never appears twice.
+    if (next.kind === 'user') {
+      const last = blocks[blocks.length - 1]
+      if (last && last.kind === 'user' && last.id.startsWith('local-') && last.text === next.text) {
+        return [...blocks.slice(0, -1), next]
+      }
+    }
+    return [...blocks, next]
+  }
   const copy = blocks.slice()
   const previous = copy[index]
   if (previous.kind === 'agent' && next.kind === 'agent' && previous.text.length > next.text.length) {

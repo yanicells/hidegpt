@@ -545,6 +545,31 @@ label,
   padding: 0 12px;
 }
 
+.list-row-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border-radius: 8px;
+}
+
+.list-row-wrap:hover {
+  background: var(--hover-soft);
+}
+
+.list-row-wrap .list-row:hover {
+  background: none;
+}
+
+.row-more {
+  margin-right: 4px;
+  opacity: 0;
+}
+
+.list-row-wrap:hover .row-more,
+.list-row-wrap:focus-within .row-more {
+  opacity: 1;
+}
+
 .list-head {
   font-size: 12px;
   font-weight: 500;
@@ -884,6 +909,85 @@ label,
 
 /* ---------- Page ---------- */
 
+.doc-layout {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 24px;
+  width: min(calc(var(--paper-width) + 264px), calc(100% - 24px));
+  margin: 0 auto;
+}
+
+.paper-col {
+  flex: 0 1 var(--paper-width);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Outline rail: mirrors Docs' "Document tabs" panel; dots jump to questions. */
+.outline {
+  position: sticky;
+  top: 24px;
+  flex: 0 0 216px;
+  max-height: calc(100vh - 220px);
+  overflow: auto;
+  padding: 12px 8px;
+  font-family: var(--font-ui);
+  scrollbar-width: thin;
+}
+
+.outline-head {
+  padding: 0 12px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.outline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.outline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 12px;
+  border-radius: 0 16px 16px 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--text-2);
+}
+
+.outline-item:hover {
+  background: var(--hover-soft);
+}
+
+.outline-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.outline-item:hover .outline-dot {
+  background: var(--blue);
+}
+
+.outline-text {
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
 .workspace {
   flex: 1;
   min-height: 0;
@@ -896,7 +1000,7 @@ label,
   position: sticky;
   top: 0;
   z-index: 2;
-  width: min(var(--paper-width), calc(100% - 48px));
+  width: 100%;
   height: 18px;
   margin: 0 auto;
   background:
@@ -924,9 +1028,9 @@ label,
 }
 
 .paper {
-  width: min(var(--paper-width), calc(100% - 48px));
+  width: 100%;
   min-height: 1056px;
-  margin: 14px auto 96px;
+  margin: 14px 0 96px;
   padding: var(--paper-margin);
   background: var(--surface);
   box-shadow: var(--shadow-page);
@@ -953,17 +1057,20 @@ label,
   text-decoration: none;
 }
 
-.doc-heading {
+/* A question is a document section at body scale, separated from the last. */
+.doc-question {
   margin: 0 0 6pt;
-  font-size: 20pt;
-  line-height: 1.2;
-  font-weight: 400;
+  font-size: 11pt;
+  line-height: 1.3;
+  font-weight: 700;
   color: #000;
   overflow-wrap: anywhere;
 }
 
-.doc-block + .doc-block .doc-heading {
-  margin-top: 20pt;
+.doc-block.turn-start {
+  margin-top: 16pt;
+  padding-top: 14pt;
+  border-top: 1px solid var(--hairline);
 }
 
 .doc-body {
@@ -1393,7 +1500,17 @@ label,
     display: none;
   }
 
+  .outline {
+    display: none;
+  }
+
+  .doc-layout {
+    width: 100%;
+  }
+
   .ruler {
+    display: none;
+  }
     display: none;
   }
 

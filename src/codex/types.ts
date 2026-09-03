@@ -8,10 +8,13 @@ import type { Thread } from '../generated/codex/v2/Thread'
 
 import type { Block } from './blocks'
 
+export type Provider = 'codex' | 'opencode'
+
 export type Route = { kind: 'home' } | { kind: 'doc'; threadId: string }
 
 export type Snapshot = {
   status: 'connecting' | 'ready' | 'error'
+  provider: Provider
   error: string | null
   account: Account | null
   requiresAuth: boolean
@@ -40,6 +43,7 @@ export type Snapshot = {
 export function emptySnapshot(cwd = ''): Snapshot {
   return {
     status: 'connecting',
+    provider: 'codex',
     error: null,
     account: null,
     requiresAuth: false,
