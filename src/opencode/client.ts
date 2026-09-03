@@ -77,6 +77,7 @@ export class OpenCodeClient {
     return this.call('/global/health', undefined, 'health')
   }
 
+  /** Without a directory filter the server lists its own working-directory project. */
   async listSessions(opts?: { search?: string; limit?: number }): Promise<OpenSession[]> {
     const params = new URLSearchParams()
     if (opts?.search?.trim()) params.set('search', opts.search.trim())
@@ -252,13 +253,14 @@ export type OpenCodeServer = {
 }
 
 /** Spawns `opencode serve` on a loopback port and waits for /global/health. */
-export async function startOpenCodeServer(options?: { bin?: string }): Promise<OpenCodeServer> {
+export async function startOpenCodeServer(options?: { bin?: string; cwd?: string }): Promise<OpenCodeServer> {
   const bin = options?.bin ?? 'opencode'
   let child: ChildProcessWithoutNullStreams
   try {
     child = spawn(bin, ['serve', '--port', '0', '--hostname', '127.0.0.1'], {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: process.env,
+      cwd: options?.cwd,
     }) as unknown as ChildProcessWithoutNullStreams
   } catch (error) {
     throw new Error(

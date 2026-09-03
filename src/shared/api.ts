@@ -13,6 +13,7 @@ export type Command =
   | { op: 'applySearch' }
   | { op: 'setModel'; model: string }
   | { op: 'setEffort'; effort: string }
+  | { op: 'setSpeed'; speed: string | null }
   | { op: 'setCollaborationMode'; name: string }
   | { op: 'openFolder' }
   | { op: 'loadOlderTurns' }

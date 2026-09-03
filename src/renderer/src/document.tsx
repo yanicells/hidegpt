@@ -4,7 +4,7 @@ import type { Block } from '../../codex/blocks'
 import { formFields, inputQuestions } from '../../codex/labels'
 import type { Snapshot } from '../../codex/types'
 import { AccountMenu, DocMenus, Toolbar } from './chrome'
-import { ChevronIcon, CloudIcon, DocsIcon } from './icons'
+import { BackIcon, ChevronIcon, CloudIcon, DocsIcon, KebabIcon, PlusMonoIcon, TabDocIcon } from './icons'
 import { AgentMarkdown } from './markdown'
 import { dispatch } from './session-bridge'
 import { takePendingDraft } from './templates'
@@ -103,13 +103,14 @@ export function Document({ snap }: { snap: Snapshot }) {
     const root = scrollRef.current
     const target = root?.querySelector(`[data-turn="${id}"]`)
     stickToBottom.current = false
-    target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    // scrollIntoView is unavailable in some test environments.
+    target?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
   }
 
   return (
     <div className="workspace" data-testid="document" ref={scrollRef} onScroll={onScroll}>
       <div className="doc-layout">
-        <Outline questions={questions} onJump={jumpTo} />
+        <Tabs questions={questions} onJump={jumpTo} />
         <div className="paper-col">
           <div className="ruler" aria-hidden="true" />
           <article className="paper">
@@ -154,35 +155,52 @@ export function Document({ snap }: { snap: Snapshot }) {
   )
 }
 
-function Outline({
+function Tabs({
   questions,
   onJump,
 }: {
   questions: Extract<Block, { kind: 'user' }>[]
   onJump: (id: string) => void
 }) {
-  if (questions.length === 0) return null
+  const [activeId, setActive] = useState<string | null>(null)
+  const active = activeId && questions.some((question) => question.id === activeId)
+    ? (activeId as string)
+    : (questions[questions.length - 1]?.id ?? null)
   return (
-    <aside className="outline" aria-label="Document outline" data-testid="outline">
-      <div className="outline-head">Document tabs</div>
-      <ol className="outline-list">
-        {questions.map((question, index) => (
-          <li key={question.id}>
-            <button
-              type="button"
-              className="outline-item"
-              data-testid={`outline-${question.id}`}
-              title={question.text}
-              onClick={() => onJump(question.id)}
-            >
-              <span className="outline-dot" aria-hidden="true" />
-              <span className="outline-text">
-                {index + 1}. {truncate(question.text)}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ol>
+    <aside className="tabs" aria-label="Document tabs" data-testid="outline">
+      <button type="button" className="tabs-back" aria-label="Back to documents" onClick={() => dispatch({ op: 'goHome' })}>
+        <BackIcon />
+      </button>
+      <div className="tabs-head">
+        <span>Document tabs</span>
+        <button type="button" className="tabs-new" aria-label="New document" title="New document" onClick={() => dispatch({ op: 'newDocument' })}>
+          <PlusMonoIcon />
+        </button>
+      </div>
+      {questions.length === 0 ? (
+        <p className="tabs-hint">Questions you ask will appear here.</p>
+      ) : (
+        <ol className="tabs-list">
+          {questions.map((question) => (
+            <li key={question.id}>
+              <button
+                type="button"
+                className={`tab${active === question.id ? ' active' : ''}`}
+                data-testid={`outline-${question.id}`}
+                title={question.text}
+                onClick={() => {
+                  setActive(question.id)
+                  onJump(question.id)
+                }}
+              >
+                <TabDocIcon />
+                <span className="tab-text">{truncate(question.text)}</span>
+                {active === question.id ? <KebabIcon /> : null}
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
     </aside>
   )
 }

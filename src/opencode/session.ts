@@ -1,9 +1,10 @@
+import { existsSync } from 'node:fs'
+
 import type { Model } from '../generated/codex/v2/Model'
 import type { Project } from '../generated/codex/v2/Project'
 import type { Thread } from '../generated/codex/v2/Thread'
 
 import type { Block, PendingApproval } from '../codex/blocks'
-import { defaultCwd } from '../codex/session'
 import { emptySnapshot, type Snapshot } from '../codex/types'
 import {
   startOpenCodeServer,
@@ -18,13 +19,15 @@ import {
 
 export type { Snapshot } from '../codex/types'
 
-type ClientFactory = () => Promise<{ client: OpenCodeClient; version: string; close: () => Promise<void> }>
+type ClientFactory = (cwd: string) => Promise<{ client: OpenCodeClient; version: string; close: () => Promise<void> }>
 
-const defaultFactory: ClientFactory = () => startOpenCodeServer()
+const defaultFactory: ClientFactory = (cwd) => startOpenCodeServer({ cwd })
+
+const homeDir = () => process.env.HOME ?? process.env.USERPROFILE ?? process.cwd()
 
 /** A CodexSession-compatible session backed by `opencode serve` (REST + SSE). */
 export class OpenCodeSession {
-  snapshot: Snapshot = { ...emptySnapshot(defaultCwd()), provider: 'opencode' }
+  snapshot: Snapshot = { ...emptySnapshot(homeDir()), provider: 'opencode' }
   private listeners = new Set<() => void>()
   private server: OpenCodeServer | null = null
   private createClient: ClientFactory
@@ -66,7 +69,8 @@ export class OpenCodeSession {
   async start() {
     if (this.server) return
     try {
-      this.server = await this.createClient()
+      const cwd = this.snapshot.cwd
+      this.server = await this.createClient(existsSync(cwd) ? cwd : process.cwd())
       this.subscribeToEvents()
       await this.refreshCatalog()
       this.patch({ status: 'ready', error: null })
@@ -105,8 +109,8 @@ export class OpenCodeSession {
         client.listProjects(),
         client.providerDefaults(),
       ])
-      this.agents = agents.map((agent) => agent.name)
-      if (!this.agents.includes(this.agent)) this.agent = this.agents[0] ?? 'build'
+      this.agents = agents.map((agent) => agent.name).filter((name) => name.toLowerCase() !== 'plan')
+      if (!this.agents.includes(this.agent)) this.agent = this.agents.includes('build') ? 'build' : (this.agents[0] ?? 'build')
       const mappedModels = models.map(toCodexModel)
       if (!this.model) {
         const preferred = preferredDefault(defaults, models.map((m) => `${m.providerID}/${m.id}`))
@@ -118,12 +122,15 @@ export class OpenCodeSession {
         models: mappedModels,
         model: this.model ? `${this.model.providerID}/${this.model.modelID}` : null,
         effort: null,
-        collaborationModes: agents.map((agent) => ({
-          name: agent.name,
-          mode: null,
-          model: null,
-          reasoning_effort: null,
-        })),
+        speed: null,
+        collaborationModes: agents
+          .filter((agent) => agent.name.toLowerCase() !== 'plan')
+          .map((agent) => ({
+            name: agent.name,
+            mode: null,
+            model: null,
+            reasoning_effort: null,
+          })),
         collaborationMode: this.agent,
         projects: projects.map(toCodexProject),
         threads: sessions.map(toCodexThread),
@@ -153,6 +160,7 @@ export class OpenCodeSession {
 
   goHome() {
     this.nav += 1
+    this.abandonTurn()
     this.activeSessionId = null
     this.streamText.clear()
     this.patch({
@@ -174,8 +182,14 @@ export class OpenCodeSession {
     // OpenCode models carry no separate effort dial; variants live in the model id.
   }
 
+  setSpeed(_speed: string | null) {
+    // No speed tiers on OpenCode models; the chip stays hidden.
+  }
+
   setCollaborationMode(name: string) {
-    // The mode chip doubles as the OpenCode agent picker (build / plan / …).
+    // The mode chip doubles as the OpenCode agent picker (build / explore / …).
+    // Plan mode is not offered.
+    if (name.toLowerCase() === 'plan') return
     if (this.agents.length > 0 && !this.agents.includes(name)) return
     this.agent = name
     this.patch({ collaborationMode: name })
@@ -190,7 +204,7 @@ export class OpenCodeSession {
   }
 
   applyFolder() {
-    const cwd = this.snapshot.folderDraft.trim() || defaultCwd()
+    const cwd = this.snapshot.folderDraft.trim() || homeDir()
     this.patch({ cwd, showFolder: false, folderDraft: cwd })
     // Sessions belong to the server's working directory, so relaunch it there.
     void this.restart()
@@ -207,6 +221,7 @@ export class OpenCodeSession {
     const token = this.nav
     const client = this.client
     if (!client) return
+    this.abandonTurn()
     try {
       const messages = await client.listMessages(threadId, 200)
       if (token !== this.nav) return
@@ -216,7 +231,7 @@ export class OpenCodeSession {
       this.activeSessionId = threadId
       this.streamText.clear()
       if (session?.model) this.model = { ...session.model }
-      if (session?.agent) this.agent = session.agent
+      if (session?.agent && session.agent.toLowerCase() !== 'plan') this.agent = session.agent
       this.patch({
         route: { kind: 'doc', threadId },
         title: sessionTitle(session?.title, messages),
@@ -244,6 +259,7 @@ export class OpenCodeSession {
     const token = this.nav
     const client = this.client
     if (!client) return
+    this.abandonTurn()
     try {
       const session = await client.createSession({ agent: this.agent, model: this.model ?? undefined })
       if (token !== this.nav) return
@@ -290,6 +306,16 @@ export class OpenCodeSession {
 
   private toApiModel(): { providerID: string; modelID: string } {
     return this.model ?? { providerID: '', modelID: '' }
+  }
+
+  /** Stops a turn left running in another session when navigating away. */
+  private abandonTurn() {
+    const client = this.client
+    const sessionId = this.activeSessionId
+    if (!client || !sessionId || !this.snapshot.streaming) return
+    this.streamText.clear()
+    this.patch({ streaming: false })
+    void client.abort(sessionId).catch(() => {})
   }
 
   async interrupt() {
@@ -388,10 +414,7 @@ export class OpenCodeSession {
       const messages = await client.listMessages(sessionId, 200)
       if (this.activeSessionId !== sessionId) return
       const approvals = this.snapshot.blocks.filter((block) => block.kind === 'approval')
-      this.patch({
-        blocks: [...blocksFromMessages(messages), ...approvals.filter((approval) => !messages.some((m) => m.info.id === approval.id))],
-        streaming: false,
-      })
+      this.patch({ blocks: [...blocksFromMessages(messages), ...approvals], streaming: false })
     } catch {
       this.patch({ streaming: false })
     }
@@ -402,7 +425,7 @@ export class OpenCodeSession {
     const sessionId = typeof props.sessionID === 'string' ? props.sessionID : null
     switch (event.type) {
       case 'message.part.delta': {
-        if (sessionId !== this.activeSessionId) return
+        if (!sessionId || sessionId !== this.activeSessionId) return
         const messageID = typeof props.messageID === 'string' ? props.messageID : null
         const partID = typeof props.partID === 'string' ? props.partID : null
         if (!messageID || !partID || props.field !== 'text' || typeof props.delta !== 'string') return
@@ -416,7 +439,7 @@ export class OpenCodeSession {
         return
       }
       case 'message.part.updated': {
-        if (sessionId !== this.activeSessionId) return
+        if (!sessionId || sessionId !== this.activeSessionId) return
         const part = props.part as OpenMessagePart | undefined
         if (!part || typeof part.messageID !== 'string') return
         if (part.type === 'reasoning') return
@@ -437,7 +460,7 @@ export class OpenCodeSession {
         return
       }
       case 'message.updated': {
-        if (sessionId !== this.activeSessionId) return
+        if (!sessionId || sessionId !== this.activeSessionId) return
         const info = props.info as { id?: string; role?: string } | undefined
         // The server echo of our optimistic user message: same text, server id wins.
         if (info?.role === 'user' && info.id) {
@@ -460,9 +483,10 @@ export class OpenCodeSession {
       }
       case 'permission.asked':
       case 'permission.v2.asked': {
-        if (sessionId !== this.activeSessionId) return
+        if (!sessionId || sessionId !== this.activeSessionId) return
         const request = (props.request ?? props) as unknown as PermissionAsked
         if (!request || typeof request.id !== 'string') return
+        if (this.snapshot.blocks.some((block) => block.kind === 'approval' && block.requestId === request.id)) return
         this.patch({ blocks: [...this.snapshot.blocks, permissionApproval(request)] })
         return
       }
@@ -490,9 +514,10 @@ export class OpenCodeSession {
       }
       case 'question.asked':
       case 'question.v2.asked': {
-        if (sessionId !== this.activeSessionId) return
+        if (!sessionId || sessionId !== this.activeSessionId) return
         const request = (props.request ?? props) as unknown as QuestionAsked
         if (!request || typeof request.id !== 'string' || !Array.isArray(request.questions)) return
+        if (this.snapshot.blocks.some((block) => block.kind === 'approval' && block.requestId === request.id)) return
         this.patch({ blocks: [...this.snapshot.blocks, questionApproval(request)] })
         return
       }

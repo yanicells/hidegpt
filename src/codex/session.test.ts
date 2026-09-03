@@ -253,8 +253,7 @@ describe('CodexSession', () => {
     expect(session.snapshot.blocks.map((block) => block.id)).toEqual(['u1', 'a1'])
   })
 
-  it('replaces the optimistic echo instead of duplicating it', async () => {
-    const { session, transport } = await readySession()
+  it('replaces the optimistic echo instead of duplicating it', async () => {    const { session, transport } = await readySession()
     await session.openThread('thr_1')
     await session.send('same text')
     const local = session.snapshot.blocks.at(-1)
@@ -271,6 +270,24 @@ describe('CodexSession', () => {
     const users = session.snapshot.blocks.filter((block) => block.kind === 'user')
     expect(users).toHaveLength(1)
     expect(users[0]).toMatchObject({ id: 'u-server', text: 'same text' })
+  })
+
+  it('does not offer plan mode', async () => {
+    const { session } = await readySession()
+    expect(session.snapshot.collaborationModes.map((mode) => mode.name)).toEqual(['Default'])
+    expect(session.snapshot.collaborationMode).toBe('Default')
+  })
+
+  it('sends the selected speed tier with new turns', async () => {
+    const { session, transport } = await readySession()
+    await session.openThread('thr_1')
+    session.setSpeed('fast')
+    expect(session.snapshot.speed).toBe('fast')
+    await session.send('go fast')
+    const turn = transport.calls.find((call) => call.method === 'turn/start')
+    expect(turn?.params).toMatchObject({ serviceTierForTurn: 'fast' })
+    session.setModel('gpt-5.6-sol')
+    expect(session.snapshot.speed).toBeNull()
   })
 
   it('does not reopen a document after the user goes home', async () => {

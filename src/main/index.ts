@@ -59,7 +59,7 @@ async function ensureOpencode(): Promise<OpenCodeSession> {
   if (!opencodeSession) {
     const fake = process.env.HIDEGPT_FAKE === '1'
     opencodeSession = new OpenCodeSession(
-      fake ? () => Promise.resolve(createFakeServer(createFakeOpenCodeClient())) : () => startOpenCodeServer(),
+      fake ? () => Promise.resolve(createFakeServer(createFakeOpenCodeClient())) : (cwd) => startOpenCodeServer({ cwd }),
     )
     opencodeSession.subscribe(sendSnapshot)
     await opencodeSession.start()
@@ -144,6 +144,9 @@ async function runCommand(command: Command): Promise<void> {
       return
     case 'setEffort':
       session.setEffort(command.effort)
+      return
+    case 'setSpeed':
+      session.setSpeed(command.speed)
       return
     case 'setCollaborationMode':
       session.setCollaborationMode(command.name)

@@ -143,7 +143,8 @@ export class CodexSession {
     let collaborationModes: CollaborationModeMask[] = []
     try {
       const listed = await this.rpc<{ data: CollaborationModeMask[] }>('collaborationMode/list', {})
-      collaborationModes = listed.data
+      // Plan mode is not offered here; this client only works in the default mode.
+      collaborationModes = listed.data.filter((mode) => mode.mode !== 'plan' && mode.name.toLowerCase() !== 'plan')
     } catch {
       collaborationModes = []
     }
@@ -231,11 +232,17 @@ export class CodexSession {
     this.patch({
       model,
       effort: entry?.defaultReasoningEffort ?? this.snapshot.effort,
+      // Tiers belong to the model; a new model starts on the thread default.
+      speed: null,
     })
   }
 
   setEffort(effort: string) {
     this.patch({ effort })
+  }
+
+  setSpeed(speed: string | null) {
+    this.patch({ speed })
   }
 
   setCollaborationMode(name: string) {
@@ -333,6 +340,7 @@ export class CodexSession {
         cwd: typeof resumed.cwd === 'string' ? resumed.cwd : this.snapshot.cwd,
         model: resumed.model || this.snapshot.model,
         effort: resumed.reasoningEffort ?? this.snapshot.effort,
+        speed: resumed.serviceTier ?? null,
         streaming: false,
         error: null,
         olderTurnsCursor,
@@ -425,6 +433,7 @@ export class CodexSession {
       const started = await this.rpc<ThreadStartResponse>('thread/start', {
         cwd: this.snapshot.cwd,
         model: this.snapshot.model,
+        serviceTier: this.snapshot.speed,
       })
       if (token !== this.nav) {
         await this.unsubscribeThread(started.thread.id, false)
@@ -438,6 +447,7 @@ export class CodexSession {
         cwd: typeof started.cwd === 'string' ? started.cwd : this.snapshot.cwd,
         model: started.model || this.snapshot.model,
         effort: started.reasoningEffort ?? this.snapshot.effort,
+        speed: started.serviceTier ?? null,
         streaming: false,
         error: null,
         olderTurnsCursor: null,
@@ -504,11 +514,14 @@ export class CodexSession {
             developer_instructions: null,
           },
         },
+        serviceTierForTurn: this.snapshot.speed,
       }
     }
     return {
       model: this.snapshot.model,
       effort: this.snapshot.effort,
+      // Null inherits the thread's tier; a tier id applies to this turn only.
+      serviceTierForTurn: this.snapshot.speed,
     }
   }
 

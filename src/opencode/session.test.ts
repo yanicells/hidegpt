@@ -133,12 +133,14 @@ describe('OpenCodeSession', () => {
     expect(client.calls.at(-1)).toMatchObject({ method: 'replyQuestion', args: ['que_1', [['A']]] })
   })
 
-  it('switches agents through the mode picker and rejects unknown ones', async () => {
+  it('switches agents through the mode picker and rejects plan and unknown ones', async () => {
     const { session } = await readySession()
+    session.setCollaborationMode('explore')
+    expect(session.snapshot.collaborationMode).toBe('explore')
     session.setCollaborationMode('plan')
-    expect(session.snapshot.collaborationMode).toBe('plan')
+    expect(session.snapshot.collaborationMode).toBe('explore')
     session.setCollaborationMode('nope')
-    expect(session.snapshot.collaborationMode).toBe('plan')
+    expect(session.snapshot.collaborationMode).toBe('explore')
   })
 
   it('reports prompt failures without hanging', async () => {

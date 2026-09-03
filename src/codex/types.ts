@@ -21,6 +21,8 @@ export type Snapshot = {
   models: Model[]
   model: string | null
   effort: string | null
+  /** Selected service-tier id (speed). Null means the thread default. Codex only. */
+  speed: string | null
   collaborationModes: CollaborationModeMask[]
   collaborationMode: string | null
   projects: Project[]
@@ -50,6 +52,7 @@ export function emptySnapshot(cwd = ''): Snapshot {
     models: [],
     model: null,
     effort: null,
+    speed: null,
     collaborationModes: [],
     collaborationMode: null,
     projects: [],

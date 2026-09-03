@@ -136,7 +136,7 @@ export function createFakeOpenCodeClient(options?: {
     },
     async listAgents() {
       calls.push({ method: 'listAgents', args: [] })
-      return options?.agents ?? [{ name: 'build', mode: 'primary' }, { name: 'plan', mode: 'primary' }]
+      return options?.agents ?? [{ name: 'build', mode: 'primary' }, { name: 'explore', mode: 'subagent' }, { name: 'plan', mode: 'primary' }]
     },
     async listProjects() {
       return options?.projects ?? []

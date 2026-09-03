@@ -21,10 +21,12 @@ existing logins, and the UI is a Docs costume over it.
   11pt, `--paper-width: 816px`). The composer is the last paragraph
   (`textarea.composer`, Enter to send). User turns render as headings,
   agent turns as Markdown body (`markdown.tsx`, react-markdown + remark-gfm).
-- **Stealth rule:** nothing on screen may read as AI. Model/effort/mode live
+- **Stealth rule:** nothing on screen may read as AI. Model/effort/speed/mode live
   in toolbar chips styled like Docs controls, never as raw model ids.
   Usage meters, provider names, and connection banners do not belong in the
-  page — surface them under Tools, if at all.
+  page — surface them under Tools, if at all. Toolbar dropdowns are portaled
+  popovers (never inline in the scroll row); the model list is searchable.
+  Plan mode is not offered on either provider.
 
 ## Providers (both are just transports)
 
