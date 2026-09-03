@@ -1,8 +1,11 @@
 import { useCallback, useRef } from 'react'
 
-import { Banners } from './chrome'
-import { Document, DocumentChrome } from './document'
-import { Home, HomeHeader, useHomeView } from './home'
+import { Banners } from './components/layout/Banners'
+import { Document } from './components/document/Document'
+import { DocumentChrome } from './components/document/DocumentChrome'
+import { Home } from './components/home/Home'
+import { HomeHeader } from './components/home/HomeHeader'
+import { useHomeView } from './components/home/useHomeView'
 import { dispatch, platform, useMenuAction, useSnapshot } from './session-bridge'
 import type { MenuAction } from '../../shared/api'
 

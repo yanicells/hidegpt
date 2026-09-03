@@ -2,17 +2,23 @@
 
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { stubThread } from '../../codex/fake'
+import { stubModel, stubThread } from '../../codex/fake'
 import { emptySnapshot, type Snapshot } from '../../codex/types'
 import type { Command, HideGptApi, MenuAction } from '../../shared/api'
 import { App } from './app'
+import { groupByRecency, groupThreads } from './components/home/grouping'
 
 import '@testing-library/jest-dom/vitest'
 
+beforeEach(() => {
+  localStorage.clear()
+})
+
 afterEach(() => {
   cleanup()
+  localStorage.clear()
 })
 
 function mount(partial: Partial<Snapshot> = {}) {
@@ -215,7 +221,7 @@ describe('document page', () => {
     expect(screen.getByTestId('pick-a')).toBeInTheDocument()
     await user.click(screen.getByTestId('chip-speed'))
     await user.click(screen.getByTestId('pick-fast'))
-    expect(calls).toContainEqual({ op: 'setSpeed', speed: 'fast' })
+    expect(calls).toContainEqual({ op: 'setServiceTier', serviceTier: 'fast' })
   })
 
   it('walks document tabs like back, jump, and new', async () => {
@@ -234,5 +240,176 @@ describe('document page', () => {
     expect(calls).toContainEqual({ op: 'newDocument' })
     await user.click(screen.getByLabelText('Back to documents'))
     expect(calls).toContainEqual({ op: 'goHome' })
+  })
+})
+
+function docModels() {
+  const alpha = { ...stubModel(), id: 'alpha', model: 'alpha', displayName: 'AlphaGuide', isDefault: true }
+  const beta = { ...stubModel(), id: 'beta', model: 'beta', displayName: 'BetaHelper', isDefault: false }
+  return [alpha, beta]
+}
+
+describe('toolbar dropdowns', () => {
+  it('toggles the model menu open and closed', async () => {
+    const user = userEvent.setup()
+    mount({
+      route: { kind: 'doc', threadId: 'thr_1' },
+      title: 'Photosynthesis',
+      models: [stubModel()],
+      model: 'gpt-5.6-sol',
+    })
+    expect(screen.queryByTestId('menu-search')).toBeNull()
+    await user.click(screen.getByTestId('chip-model'))
+    expect(screen.getByTestId('menu-search')).toBeInTheDocument()
+    await user.click(screen.getByTestId('chip-model'))
+    expect(screen.queryByTestId('menu-search')).toBeNull()
+  })
+
+  it('dispatches setModel and closes when picking a model', async () => {
+    const user = userEvent.setup()
+    const { calls } = mount({
+      route: { kind: 'doc', threadId: 'thr_1' },
+      title: 'Photosynthesis',
+      models: docModels(),
+      model: 'alpha',
+    })
+    await user.click(screen.getByTestId('chip-model'))
+    expect(screen.getByTestId('menu-search')).toBeInTheDocument()
+    await user.click(screen.getByTestId('pick-beta'))
+    expect(calls).toContainEqual({ op: 'setModel', model: 'beta' })
+    expect(screen.queryByTestId('menu-search')).toBeNull()
+  })
+
+  it('filters models by search text', async () => {
+    const user = userEvent.setup()
+    mount({
+      route: { kind: 'doc', threadId: 'thr_1' },
+      title: 'Photosynthesis',
+      models: docModels(),
+      model: 'alpha',
+    })
+    await user.click(screen.getByTestId('chip-model'))
+    expect(screen.getByTestId('pick-alpha')).toBeInTheDocument()
+    expect(screen.getByTestId('pick-beta')).toBeInTheDocument()
+    await user.type(screen.getByTestId('menu-search'), 'alpha')
+    expect(screen.getByTestId('pick-alpha')).toBeInTheDocument()
+    expect(screen.queryByTestId('pick-beta')).toBeNull()
+  })
+
+  it('dispatches setServiceTier from the speed chip', async () => {
+    const user = userEvent.setup()
+    const { calls } = mount({
+      route: { kind: 'doc', threadId: 'thr_1' },
+      title: 'Photosynthesis',
+      models: [{ ...stubModel(), id: 'a', model: 'a', displayName: 'AlphaGuide', isDefault: true }],
+      model: 'a',
+    })
+    await user.click(screen.getByTestId('chip-speed'))
+    await user.click(screen.getByTestId('pick-fast'))
+    expect(calls).toContainEqual({ op: 'setServiceTier', serviceTier: 'fast' })
+  })
+})
+
+describe('document tabs active pill', () => {
+  it('switches the active pill and tolerates double clicks', async () => {
+    const user = userEvent.setup()
+    mount({
+      route: { kind: 'doc', threadId: 'thr_1' },
+      title: 'Photosynthesis',
+      blocks: [
+        { kind: 'user', id: 'u1', text: 'First question' },
+        { kind: 'agent', id: 'a1', text: 'Answer one.' },
+        { kind: 'user', id: 'u2', text: 'Second question' },
+        { kind: 'agent', id: 'a2', text: 'Answer two.' },
+      ],
+    })
+    // Latest question starts active.
+    expect(screen.getByTestId('outline-u2')).toHaveClass('active')
+    expect(screen.getByTestId('outline-u1')).not.toHaveClass('active')
+    await user.click(screen.getByTestId('outline-u1'))
+    expect(screen.getByTestId('outline-u1')).toHaveClass('active')
+    expect(screen.getByTestId('outline-u2')).not.toHaveClass('active')
+    // Second click on the same tab keeps working.
+    await user.click(screen.getByTestId('outline-u1'))
+    expect(screen.getByTestId('outline-u1')).toHaveClass('active')
+    await user.click(screen.getByTestId('outline-u2'))
+    expect(screen.getByTestId('outline-u2')).toHaveClass('active')
+    expect(screen.getByTestId('outline-u1')).not.toHaveClass('active')
+  })
+})
+
+function noonSec(offsetDays = 0): number {
+  const now = new Date()
+  const noon = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0)
+  return Math.floor((noon.getTime() - offsetDays * 86_400_000) / 1000)
+}
+
+describe('home list view', () => {
+  it('groups loose documents by recency in list view', async () => {
+    const user = userEvent.setup()
+    mount({
+      threads: [
+        { ...stubThread('thr_today', 'Today doc', 'Today doc'), recencyAt: noonSec(0), updatedAt: noonSec(0) },
+        { ...stubThread('thr_yest', 'Yesterday doc', 'Yesterday doc'), recencyAt: noonSec(1), updatedAt: noonSec(1) },
+      ],
+    })
+    await user.click(screen.getByLabelText('List view'))
+    expect(screen.getByText('Today')).toBeInTheDocument()
+    expect(screen.getByText('Yesterday')).toBeInTheDocument()
+    expect(screen.getByTestId('thread-thr_today')).toBeInTheDocument()
+    expect(screen.getByTestId('thread-thr_yest')).toBeInTheDocument()
+  })
+
+  it('renders project folders by name, not hash', () => {
+    mount({
+      threads: [stubThread('thr_p1', 'Proj doc', 'Proj doc', 'proj_1')],
+      projects: [{ id: 'proj_1', name: 'My Project', roots: [], metadata: {}, position: 0, createdAt: 0, updatedAt: 0 }],
+    })
+    expect(screen.getByText('My Project')).toBeInTheDocument()
+    expect(screen.queryByText('proj_1')).toBeNull()
+  })
+
+  it('dispatches setSearch when typing in home search', async () => {
+    const user = userEvent.setup()
+    const { calls } = mount()
+    await user.type(screen.getByTestId('home-search'), 'photo')
+    expect(calls.some((call) => call.op === 'setSearch')).toBe(true)
+    expect(calls).toContainEqual({ op: 'setSearch', value: 'p' })
+  })
+})
+
+describe('grouping', () => {
+  it('titles orphan folders by directory basename, never a hash', () => {
+    const threads = [
+      { ...stubThread('o1', 'doc1', 'Doc1', 'unknown-hash'), cwd: '/Users/yan/projects/myapp' },
+      { ...stubThread('o2', 'doc2', 'Doc2', 'unknown-hash'), cwd: '/Users/yan/projects/myapp' },
+    ]
+    const snap = { ...emptySnapshot(), threads, projects: [], search: '' }
+    const sections = groupThreads(snap, 'grid')
+    const orphan = sections.find((section) => section.key.startsWith('orphan-'))
+    expect(orphan).toBeTruthy()
+    expect(orphan?.title).toBe('myapp')
+    expect(orphan?.title).not.toBe('Folder')
+    expect(orphan?.title).not.toContain('unknown-hash')
+  })
+
+  it('buckets ms timestamps correctly', () => {
+    const now = new Date()
+    const noonMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0).getTime()
+    const threads = [
+      { ...stubThread('m-today', 't', 'T'), recencyAt: noonMs, updatedAt: Math.floor(noonMs / 1000) },
+      {
+        ...stubThread('m-yest', 'y', 'Y'),
+        recencyAt: noonMs - 86_400_000,
+        updatedAt: Math.floor((noonMs - 86_400_000) / 1000),
+      },
+    ]
+    const sections = groupByRecency(threads)
+    expect(sections.find((section) => section.title === 'Today')?.threads.map((thread) => thread.id)).toContain(
+      'm-today',
+    )
+    expect(
+      sections.find((section) => section.title === 'Yesterday')?.threads.map((thread) => thread.id),
+    ).toContain('m-yest')
   })
 })
