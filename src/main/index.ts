@@ -1,18 +1,11 @@
 /// <reference types="electron-vite/node" />
-import { app, BrowserWindow, Menu, dialog, ipcMain, net, protocol, shell } from 'electron'
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs'
-import { join, normalize } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { app, BrowserWindow, ipcMain, protocol } from 'electron'
 
-import { createFakeTransport } from '../codex/fake'
-import { displayServerName, needsReconnect } from '../codex/labels'
-import { CodexSession } from '../codex/session'
-import { spawnCodexAppServer } from '../codex/transport'
-import type { Provider } from '../codex/types'
-import { createFakeOpenCodeClient, createFakeServer } from '../opencode/fake'
-import { OpenCodeSession } from '../opencode/session'
-import { startOpenCodeServer } from '../opencode/client'
-import type { Command, MenuAction } from '../shared/api'
+import type { Command } from '../shared/api'
+import { initCommands, runCommand } from './commands'
+import { initMenu, updateMenuForSnapshot } from './menu'
+import { activeSession, closeSessions, getCodexSession, initProviders, sendSnapshot, setProvider } from './providers'
+import { captureScreenshots, createWindow, getWindow, registerDocsProtocol } from './window'
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -41,407 +34,26 @@ function prependPath() {
 
 prependPath()
 
-const codexSession = new CodexSession(
-  process.env.HIDEGPT_FAKE === '1' ? () => createFakeTransport() : spawnCodexAppServer,
-  (url) => {
-    void shell.openExternal(url)
-  },
-)
-
-let opencodeSession: OpenCodeSession | null = null
-let provider: Provider = 'codex'
-
-function activeSession(): CodexSession | OpenCodeSession {
-  return provider === 'opencode' && opencodeSession ? opencodeSession : codexSession
-}
-
-async function ensureOpencode(): Promise<OpenCodeSession> {
-  if (!opencodeSession) {
-    const fake = process.env.HIDEGPT_FAKE === '1'
-    opencodeSession = new OpenCodeSession(
-      fake ? () => Promise.resolve(createFakeServer(createFakeOpenCodeClient())) : (cwd) => startOpenCodeServer({ cwd }),
-    )
-    opencodeSession.subscribe(sendSnapshot)
-    await opencodeSession.start()
-  }
-  return opencodeSession
-}
-
-async function setProvider(next: Provider): Promise<void> {
-  if (next === provider && (next === 'codex' || opencodeSession)) return
-  if (next === 'opencode') {
-    await ensureOpencode()
-  }
-  provider = next
-  sendSnapshot()
-}
-
-let window: BrowserWindow | null = null
-let menuSignature = ''
-
-function sendSnapshot() {
-  const session = activeSession()
-  let snap = session.getSnapshot()
-  if (snap.provider === 'opencode') {
-    // Identity display follows the ChatGPT account when one is present.
-    const codexSnap = codexSession.getSnapshot()
-    snap = { ...snap, account: codexSnap.account, requiresAuth: false }
-  }
-  const title = snap.route.kind === 'home' ? 'Docs' : snap.title || 'Docs'
-  window?.setTitle(title)
-  window?.webContents.send('snapshot', snap)
-  const signature = JSON.stringify({
-    provider: snap.provider,
-    account: snap.account,
-    mcp: snap.mcpServers.map((server) => [server.name, server.authStatus, server.runtimeStatus]),
-    route: snap.route.kind,
-  })
-  if (signature !== menuSignature) {
-    menuSignature = signature
-    rebuildMenu()
-  }
-}
-
-async function runCommand(command: Command): Promise<void> {
-  if (command.op === 'setProvider') {
-    await setProvider(command.provider)
-    return
-  }
-  const session = activeSession()
-  switch (command.op) {
-    case 'newDocument':
-      await session.newDocument()
-      return
-    case 'openThread':
-      await session.openThread(command.threadId)
-      return
-    case 'goHome':
-      session.goHome()
-      return
-    case 'send':
-      await session.send(command.text)
-      return
-    case 'interrupt':
-      await session.interrupt()
-      return
-    case 'login':
-      await session.login()
-      return
-    case 'logout':
-      await session.logout()
-      return
-    case 'connectMcp':
-      await session.connectMcp(command.name)
-      return
-    case 'setSearch':
-      session.setSearch(command.value)
-      return
-    case 'applySearch':
-      await session.applySearch()
-      return
-    case 'setModel':
-      session.setModel(command.model)
-      return
-    case 'setEffort':
-      session.setEffort(command.effort)
-      return
-    case 'setSpeed':
-      session.setSpeed(command.speed)
-      return
-    case 'setCollaborationMode':
-      session.setCollaborationMode(command.name)
-      return
-    case 'openFolder':
-      await pickFolder()
-      return
-    case 'loadOlderTurns':
-      await session.loadOlderTurns()
-      return
-    case 'resolveApproval':
-      session.resolveApproval(command.blockId, command.accept)
-      return
-    case 'setApprovalDraft':
-      session.setApprovalDraft(command.blockId, command.key, command.value)
-      return
-    case 'setDocumentName':
-      await session.setDocumentName(command.name)
-      return
-    case 'refresh':
-      if (session.snapshot.status === 'error') await session.start()
-      else await session.refreshCatalog()
-      return
-  }
-}
-
-async function pickFolder() {
-  if (!window) return
-  const result = await dialog.showOpenDialog(window, {
-    title: 'Open folder',
-    properties: ['openDirectory'],
-    defaultPath: activeSession().snapshot.cwd || undefined,
-  })
-  if (result.canceled || !result.filePaths[0]) return
-  const session = activeSession()
-  session.setFolderDraft(result.filePaths[0])
-  session.applyFolder()
-}
-
-function sendMenu(action: MenuAction) {
-  window?.webContents.send('menu', action)
-}
-
-function rebuildMenu() {
-  const snap = activeSession().getSnapshot()
-  const isMac = process.platform === 'darwin'
-  const connectItems = snap.mcpServers.filter(needsReconnect).map((server) => ({
-    label: `Connect ${displayServerName(server.name)}`,
-    click: () => void activeSession().connectMcp(server.name),
-  }))
-
-  const template: Electron.MenuItemConstructorOptions[] = [
-    ...(isMac
-      ? [
-          {
-            label: 'Docs',
-            submenu: [
-              { role: 'about' as const },
-              { type: 'separator' as const },
-              { role: 'hide' as const },
-              { role: 'hideOthers' as const },
-              { role: 'unhide' as const },
-              { type: 'separator' as const },
-              { role: 'quit' as const },
-            ],
-          },
-        ]
-      : []),
-    {
-      label: 'File',
-      submenu: [
-        {
-          label: 'New document',
-          accelerator: 'CmdOrCtrl+N',
-          click: () => void activeSession().newDocument(),
-        },
-        {
-          label: 'Open home',
-          accelerator: 'CmdOrCtrl+Shift+O',
-          click: () => activeSession().goHome(),
-        },
-        {
-          label: 'Open folder…',
-          accelerator: 'CmdOrCtrl+O',
-          click: () => void pickFolder(),
-        },
-        { type: 'separator' },
-        {
-          label: 'Rename…',
-          accelerator: 'CmdOrCtrl+Shift+R',
-          enabled: snap.route.kind === 'doc',
-          click: () => sendMenu('rename'),
-        },
-        { type: 'separator' },
-        isMac ? { role: 'close' } : { role: 'quit' },
-      ],
-    },
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
-        { type: 'separator' },
-        {
-          label: 'Find…',
-          accelerator: 'CmdOrCtrl+F',
-          click: () => {
-            if (activeSession().snapshot.route.kind !== 'home') activeSession().goHome()
-            sendMenu('focusSearch')
-          },
-        },
-      ],
-    },
-    {
-      label: 'View',
-      submenu: [
-        { label: 'Grid view', click: () => sendMenu('grid') },
-        { label: 'List view', click: () => sendMenu('list') },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
-        ...(app.isPackaged ? [] : [{ type: 'separator' as const }, { role: 'reload' as const }, { role: 'toggleDevTools' as const }]),
-      ],
-    },
-    {
-      label: 'Tools',
-      submenu: [
-        {
-          label: 'Use Codex',
-          type: 'checkbox',
-          checked: snap.provider === 'codex',
-          click: () => void runCommand({ op: 'setProvider', provider: 'codex' }),
-        },
-        {
-          label: 'Use OpenCode',
-          type: 'checkbox',
-          checked: snap.provider === 'opencode',
-          click: () => void runCommand({ op: 'setProvider', provider: 'opencode' }),
-        },
-        { type: 'separator' },
-        {
-          label: 'Refresh',
-          click: () => void runCommand({ op: 'refresh' }),
-        },
-        ...connectItems,
-      ],
-    },
-    {
-      label: 'Account',
-      submenu: snap.account
-        ? [{ label: 'Log out', click: () => void codexSession.logout() }]
-        : [{ label: 'Log in with ChatGPT', click: () => void codexSession.login() }],
-    },
-  ]
-
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
-}
-
-function resolvePreload() {
-  for (const name of ['index.cjs', 'index.js', 'index.mjs']) {
-    const file = join(__dirname, '../preload', name)
-    if (existsSync(file)) return file
-  }
-  return join(__dirname, '../preload/index.js')
-}
-
-function createWindow() {
-  const isMac = process.platform === 'darwin'
-  const win = new BrowserWindow({
-    width: 1280,
-    height: 840,
-    minWidth: 720,
-    minHeight: 560,
-    title: 'Docs',
-    backgroundColor: '#ffffff',
-    show: false,
-    titleBarStyle: isMac ? 'hiddenInset' : 'default',
-    trafficLightPosition: isMac ? { x: 16, y: 22 } : undefined,
-    webPreferences: {
-      preload: resolvePreload(),
-      sandbox: true,
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  })
-  window = win
-  win.on('ready-to-show', () => win.show())
-  win.on('closed', () => {
-    if (window === win) window = null
-  })
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
-    return { action: 'deny' }
-  })
-
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void win.loadURL(process.env.ELECTRON_RENDERER_URL)
-  } else {
-    void win.loadURL('docs://app/index.html')
-  }
-  return win
-}
-
-async function captureScreenshots(win: BrowserWindow) {
-  const dir = process.env.HIDEGPT_SCREENSHOT
-  if (!dir) return
-  mkdirSync(dir, { recursive: true })
-  await new Promise<void>((resolve) => {
-    if (!win.webContents.isLoading()) {
-      resolve()
-      return
-    }
-    win.webContents.once('did-finish-load', () => resolve())
-  })
-  await new Promise<void>((resolve) => {
-    const stop = codexSession.subscribe(() => {
-      if (codexSession.snapshot.status !== 'connecting') {
-        stop()
-        resolve()
-      }
-    })
-    if (codexSession.snapshot.status !== 'connecting') {
-      stop()
-      resolve()
-    }
-  })
-  win.show()
-  await win.webContents.executeJavaScript(`
-    new Promise((resolve, reject) => {
-      const started = Date.now()
-      const tick = () => {
-        if (document.querySelector('[data-testid="app"]')) resolve(true)
-        else if (Date.now() - started > 8000) reject(new Error('renderer did not mount'))
-        else setTimeout(tick, 50)
-      }
-      tick()
-    })
-  `)
-  await new Promise((resolve) => setTimeout(resolve, 200))
-  writeFileSync(join(dir, 'home.png'), (await win.capturePage()).toPNG())
-  const first = codexSession.snapshot.threads[0]
-  if (first) await codexSession.openThread(first.id)
-  else await codexSession.newDocument()
-  await win.webContents.executeJavaScript(`
-    new Promise((resolve, reject) => {
-      const started = Date.now()
-      const tick = () => {
-        if (document.querySelector('[data-testid="document"]')) resolve(true)
-        else if (Date.now() - started > 8000) reject(new Error('document did not mount'))
-        else setTimeout(tick, 50)
-      }
-      tick()
-    })
-  `)
-  await new Promise((resolve) => setTimeout(resolve, 200))
-  writeFileSync(join(dir, 'document.png'), (await win.capturePage()).toPNG())
-  app.quit()
-}
-
 app.setName('Docs')
 
-function registerDocsProtocol() {
-  protocol.handle('docs', (request) => {
-    const url = new URL(request.url)
-    const pathname = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)
-    const root = join(__dirname, '../renderer')
-    const file = normalize(join(root, pathname.replace(/^\/+/, '')))
-    if (!file.startsWith(root)) return new Response('forbidden', { status: 403 })
-    return net.fetch(pathToFileURL(file).href)
-  })
-}
+initProviders({ getWindow, onChanged: updateMenuForSnapshot })
+initCommands({ getWindow, getSession: activeSession, setProvider })
+initMenu({
+  getSnapshot: () => activeSession().getSnapshot(),
+  dispatch: (command: Command) => void runCommand(command),
+  getWindow,
+})
 
 app.whenReady().then(async () => {
   registerDocsProtocol()
   ipcMain.handle('command', async (_event, command: Command) => {
     await runCommand(command)
   })
-  codexSession.subscribe(sendSnapshot)
-  rebuildMenu()
-  const win = createWindow()
-  win.webContents.on('did-finish-load', sendSnapshot)
-  win.webContents.on('did-fail-load', (_event, code, desc) => {
-    console.error('load failed', code, desc)
-  })
+  getCodexSession().subscribe(sendSnapshot)
+  const win = createWindow({ onDidFinishLoad: sendSnapshot })
   try {
-    await codexSession.start()
-    await captureScreenshots(win)
+    await getCodexSession().start()
+    await captureScreenshots(win, getCodexSession())
   } catch (error) {
     console.error(error)
     app.quit()
@@ -453,10 +65,9 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  if (BrowserWindow.getAllWindows().length === 0) createWindow({ onDidFinishLoad: sendSnapshot })
 })
 
 app.on('before-quit', () => {
-  void codexSession.close()
-  void opencodeSession?.close()
+  closeSessions()
 })
