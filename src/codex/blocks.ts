@@ -27,23 +27,16 @@ export function userText(content: UserInput[]): string {
     .join('\n')
 }
 
-export function itemToBlock(item: ThreadItem): Block {
+export function itemToBlock(item: ThreadItem): Block | null {
   if (item.type === 'userMessage') {
     return { kind: 'user', id: item.id, text: userText(item.content) }
   }
   if (item.type === 'agentMessage') {
     return { kind: 'agent', id: item.id, text: item.text }
   }
-  if (item.type === 'reasoning') {
-    return {
-      kind: 'callout',
-      id: item.id,
-      title: 'Notes',
-      body: item.summary.join('\n') || item.content.join('\n'),
-    }
-  }
-  if (item.type === 'plan') {
-    return { kind: 'callout', id: item.id, title: 'Plan', body: item.text }
+  // Reasoning and plans stay off the page: the document shows outputs only.
+  if (item.type === 'reasoning' || item.type === 'plan') {
+    return null
   }
   if (item.type === 'commandExecution') {
     const output = item.aggregatedOutput?.trim()
@@ -116,7 +109,10 @@ export function itemToBlock(item: ThreadItem): Block {
 export function blocksFromTurns(turns: Turn[]): Block[] {
   const blocks: Block[] = []
   for (const turn of turns) {
-    for (const item of turn.items) blocks.push(itemToBlock(item))
+    for (const item of turn.items) {
+      const block = itemToBlock(item)
+      if (block) blocks.push(block)
+    }
   }
   return blocks
 }

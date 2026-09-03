@@ -4,7 +4,7 @@ import type { Block } from '../../codex/blocks'
 import { formFields, inputQuestions } from '../../codex/labels'
 import type { Snapshot } from '../../codex/types'
 import { AccountMenu, DocMenus, Toolbar } from './chrome'
-import { ChevronIcon, CloudIcon, DocsIcon } from './icons'
+import { BackIcon, ChevronIcon, CloudIcon, DocsIcon, KebabIcon, PlusMonoIcon, TabDocIcon } from './icons'
 import { AgentMarkdown } from './markdown'
 import { dispatch } from './session-bridge'
 import { takePendingDraft } from './templates'
@@ -61,7 +61,7 @@ export function DocumentChrome({
               className="save-state"
               role="status"
               aria-label={snap.streaming ? 'Working' : 'Saved'}
-              title={snap.streaming ? 'Working…' : 'Saved to Codex'}
+              title={snap.streaming ? 'Working…' : 'Saved'}
             >
               <CloudIcon busy={snap.streaming} />
             </span>
@@ -82,6 +82,8 @@ export function Document({ snap }: { snap: Snapshot }) {
   const lastBlock = snap.blocks[snap.blocks.length - 1]
   const streamingAgentId = snap.streaming && lastBlock?.kind === 'agent' ? lastBlock.id : null
   const waiting = snap.streaming && streamingAgentId === null
+  // Every user block starts a section; the outline jumps between them.
+  const questions = snap.blocks.filter((block) => block.kind === 'user')
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
@@ -97,34 +99,50 @@ export function Document({ snap }: { snap: Snapshot }) {
     const el = event.currentTarget
     stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
   }
+  const jumpTo = (id: string) => {
+    const root = scrollRef.current
+    const target = root?.querySelector(`[data-turn="${id}"]`)
+    stickToBottom.current = false
+    // scrollIntoView is unavailable in some test environments.
+    target?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  }
 
   return (
     <div className="workspace" data-testid="document" ref={scrollRef} onScroll={onScroll}>
-      <div className="ruler" aria-hidden="true" />
-      <article className="paper">
-        {snap.olderTurnsCursor ? (
-          <button
-            type="button"
-            className="load-older"
-            data-testid="load-older"
-            disabled={snap.loadingOlder}
-            onClick={() => dispatch({ op: 'loadOlderTurns' })}
-          >
-            {snap.loadingOlder ? 'Loading…' : 'Load earlier'}
-          </button>
-        ) : null}
-        {snap.blocks.map((block) => (
-          <div className="doc-block" key={block.id}>
-            <BlockView block={block} streaming={block.id === streamingAgentId} />
-          </div>
-        ))}
-        {waiting ? (
-          <p className="doc-body pending" aria-live="polite" aria-label="Working">
-            <span className="caret" />
-          </p>
-        ) : null}
-        <Composer key={threadId} streaming={snap.streaming} />
-      </article>
+      <div className="doc-layout">
+        <Tabs questions={questions} onJump={jumpTo} />
+        <div className="paper-col">
+          <div className="ruler" aria-hidden="true" />
+          <article className="paper">
+            {snap.olderTurnsCursor ? (
+              <button
+                type="button"
+                className="load-older"
+                data-testid="load-older"
+                disabled={snap.loadingOlder}
+                onClick={() => dispatch({ op: 'loadOlderTurns' })}
+              >
+                {snap.loadingOlder ? 'Loading…' : 'Load earlier'}
+              </button>
+            ) : null}
+            {snap.blocks.map((block, index) => (
+              <div
+                className={`doc-block${block.kind === 'user' && index > 0 ? ' turn-start' : ''}`}
+                data-turn={block.kind === 'user' ? block.id : undefined}
+                key={block.id}
+              >
+                <BlockView block={block} streaming={block.id === streamingAgentId} />
+              </div>
+            ))}
+            {waiting ? (
+              <p className="doc-body pending" aria-live="polite" aria-label="Working">
+                <span className="caret" />
+              </p>
+            ) : null}
+            <Composer key={threadId} streaming={snap.streaming} />
+          </article>
+        </div>
+      </div>
       {snap.streaming ? (
         <div className="stop-wrap">
           <button type="button" className="stop" data-testid="stop-turn" onClick={() => dispatch({ op: 'interrupt' })}>
@@ -137,9 +155,64 @@ export function Document({ snap }: { snap: Snapshot }) {
   )
 }
 
+function Tabs({
+  questions,
+  onJump,
+}: {
+  questions: Extract<Block, { kind: 'user' }>[]
+  onJump: (id: string) => void
+}) {
+  const [activeId, setActive] = useState<string | null>(null)
+  const active = activeId && questions.some((question) => question.id === activeId)
+    ? (activeId as string)
+    : (questions[questions.length - 1]?.id ?? null)
+  return (
+    <aside className="tabs" aria-label="Document tabs" data-testid="outline">
+      <button type="button" className="tabs-back" aria-label="Back to documents" onClick={() => dispatch({ op: 'goHome' })}>
+        <BackIcon />
+      </button>
+      <div className="tabs-head">
+        <span>Document tabs</span>
+        <button type="button" className="tabs-new" aria-label="New document" title="New document" onClick={() => dispatch({ op: 'newDocument' })}>
+          <PlusMonoIcon />
+        </button>
+      </div>
+      {questions.length === 0 ? (
+        <p className="tabs-hint">Questions you ask will appear here.</p>
+      ) : (
+        <ol className="tabs-list">
+          {questions.map((question) => (
+            <li key={question.id}>
+              <button
+                type="button"
+                className={`tab${active === question.id ? ' active' : ''}`}
+                data-testid={`outline-${question.id}`}
+                title={question.text}
+                onClick={() => {
+                  setActive(question.id)
+                  onJump(question.id)
+                }}
+              >
+                <TabDocIcon />
+                <span className="tab-text">{truncate(question.text)}</span>
+                {active === question.id ? <KebabIcon /> : null}
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+    </aside>
+  )
+}
+
+function truncate(text: string, limit = 48): string {
+  const single = text.replace(/\s+/g, ' ').trim()
+  return single.length > limit ? `${single.slice(0, limit - 1)}…` : single
+}
+
 function BlockView({ block, streaming }: { block: Block; streaming: boolean }) {
   if (block.kind === 'user') {
-    return <h1 className="doc-heading">{block.text}</h1>
+    return <p className="doc-question">{block.text}</p>
   }
   if (block.kind === 'agent') {
     return (

@@ -119,3 +119,120 @@ describe('docs home', () => {
     expect(calls.some((call) => call.op === 'newDocument')).toBe(true)
   })
 })
+
+describe('document page', () => {
+  it('renders questions at body scale with separators and an outline', () => {
+    mount({
+      route: { kind: 'doc', threadId: 'thr_1' },
+      title: 'Photosynthesis',
+      blocks: [
+        { kind: 'user', id: 'u1', text: 'What is photosynthesis?' },
+        { kind: 'agent', id: 'a1', text: 'Plants turn light into food.' },
+        { kind: 'user', id: 'u2', text: 'Why is it green?' },
+        { kind: 'agent', id: 'a2', text: 'Chlorophyll.' },
+      ],
+    })
+    const questions = document.querySelectorAll('.doc-question')
+    expect(questions).toHaveLength(2)
+    // Later questions are separated like document sections, not giant headings.
+    expect(document.querySelectorAll('.doc-block.turn-start')).toHaveLength(1)
+    expect(document.querySelector('.doc-heading')).toBeNull()
+    const outline = screen.getByTestId('outline')
+    expect(outline).toHaveTextContent('What is photosynthesis?')
+    expect(screen.getByTestId('outline-u2')).toHaveTextContent('Why is it green?')
+  })
+
+  it('hides reasoning callouts and usage meters from the page', () => {
+    mount({
+      route: { kind: 'doc', threadId: 'thr_1' },
+      title: 'Photosynthesis',
+      blocks: [
+        { kind: 'user', id: 'u1', text: 'Hi' },
+        { kind: 'agent', id: 'a1', text: 'Hello.' },
+      ],
+      rateLimits: {
+        rateLimits: {
+          limitId: 'codex',
+          limitName: 'Codex',
+          primary: { usedPercent: 88, windowDurationMins: 300, resetsAt: null },
+          secondary: null,
+          credits: null,
+          individualLimit: null,
+          spendControlReached: null,
+          planType: 'plus',
+          rateLimitReachedType: null,
+        },
+        rateLimitsByLimitId: null,
+        rateLimitResetCredits: null,
+      },
+    })
+    expect(screen.queryByText(/% used/)).toBeNull()
+  })
+
+  it('switches providers from the toolbar', async () => {
+    const user = userEvent.setup()
+    const { calls } = mount({
+      route: { kind: 'doc', threadId: 'thr_1' },
+      title: 'Photosynthesis',
+    })
+    await user.click(screen.getByTestId('chip-provider'))
+    await user.click(screen.getByTestId('pick-opencode'))
+    expect(calls).toContainEqual({ op: 'setProvider', provider: 'opencode' })
+  })
+
+  it('searches models and picks a speed from floating dropdowns', async () => {
+    const user = userEvent.setup()
+    const { calls } = mount({
+      route: { kind: 'doc', threadId: 'thr_1' },
+      title: 'Photosynthesis',
+      models: [
+        {
+          id: 'a',
+          model: 'a',
+          upgrade: null,
+          upgradeInfo: null,
+          availabilityNux: null,
+          displayName: 'AlphaGuide',
+          description: '',
+          modelSpecialty: null,
+          hidden: false,
+          supportedReasoningEfforts: [],
+          defaultReasoningEffort: 'medium',
+          inputModalities: [],
+          supportsPersonality: true,
+          multiAgentVersion: null,
+          additionalSpeedTiers: [],
+          serviceTiers: [{ id: 'fast', name: 'Fast', description: '' }],
+          defaultServiceTier: null,
+          isDefault: true,
+        },
+      ],
+      model: 'a',
+    })
+    await user.click(screen.getByTestId('chip-model'))
+    const search = screen.getByTestId('menu-search')
+    await user.type(search, 'alpha')
+    expect(screen.getByTestId('pick-a')).toBeInTheDocument()
+    await user.click(screen.getByTestId('chip-speed'))
+    await user.click(screen.getByTestId('pick-fast'))
+    expect(calls).toContainEqual({ op: 'setSpeed', speed: 'fast' })
+  })
+
+  it('walks document tabs like back, jump, and new', async () => {
+    const user = userEvent.setup()
+    const { calls } = mount({
+      route: { kind: 'doc', threadId: 'thr_1' },
+      title: 'Photosynthesis',
+      blocks: [
+        { kind: 'user', id: 'u1', text: 'First question' },
+        { kind: 'agent', id: 'a1', text: 'Answer.' },
+      ],
+    })
+    expect(screen.getByTestId('outline')).toHaveTextContent('Document tabs')
+    await user.click(screen.getByTestId('outline-u1'))
+    await user.click(screen.getByLabelText('New document'))
+    expect(calls).toContainEqual({ op: 'newDocument' })
+    await user.click(screen.getByLabelText('Back to documents'))
+    expect(calls).toContainEqual({ op: 'goHome' })
+  })
+})

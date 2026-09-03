@@ -60,8 +60,11 @@ export function stubModel(): Model {
     supportsPersonality: true,
     multiAgentVersion: null,
     additionalSpeedTiers: [],
-    serviceTiers: [],
-    defaultServiceTier: null,
+    serviceTiers: [
+      { id: 'standard', name: 'Standard', description: 'Standard speed' },
+      { id: 'fast', name: 'Fast', description: 'Fast speed' },
+    ],
+    defaultServiceTier: 'standard',
     isDefault: true,
   }
 }
@@ -142,7 +145,10 @@ export function createFakeTransport(options?: {
           }
     },
     'collaborationMode/list': () => ({
-      data: [{ name: 'Default', mode: 'default', model: null, reasoning_effort: null }],
+      data: [
+        { name: 'Plan', mode: 'plan', model: null, reasoning_effort: null },
+        { name: 'Default', mode: 'default', model: null, reasoning_effort: null },
+      ],
     }),
     'account/rateLimits/read': () => ({
       rateLimits: {

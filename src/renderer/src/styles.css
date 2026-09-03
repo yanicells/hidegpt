@@ -545,6 +545,31 @@ label,
   padding: 0 12px;
 }
 
+.list-row-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border-radius: 8px;
+}
+
+.list-row-wrap:hover {
+  background: var(--hover-soft);
+}
+
+.list-row-wrap .list-row:hover {
+  background: none;
+}
+
+.row-more {
+  margin-right: 4px;
+  opacity: 0;
+}
+
+.list-row-wrap:hover .row-more,
+.list-row-wrap:focus-within .row-more {
+  opacity: 1;
+}
+
 .list-head {
   font-size: 12px;
   font-weight: 500;
@@ -631,6 +656,59 @@ label,
   color: var(--muted);
   border-bottom: 1px solid var(--hairline);
   white-space: nowrap;
+}
+
+/* Floating toolbar dropdowns: portaled to the body so they never move the row. */
+.popover {
+  position: fixed;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+  border-radius: 8px;
+  box-shadow: var(--shadow-menu);
+}
+
+.popover .menu-panel {
+  position: static;
+  min-width: 0;
+  padding: 4px 0;
+  box-shadow: none;
+  overflow-y: auto;
+}
+
+.popover .menu-item {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.popover-search {
+  padding: 8px 8px 4px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.popover-search input {
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  font-size: 13px;
+  background: var(--hover-soft);
+  outline: none;
+}
+
+.popover-search input:focus {
+  background: var(--surface);
+  border-color: var(--blue);
+}
+
+.popover-empty {
+  padding: 16px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
 }
 
 .menu-item {
@@ -837,13 +915,6 @@ label,
   flex: 1;
 }
 
-.rate {
-  font-size: 12px;
-  color: var(--muted);
-  padding: 0 8px;
-  white-space: nowrap;
-}
-
 /* ---------- Banners ---------- */
 
 .banners {
@@ -884,6 +955,127 @@ label,
 
 /* ---------- Page ---------- */
 
+.doc-layout {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 24px;
+  width: min(calc(var(--paper-width) + 264px), calc(100% - 24px));
+  margin: 0 auto;
+}
+
+.paper-col {
+  flex: 0 1 var(--paper-width);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Tabs panel: mirrors Docs' "Document tabs" rail on the left of the editor. */
+.tabs {
+  position: sticky;
+  top: 8px;
+  flex: 0 0 228px;
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+  padding: 12px 0 12px 4px;
+  font-family: var(--font-ui);
+  scrollbar-width: thin;
+}
+
+.tabs-back {
+  width: 36px;
+  height: 36px;
+  margin: 0 0 12px 8px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+}
+
+.tabs-back:hover {
+  background: var(--hover);
+}
+
+.tabs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 8px 16px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.tabs-new {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+}
+
+.tabs-new:hover {
+  background: var(--hover);
+}
+
+.tabs-hint {
+  margin: 0;
+  padding: 0 16px;
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.tabs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 40px;
+  margin: 1px 12px 1px 0;
+  padding: 8px 12px 8px 16px;
+  border-radius: 0 20px 20px 0;
+  font-size: 14px;
+  line-height: 1.35;
+  color: var(--text);
+  text-align: left;
+}
+
+.tab:hover {
+  background: var(--hover-soft);
+}
+
+.tab svg {
+  flex: 0 0 auto;
+  color: var(--text-2);
+}
+
+.tab.active {
+  background: #d3e3fd;
+  color: var(--blue-dark);
+  font-weight: 500;
+}
+
+.tab.active svg {
+  color: var(--blue-dark);
+}
+
+.tab-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .workspace {
   flex: 1;
   min-height: 0;
@@ -896,7 +1088,7 @@ label,
   position: sticky;
   top: 0;
   z-index: 2;
-  width: min(var(--paper-width), calc(100% - 48px));
+  width: 100%;
   height: 18px;
   margin: 0 auto;
   background:
@@ -924,9 +1116,9 @@ label,
 }
 
 .paper {
-  width: min(var(--paper-width), calc(100% - 48px));
+  width: 100%;
   min-height: 1056px;
-  margin: 14px auto 96px;
+  margin: 14px 0 96px;
   padding: var(--paper-margin);
   background: var(--surface);
   box-shadow: var(--shadow-page);
@@ -953,17 +1145,20 @@ label,
   text-decoration: none;
 }
 
-.doc-heading {
+/* A question is a document section at body scale, separated from the last. */
+.doc-question {
   margin: 0 0 6pt;
-  font-size: 20pt;
-  line-height: 1.2;
-  font-weight: 400;
+  font-size: 11pt;
+  line-height: 1.3;
+  font-weight: 700;
   color: #000;
   overflow-wrap: anywhere;
 }
 
-.doc-block + .doc-block .doc-heading {
-  margin-top: 20pt;
+.doc-block.turn-start {
+  margin-top: 16pt;
+  padding-top: 14pt;
+  border-top: 1px solid var(--hairline);
 }
 
 .doc-body {
@@ -1393,7 +1588,17 @@ label,
     display: none;
   }
 
+  .tabs {
+    display: none;
+  }
+
+  .doc-layout {
+    width: 100%;
+  }
+
   .ruler {
+    display: none;
+  }
     display: none;
   }
 
@@ -1409,10 +1614,6 @@ label,
 
   .thumb {
     height: 124px;
-  }
-
-  .rate {
-    display: none;
   }
 
   .paper {

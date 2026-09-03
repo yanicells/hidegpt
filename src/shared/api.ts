@@ -1,4 +1,4 @@
-import type { Snapshot } from '../codex/types'
+import type { Provider, Snapshot } from '../codex/types'
 
 export type Command =
   | { op: 'newDocument' }
@@ -13,12 +13,14 @@ export type Command =
   | { op: 'applySearch' }
   | { op: 'setModel'; model: string }
   | { op: 'setEffort'; effort: string }
+  | { op: 'setSpeed'; speed: string | null }
   | { op: 'setCollaborationMode'; name: string }
   | { op: 'openFolder' }
   | { op: 'loadOlderTurns' }
   | { op: 'resolveApproval'; blockId: string; accept: boolean }
   | { op: 'setApprovalDraft'; blockId: string; key: string; value: string }
   | { op: 'setDocumentName'; name: string }
+  | { op: 'setProvider'; provider: Provider }
   | { op: 'refresh' }
 
 export type MenuAction = 'rename' | 'grid' | 'list' | 'newDocument' | 'goHome' | 'focusSearch'

@@ -46,6 +46,18 @@ export function formatOpened(unixSeconds: number | null | undefined, now = new D
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+/** List view shows a time for today and a full date otherwise, like Docs. */
+export function formatListDate(unixSeconds: number | null | undefined, now = new Date()): string {
+  if (!unixSeconds) return ''
+  const date = new Date(unixSeconds * 1000)
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  if (sameDay) return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 export function avatarLetter(account: Account | null): string {
   const label = accountLabel(account)
   if (label === 'Sign in') return '?'
@@ -80,8 +92,14 @@ export function formFields(block: PendingApproval): { key: string; label: string
 }
 
 export function inputQuestions(block: PendingApproval): ToolRequestUserInputParams['questions'] {
-  if (block.method !== 'item/tool/requestUserInput') return []
-  return (block.extra as ToolRequestUserInputParams | undefined)?.questions ?? []
+  if (block.method === 'item/tool/requestUserInput') {
+    return (block.extra as ToolRequestUserInputParams | undefined)?.questions ?? []
+  }
+  // OpenCode questions are stored in the same shape (see opencode/session.ts).
+  if (block.method === 'opencode/question') {
+    return ((block.extra as { questions?: ToolRequestUserInputParams['questions'] } | undefined)?.questions ?? [])
+  }
+  return []
 }
 
 export function elicitationProperties(

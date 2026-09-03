@@ -1,36 +1,29 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 import { accountLabel, avatarLetter, displayServerName, toolsNeedingConnect } from '../../codex/labels'
 import type { Snapshot } from '../../codex/types'
 import { ChevronIcon, PenIcon } from './icons'
 import { dispatch } from './session-bridge'
 
-type MenuId = 'file' | 'edit' | 'view' | 'tools' | 'account' | 'model' | 'effort' | 'mode' | null
+type MenuId = 'file' | 'edit' | 'view' | 'tools' | 'account' | 'model' | 'effort' | 'speed' | 'mode' | 'provider' | null
 
 type Item = { id: string; label: string; run: () => void; disabled?: boolean; checked?: boolean }
 
 export function Banners({ snap }: { snap: Snapshot }) {
   if (snap.status !== 'ready') return null
+  // Connection and tool-auth state lives under Tools, never on the page.
+  // Only sign-in, explicit follow-ups, and real errors surface here.
   return (
     <div className="banners">
       {snap.requiresAuth && !snap.account ? (
         <div className="banner" role="status">
-          <span data-testid="auth-banner">Sign in with ChatGPT to use Docs.</span>
+          <span data-testid="auth-banner">Sign in to use Docs.</span>
           <button type="button" onClick={() => dispatch({ op: 'login' })}>
             Sign in
           </button>
         </div>
       ) : null}
-      {toolsNeedingConnect(snap.mcpServers).map((server) => (
-        <div className="banner warn" key={server.name} role="status">
-          <span data-testid={`mcp-banner-${server.name}`}>
-            {displayServerName(server.name)} needs to be reconnected.
-          </span>
-          <button type="button" onClick={() => dispatch({ op: 'connectMcp', name: server.name })}>
-            Connect
-          </button>
-        </div>
-      ))}
       {snap.loginUrl ? (
         <div className="banner" role="status">
           <span data-testid="login-url">Finish signing in in your browser.</span>
@@ -49,9 +42,15 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useDismiss(open, () => setOpen(false), ref)
-  const items: Item[] = snap.account
-    ? [{ id: 'logout', label: 'Log out', run: () => dispatch({ op: 'logout' }) }]
-    : [{ id: 'login', label: 'Log in with ChatGPT', run: () => dispatch({ op: 'login' }) }]
+  // OpenCode auth lives in the terminal (`opencode auth`); the account menu
+  // only manages the ChatGPT login behind the Codex provider.
+  const items: Item[] =
+    snap.provider === 'opencode'
+      ? []
+      : snap.account
+        ? [{ id: 'logout', label: 'Log out', run: () => dispatch({ op: 'logout' }) }]
+        : [{ id: 'login', label: 'Log in with ChatGPT', run: () => dispatch({ op: 'login' }) }]
+  const caption = snap.provider === 'opencode' ? 'OpenCode session' : null
   return (
     <div className="menu" ref={ref}>
       <button
@@ -68,7 +67,11 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
       </button>
       {open ? (
         <MenuPanel testId="panel-account" align="end" items={items} onClose={() => setOpen(false)}>
-          {snap.account ? <div className="menu-caption">{accountLabel(snap.account)}</div> : null}
+          {caption ? (
+            <div className="menu-caption">{caption}</div>
+          ) : snap.account ? (
+            <div className="menu-caption">{accountLabel(snap.account)}</div>
+          ) : null}
         </MenuPanel>
       ) : null}
     </div>
@@ -109,7 +112,19 @@ export function DocMenus({
       { id: 'list', label: 'List view', run: onList },
     ],
     tools: [
-      { id: 'refresh', label: 'Refresh from Codex', run: () => dispatch({ op: 'refresh' }) },
+      { id: 'refresh', label: 'Refresh', run: () => dispatch({ op: 'refresh' }) },
+      {
+        id: 'provider-codex',
+        label: 'Use Codex',
+        checked: snap.provider === 'codex',
+        run: () => dispatch({ op: 'setProvider', provider: 'codex' }),
+      },
+      {
+        id: 'provider-opencode',
+        label: 'Use OpenCode',
+        checked: snap.provider === 'opencode',
+        run: () => dispatch({ op: 'setProvider', provider: 'opencode' }),
+      },
       ...toolsNeedingConnect(snap.mcpServers).map((server) => ({
         id: `mcp-${server.name}`,
         label: `Connect ${displayServerName(server.name)}`,
@@ -154,22 +169,22 @@ export function DocMenus({
 
 export function Toolbar({ snap }: { snap: Snapshot }) {
   const [menu, setMenu] = useState<MenuId>(null)
-  const ref = useRef<HTMLDivElement>(null)
-  useDismiss(Boolean(menu), () => setMenu(null), ref)
   const model = snap.models.find((item) => item.model === snap.model)
   const efforts = model?.supportedReasoningEfforts ?? []
-  const primary = snap.rateLimits?.rateLimits.primary
-  const used = primary ? `${Math.round(primary.usedPercent)}% used` : null
+  const tiers = model?.serviceTiers ?? []
+  const speedName = tiers.find((tier) => tier.id === snap.speed)?.name ?? 'Standard'
   const toggle = (id: MenuId) => setMenu(menu === id ? null : id)
 
   return (
     <div className="toolbar-wrap">
-      <div className="toolbar" ref={ref} role="toolbar" aria-label="Document settings">
+      <div className="toolbar" role="toolbar" aria-label="Document settings">
         <Chip
           testId="chip-model"
           label={model?.displayName ?? snap.model ?? 'Model'}
           open={menu === 'model'}
           onClick={() => toggle('model')}
+          searchable
+          searchPlaceholder="Search models"
           items={snap.models.map((item) => ({
             id: item.model,
             label: item.displayName,
@@ -196,13 +211,56 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
             />
           </>
         ) : null}
-        <div className="toolbar-spacer" />
-        {used ? (
-          <span className="rate" title="Codex usage in the current window">
-            {used}
-          </span>
+        {tiers.length > 0 ? (
+          <>
+            <span className="divider" aria-hidden="true" />
+            <Chip
+              testId="chip-speed"
+              label={speedName}
+              open={menu === 'speed'}
+              onClick={() => toggle('speed')}
+              items={[
+                {
+                  id: 'default',
+                  label: 'Standard',
+                  checked: snap.speed == null,
+                  run: () => dispatch({ op: 'setSpeed', speed: null }),
+                },
+                ...tiers.map((tier) => ({
+                  id: tier.id,
+                  label: tier.name,
+                  checked: tier.id === snap.speed,
+                  run: () => dispatch({ op: 'setSpeed', speed: tier.id }),
+                })),
+              ]}
+              onClose={() => setMenu(null)}
+            />
+          </>
         ) : null}
-        {snap.collaborationModes.length > 0 ? (
+        <div className="toolbar-spacer" />
+        <Chip
+          testId="chip-provider"
+          label={snap.provider === 'codex' ? 'Codex' : 'OpenCode'}
+          open={menu === 'provider'}
+          align="end"
+          onClick={() => toggle('provider')}
+          items={[
+            {
+              id: 'codex',
+              label: 'Codex',
+              checked: snap.provider === 'codex',
+              run: () => dispatch({ op: 'setProvider', provider: 'codex' }),
+            },
+            {
+              id: 'opencode',
+              label: 'OpenCode',
+              checked: snap.provider === 'opencode',
+              run: () => dispatch({ op: 'setProvider', provider: 'opencode' }),
+            },
+          ]}
+          onClose={() => setMenu(null)}
+        />
+        {snap.collaborationModes.length > 1 ? (
           <>
             <span className="divider" aria-hidden="true" />
             <Chip
@@ -235,6 +293,8 @@ function Chip({
   testId,
   items,
   align,
+  searchable,
+  searchPlaceholder,
   onClose,
 }: {
   label: string
@@ -244,12 +304,23 @@ function Chip({
   testId: string
   items: Item[]
   align?: 'start' | 'end'
+  searchable?: boolean
+  searchPlaceholder?: string
   onClose: () => void
 }) {
+  const anchorRef = useRef<HTMLButtonElement>(null)
+  const [rect, setRect] = useState<DOMRect | null>(null)
+
+  useLayoutEffect(() => {
+    if (open) setRect(anchorRef.current?.getBoundingClientRect() ?? null)
+    else setRect(null)
+  }, [open])
+
   return (
     <div className="menu">
       <button
         type="button"
+        ref={anchorRef}
         className={`chip${open ? ' open' : ''}`}
         data-testid={testId}
         aria-haspopup="menu"
@@ -260,7 +331,112 @@ function Chip({
         <span className="chip-label">{label}</span>
         <ChevronIcon />
       </button>
-      {open ? <MenuPanel items={items} align={align} onClose={onClose} itemPrefix="pick" /> : null}
+      {open && rect
+        ? createPortal(
+            <ChipPopover
+              anchor={rect}
+              align={align}
+              items={items}
+              searchable={searchable}
+              searchPlaceholder={searchPlaceholder}
+              onClose={onClose}
+            />,
+            document.body,
+          )
+        : null}
+    </div>
+  )
+}
+
+/**
+ * Toolbar dropdowns float above the page in a portal, so opening one never
+ * scrolls or stretches the toolbar row itself.
+ */
+function ChipPopover({
+  anchor,
+  align,
+  items,
+  searchable,
+  searchPlaceholder,
+  onClose,
+}: {
+  anchor: DOMRect
+  align?: 'start' | 'end'
+  items: Item[]
+  searchable?: boolean
+  searchPlaceholder?: string
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const [query, setQuery] = useState('')
+  const visible =
+    query.trim() === '' ? items : items.filter((item) => item.label.toLowerCase().includes(query.trim().toLowerCase()))
+
+  useEffect(() => {
+    if (searchable) searchRef.current?.focus()
+  }, [searchable])
+
+  useEffect(() => {
+    const onPointer = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) onClose()
+    }
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    const onScroll = () => onClose()
+    document.addEventListener('mousedown', onPointer)
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('resize', onScroll)
+    window.addEventListener('scroll', onScroll, true)
+    return () => {
+      document.removeEventListener('mousedown', onPointer)
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', onScroll)
+      window.removeEventListener('scroll', onScroll, true)
+    }
+  }, [onClose])
+
+  const width = Math.min(360, Math.max(240, anchor.width + 48))
+  const maxHeight = Math.min(340, window.innerHeight - 16)
+  const opensUp = anchor.bottom + 8 + 200 > window.innerHeight && anchor.top - 8 - maxHeight > 0
+  const style: CSSProperties = opensUp
+    ? {
+        left: Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8)),
+        bottom: window.innerHeight - anchor.top + 8,
+        width,
+        maxHeight,
+      }
+    : {
+        left: Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8)),
+        top: anchor.bottom + 8,
+        width,
+        maxHeight,
+      }
+  if (align === 'end') {
+    style.left = Math.max(8, anchor.right - width)
+  }
+
+  return (
+    <div ref={ref} className="popover" style={style}>
+      {searchable ? (
+        <div className="popover-search">
+          <input
+            ref={searchRef}
+            data-testid="menu-search"
+            type="search"
+            aria-label={searchPlaceholder ?? 'Search'}
+            placeholder={searchPlaceholder ?? 'Search'}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+      ) : null}
+      {visible.length > 0 ? (
+        <MenuPanel items={visible} onClose={onClose} itemPrefix="pick" />
+      ) : (
+        <div className="popover-empty">No matches</div>
+      )}
     </div>
   )
 }

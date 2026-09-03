@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { formatOpened, ownerLabel, previewLines, threadTitle } from '../../codex/labels'
+import { formatListDate, formatOpened, ownerLabel, previewLines, threadTitle } from '../../codex/labels'
 import type { Snapshot } from '../../codex/types'
 import { AccountMenu } from './chrome'
-import { DocsIcon, DocsMark, FolderIcon, GridIcon, ListIcon, PlusIcon, SearchIcon } from './icons'
+import { DocsIcon, DocsMark, FolderIcon, GridIcon, KebabIcon, ListIcon, PlusIcon, SearchIcon } from './icons'
 import { dispatch } from './session-bridge'
 import { TEMPLATES, setPendingDraft, type Template } from './templates'
 
@@ -59,7 +59,7 @@ export function Home({
   view: HomeView
   onView: (view: HomeView) => void
 }) {
-  const sections = useMemo(() => groupThreads(snap), [snap])
+  const sections = useMemo(() => groupThreads(snap, view), [snap, view])
   const loading = snap.status === 'connecting' && snap.threads.length === 0
 
   return (
@@ -79,14 +79,14 @@ export function Home({
         </div>
       </section>
       <section className="recent">
-        {sections.map((section) => (
+        {sections.map((section, index) => (
           <div key={section.key} className="recent-inner">
             <div className="recent-head">
               <span className="section-title">
                 {section.kind === 'folder' ? <FolderIcon /> : null}
                 {section.title}
               </span>
-              {section.kind === 'recent' ? (
+              {section.kind === 'recent' && index === 0 ? (
                 <div className="view-toggle" role="group" aria-label="Layout">
                   <button
                     type="button"
@@ -271,25 +271,34 @@ function ListView({ snap, threads }: { snap: Snapshot; threads: Thread[] }) {
         <span role="columnheader">Last opened</span>
       </div>
       {threads.map((thread) => (
-        <button
-          type="button"
-          key={thread.id}
-          className="list-row"
-          role="row"
-          data-testid={`thread-${thread.id}`}
-          onClick={() => dispatch({ op: 'openThread', threadId: thread.id })}
-        >
-          <span className="list-name" role="cell">
-            <DocsMark size={22} />
-            <span>{threadTitle(thread)}</span>
-          </span>
-          <span className="list-owner" role="cell">
-            {ownerLabel(snap.account)}
-          </span>
-          <span className="list-date" role="cell">
-            {formatOpened(thread.recencyAt ?? thread.updatedAt)}
-          </span>
-        </button>
+        <div key={thread.id} className="list-row-wrap">
+          <button
+            type="button"
+            className="list-row"
+            role="row"
+            data-testid={`thread-${thread.id}`}
+            onClick={() => dispatch({ op: 'openThread', threadId: thread.id })}
+          >
+            <span className="list-name" role="cell">
+              <DocsMark size={22} />
+              <span>{threadTitle(thread)}</span>
+            </span>
+            <span className="list-owner" role="cell">
+              {ownerLabel(snap.account)}
+            </span>
+            <span className="list-date" role="cell">
+              {formatListDate(thread.recencyAt ?? thread.updatedAt)}
+            </span>
+          </button>
+          <button
+            type="button"
+            className="icon-btn row-more"
+            aria-label={`More actions for ${threadTitle(thread)}`}
+            onClick={() => dispatch({ op: 'openThread', threadId: thread.id })}
+          >
+            <KebabIcon />
+          </button>
+        </div>
       ))}
     </div>
   )
@@ -332,7 +341,8 @@ function EmptyState({ search }: { search: string }) {
 
 type Section = { key: string; title: string; kind: 'recent' | 'folder'; threads: Thread[] }
 
-function groupThreads(snap: Snapshot): Section[] {
+/** Loose docs group like real Docs: grid stays one shelf, list splits by recency. */
+function groupThreads(snap: Snapshot, view: HomeView): Section[] {
   const query = snap.search.trim().toLowerCase()
   const visible = query
     ? snap.threads.filter((thread) => `${thread.name ?? ''} ${thread.preview}`.toLowerCase().includes(query))
@@ -350,8 +360,12 @@ function groupThreads(snap: Snapshot): Section[] {
   }
   const known = new Set(snap.projects.map((project) => project.id))
   const orphans = [...byProject.entries()].filter(([id]) => !known.has(id))
+  const recent: Section[] =
+    view === 'list'
+      ? groupByRecency(loose)
+      : [{ key: 'recent', title: 'Recent documents', kind: 'recent', threads: loose }]
   const sections: Section[] = [
-    { key: 'recent', title: 'Recent documents', kind: 'recent', threads: loose },
+    ...recent,
     ...snap.projects.map((project) => ({
       key: `p-${project.id}`,
       title: project.name,
@@ -361,6 +375,31 @@ function groupThreads(snap: Snapshot): Section[] {
     ...orphans.map(([id, threads]) => ({ key: `orphan-${id}`, title: 'Folder', kind: 'folder' as const, threads })),
   ]
   return sections.filter((section) => section.threads.length > 0 || section.kind === 'recent')
+}
+
+function groupByRecency(threads: Thread[]): Section[] {
+  const buckets: Record<string, Thread[]> = {
+    Today: [],
+    Yesterday: [],
+    'Previous 7 days': [],
+    'Previous 30 days': [],
+    Older: [],
+  }
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const day = 86_400_000
+  for (const thread of threads) {
+    const at = (thread.recencyAt ?? thread.updatedAt ?? 0) * 1000
+    const age = startOfToday - new Date(at).setHours(0, 0, 0, 0)
+    if (age <= 0) buckets.Today.push(thread)
+    else if (age <= day) buckets.Yesterday.push(thread)
+    else if (age <= 7 * day) buckets['Previous 7 days'].push(thread)
+    else if (age <= 30 * day) buckets['Previous 30 days'].push(thread)
+    else buckets.Older.push(thread)
+  }
+  return Object.entries(buckets)
+    .filter(([, items]) => items.length > 0)
+    .map(([title, items]) => ({ key: `recent-${title}`, title, kind: 'recent' as const, threads: items }))
 }
 
 export function useHomeView(): [HomeView, (view: HomeView) => void] {

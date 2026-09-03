@@ -8,6 +8,10 @@ import { createFakeTransport } from '../codex/fake'
 import { displayServerName, needsReconnect } from '../codex/labels'
 import { CodexSession } from '../codex/session'
 import { spawnCodexAppServer } from '../codex/transport'
+import type { Provider } from '../codex/types'
+import { createFakeOpenCodeClient, createFakeServer } from '../opencode/fake'
+import { OpenCodeSession } from '../opencode/session'
+import { startOpenCodeServer } from '../opencode/client'
 import type { Command, MenuAction } from '../shared/api'
 
 protocol.registerSchemesAsPrivileged([
@@ -37,22 +41,57 @@ function prependPath() {
 
 prependPath()
 
-const session = new CodexSession(
+const codexSession = new CodexSession(
   process.env.HIDEGPT_FAKE === '1' ? () => createFakeTransport() : spawnCodexAppServer,
   (url) => {
     void shell.openExternal(url)
   },
 )
 
+let opencodeSession: OpenCodeSession | null = null
+let provider: Provider = 'codex'
+
+function activeSession(): CodexSession | OpenCodeSession {
+  return provider === 'opencode' && opencodeSession ? opencodeSession : codexSession
+}
+
+async function ensureOpencode(): Promise<OpenCodeSession> {
+  if (!opencodeSession) {
+    const fake = process.env.HIDEGPT_FAKE === '1'
+    opencodeSession = new OpenCodeSession(
+      fake ? () => Promise.resolve(createFakeServer(createFakeOpenCodeClient())) : (cwd) => startOpenCodeServer({ cwd }),
+    )
+    opencodeSession.subscribe(sendSnapshot)
+    await opencodeSession.start()
+  }
+  return opencodeSession
+}
+
+async function setProvider(next: Provider): Promise<void> {
+  if (next === provider && (next === 'codex' || opencodeSession)) return
+  if (next === 'opencode') {
+    await ensureOpencode()
+  }
+  provider = next
+  sendSnapshot()
+}
+
 let window: BrowserWindow | null = null
 let menuSignature = ''
 
 function sendSnapshot() {
-  const snap = session.getSnapshot()
+  const session = activeSession()
+  let snap = session.getSnapshot()
+  if (snap.provider === 'opencode') {
+    // Identity display follows the ChatGPT account when one is present.
+    const codexSnap = codexSession.getSnapshot()
+    snap = { ...snap, account: codexSnap.account, requiresAuth: false }
+  }
   const title = snap.route.kind === 'home' ? 'Docs' : snap.title || 'Docs'
   window?.setTitle(title)
   window?.webContents.send('snapshot', snap)
   const signature = JSON.stringify({
+    provider: snap.provider,
     account: snap.account,
     mcp: snap.mcpServers.map((server) => [server.name, server.authStatus, server.runtimeStatus]),
     route: snap.route.kind,
@@ -64,6 +103,11 @@ function sendSnapshot() {
 }
 
 async function runCommand(command: Command): Promise<void> {
+  if (command.op === 'setProvider') {
+    await setProvider(command.provider)
+    return
+  }
+  const session = activeSession()
   switch (command.op) {
     case 'newDocument':
       await session.newDocument()
@@ -101,6 +145,9 @@ async function runCommand(command: Command): Promise<void> {
     case 'setEffort':
       session.setEffort(command.effort)
       return
+    case 'setSpeed':
+      session.setSpeed(command.speed)
+      return
     case 'setCollaborationMode':
       session.setCollaborationMode(command.name)
       return
@@ -131,9 +178,10 @@ async function pickFolder() {
   const result = await dialog.showOpenDialog(window, {
     title: 'Open folder',
     properties: ['openDirectory'],
-    defaultPath: session.snapshot.cwd || undefined,
+    defaultPath: activeSession().snapshot.cwd || undefined,
   })
   if (result.canceled || !result.filePaths[0]) return
+  const session = activeSession()
   session.setFolderDraft(result.filePaths[0])
   session.applyFolder()
 }
@@ -143,11 +191,11 @@ function sendMenu(action: MenuAction) {
 }
 
 function rebuildMenu() {
-  const snap = session.getSnapshot()
+  const snap = activeSession().getSnapshot()
   const isMac = process.platform === 'darwin'
   const connectItems = snap.mcpServers.filter(needsReconnect).map((server) => ({
     label: `Connect ${displayServerName(server.name)}`,
-    click: () => void session.connectMcp(server.name),
+    click: () => void activeSession().connectMcp(server.name),
   }))
 
   const template: Electron.MenuItemConstructorOptions[] = [
@@ -173,12 +221,12 @@ function rebuildMenu() {
         {
           label: 'New document',
           accelerator: 'CmdOrCtrl+N',
-          click: () => void session.newDocument(),
+          click: () => void activeSession().newDocument(),
         },
         {
           label: 'Open home',
           accelerator: 'CmdOrCtrl+Shift+O',
-          click: () => session.goHome(),
+          click: () => activeSession().goHome(),
         },
         {
           label: 'Open folder…',
@@ -211,7 +259,7 @@ function rebuildMenu() {
           label: 'Find…',
           accelerator: 'CmdOrCtrl+F',
           click: () => {
-            if (session.snapshot.route.kind !== 'home') session.goHome()
+            if (activeSession().snapshot.route.kind !== 'home') activeSession().goHome()
             sendMenu('focusSearch')
           },
         },
@@ -235,7 +283,20 @@ function rebuildMenu() {
       label: 'Tools',
       submenu: [
         {
-          label: 'Refresh from Codex',
+          label: 'Use Codex',
+          type: 'checkbox',
+          checked: snap.provider === 'codex',
+          click: () => void runCommand({ op: 'setProvider', provider: 'codex' }),
+        },
+        {
+          label: 'Use OpenCode',
+          type: 'checkbox',
+          checked: snap.provider === 'opencode',
+          click: () => void runCommand({ op: 'setProvider', provider: 'opencode' }),
+        },
+        { type: 'separator' },
+        {
+          label: 'Refresh',
           click: () => void runCommand({ op: 'refresh' }),
         },
         ...connectItems,
@@ -244,8 +305,8 @@ function rebuildMenu() {
     {
       label: 'Account',
       submenu: snap.account
-        ? [{ label: 'Log out', click: () => void session.logout() }]
-        : [{ label: 'Log in with ChatGPT', click: () => void session.login() }],
+        ? [{ label: 'Log out', click: () => void codexSession.logout() }]
+        : [{ label: 'Log in with ChatGPT', click: () => void codexSession.login() }],
     },
   ]
 
@@ -309,13 +370,13 @@ async function captureScreenshots(win: BrowserWindow) {
     win.webContents.once('did-finish-load', () => resolve())
   })
   await new Promise<void>((resolve) => {
-    const stop = session.subscribe(() => {
-      if (session.snapshot.status !== 'connecting') {
+    const stop = codexSession.subscribe(() => {
+      if (codexSession.snapshot.status !== 'connecting') {
         stop()
         resolve()
       }
     })
-    if (session.snapshot.status !== 'connecting') {
+    if (codexSession.snapshot.status !== 'connecting') {
       stop()
       resolve()
     }
@@ -334,9 +395,9 @@ async function captureScreenshots(win: BrowserWindow) {
   `)
   await new Promise((resolve) => setTimeout(resolve, 200))
   writeFileSync(join(dir, 'home.png'), (await win.capturePage()).toPNG())
-  const first = session.snapshot.threads[0]
-  if (first) await session.openThread(first.id)
-  else await session.newDocument()
+  const first = codexSession.snapshot.threads[0]
+  if (first) await codexSession.openThread(first.id)
+  else await codexSession.newDocument()
   await win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
       const started = Date.now()
@@ -371,7 +432,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('command', async (_event, command: Command) => {
     await runCommand(command)
   })
-  session.subscribe(sendSnapshot)
+  codexSession.subscribe(sendSnapshot)
   rebuildMenu()
   const win = createWindow()
   win.webContents.on('did-finish-load', sendSnapshot)
@@ -379,7 +440,7 @@ app.whenReady().then(async () => {
     console.error('load failed', code, desc)
   })
   try {
-    await session.start()
+    await codexSession.start()
     await captureScreenshots(win)
   } catch (error) {
     console.error(error)
@@ -396,5 +457,6 @@ app.on('activate', () => {
 })
 
 app.on('before-quit', () => {
-  void session.close()
+  void codexSession.close()
+  void opencodeSession?.close()
 })
