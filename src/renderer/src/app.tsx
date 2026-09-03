@@ -4,20 +4,27 @@ import { Banners } from './chrome'
 import { Document, DocumentChrome } from './document'
 import { Home, HomeHeader, useHomeView } from './home'
 import { dispatch, platform, useMenuAction, useSnapshot } from './session-bridge'
+import type { MenuAction } from '../../shared/api'
 
 export function App() {
   const snap = useSnapshot()
   const [view, setView] = useHomeView()
   const titleRef = useRef<HTMLInputElement>(null)
-  const searchFocus = useCallback((action: 'rename' | 'grid' | 'list' | 'newDocument' | 'goHome' | 'focusSearch') => {
-    if (action === 'rename') titleRef.current?.focus()
-    if (action === 'grid') setView('grid')
-    if (action === 'list') setView('list')
-    if (action === 'focusSearch') {
-      document.querySelector<HTMLInputElement>('[data-testid="home-search"]')?.focus()
-    }
-  }, [setView])
-  useMenuAction(searchFocus)
+  const onMenu = useCallback(
+    (action: MenuAction) => {
+      if (action === 'rename') {
+        titleRef.current?.focus()
+        titleRef.current?.select()
+      }
+      if (action === 'grid') setView('grid')
+      if (action === 'list') setView('list')
+      if (action === 'focusSearch') {
+        document.querySelector<HTMLInputElement>('[data-testid="home-search"]')?.focus()
+      }
+    },
+    [setView],
+  )
+  useMenuAction(onMenu)
 
   return (
     <div data-testid="app" className={`app platform-${platform()} route-${snap.route.kind}`}>

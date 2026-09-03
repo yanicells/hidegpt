@@ -21,22 +21,29 @@ export function accountLabel(account: Account | null): string {
 }
 
 export function ownerLabel(account: Account | null): string {
-  if (!account) return '—'
-  if (account.type === 'chatgpt') return account.email ?? 'me'
-  return 'me'
+  return account ? 'me' : '—'
 }
 
 export function threadTitle(thread: Pick<Thread, 'name' | 'preview'>): string {
-  return thread.name?.trim() || thread.preview?.trim() || 'Untitled document'
+  const name = thread.name?.trim()
+  if (name) return name
+  const firstLine = thread.preview?.trim().split('\n')[0]?.trim()
+  return firstLine || 'Untitled document'
 }
 
-export function formatOpened(unixSeconds: number | null | undefined): string {
+/** Docs shows a time for today, month + day this year, and a full date otherwise. */
+export function formatOpened(unixSeconds: number | null | undefined, now = new Date()): string {
   if (!unixSeconds) return ''
-  return new Date(unixSeconds * 1000).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
+  const date = new Date(unixSeconds * 1000)
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  if (sameDay) return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  if (date.getFullYear() === now.getFullYear()) {
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 export function avatarLetter(account: Account | null): string {

@@ -1,42 +1,43 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
 import { accountLabel, avatarLetter, displayServerName, toolsNeedingConnect } from '../../codex/labels'
 import type { Snapshot } from '../../codex/types'
-import { ChevronIcon } from './icons'
+import { ChevronIcon, PenIcon } from './icons'
 import { dispatch } from './session-bridge'
 
 type MenuId = 'file' | 'edit' | 'view' | 'tools' | 'account' | 'model' | 'effort' | 'mode' | null
 
+type Item = { id: string; label: string; run: () => void; disabled?: boolean; checked?: boolean }
+
 export function Banners({ snap }: { snap: Snapshot }) {
+  if (snap.status !== 'ready') return null
   return (
     <div className="banners">
-      {snap.requiresAuth && snap.status === 'ready' && !snap.account ? (
-        <div className="banner">
+      {snap.requiresAuth && !snap.account ? (
+        <div className="banner" role="status">
           <span data-testid="auth-banner">Sign in with ChatGPT to use Docs.</span>
           <button type="button" onClick={() => dispatch({ op: 'login' })}>
             Sign in
           </button>
         </div>
       ) : null}
-      {snap.status === 'ready'
-        ? toolsNeedingConnect(snap.mcpServers).map((server) => (
-            <div className="banner warn" key={server.name}>
-              <span data-testid={`mcp-banner-${server.name}`}>
-                {displayServerName(server.name)} needs to be reconnected.
-              </span>
-              <button type="button" onClick={() => dispatch({ op: 'connectMcp', name: server.name })}>
-                Connect
-              </button>
-            </div>
-          ))
-        : null}
-      {snap.loginUrl && snap.status === 'ready' ? (
-        <div className="banner">
+      {toolsNeedingConnect(snap.mcpServers).map((server) => (
+        <div className="banner warn" key={server.name} role="status">
+          <span data-testid={`mcp-banner-${server.name}`}>
+            {displayServerName(server.name)} needs to be reconnected.
+          </span>
+          <button type="button" onClick={() => dispatch({ op: 'connectMcp', name: server.name })}>
+            Connect
+          </button>
+        </div>
+      ))}
+      {snap.loginUrl ? (
+        <div className="banner" role="status">
           <span data-testid="login-url">Finish signing in in your browser.</span>
         </div>
       ) : null}
-      {snap.error && snap.status === 'ready' ? (
-        <div className="banner danger">
+      {snap.error ? (
+        <div className="banner danger" role="alert">
           <span data-testid="error-banner">{snap.error}</span>
         </div>
       ) : null}
@@ -48,49 +49,33 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useDismiss(open, () => setOpen(false), ref)
+  const items: Item[] = snap.account
+    ? [{ id: 'logout', label: 'Log out', run: () => dispatch({ op: 'logout' }) }]
+    : [{ id: 'login', label: 'Log in with ChatGPT', run: () => dispatch({ op: 'login' }) }]
   return (
-    <div className="avatar-wrap" ref={ref}>
+    <div className="menu" ref={ref}>
       <button
         type="button"
         className="avatar"
         data-testid="menu-account"
         aria-label={accountLabel(snap.account)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={accountLabel(snap.account)}
         onClick={() => setOpen((value) => !value)}
       >
         {avatarLetter(snap.account)}
       </button>
       {open ? (
-        <div className="menu-panel" data-testid="panel-account" style={{ right: 0, left: 'auto' }}>
-          {snap.account ? (
-            <button
-              type="button"
-              className="menu-item"
-              data-testid="action-logout"
-              onClick={() => {
-                dispatch({ op: 'logout' })
-                setOpen(false)
-              }}
-            >
-              Log out
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="menu-item"
-              data-testid="action-login"
-              onClick={() => {
-                dispatch({ op: 'login' })
-                setOpen(false)
-              }}
-            >
-              Log in with ChatGPT
-            </button>
-          )}
-        </div>
+        <MenuPanel testId="panel-account" align="end" items={items} onClose={() => setOpen(false)}>
+          {snap.account ? <div className="menu-caption">{accountLabel(snap.account)}</div> : null}
+        </MenuPanel>
       ) : null}
     </div>
   )
 }
+
+const MENU_ORDER = ['file', 'edit', 'view', 'tools'] as const
 
 export function DocMenus({
   snap,
@@ -107,91 +92,63 @@ export function DocMenus({
   const ref = useRef<HTMLElement>(null)
   useDismiss(Boolean(menu), () => setMenu(null), ref)
 
-  const fileItems = [
-    { id: 'new', label: 'New document', run: () => dispatch({ op: 'newDocument' }) },
-    { id: 'home', label: 'Open home', run: () => dispatch({ op: 'goHome' }) },
-    { id: 'folder', label: 'Open folder…', run: () => dispatch({ op: 'openFolder' }) },
-    { id: 'rename', label: 'Rename…', run: onRename, disabled: snap.route.kind !== 'doc' },
-  ]
-  const editItems = [
-    { id: 'copy', label: 'Copy', run: () => document.execCommand('copy') },
-    { id: 'paste', label: 'Paste', run: () => document.execCommand('paste') },
-    { id: 'select', label: 'Select all', run: () => document.execCommand('selectAll') },
-  ]
-  const viewItems = [
-    { id: 'grid', label: 'Grid view', run: onGrid },
-    { id: 'list', label: 'List view', run: onList },
-  ]
-  const toolItems = [
-    { id: 'refresh', label: 'Refresh from Codex', run: () => dispatch({ op: 'refresh' }) },
-    ...snap.mcpServers
-      .filter(
-        (server) =>
-          server.authStatus === 'notLoggedIn' ||
-          server.runtimeStatus === 'authenticationRequired' ||
-          server.runtimeStatus === 'failed',
-      )
-      .map((server) => ({
+  const items: Record<(typeof MENU_ORDER)[number], Item[]> = {
+    file: [
+      { id: 'new', label: 'New document', run: () => dispatch({ op: 'newDocument' }) },
+      { id: 'home', label: 'Open home', run: () => dispatch({ op: 'goHome' }) },
+      { id: 'folder', label: 'Open folder…', run: () => dispatch({ op: 'openFolder' }) },
+      { id: 'rename', label: 'Rename…', run: onRename, disabled: snap.route.kind !== 'doc' },
+    ],
+    edit: [
+      { id: 'copy', label: 'Copy', run: () => document.execCommand('copy') },
+      { id: 'paste', label: 'Paste', run: () => document.execCommand('paste') },
+      { id: 'select', label: 'Select all', run: () => document.execCommand('selectAll') },
+    ],
+    view: [
+      { id: 'grid', label: 'Grid view', run: onGrid },
+      { id: 'list', label: 'List view', run: onList },
+    ],
+    tools: [
+      { id: 'refresh', label: 'Refresh from Codex', run: () => dispatch({ op: 'refresh' }) },
+      ...toolsNeedingConnect(snap.mcpServers).map((server) => ({
         id: `mcp-${server.name}`,
         label: `Connect ${displayServerName(server.name)}`,
         run: () => dispatch({ op: 'connectMcp', name: server.name }),
       })),
-  ]
+    ],
+  }
+
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (!menu || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return
+    const index = MENU_ORDER.indexOf(menu as (typeof MENU_ORDER)[number])
+    if (index < 0) return
+    event.preventDefault()
+    const step = event.key === 'ArrowRight' ? 1 : -1
+    setMenu(MENU_ORDER[(index + step + MENU_ORDER.length) % MENU_ORDER.length])
+  }
 
   return (
-    <nav className="doc-menus" ref={ref}>
-      <DropMenu id="file" label="File" menu={menu} setMenu={setMenu} items={fileItems} />
-      <DropMenu id="edit" label="Edit" menu={menu} setMenu={setMenu} items={editItems} />
-      <DropMenu id="view" label="View" menu={menu} setMenu={setMenu} items={viewItems} />
-      <DropMenu id="tools" label="Tools" menu={menu} setMenu={setMenu} items={toolItems} />
-    </nav>
-  )
-}
-
-function DropMenu({
-  id,
-  label,
-  menu,
-  setMenu,
-  items,
-}: {
-  id: Exclude<MenuId, null>
-  label: string
-  menu: MenuId
-  setMenu: (id: MenuId) => void
-  items: { id: string; label: string; run: () => void; disabled?: boolean }[]
-}) {
-  const open = menu === id
-  return (
-    <div className="menu">
-      <button
-        type="button"
-        className={`menu-label${open ? ' open' : ''}`}
-        data-testid={`menu-${id}`}
-        onClick={() => setMenu(open ? null : id)}
-      >
-        {label}
-      </button>
-      {open ? (
-        <div className="menu-panel" data-testid={`panel-${id}`}>
-          {items.map((item) => (
-            <button
-              type="button"
-              key={item.id}
-              className="menu-item"
-              data-testid={`action-${item.id}`}
-              disabled={item.disabled}
-              onClick={() => {
-                item.run()
-                setMenu(null)
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
+    <nav className="doc-menus" ref={ref} role="menubar" aria-label="Document" onKeyDown={onKeyDown}>
+      {MENU_ORDER.map((id) => (
+        <div className="menu" key={id}>
+          <button
+            type="button"
+            className={`menu-label${menu === id ? ' open' : ''}`}
+            data-testid={`menu-${id}`}
+            role="menuitem"
+            aria-haspopup="menu"
+            aria-expanded={menu === id}
+            onClick={() => setMenu(menu === id ? null : id)}
+            onMouseEnter={() => {
+              if (menu && menu !== id) setMenu(id)
+            }}
+          >
+            {id.charAt(0).toUpperCase() + id.slice(1)}
+          </button>
+          {menu === id ? <MenuPanel testId={`panel-${id}`} items={items[id]} onClose={() => setMenu(null)} /> : null}
         </div>
-      ) : null}
-    </div>
+      ))}
+    </nav>
   )
 }
 
@@ -201,113 +158,183 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
   useDismiss(Boolean(menu), () => setMenu(null), ref)
   const model = snap.models.find((item) => item.model === snap.model)
   const efforts = model?.supportedReasoningEfforts ?? []
-  const used = snap.rateLimits?.rateLimits.primary
-    ? `${Math.round(snap.rateLimits.rateLimits.primary.usedPercent)}%`
-    : null
+  const primary = snap.rateLimits?.rateLimits.primary
+  const used = primary ? `${Math.round(primary.usedPercent)}% used` : null
+  const toggle = (id: MenuId) => setMenu(menu === id ? null : id)
 
   return (
-    <div className="toolbar" ref={ref}>
-      <Chip
-        testId="chip-model"
-        label={model?.displayName ?? snap.model ?? 'Model'}
-        open={menu === 'model'}
-        onClick={() => setMenu(menu === 'model' ? null : 'model')}
-      >
-        {menu === 'model'
-          ? snap.models.map((item) => (
-              <button
-                type="button"
-                key={item.model}
-                className="menu-item"
-                data-testid={`pick-${item.model}`}
-                onClick={() => {
-                  dispatch({ op: 'setModel', model: item.model })
-                  setMenu(null)
-                }}
-              >
-                {item.displayName}
-              </button>
-            ))
-          : null}
-      </Chip>
-      {efforts.length > 0 ? (
+    <div className="toolbar-wrap">
+      <div className="toolbar" ref={ref} role="toolbar" aria-label="Document settings">
         <Chip
-          testId="chip-effort"
-          label={snap.effort ?? 'Effort'}
-          open={menu === 'effort'}
-          onClick={() => setMenu(menu === 'effort' ? null : 'effort')}
-        >
-          {menu === 'effort'
-            ? efforts.map((item) => (
-                <button
-                  type="button"
-                  key={item.reasoningEffort}
-                  className="menu-item"
-                  data-testid={`pick-${item.reasoningEffort}`}
-                  onClick={() => {
-                    dispatch({ op: 'setEffort', effort: item.reasoningEffort })
-                    setMenu(null)
-                  }}
-                >
-                  {item.reasoningEffort}
-                </button>
-              ))
-            : null}
-        </Chip>
-      ) : null}
-      {snap.collaborationModes.length > 0 ? (
-        <Chip
-          testId="chip-mode"
-          label={snap.collaborationMode ?? 'Mode'}
-          open={menu === 'mode'}
-          onClick={() => setMenu(menu === 'mode' ? null : 'mode')}
-        >
-          {menu === 'mode'
-            ? snap.collaborationModes.map((item) => (
-                <button
-                  type="button"
-                  key={item.name}
-                  className="menu-item"
-                  data-testid={`pick-${item.name}`}
-                  onClick={() => {
-                    dispatch({ op: 'setCollaborationMode', name: item.name })
-                    setMenu(null)
-                  }}
-                >
-                  {item.name}
-                </button>
-              ))
-            : null}
-        </Chip>
-      ) : null}
-      <div className="toolbar-spacer" />
-      {used ? <span className="rate">{used} used</span> : null}
+          testId="chip-model"
+          label={model?.displayName ?? snap.model ?? 'Model'}
+          open={menu === 'model'}
+          onClick={() => toggle('model')}
+          items={snap.models.map((item) => ({
+            id: item.model,
+            label: item.displayName,
+            checked: item.model === snap.model,
+            run: () => dispatch({ op: 'setModel', model: item.model }),
+          }))}
+          onClose={() => setMenu(null)}
+        />
+        {efforts.length > 0 ? (
+          <>
+            <span className="divider" aria-hidden="true" />
+            <Chip
+              testId="chip-effort"
+              label={capitalize(snap.effort ?? 'Effort')}
+              open={menu === 'effort'}
+              onClick={() => toggle('effort')}
+              items={efforts.map((item) => ({
+                id: item.reasoningEffort,
+                label: capitalize(item.reasoningEffort),
+                checked: item.reasoningEffort === snap.effort,
+                run: () => dispatch({ op: 'setEffort', effort: item.reasoningEffort }),
+              }))}
+              onClose={() => setMenu(null)}
+            />
+          </>
+        ) : null}
+        <div className="toolbar-spacer" />
+        {used ? (
+          <span className="rate" title="Codex usage in the current window">
+            {used}
+          </span>
+        ) : null}
+        {snap.collaborationModes.length > 0 ? (
+          <>
+            <span className="divider" aria-hidden="true" />
+            <Chip
+              testId="chip-mode"
+              icon={<PenIcon />}
+              label={snap.collaborationMode ?? 'Mode'}
+              open={menu === 'mode'}
+              align="end"
+              onClick={() => toggle('mode')}
+              items={snap.collaborationModes.map((item) => ({
+                id: item.name,
+                label: item.name,
+                checked: item.name === snap.collaborationMode,
+                run: () => dispatch({ op: 'setCollaborationMode', name: item.name }),
+              }))}
+              onClose={() => setMenu(null)}
+            />
+          </>
+        ) : null}
+      </div>
     </div>
   )
 }
 
 function Chip({
   label,
+  icon,
   open,
   onClick,
   testId,
-  children,
+  items,
+  align,
+  onClose,
 }: {
   label: string
+  icon?: ReactNode
   open: boolean
   onClick: () => void
   testId: string
-  children?: ReactNode
+  items: Item[]
+  align?: 'start' | 'end'
+  onClose: () => void
 }) {
   return (
     <div className="menu">
-      <button type="button" className={`chip${open ? ' open' : ''}`} data-testid={testId} onClick={onClick}>
-        {label}
+      <button
+        type="button"
+        className={`chip${open ? ' open' : ''}`}
+        data-testid={testId}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={onClick}
+      >
+        {icon}
+        <span className="chip-label">{label}</span>
         <ChevronIcon />
       </button>
-      {open ? <div className="menu-panel">{children}</div> : null}
+      {open ? <MenuPanel items={items} align={align} onClose={onClose} itemPrefix="pick" /> : null}
     </div>
   )
+}
+
+function MenuPanel({
+  items,
+  onClose,
+  testId,
+  align = 'start',
+  itemPrefix = 'action',
+  children,
+}: {
+  items: Item[]
+  onClose: () => void
+  testId?: string
+  align?: 'start' | 'end'
+  itemPrefix?: string
+  children?: ReactNode
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    ref.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')?.focus()
+  }, [])
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') return
+    const buttons = Array.from(
+      ref.current?.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)') ?? [],
+    )
+    if (buttons.length === 0) return
+    event.preventDefault()
+    const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? buttons.length - 1
+          : (current + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length
+    buttons[next]?.focus()
+  }
+
+  return (
+    <div
+      ref={ref}
+      className={`menu-panel align-${align}`}
+      role="menu"
+      data-testid={testId}
+      onKeyDown={onKeyDown}
+    >
+      {children}
+      {items.map((item) => (
+        <button
+          type="button"
+          key={item.id}
+          className={`menu-item${item.checked ? ' checked' : ''}`}
+          role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
+          aria-checked={item.checked}
+          data-testid={`${itemPrefix}-${item.id}`}
+          disabled={item.disabled}
+          onClick={() => {
+            item.run()
+            onClose()
+          }}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function capitalize(text: string): string {
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text
 }
 
 function useDismiss(active: boolean, onClose: () => void, ref: { current: HTMLElement | null }) {
@@ -316,7 +343,7 @@ function useDismiss(active: boolean, onClose: () => void, ref: { current: HTMLEl
     const onPointer = (event: MouseEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) onClose()
     }
-    const onKey = (event: KeyboardEvent) => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
     document.addEventListener('mousedown', onPointer)

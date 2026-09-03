@@ -206,6 +206,15 @@ function rebuildMenu() {
         { role: 'copy' },
         { role: 'paste' },
         { role: 'selectAll' },
+        { type: 'separator' },
+        {
+          label: 'Find…',
+          accelerator: 'CmdOrCtrl+F',
+          click: () => {
+            if (session.snapshot.route.kind !== 'home') session.goHome()
+            sendMenu('focusSearch')
+          },
+        },
       ],
     },
     {
@@ -214,10 +223,12 @@ function rebuildMenu() {
         { label: 'Grid view', click: () => sendMenu('grid') },
         { label: 'List view', click: () => sendMenu('list') },
         { type: 'separator' },
-        { role: 'reload' },
-        { role: 'toggleDevTools' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
         { type: 'separator' },
         { role: 'togglefullscreen' },
+        ...(app.isPackaged ? [] : [{ type: 'separator' as const }, { role: 'reload' as const }, { role: 'toggleDevTools' as const }]),
       ],
     },
     {
@@ -254,8 +265,8 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
     height: 840,
-    minWidth: 880,
-    minHeight: 640,
+    minWidth: 720,
+    minHeight: 560,
     title: 'Docs',
     backgroundColor: '#ffffff',
     show: false,
