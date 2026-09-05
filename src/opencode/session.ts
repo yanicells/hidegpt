@@ -1,9 +1,20 @@
+import * as approvals from './approvals'
+import type { NewDocumentOptions } from '../shared/api'
 import { existsSync } from 'node:fs'
 
 import { emptySnapshot, type Snapshot } from '../codex/types'
 import { startOpenCodeServer, type OpenCodeClient, type OpenCodeServer, type OpenEvent } from './client'
 import { handleEvent } from './events'
-import { blocksFromMessages, messageText, preferredDefault, sessionTitle, splitModelId, toCodexModel, toCodexProject, toCodexThread } from './mapping'
+import {
+  blocksFromMessages,
+  messageText,
+  preferredDefault,
+  sessionTitle,
+  splitModelId,
+  toCodexModel,
+  toCodexProject,
+  toCodexThread,
+} from './mapping'
 
 export type { Snapshot } from '../codex/types'
 
@@ -57,7 +68,6 @@ export class OpenCodeSession {
     try {
       const cwd = this.snapshot.cwd
       this.server = await this.createClient(existsSync(cwd) ? cwd : process.cwd())
-      this.subscribeToEvents()
       await this.refreshCatalog()
       this.patch({ status: 'ready', error: null })
     } catch (error) {
@@ -78,13 +88,53 @@ export class OpenCodeSession {
     this.abortEvents?.abort()
     this.abortEvents = new AbortController()
     try {
-      client.subscribeEvents((event) => this.onEvent(event), this.abortEvents.signal)
+      client.subscribeEvents(
+        (event) => this.onEvent(event),
+        this.abortEvents.signal,
+        () => void this.restoreConnection(),
+        () => this.patch({ error: 'Updates interrupted. Use Stop, then Tools → Refresh to reconnect.' }),
+      )
     } catch {
       // event stream failures surface on next user action; catalog still works
     }
   }
 
+  private async restoreConnection() {
+    const client = this.client
+    const id = this.activeSessionId
+    if (!client || !id) return
+    try {
+      const [messages, statuses] = await Promise.all([
+        client.listMessages(id, Math.max(100, this.snapshot.blocks.length), this.snapshot.cwd),
+        client.sessionStatuses(),
+      ])
+      if (this.activeSessionId !== id) return
+      const approvals = this.snapshot.blocks.filter((block) => block.kind === 'approval')
+      this.pendingLocalId = null
+      this.streamText.clear()
+      for (const message of messages) {
+        if (message.info.role !== 'assistant') continue
+        this.streamText.set(
+          message.info.id,
+          new Map(
+            message.parts
+              .filter((part) => part.type === 'text' && !part.synthetic)
+              .map((part) => [part.id, part.text ?? '']),
+          ),
+        )
+      }
+      this.patch({
+        blocks: [...blocksFromMessages(messages), ...approvals],
+        error: null,
+        streaming: Boolean(statuses[id] && statuses[id].type !== 'idle'),
+      })
+    } catch (error) {
+      this.fail(error)
+    }
+  }
+
   async refreshCatalog() {
+    this.subscribeToEvents()
     const client = this.client
     if (!client) return
     try {
@@ -94,11 +144,17 @@ export class OpenCodeSession {
         client.listAgents(),
         client.listProjects(),
       ])
-      this.agents = agents.map((agent) => agent.name).filter((name) => name.toLowerCase() !== 'plan')
-      if (!this.agents.includes(this.agent)) this.agent = this.agents.includes('build') ? 'build' : (this.agents[0] ?? 'build')
+      this.agents = agents
+        .filter((agent) => agent.mode !== 'subagent' && agent.name.toLowerCase() !== 'plan')
+        .map((agent) => agent.name)
+      if (!this.agents.includes(this.agent))
+        this.agent = this.agents.includes('build') ? 'build' : (this.agents[0] ?? 'build')
       const mappedModels = catalog.models.map(toCodexModel)
       if (!this.model) {
-        const preferred = preferredDefault(catalog.defaults, catalog.models.map((m) => `${m.providerID}/${m.id}`))
+        const preferred = preferredDefault(
+          catalog.defaults,
+          catalog.models.map((m) => `${m.providerID}/${m.id}`),
+        )
         const chosen = preferred ?? mappedModels.find((m) => m.isDefault)?.model ?? mappedModels[0]?.model ?? null
         this.model = chosen ? splitModelId(chosen) : null
       }
@@ -108,7 +164,7 @@ export class OpenCodeSession {
         effort: null,
         ...serviceTierReset,
         collaborationModes: agents
-          .filter((agent) => agent.name.toLowerCase() !== 'plan')
+          .filter((agent) => agent.name.toLowerCase() !== 'plan' && agent.mode !== 'subagent')
           .map((agent) => ({ name: agent.name, mode: null, model: null, reasoning_effort: null })),
         collaborationMode: this.agent,
         projects: projects.map(toCodexProject),
@@ -118,7 +174,9 @@ export class OpenCodeSession {
         rateLimits: null,
         mcpServers: [],
       })
-    } catch (error) { this.fail(error) }
+    } catch (error) {
+      this.fail(error)
+    }
   }
 
   setSearch(value: string) {
@@ -128,9 +186,12 @@ export class OpenCodeSession {
   async applySearch() {
     if (!this.client) return
     try {
-      const sessions = await this.client.listSessions({ search: this.snapshot.search || undefined, limit: 100 })
-      this.patch({ threads: sessions.map(toCodexThread) })
-    } catch (error) { this.fail(error) }
+      const search = this.snapshot.search
+      const sessions = await this.client.listSessions({ search: search || undefined, limit: 100 })
+      if (this.snapshot.search === search) this.patch({ threads: sessions.map(toCodexThread) })
+    } catch (error) {
+      this.fail(error)
+    }
   }
 
   goHome() {
@@ -139,7 +200,15 @@ export class OpenCodeSession {
     this.activeSessionId = null
     this.pendingLocalId = null
     this.streamText.clear()
-    this.patch({ route: { kind: 'home' }, title: 'Docs', blocks: [], streaming: false, olderTurnsCursor: null, loadingOlder: false })
+    this.patch({
+      openingThreadId: null,
+      route: { kind: 'home' },
+      title: 'Docs',
+      blocks: [],
+      streaming: false,
+      olderTurnsCursor: null,
+      loadingOlder: false,
+    })
   }
 
   setModel(model: string) {
@@ -182,23 +251,30 @@ export class OpenCodeSession {
   }
 
   async openThread(threadId: string) {
+    this.patch({ openingThreadId: threadId, error: null })
     this.nav += 1
     const token = this.nav
     const client = this.client
-    if (!client) return
+    if (!client) {
+      this.patch({ openingThreadId: null })
+      return
+    }
     this.abandonTurn()
     this.pendingLocalId = null
     try {
-      const messages = await client.listMessages(threadId, 200)
-      if (token !== this.nav) return
-      const sessions = await client.listSessions({ limit: 100 })
-      const session = sessions.find((item) => item.id === threadId)
+      const directory = this.snapshot.threads.find((thread) => thread.id === threadId)?.cwd
+      const [messages, session] = await Promise.all([
+        client.listMessages(threadId, 100, directory),
+        client.getSession(threadId, directory),
+      ])
       if (token !== this.nav) return
       this.activeSessionId = threadId
       this.streamText.clear()
       if (session?.model) this.model = { ...session.model }
       if (session?.agent && session.agent.toLowerCase() !== 'plan') this.agent = session.agent
-      const keep = this.snapshot.blocks.filter((b) => b.kind === 'approval' && (b.extra as { sessionId?: string } | undefined)?.sessionId === threadId)
+      const keep = this.snapshot.blocks.filter(
+        (b) => b.kind === 'approval' && (b.extra as { sessionId?: string } | undefined)?.sessionId === threadId,
+      )
       this.patch({
         route: { kind: 'doc', threadId },
         title: sessionTitle(session?.title, messages),
@@ -206,18 +282,51 @@ export class OpenCodeSession {
         cwd: session?.directory ?? this.snapshot.cwd,
         model: this.model ? `${this.model.providerID}/${this.model.modelID}` : this.snapshot.model,
         collaborationMode: this.agent,
-        streaming: false, error: null, olderTurnsCursor: null, loadingOlder: false,
+        streaming: false,
+        error: null,
+        olderTurnsCursor: messages.length >= 100 ? '100' : null,
+        loadingOlder: false,
+        openingThreadId: null,
       })
     } catch (error) {
       if (token !== this.nav) return
       this.fail(error)
-      this.patch({ route: { kind: 'home' } })
+      this.patch({ openingThreadId: null, route: { kind: 'home' } })
     }
   }
 
-  async loadOlderTurns() {}
+  async loadOlderTurns() {
+    const client = this.client
+    const sessionId = this.activeSessionId
+    const { olderTurnsCursor, loadingOlder, cwd } = this.snapshot
+    if (!client || !sessionId || !olderTurnsCursor || loadingOlder || this.snapshot.streaming) return
+    const token = this.nav
+    const limit = Number(olderTurnsCursor) + 100
+    this.patch({ loadingOlder: true })
+    try {
+      const messages = await client.listMessages(sessionId, limit, cwd)
+      if (token !== this.nav) return
+      const approvals = this.snapshot.blocks.filter((block) => block.kind === 'approval')
+      this.patch({
+        blocks: [...blocksFromMessages(messages), ...approvals],
+        loadingOlder: false,
+        olderTurnsCursor: messages.length >= limit ? String(limit) : null,
+      })
+    } catch (error) {
+      if (token === this.nav) {
+        this.fail(error)
+        this.patch({ loadingOlder: false })
+      }
+    }
+  }
 
-  async newDocument() {
+  async createProject(name: string, cwd: string) {
+    if (!this.client) throw new Error('Not connected')
+    await this.client.createProject(name.trim(), cwd)
+    await this.refreshCatalog()
+  }
+
+  async newDocument(options?: NewDocumentOptions) {
     this.nav += 1
     const token = this.nav
     const client = this.client
@@ -225,22 +334,30 @@ export class OpenCodeSession {
     this.abandonTurn()
     this.pendingLocalId = null
     try {
-      const session = await client.createSession({ agent: this.agent, model: this.model ?? undefined })
+      const session = await client.createSession({
+        agent: this.agent,
+        model: this.model ?? undefined,
+        directory: options?.cwd ?? (options ? homeDir() : this.snapshot.cwd),
+        title: options?.title?.trim() || undefined,
+      })
       if (token !== this.nav) return
       this.activeSessionId = session.id
       this.streamText.clear()
       this.patch({
         route: { kind: 'doc', threadId: session.id },
-        title: 'Untitled document',
+        title: options?.title?.trim() || 'Untitled document',
         blocks: [],
         cwd: session.directory || this.snapshot.cwd,
-        streaming: false, error: null, olderTurnsCursor: null, loadingOlder: false,
+        streaming: false,
+        error: null,
+        olderTurnsCursor: null,
+        loadingOlder: false,
       })
       await this.refreshThreads()
     } catch (error) {
       if (token !== this.nav) return
       this.fail(error)
-      this.patch({ route: { kind: 'home' } })
+      this.patch({ openingThreadId: null, route: { kind: 'home' } })
     }
   }
 
@@ -256,12 +373,17 @@ export class OpenCodeSession {
     }
     const localId = `local-${Date.now()}`
     this.pendingLocalId = localId
-    this.patch({ blocks: [...this.snapshot.blocks, { kind: 'user', id: localId, text: trimmed }], streaming: true, error: null })
+    this.patch({
+      blocks: [...this.snapshot.blocks, { kind: 'user', id: localId, text: trimmed }],
+      streaming: true,
+      error: null,
+    })
     try {
       await client.promptAsync(sessionId, {
         model: { providerID: this.model.providerID, modelID: this.model.modelID },
         agent: this.agent,
         text: trimmed,
+        directory: this.snapshot.cwd,
       })
     } catch (error) {
       this.pendingLocalId = null
@@ -280,25 +402,39 @@ export class OpenCodeSession {
     if (!client || !sessionId || !this.snapshot.streaming) return
     this.streamText.clear()
     this.patch({ streaming: false })
-    void client.abort(sessionId).catch(() => {})
+    void client.abort(sessionId, this.snapshot.cwd).catch(() => {})
   }
 
   async interrupt() {
     const client = this.client
     const sessionId = this.activeSessionId
     if (!client || !sessionId) return
-    try { await client.abort(sessionId) } catch { /* idle sessions may reject abort */ }
+    try {
+      await client.abort(sessionId, this.snapshot.cwd)
+    } catch {
+      /* idle sessions may reject abort */
+    }
     this.patch({ streaming: false })
     await this.reconcile(sessionId)
   }
 
   async setDocumentName(name: string) {
     const trimmed = name.trim()
-    if (!trimmed || trimmed === this.snapshot.title) return
-    this.patch({
-      title: trimmed,
-      threads: this.snapshot.threads.map((thread) => (thread.id === this.activeSessionId ? { ...thread, name: trimmed } : thread)),
-    })
+    const sessionId = this.activeSessionId
+    const client = this.client
+    if (!client || !sessionId || !trimmed || trimmed === this.snapshot.title) return
+    try {
+      await client.renameSession(sessionId, trimmed, this.snapshot.cwd)
+      if (this.activeSessionId !== sessionId) return
+      this.patch({
+        title: trimmed,
+        threads: this.snapshot.threads.map((thread) =>
+          thread.id === sessionId ? { ...thread, name: trimmed } : thread,
+        ),
+      })
+    } catch (error) {
+      this.fail(error)
+    }
   }
 
   async logout() {
@@ -312,29 +448,20 @@ export class OpenCodeSession {
   }
 
   setApprovalDraft(blockId: string, key: string, value: string) {
-    this.patch({
-      blocks: this.snapshot.blocks.map((item) => (item.kind === 'approval' && item.id === blockId ? { ...item, drafts: { ...item.drafts, [key]: value } } : item)),
-    })
+    this.patch({ blocks: approvals.setDraft(this.snapshot.blocks, blockId, key, value) })
   }
 
   resolveApproval(blockId: string, accept: boolean) {
-    const client = this.client
-    const block = this.snapshot.blocks.find((item) => item.id === blockId)
-    if (!block || block.kind !== 'approval' || block.resolved !== null || !client) return
-    const extra = block.extra as { requestId: string; questions?: { id: string }[] } | undefined
-    if (!extra?.requestId) return
-    if (block.method === 'opencode/permission') {
-      void client.replyPermission(extra.requestId, accept).catch((error: unknown) => this.fail(error))
-    } else if (block.method === 'opencode/question') {
-      if (accept) {
-        const answers = (extra.questions ?? []).map((q) => (block.drafts[q.id] ? [block.drafts[q.id]] : []))
-        void client.replyQuestion(extra.requestId, answers).catch((error: unknown) => this.fail(error))
-      } else {
-        void client.rejectQuestion(extra.requestId).catch(() => {})
-      }
-    }
+    if (!this.client) return
     this.patch({
-      blocks: this.snapshot.blocks.map((item) => (item.id === blockId ? { ...item, resolved: accept ? 'accepted' : 'skipped' } : item)),
+      blocks: approvals.resolveApproval(
+        this.client,
+        this.snapshot.blocks,
+        blockId,
+        accept,
+        this.snapshot.cwd,
+        (error) => this.fail(error),
+      ),
     })
   }
 
@@ -342,21 +469,30 @@ export class OpenCodeSession {
     const client = this.client
     if (!client) return
     try {
-      const sessions = await client.listSessions({ search: this.snapshot.search || undefined, limit: 100 })
-      this.patch({ threads: sessions.map(toCodexThread) })
-    } catch { /* home list refresh is best-effort */ }
+      const search = this.snapshot.search
+      const sessions = await client.listSessions({ search: search || undefined, limit: 100 })
+      if (this.snapshot.search === search) this.patch({ threads: sessions.map(toCodexThread) })
+    } catch {
+      /* home list refresh is best-effort */
+    }
   }
 
   private async reconcile(sessionId: string) {
     const client = this.client
     if (!client || this.activeSessionId !== sessionId) return
     try {
-      const messages = await client.listMessages(sessionId, 200)
+      const messages = await client.listMessages(
+        sessionId,
+        Math.max(100, Number(this.snapshot.olderTurnsCursor) || this.snapshot.blocks.length),
+        this.snapshot.cwd,
+      )
       if (this.activeSessionId !== sessionId) return
       const approvals = this.snapshot.blocks.filter((block) => block.kind === 'approval')
       this.pendingLocalId = null
       this.patch({ blocks: [...blocksFromMessages(messages), ...approvals], streaming: false })
-    } catch { this.patch({ streaming: false }) }
+    } catch {
+      this.patch({ streaming: false })
+    }
   }
 
   private onEvent(event: OpenEvent) {
@@ -378,15 +514,19 @@ export class OpenCodeSession {
     const sessionId = this.activeSessionId
     if (!client || !sessionId) return
     try {
-      const messages = await client.listMessages(sessionId, 20)
+      const messages = await client.listMessages(sessionId, 20, this.snapshot.cwd)
       const userMessages = messages.filter((message) => message.info.role === 'user')
       const latest = userMessages[userMessages.length - 1]
       if (!latest) return
       const block = this.snapshot.blocks.find((item) => item.id === pending)
       if (!block || block.kind !== 'user' || block.text !== messageText(latest, '\n')) return
       this.pendingLocalId = null
-      this.patch({ blocks: this.snapshot.blocks.map((item) => (item.id === pending ? { ...item, id: serverId } : item)) })
-    } catch { /* echo reconciliation is best-effort; idle reconcile fixes stragglers */ }
+      this.patch({
+        blocks: this.snapshot.blocks.map((item) => (item.id === pending ? { ...item, id: serverId } : item)),
+      })
+    } catch {
+      /* echo reconciliation is best-effort; idle reconcile fixes stragglers */
+    }
   }
 }
 

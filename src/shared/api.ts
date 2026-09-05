@@ -1,7 +1,10 @@
 import type { Provider, Snapshot } from '../codex/types'
 
+export type NewDocumentOptions = { projectId?: string | null; cwd?: string; title?: string }
+
 export type Command =
-  | { op: 'newDocument' }
+  | ({ op: 'newDocument' } & NewDocumentOptions)
+  | { op: 'createProject'; name: string; cwd: string }
   | { op: 'openThread'; threadId: string }
   | { op: 'goHome' }
   | { op: 'send'; text: string }
@@ -30,6 +33,7 @@ export type HideGptApi = {
   onSnapshot: (handler: (snapshot: Snapshot) => void) => () => void
   onMenu: (handler: (action: MenuAction) => void) => () => void
   dispatch: (command: Command) => Promise<void>
+  pickDirectory: () => Promise<string | null>
   platform: NodeJS.Platform
 }
 

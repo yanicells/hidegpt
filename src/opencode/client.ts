@@ -37,7 +37,7 @@ export type OpenEvent = { id: string; type: string; properties: Record<string, u
 
 export type OpenProviderModel = { id: string; providerID: string; name: string }
 export type OpenAgent = { name: string; mode: string }
-export type OpenProject = { id: string; name: string }
+export type OpenProject = { id: string; name: string; worktree?: string }
 
 export type PermissionAsked = {
   id: string
@@ -65,8 +65,10 @@ async function readJson(response: Response, what: string): Promise<unknown> {
 export class OpenCodeClient {
   constructor(readonly baseUrl: string) {}
 
-  private async call<T>(path: string, init?: RequestInit, what?: string): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${path}`, {
+  private async call<T>(path: string, init?: RequestInit, what?: string, directory?: string): Promise<T> {
+    const url = new URL(`${this.baseUrl}${path}`)
+    if (directory) url.searchParams.set('directory', directory)
+    const response = await fetch(url.toString(), {
       ...init,
       headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
     })
@@ -77,7 +79,7 @@ export class OpenCodeClient {
     return this.call('/global/health', undefined, 'health')
   }
 
-  /** Without a directory filter the server lists its own working-directory project. */
+  /** The installed server lists sessions across projects unless scope=project is supplied. */
   async listSessions(opts?: { search?: string; limit?: number }): Promise<OpenSession[]> {
     const params = new URLSearchParams()
     if (opts?.search?.trim()) params.set('search', opts.search.trim())
@@ -88,26 +90,43 @@ export class OpenCodeClient {
 
   async createSession(opts?: {
     title?: string
+    directory?: string
     agent?: string
     model?: { providerID: string; modelID: string }
   }): Promise<OpenSession> {
     // Note: session.create takes {id, providerID}; session.prompt takes {modelID, providerID}.
     const model = opts?.model ? { id: opts.model.modelID, providerID: opts.model.providerID } : undefined
     return this.call(
-      '/session',
+      `/session${opts?.directory ? `?directory=${encodeURIComponent(opts.directory)}` : ''}`,
       { method: 'POST', body: JSON.stringify({ title: opts?.title, agent: opts?.agent, model }) },
       'session.create',
     )
   }
 
-  async listMessages(sessionId: string, limit = 100): Promise<OpenMessage[]> {
-    return this.call(`/session/${sessionId}/message?limit=${limit}`, undefined, 'session.messages')
+  async getSession(sessionId: string, directory?: string): Promise<OpenSession> {
+    return this.call(`/session/${encodeURIComponent(sessionId)}`, undefined, 'session.get', directory)
+  }
+
+  async renameSession(sessionId: string, title: string, directory?: string): Promise<void> {
+    await this.call(
+      `/session/${encodeURIComponent(sessionId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ title }),
+      },
+      'session.update',
+      directory,
+    )
+  }
+
+  async listMessages(sessionId: string, limit = 100, directory?: string): Promise<OpenMessage[]> {
+    return this.call(`/session/${sessionId}/message?limit=${limit}`, undefined, 'session.messages', directory)
   }
 
   /** Accepted immediately (204); the turn then streams over /event. */
   async promptAsync(
     sessionId: string,
-    opts: { model?: { providerID: string; modelID: string }; agent?: string; text: string },
+    opts: { model?: { providerID: string; modelID: string }; agent?: string; text: string; directory?: string },
   ): Promise<void> {
     await this.call(
       `/session/${sessionId}/prompt_async`,
@@ -120,11 +139,12 @@ export class OpenCodeClient {
         }),
       },
       'session.prompt_async',
+      opts.directory,
     )
   }
 
-  async abort(sessionId: string): Promise<void> {
-    await this.call(`/session/${sessionId}/abort`, { method: 'POST' }, 'session.abort')
+  async abort(sessionId: string, directory?: string): Promise<void> {
+    await this.call(`/session/${sessionId}/abort`, { method: 'POST' }, 'session.abort', directory)
   }
 
   async listCatalog(): Promise<{ models: OpenProviderModel[]; defaults: Record<string, string> }> {
@@ -174,11 +194,10 @@ export class OpenCodeClient {
 
   async listProjects(): Promise<OpenProject[]> {
     try {
-      const data = await this.call<{ id: string; worktree?: string }[] | { projects: { id: string; worktree?: string }[] }>(
-        '/project',
-        undefined,
-        'project.list',
-      )
+      const data = await this.call<
+        | { id: string; worktree?: string; name?: string }[]
+        | { projects: { id: string; worktree?: string; name?: string }[] }
+      >('/project', undefined, 'project.list')
       const projects = Array.isArray(data) ? data : (data.projects ?? [])
       // Projects carry no display name — only a hash id and a worktree path —
       // so folders are named after their directory. The 'global' project
@@ -186,70 +205,119 @@ export class OpenCodeClient {
       return projects.flatMap((project) => {
         const name = (project.worktree ?? '').replace(/\/+$/, '').split('/').pop()
         if (!name || project.id === 'global') return []
-        return [{ id: project.id, name }]
+        return [{ id: project.id, name: project.name || name, worktree: project.worktree }]
       })
     } catch {
       return []
     }
   }
 
-  async replyPermission(requestId: string, accept: boolean): Promise<void> {
+  async createProject(name: string, directory: string): Promise<void> {
+    const project = await this.call<{ id: string }>(`/project/current?directory=${encodeURIComponent(directory)}`)
+    if (project.id === 'global')
+      throw new Error(
+        'Choose a Git project folder. Other folders can be used with “Choose folder” when creating a document.',
+      )
+    await this.call(`/project/${encodeURIComponent(project.id)}?directory=${encodeURIComponent(directory)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    })
+  }
+
+  async replyPermission(requestId: string, accept: boolean, directory?: string): Promise<void> {
     await this.call(
       `/permission/${requestId}/reply`,
       { method: 'POST', body: JSON.stringify({ reply: accept ? 'once' : 'reject' }) },
       'permission.reply',
+      directory,
     )
   }
 
-  async replyQuestion(requestId: string, answers: string[][]): Promise<void> {
+  async replyQuestion(requestId: string, answers: string[][], directory?: string): Promise<void> {
     await this.call(
       `/question/${requestId}/reply`,
       { method: 'POST', body: JSON.stringify({ answers }) },
       'question.reply',
+      directory,
     )
   }
 
-  async rejectQuestion(requestId: string): Promise<void> {
-    await this.call(`/question/${requestId}/reject`, { method: 'POST' }, 'question.reject')
+  async rejectQuestion(requestId: string, directory?: string): Promise<void> {
+    await this.call(`/question/${requestId}/reject`, { method: 'POST' }, 'question.reject', directory)
   }
 
   /**
    * Opens the global SSE stream. Resolves with an unsubscribe function once
    * the first event arrives (or the connection is established).
    */
-  subscribeEvents(onEvent: (event: OpenEvent) => void, signal: AbortSignal): void {
+  subscribeEvents(
+    onEvent: (event: OpenEvent) => void,
+    signal: AbortSignal,
+    onReconnect?: () => void,
+    onFailure?: (error: Error) => void,
+  ): void {
     void (async () => {
-      const response = await fetch(`${this.baseUrl}/event`, {
-        headers: { Accept: 'text/event-stream' },
-        signal,
-      })
-      if (!response.ok || !response.body) throw new Error(`event.subscribe failed (${response.status})`)
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        let end: number
-        while ((end = buffer.indexOf('\n\n')) !== -1) {
-          const frame = buffer.slice(0, end)
-          buffer = buffer.slice(end + 2)
-          for (const line of frame.split('\n')) {
-            const text = line.startsWith('data:') ? line.slice(5).trim() : line.trim()
-            if (!text) continue
-            try {
-              onEvent(JSON.parse(text) as OpenEvent)
-            } catch {
-              // ignore malformed frames
+      let attempts = 0
+      let connected = false
+      while (!signal.aborted) {
+        try {
+          const response = await fetch(`${this.baseUrl}/global/event`, {
+            headers: { Accept: 'text/event-stream' },
+            signal,
+          })
+          if (!response.ok || !response.body) throw new Error(`Updates unavailable (${response.status})`)
+          if (connected) onReconnect?.()
+          connected = true
+          const reader = response.body.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
+          for (;;) {
+            const { done, value } = await reader.read()
+            if (done) throw new Error('Updates disconnected')
+            buffer += decoder.decode(value, { stream: true })
+            let frameEnd: RegExpExecArray | null
+            while ((frameEnd = /\r?\n\r?\n/.exec(buffer))) {
+              const frame = buffer.slice(0, frameEnd.index)
+              buffer = buffer.slice(frameEnd.index + frameEnd[0].length)
+              const data = frame
+                .split(/\r?\n/)
+                .filter((line) => line.startsWith('data:'))
+                .map((line) => line.slice(5).trimStart())
+                .join('\n')
+              if (!data) continue
+              try {
+                const envelope = JSON.parse(data) as { payload: OpenEvent }
+                if (envelope.payload?.type) {
+                  attempts = 0
+                  onEvent(envelope.payload)
+                }
+              } catch {
+                /* ignore malformed event data */
+              }
             }
           }
+        } catch (error) {
+          if (signal.aborted) return
+          if (++attempts > 3) {
+            onFailure?.(error instanceof Error ? error : new Error(String(error)))
+            return
+          }
+          await new Promise<void>((resolve) => {
+            const finish = () => {
+              clearTimeout(timer)
+              signal.removeEventListener('abort', finish)
+              resolve()
+            }
+            const timer = setTimeout(finish, attempts * 500)
+            signal.addEventListener('abort', finish, { once: true })
+          })
         }
       }
-    })().catch((error: unknown) => {
-      if (signal.aborted) return
-      console.error(`opencode event stream dropped: ${error instanceof Error ? error.message : String(error)}`)
-    })
+    })()
+  }
+
+  async sessionStatuses(): Promise<Record<string, { type: string }>> {
+    return this.call('/session/status', undefined, 'session.status')
   }
 }
 

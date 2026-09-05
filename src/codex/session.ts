@@ -1,3 +1,4 @@
+import type { NewDocumentOptions } from '../shared/api'
 import { spawn } from 'node:child_process'
 
 import type { LoginAccountResponse } from '../generated/codex/v2/LoginAccountResponse'
@@ -161,6 +162,7 @@ export class CodexSession {
       streaming: false,
       olderTurnsCursor: null,
       loadingOlder: false,
+      openingThreadId: null,
     })
   }
 
@@ -214,6 +216,7 @@ export class CodexSession {
   }
 
   async openThread(threadId: string) {
+    this.patch({ openingThreadId: threadId, error: null })
     this.nav += 1
     const token = this.nav
     const run = () => this.openThreadInner(threadId, token)
@@ -235,7 +238,7 @@ export class CodexSession {
       const resumed = await this.rpc<ThreadResumeResponse>('thread/resume', {
         threadId,
         excludeTurns: true,
-        initialTurnsPage: { limit: 80, sortDirection: 'desc', itemsView: 'full' },
+        initialTurnsPage: { limit: 30, sortDirection: 'desc', itemsView: 'full' },
       })
       if (token !== this.nav) {
         await this.unsubscribeThread(resumed.thread.id, false)
@@ -244,7 +247,7 @@ export class CodexSession {
       const page = resumed.initialTurnsPage
       let turns: Turn[] = []
       let olderTurnsCursor = page?.backwardsCursor ?? resumed.turnsBackwardsCursor
-      if (page?.data.length) {
+      if (page) {
         turns = [...page.data].reverse()
       } else {
         const listed = await catalog.listTurns(this.ctx, resumed.thread.id)
@@ -269,6 +272,7 @@ export class CodexSession {
         error: null,
         olderTurnsCursor,
         loadingOlder: false,
+        openingThreadId: null,
       })
     } catch (error) {
       if (token !== this.nav) return
@@ -276,6 +280,7 @@ export class CodexSession {
       this.activeThreadId = keepCurrent
       this.patch({
         error: formatCodexError(error instanceof Error ? error.message : String(error)),
+        openingThreadId: null,
         ...(keepCurrent
           ? {}
           : {
@@ -285,6 +290,7 @@ export class CodexSession {
               streaming: false,
               olderTurnsCursor: null,
               loadingOlder: false,
+              openingThreadId: null,
             }),
       })
     }
@@ -295,15 +301,19 @@ export class CodexSession {
     return catalog.loadOlderTurns(this.ctx, token)
   }
 
-  async newDocument() {
+  async createProject(name: string, cwd: string) {
+    await catalog.createProject(this.ctx, name, cwd)
+  }
+
+  async newDocument(options?: NewDocumentOptions) {
     this.nav += 1
     const token = this.nav
-    const run = () => this.newDocumentInner(token)
+    const run = () => this.newDocumentInner(token, options)
     this.openQueue = this.openQueue.then(run, run)
     await this.openQueue
   }
 
-  private async newDocumentInner(token: number) {
+  private async newDocumentInner(token: number, options?: NewDocumentOptions) {
     if (token !== this.nav) return
     try {
       await this.leaveQueue
@@ -311,7 +321,8 @@ export class CodexSession {
       if (this.activeThreadId) await this.leaveThread()
       if (token !== this.nav) return
       const started = await this.rpc<ThreadStartResponse>('thread/start', {
-        cwd: this.snapshot.cwd,
+        cwd: options?.cwd ?? (options ? catalog.defaultCwd() : this.snapshot.cwd),
+        projectId: options?.projectId ?? null,
         model: this.snapshot.model,
         serviceTier: this.snapshot.serviceTier,
       })
@@ -332,8 +343,10 @@ export class CodexSession {
         error: null,
         olderTurnsCursor: null,
         loadingOlder: false,
+        openingThreadId: null,
       })
-      await this.refreshCatalog()
+      if (options?.title?.trim()) await this.setDocumentName(options.title.trim())
+      void catalog.refreshThreads(this.ctx).catch(() => {})
     } catch (error) {
       if (token !== this.nav) return
       this.activeThreadId = null
@@ -345,6 +358,7 @@ export class CodexSession {
         streaming: false,
         olderTurnsCursor: null,
         loadingOlder: false,
+        openingThreadId: null,
       })
     }
   }
@@ -381,9 +395,7 @@ export class CodexSession {
   }
 
   private turnOverrides() {
-    const preset = this.snapshot.collaborationModes.find(
-      (item) => item.name === this.snapshot.collaborationMode,
-    )
+    const preset = this.snapshot.collaborationModes.find((item) => item.name === this.snapshot.collaborationMode)
     if (preset?.mode) {
       return {
         collaborationMode: {

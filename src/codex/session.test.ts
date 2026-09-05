@@ -12,9 +12,7 @@ async function readySession(options?: Parameters<typeof createFakeTransport>[0])
 
 describe('formatCodexError', () => {
   it('explains writer-lock conflicts', () => {
-    expect(formatCodexError('thread-store conflict: already has an active writer')).toContain(
-      'open in ChatGPT',
-    )
+    expect(formatCodexError('thread-store conflict: already has an active writer')).toContain('open in ChatGPT')
   })
 })
 
@@ -86,7 +84,11 @@ describe('CodexSession', () => {
     await session.openThread('thr_2')
     const methods = transport.calls.map((call) => call.method)
     expect(methods.filter((method) => method === 'thread/unsubscribe')).toEqual(['thread/unsubscribe'])
-    expect(transport.calls.some((call) => call.method === 'thread/resume' && (call.params as { threadId: string }).threadId === 'thr_2')).toBe(true)
+    expect(
+      transport.calls.some(
+        (call) => call.method === 'thread/resume' && (call.params as { threadId: string }).threadId === 'thr_2',
+      ),
+    ).toBe(true)
   })
 
   it('does not start a second turn while streaming', async () => {
@@ -101,7 +103,12 @@ describe('CodexSession', () => {
     const { session, transport } = await readySession()
     await session.openThread('thr_1')
     transport.emitNotification('error', {
-      error: { message: 'rate limited', codexErrorInfo: 'rateLimitExceeded', additionalDetails: null, misalignment: null },
+      error: {
+        message: 'rate limited',
+        codexErrorInfo: 'rateLimitExceeded',
+        additionalDetails: null,
+        misalignment: null,
+      },
       willRetry: false,
       threadId: 'thr_1',
       turnId: 't1',
@@ -189,7 +196,14 @@ describe('CodexSession', () => {
       isBlocking: true,
       autoResolutionMs: null,
       questions: [
-        { id: 'q1', header: '', question: 'Pick one', isOther: false, isSecret: false, options: [{ label: 'A', description: '' }] },
+        {
+          id: 'q1',
+          header: '',
+          question: 'Pick one',
+          isOther: false,
+          isSecret: false,
+          options: [{ label: 'A', description: '' }],
+        },
       ],
     })
     const block = session.snapshot.blocks.find((item) => item.kind === 'approval')
@@ -255,7 +269,8 @@ describe('CodexSession', () => {
     expect(session.snapshot.blocks.map((block) => block.id)).toEqual(['u1', 'a1'])
   })
 
-  it('replaces the optimistic echo instead of duplicating it', async () => {    const { session, transport } = await readySession()
+  it('replaces the optimistic echo instead of duplicating it', async () => {
+    const { session, transport } = await readySession()
     await session.openThread('thr_1')
     await session.send('same text')
     const local = session.snapshot.blocks.at(-1)
@@ -426,5 +441,52 @@ describe('CodexSession', () => {
     await opening
     expect(session.snapshot.route.kind).toBe('home')
     expect(session.snapshot.blocks).toEqual([])
+  })
+})
+
+describe('project creation and opening feedback', () => {
+  it('persists a selected project and directory on new threads', async () => {
+    const { session, transport } = await readySession()
+    await session.newDocument({ projectId: 'course', cwd: '/tmp/course' })
+    expect(transport.calls.find((call) => call.method === 'thread/start')?.params).toMatchObject({
+      projectId: 'course',
+      cwd: '/tmp/course',
+    })
+    expect(session.snapshot.cwd).toBe('/tmp/course')
+  })
+
+  it('does not inherit the previous project directory for an unfiled document', async () => {
+    const { session, transport } = await readySession()
+    session.setFolderDraft('/tmp/previous-project')
+    session.applyFolder()
+    await session.newDocument({ projectId: null })
+    expect(transport.calls.find((call) => call.method === 'thread/start')?.params).toMatchObject({
+      projectId: null,
+      cwd: expect.stringContaining('/.codex/threads'),
+    })
+  })
+
+  it('creates a provider project and refreshes its catalog', async () => {
+    const { session, transport } = await readySession()
+    await session.createProject('Course notes', '/tmp/course')
+    expect(session.snapshot.projects[0]).toMatchObject({ name: 'Course notes', roots: [{ path: '/tmp/course' }] })
+    expect(transport.calls.find((call) => call.method === 'project/create')?.params).toMatchObject({
+      idempotencyKey: expect.any(String),
+    })
+  })
+
+  it('clears pending navigation on cancel and ignores its late response', async () => {
+    let release!: () => void
+    const wait = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { session } = await readySession({ resumeGate: { wait } })
+    const opening = session.openThread('thr_1')
+    expect(session.snapshot.openingThreadId).toBe('thr_1')
+    session.goHome()
+    release()
+    await opening
+    expect(session.snapshot.openingThreadId).toBeNull()
+    expect(session.snapshot.route.kind).toBe('home')
   })
 })
