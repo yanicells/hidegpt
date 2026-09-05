@@ -1,14 +1,7 @@
 import type { Block } from '../codex/blocks'
 import type { Snapshot } from '../codex/types'
 import type { OpenEvent, OpenMessagePart, PermissionAsked, QuestionAsked } from './client'
-import {
-  applyStreamText,
-  joinParts,
-  permissionApproval,
-  questionApproval,
-  toolCallout,
-  upsertCallout,
-} from './mapping'
+import { applyStreamText, joinParts, permissionApproval, questionApproval, toolCallout, upsertCallout } from './mapping'
 
 export type EventContext = {
   getActiveId: () => string | null
@@ -74,11 +67,10 @@ function handlePartDelta(props: Props, sessionId: string | null, ctx: EventConte
   const messageID = typeof props.messageID === 'string' ? props.messageID : null
   const partID = typeof props.partID === 'string' ? props.partID : null
   if (!messageID || !partID || props.field !== 'text' || typeof props.delta !== 'string') return
-  let parts = ctx.streamText.get(messageID)
-  if (!parts) {
-    parts = new Map()
-    ctx.streamText.set(messageID, parts)
-  }
+  const parts = ctx.streamText.get(messageID)
+  // Only an announced, non-synthetic text part can stream onto the page.
+  // Reasoning deltas also use field=text and must never appear, even briefly.
+  if (!parts?.has(partID)) return
   parts.set(partID, (parts.get(partID) ?? '') + props.delta)
   ctx.patch({ blocks: applyStreamText(ctx.getBlocks(), messageID, joinParts(parts)) })
 }
@@ -145,11 +137,13 @@ function handleApprovalResolved(props: Props, ctx: EventContext): void {
         : null
   if (!requestId) return
   ctx.patch({
-    blocks: ctx.getBlocks().map((block) =>
-      block.kind === 'approval' && block.requestId === requestId && block.resolved === null
-        ? { ...block, resolved: 'skipped' as const }
-        : block,
-    ),
+    blocks: ctx
+      .getBlocks()
+      .map((block) =>
+        block.kind === 'approval' && block.requestId === requestId && block.resolved === null
+          ? { ...block, resolved: 'skipped' as const }
+          : block,
+      ),
   })
 }
 

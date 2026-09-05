@@ -3,7 +3,7 @@ import type { Turn } from '../generated/codex/v2/Turn'
 import type { UserInput } from '../generated/codex/v2/UserInput'
 import type { JsonRpcId } from './jsonrpc'
 
-export type AgentBlock = { kind: 'agent'; id: string; text: string }
+export type AgentBlock = { kind: 'agent'; id: string; text: string; phase?: 'commentary' | 'final_answer' | null }
 export type UserBlock = { kind: 'user'; id: string; text: string }
 export type CalloutBlock = { kind: 'callout'; id: string; title: string; body: string }
 export type PendingApproval = {
@@ -32,7 +32,7 @@ export function itemToBlock(item: ThreadItem): Block | null {
     return { kind: 'user', id: item.id, text: userText(item.content) }
   }
   if (item.type === 'agentMessage') {
-    return { kind: 'agent', id: item.id, text: item.text }
+    return { kind: 'agent', id: item.id, text: item.text, phase: item.phase }
   }
   // Reasoning and plans stay off the page: the document shows outputs only.
   if (item.type === 'reasoning' || item.type === 'plan') {
@@ -98,7 +98,12 @@ export function itemToBlock(item: ThreadItem): Block | null {
     return { kind: 'callout', id: item.id, title: 'Compacted context', body: '' }
   }
   if (item.type === 'enteredReviewMode' || item.type === 'exitedReviewMode') {
-    return { kind: 'callout', id: item.id, title: item.type === 'enteredReviewMode' ? 'Review' : 'Left review', body: item.review }
+    return {
+      kind: 'callout',
+      id: item.id,
+      title: item.type === 'enteredReviewMode' ? 'Review' : 'Left review',
+      body: item.review,
+    }
   }
   if (item.type === 'functionCallOutput') {
     return { kind: 'callout', id: item.id, title: item.name, body: item.namespace ?? '' }

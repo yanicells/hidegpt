@@ -8,6 +8,16 @@ afterEach(() => {
 })
 
 describe('OpenCode HTTP contract', () => {
+  it('loads and searches the global catalog instead of only the launch project', async () => {
+    const fetcher = vi.fn(async () => new Response('[]'))
+    vi.stubGlobal('fetch', fetcher)
+    await client.listSessions({ search: 'course notes', limit: 100 })
+    expect(fetcher).toHaveBeenCalledWith(
+      'http://127.0.0.1:4096/experimental/session?search=course+notes&limit=100',
+      expect.anything(),
+    )
+  })
+
   it('scopes create, prompt, and history requests to the selected directory', async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }))
     // A fresh Response per request is required because bodies are consumed.

@@ -70,6 +70,12 @@ describe('OpenCodeSession', () => {
     await session.send('count')
     expect(session.snapshot.streaming).toBe(true)
     client.emit(
+      evt('message.part.updated', {
+        sessionID: 'ses_2',
+        part: { id: 'prt_live', messageID: 'msg_live', type: 'text', text: '' },
+      }),
+    )
+    client.emit(
       evt('message.part.delta', {
         sessionID: 'ses_2',
         messageID: 'msg_live',
@@ -95,6 +101,44 @@ describe('OpenCodeSession', () => {
       }),
     )
     expect(session.snapshot.blocks.at(-1)).toMatchObject({ text: 'One Two Three' })
+  })
+
+  it('never displays reasoning or unclassified text deltas', async () => {
+    const { session, client } = await readySession()
+    await session.openThread('ses_2')
+    const before = session.snapshot.blocks
+    client.emit(
+      evt('message.part.updated', {
+        sessionID: 'ses_2',
+        part: { id: 'thought', messageID: 'msg_live', type: 'reasoning', text: 'private' },
+      }),
+    )
+    client.emit(
+      evt('message.part.delta', {
+        sessionID: 'ses_2',
+        messageID: 'msg_live',
+        partID: 'thought',
+        field: 'text',
+        delta: 'private reasoning',
+      }),
+    )
+    client.emit(
+      evt('message.part.delta', {
+        sessionID: 'ses_2',
+        messageID: 'msg_live',
+        partID: 'unknown',
+        field: 'text',
+        delta: 'unknown',
+      }),
+    )
+    expect(session.snapshot.blocks).toEqual(before)
+    client.emit(
+      evt('message.part.updated', {
+        sessionID: 'ses_2',
+        part: { id: 'unknown', messageID: 'msg_live', type: 'text', text: 'Actual answer' },
+      }),
+    )
+    expect(session.snapshot.blocks.at(-1)).toMatchObject({ text: 'Actual answer' })
   })
 
   it('finishes the turn on session.idle', async () => {
@@ -152,10 +196,16 @@ describe('OpenCodeSession', () => {
   })
 
   it('switches primary agents and rejects subagents, plan, and unknown modes', async () => {
-    const { session } = await readySession(createFakeOpenCodeClient({ agents: [
-      { name: 'build', mode: 'primary' }, { name: 'writing', mode: 'primary' },
-      { name: 'explore', mode: 'subagent' }, { name: 'plan', mode: 'primary' },
-    ] }))
+    const { session } = await readySession(
+      createFakeOpenCodeClient({
+        agents: [
+          { name: 'build', mode: 'primary' },
+          { name: 'writing', mode: 'primary' },
+          { name: 'explore', mode: 'subagent' },
+          { name: 'plan', mode: 'primary' },
+        ],
+      }),
+    )
     session.setCollaborationMode('writing')
     expect(session.snapshot.collaborationMode).toBe('writing')
     for (const name of ['explore', 'plan', 'nope']) {

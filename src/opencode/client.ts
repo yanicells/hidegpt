@@ -79,13 +79,13 @@ export class OpenCodeClient {
     return this.call('/global/health', undefined, 'health')
   }
 
-  /** The installed server lists sessions across projects unless scope=project is supplied. */
+  /** Global catalog: /session only returns sessions for the current project. */
   async listSessions(opts?: { search?: string; limit?: number }): Promise<OpenSession[]> {
     const params = new URLSearchParams()
     if (opts?.search?.trim()) params.set('search', opts.search.trim())
     if (opts?.limit) params.set('limit', String(opts.limit))
     const query = params.size > 0 ? `?${params}` : ''
-    return this.call(`/session${query}`, undefined, 'session.list')
+    return this.call(`/experimental/session${query}`, undefined, 'experimental.session.list')
   }
 
   async createSession(opts?: {
