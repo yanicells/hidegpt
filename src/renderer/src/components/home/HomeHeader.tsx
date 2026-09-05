@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
@@ -6,6 +6,7 @@ import { AccountMenu } from '../layout/AccountMenu'
 import { DocsIcon, SearchIcon } from '../ui/Icons'
 
 export function HomeHeader({ snap }: { snap: Snapshot }) {
+  const [query, setQuery] = useState(snap.search)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(
     () => () => {
@@ -28,10 +29,11 @@ export function HomeHeader({ snap }: { snap: Snapshot }) {
         <input
           data-testid="home-search"
           type="search"
-          value={snap.search}
+          value={query}
           placeholder="Search documents"
           aria-label="Search documents"
           onChange={(event) => {
+            setQuery(event.target.value)
             dispatch({ op: 'setSearch', value: event.target.value })
             if (timer.current) clearTimeout(timer.current)
             timer.current = setTimeout(() => {

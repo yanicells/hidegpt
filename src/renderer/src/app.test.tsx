@@ -8,7 +8,8 @@ import { stubModel, stubThread } from '../../codex/fake'
 import { emptySnapshot, type Snapshot } from '../../codex/types'
 import type { Command, HideGptApi, MenuAction } from '../../shared/api'
 import { App } from './app'
-import { groupByRecency, groupThreads } from './components/home/grouping'
+import { groupByRecency } from './components/home/grouping'
+import { projectFolders } from './components/home/ProjectFolders'
 
 import '@testing-library/jest-dom/vitest'
 
@@ -64,6 +65,7 @@ function mount(partial: Partial<Snapshot> = {}) {
       }
       for (const listener of listeners) listener(snapshot)
     },
+    pickDirectory: async () => '/tmp/project',
     platform: 'darwin',
   }
   window.hidegpt = api
@@ -122,7 +124,10 @@ describe('docs home', () => {
     const user = userEvent.setup()
     const { calls } = mount()
     await user.click(screen.getByTestId('new-doc'))
-    expect(calls.some((call) => call.op === 'newDocument')).toBe(true)
+    expect(calls.some((call) => call.op === 'newDocument')).toBe(false)
+    expect(screen.getByRole('dialog')).toHaveTextContent('Location')
+    await user.click(screen.getByRole('button', { name: 'Create document' }))
+    expect(calls).toContainEqual({ op: 'newDocument', title: '', projectId: null, cwd: undefined })
   })
 })
 
@@ -169,7 +174,9 @@ describe('document page', () => {
           rateLimitReachedType: null,
         },
         rateLimitsByLimitId: null,
-        rateLimitResetCredits: null, accountId: null, rateLimitUpsell: null,
+        rateLimitResetCredits: null,
+        accountId: null,
+        rateLimitUpsell: null,
       },
     })
     expect(screen.queryByText(/% used/)).toBeNull()
@@ -237,7 +244,8 @@ describe('document page', () => {
     expect(screen.getByTestId('outline')).toHaveTextContent('Document tabs')
     await user.click(screen.getByTestId('outline-u1'))
     await user.click(screen.getByLabelText('New document'))
-    expect(calls).toContainEqual({ op: 'newDocument' })
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
     await user.click(screen.getByLabelText('Back to documents'))
     expect(calls).toContainEqual({ op: 'goHome' })
   })
@@ -363,9 +371,20 @@ describe('home list view', () => {
   it('renders project folders by name, not hash', () => {
     mount({
       threads: [stubThread('thr_p1', 'Proj doc', 'Proj doc', 'proj_1')],
-      projects: [{ id: 'proj_1', name: 'My Project', roots: [], metadata: {}, position: 0, createdAt: 0, updatedAt: 0, recencyAt: null }],
+      projects: [
+        {
+          id: 'proj_1',
+          name: 'My Project',
+          roots: [],
+          metadata: {},
+          position: 0,
+          createdAt: 0,
+          updatedAt: 0,
+          recencyAt: null,
+        },
+      ],
     })
-    expect(screen.getByText('My Project')).toBeInTheDocument()
+    expect(screen.getByTestId('project-proj_1')).toHaveTextContent('My Project')
     expect(screen.queryByText('proj_1')).toBeNull()
   })
 
@@ -385,12 +404,11 @@ describe('grouping', () => {
       { ...stubThread('o2', 'doc2', 'Doc2', 'unknown-hash'), cwd: '/Users/yan/projects/myapp' },
     ]
     const snap = { ...emptySnapshot(), threads, projects: [], search: '' }
-    const sections = groupThreads(snap, 'grid')
-    const orphan = sections.find((section) => section.key.startsWith('orphan-'))
+    const orphan = projectFolders(snap).find((folder) => folder.id === 'unknown-hash')
     expect(orphan).toBeTruthy()
-    expect(orphan?.title).toBe('myapp')
-    expect(orphan?.title).not.toBe('Folder')
-    expect(orphan?.title).not.toContain('unknown-hash')
+    expect(orphan?.name).toBe('myapp')
+    expect(orphan?.name).not.toBe('Folder')
+    expect(orphan?.name).not.toContain('unknown-hash')
   })
 
   it('buckets ms timestamps correctly', () => {
@@ -408,8 +426,62 @@ describe('grouping', () => {
     expect(sections.find((section) => section.title === 'Today')?.threads.map((thread) => thread.id)).toContain(
       'm-today',
     )
-    expect(
-      sections.find((section) => section.title === 'Yesterday')?.threads.map((thread) => thread.id),
-    ).toContain('m-yest')
+    expect(sections.find((section) => section.title === 'Yesterday')?.threads.map((thread) => thread.id)).toContain(
+      'm-yest',
+    )
+  })
+})
+
+const projectFixture = {
+  id: 'course',
+  name: 'Course notes',
+  roots: [{ path: '/tmp/course' }],
+  metadata: {},
+  position: 0,
+  createdAt: 0,
+  updatedAt: 0,
+  recencyAt: null,
+}
+
+describe('project navigation and creation', () => {
+  it('opens empty projects, keeps layout controls, and preselects the destination', async () => {
+    const user = userEvent.setup()
+    const { calls } = mount({ projects: [projectFixture] })
+    await user.click(screen.getByTestId('project-course'))
+    expect(screen.getByRole('heading', { name: 'Course notes' })).toBeInTheDocument()
+    expect(screen.queryByTestId('thread-thr_1')).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'List view' }))
+    await user.click(screen.getByRole('button', { name: 'New document' }))
+    expect(screen.getByTestId('new-doc-location')).toHaveValue('course')
+    await user.type(screen.getByLabelText('Document name'), 'Week 4')
+    await user.click(screen.getByRole('button', { name: 'Create document' }))
+    expect(calls).toContainEqual({ op: 'newDocument', title: 'Week 4', projectId: 'course', cwd: '/tmp/course' })
+  })
+
+  it('can leave a project and create an unfiled document explicitly', async () => {
+    const user = userEvent.setup()
+    const { calls } = mount({ projects: [projectFixture] })
+    await user.click(screen.getByTestId('project-course'))
+    await user.click(screen.getByRole('button', { name: 'New document' }))
+    await user.selectOptions(screen.getByTestId('new-doc-location'), '')
+    await user.click(screen.getByRole('button', { name: 'Create document' }))
+    expect(calls).toContainEqual({ op: 'newDocument', title: '', projectId: null, cwd: undefined })
+  })
+
+  it('cancels creation without making a provider thread', async () => {
+    const user = userEvent.setup()
+    const { calls } = mount()
+    await user.click(screen.getByTestId('template-essay'))
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(calls.some((call) => call.op === 'newDocument')).toBe(false)
+  })
+
+  it('gives immediate opening feedback and permits cancellation', async () => {
+    const user = userEvent.setup()
+    const { calls } = mount({ openingThreadId: 'thr_1' })
+    expect(screen.getByTestId('opening-document')).toHaveTextContent('Opening Photosynthesis')
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(calls).toContainEqual({ op: 'goHome' })
   })
 })

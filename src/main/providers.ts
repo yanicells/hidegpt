@@ -1,7 +1,7 @@
 import { shell } from 'electron'
 import type { BrowserWindow } from 'electron'
 
-import { createFakeTransport } from '../codex/fake'
+import { createDemoTransport } from '../codex/demo'
 import { CodexSession } from '../codex/session'
 import { spawnCodexAppServer } from '../codex/transport'
 import type { Provider, Snapshot } from '../codex/types'
@@ -27,7 +27,7 @@ export function initProviders(next: ProvidersHooks): void {
 }
 
 const codexSession = new CodexSession(
-  process.env.HIDEGPT_FAKE === '1' ? () => createFakeTransport() : spawnCodexAppServer,
+  process.env.HIDEGPT_FAKE === '1' ? () => createDemoTransport() : spawnCodexAppServer,
   (url) => {
     void shell.openExternal(url)
   },
@@ -51,7 +51,9 @@ export async function ensureOpencode(): Promise<OpenCodeSession> {
   ensureInFlight = (async () => {
     const fake = process.env.HIDEGPT_FAKE === '1'
     const session = new OpenCodeSession(
-      fake ? () => Promise.resolve(createFakeServer(createFakeOpenCodeClient())) : (cwd) => startOpenCodeServer({ cwd }),
+      fake
+        ? () => Promise.resolve(createFakeServer(createFakeOpenCodeClient()))
+        : (cwd) => startOpenCodeServer({ cwd }),
     )
     session.subscribe(sendSnapshot)
     // OpenCodeSession.start() never throws — failures land on snapshot status/error.
@@ -86,8 +88,38 @@ export function buildSnapshot(): Snapshot {
   return snap
 }
 
+let pendingSnapshot: ReturnType<typeof setTimeout> | null = null
+let deliveredSnapshot: Snapshot | null = null
+
 export function sendSnapshot(): void {
   const snap = buildSnapshot()
+  // Batch token bursts, but deliver navigation, new blocks, and completion immediately.
+  const previous = deliveredSnapshot
+  if (
+    snap.streaming &&
+    previous?.streaming &&
+    snap.provider === previous.provider &&
+    snap.route.kind === 'doc' &&
+    previous.route.kind === 'doc' &&
+    snap.route.threadId === previous.route.threadId &&
+    snap.blocks.length === previous.blocks.length &&
+    snap.openingThreadId === previous.openingThreadId &&
+    snap.error === previous.error
+  ) {
+    if (!pendingSnapshot)
+      pendingSnapshot = setTimeout(() => {
+        pendingSnapshot = null
+        deliverSnapshot(buildSnapshot())
+      }, 32)
+    return
+  }
+  if (pendingSnapshot) clearTimeout(pendingSnapshot)
+  pendingSnapshot = null
+  deliverSnapshot(snap)
+}
+
+function deliverSnapshot(snap: Snapshot): void {
+  deliveredSnapshot = snap
   const title = snap.route.kind === 'home' ? 'Docs' : snap.title || 'Docs'
   const window = hooks.getWindow()
   window?.setTitle(title)
@@ -96,6 +128,8 @@ export function sendSnapshot(): void {
 }
 
 export function closeSessions(): void {
+  if (pendingSnapshot) clearTimeout(pendingSnapshot)
+  pendingSnapshot = null
   void codexSession.close()
   void opencodeSession?.close()
 }

@@ -11,15 +11,23 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
   const model = snap.models.find((item) => item.model === snap.model)
   const efforts = model?.supportedReasoningEfforts ?? []
   const tiers = model?.serviceTiers ?? []
-  const speedName = tiers.find((tier) => tier.id === snap.serviceTier)?.name ?? 'Standard'
   const toggle = (id: MenuId) => setMenu(menu === id ? null : id)
 
   return (
     <div className="toolbar-wrap">
       <div className="toolbar" role="toolbar" aria-label="Document settings">
+        <button className="toolbar-icon" aria-label="Print document" onClick={() => window.print()}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+            <path d="M6 8V3h12v5M6 17H3V9h18v8h-3M6 14h12v7H6z" />
+          </svg>
+        </button>
+        <span className="toolbar-static">
+          100% <ChevronIcon />
+        </span>
+        <span className="divider" aria-hidden="true" />
         <Chip
           testId="chip-model"
-          label={model?.displayName ?? snap.model ?? 'Model'}
+          label="Normal text"
           open={menu === 'model'}
           onClick={() => toggle('model')}
           searchable
@@ -37,7 +45,7 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
             <span className="divider" aria-hidden="true" />
             <Chip
               testId="chip-effort"
-              label={capitalize(snap.effort ?? 'Effort')}
+              label="Arial"
               open={menu === 'effort'}
               onClick={() => toggle('effort')}
               items={efforts.map((item) => ({
@@ -55,7 +63,7 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
             <span className="divider" aria-hidden="true" />
             <Chip
               testId="chip-speed"
-              label={speedName}
+              label="11"
               open={menu === 'serviceTier'}
               onClick={() => toggle('serviceTier')}
               items={[
@@ -76,10 +84,19 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
             />
           </>
         ) : null}
+        <span className="divider" aria-hidden="true" />
+        <div className="formatting-sample" aria-hidden="true">
+          <b>B</b>
+          <i>I</i>
+          <u>U</u>
+          <span className="text-color">A</span>
+          <span>≡</span>
+          <span>☷</span>
+        </div>
         <div className="toolbar-spacer" />
         <Chip
           testId="chip-provider"
-          label={snap.provider === 'codex' ? 'Codex' : 'OpenCode'}
+          label="Editing"
           open={menu === 'provider'}
           align="end"
           onClick={() => toggle('provider')}
@@ -105,7 +122,7 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
             <Chip
               testId="chip-mode"
               icon={<PenIcon />}
-              label={snap.collaborationMode ?? 'Mode'}
+              label="Options"
               open={menu === 'mode'}
               align="end"
               onClick={() => toggle('mode')}

@@ -1,0 +1,112 @@
+.creation-dialog {
+  width: min(480px, calc(100vw - 40px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 28px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 16px 48px #1f1f1f33;
+}
+.creation-dialog::backdrop {
+  background: #20212455;
+}
+.creation-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.creation-heading > svg {
+  color: var(--muted);
+}
+.creation-heading h2 {
+  font-size: 22px;
+  font-weight: 400;
+  margin: 0;
+}
+.creation-description {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+  margin: 16px 0 24px;
+}
+.field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  margin-top: 20px;
+}
+.field-label input,
+.field-label select {
+  width: 100%;
+  padding: 12px;
+  font: inherit;
+  font-size: 14px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--text);
+  background: white;
+}
+.field-label input:focus,
+.field-label select:focus {
+  outline: 2px solid var(--blue);
+  outline-offset: -1px;
+}
+.folder-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid var(--line);
+  padding: 12px;
+  border-radius: 5px;
+  margin-top: 8px;
+  text-align: left;
+  color: var(--blue);
+}
+.folder-choice span {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.folder-choice svg {
+  flex-shrink: 0;
+}
+.field-help {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 9px 0;
+}
+.template-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  background: var(--canvas);
+  border-radius: 8px;
+  padding: 14px;
+  margin-top: 18px;
+  font-size: 12px;
+}
+.template-summary > span {
+  color: var(--muted);
+}
+.template-summary small {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--muted);
+}
+.dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 28px;
+}
+.creation-error {
+  color: var(--red);
+  font-size: 13px;
+  line-height: 1.5;
+}

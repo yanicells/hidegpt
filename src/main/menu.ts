@@ -80,7 +80,7 @@ export function rebuildMenu(): void {
         {
           label: 'New document',
           accelerator: 'CmdOrCtrl+N',
-          click: () => void deps.dispatch({ op: 'newDocument' }),
+          click: () => sendMenu('newDocument'),
         },
         {
           label: 'Open home',
@@ -135,7 +135,9 @@ export function rebuildMenu(): void {
         { role: 'zoomOut' },
         { type: 'separator' },
         { role: 'togglefullscreen' },
-        ...(app.isPackaged ? [] : [{ type: 'separator' as const }, { role: 'reload' as const }, { role: 'toggleDevTools' as const }]),
+        ...(app.isPackaged
+          ? []
+          : [{ type: 'separator' as const }, { role: 'reload' as const }, { role: 'toggleDevTools' as const }]),
       ],
     },
     {

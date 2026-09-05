@@ -1,4 +1,4 @@
-import { useEffect, useRef, type UIEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, type UIEvent } from 'react'
 
 import type { Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
@@ -6,7 +6,7 @@ import { BlockView } from './BlockView'
 import { Composer } from './Composer'
 import { Tabs } from './Tabs'
 
-export function Document({ snap }: { snap: Snapshot }) {
+export function Document({ snap, onNew }: { snap: Snapshot; onNew: () => void }) {
   const threadId = snap.route.kind === 'doc' ? snap.route.threadId : ''
   const lastBlock = snap.blocks[snap.blocks.length - 1]
   const streamingAgentId = snap.streaming && lastBlock?.kind === 'agent' ? lastBlock.id : null
@@ -17,6 +17,18 @@ export function Document({ snap }: { snap: Snapshot }) {
   const stickToBottom = useRef(false)
   const seenBlocks = useRef<number | null>(null)
   const seenThread = useRef(threadId)
+  const beforePrepend = useRef<{ height: number; top: number } | null>(null)
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    if (snap.loadingOlder) beforePrepend.current = { height: el.scrollHeight, top: el.scrollTop }
+    else if (beforePrepend.current) {
+      el.scrollTop = beforePrepend.current.top + el.scrollHeight - beforePrepend.current.height
+      beforePrepend.current = null
+      seenBlocks.current = snap.blocks.length
+      stickToBottom.current = false
+    }
+  }, [snap.loadingOlder, snap.blocks.length])
   useEffect(() => {
     const el = scrollRef.current
     if (!el || snap.blocks.length === 0) return
@@ -56,7 +68,7 @@ export function Document({ snap }: { snap: Snapshot }) {
   return (
     <div className="workspace" data-testid="document" ref={scrollRef} onScroll={onScroll}>
       <div className="doc-layout">
-        <Tabs questions={questions} onJump={jumpTo} />
+        <Tabs onNew={onNew} questions={questions} onJump={jumpTo} />
         <div className="paper-col">
           <Ruler />
           <article className="paper">
@@ -65,7 +77,7 @@ export function Document({ snap }: { snap: Snapshot }) {
                 type="button"
                 className="load-older"
                 data-testid="load-older"
-                disabled={snap.loadingOlder}
+                disabled={snap.loadingOlder || snap.streaming}
                 onClick={() => dispatch({ op: 'loadOlderTurns' })}
               >
                 {snap.loadingOlder ? 'Loading…' : 'Load earlier'}

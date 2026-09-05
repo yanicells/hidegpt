@@ -9,11 +9,13 @@ const MENU_ORDER = ['file', 'edit', 'view', 'tools'] as const
 
 export function DocMenus({
   snap,
+  onNew,
   onRename,
   onGrid,
   onList,
 }: {
   snap: Snapshot
+  onNew: () => void
   onRename: () => void
   onGrid: () => void
   onList: () => void
@@ -24,7 +26,7 @@ export function DocMenus({
 
   const items: Record<(typeof MENU_ORDER)[number], Item[]> = {
     file: [
-      { id: 'new', label: 'New document', run: () => dispatch({ op: 'newDocument' }) },
+      { id: 'new', label: 'New document', run: onNew },
       { id: 'home', label: 'Open home', run: () => dispatch({ op: 'goHome' }) },
       { id: 'folder', label: 'Open folder…', run: () => dispatch({ op: 'openFolder' }) },
       { id: 'rename', label: 'Rename…', run: onRename, disabled: snap.route.kind !== 'doc' },

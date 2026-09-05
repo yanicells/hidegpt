@@ -28,6 +28,7 @@ export default defineConfig({
       },
     },
     build: {
+      minify: 'esbuild',
       rollupOptions: {
         input: resolve('src/renderer/index.html'),
       },

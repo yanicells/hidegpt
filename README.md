@@ -11,7 +11,7 @@ reuse your existing logins, and the window is a Docs costume over them:
 - **OpenCode**: spawns `opencode serve` on 127.0.0.1 (REST + SSE) and uses
   your existing `opencode auth` credentials.
 
-Switch providers from the toolbar chip or **Tools → Use Codex / Use
+Switch providers from the **Editing** toolbar menu or **Tools → Use Codex / Use
 OpenCode**. Cloud ChatGPT Chat / Cloud Work are out of documented scope.
 
 ```bash
@@ -25,7 +25,39 @@ bun run dev
 | `bun run test` | Session protocol tests plus renderer UI tests |
 | `bun run typecheck` | `tsc --noEmit` |
 | `bun run protocol` | Regenerate app-server TypeScript types from the installed CLI |
-| `bun run screenshot` | PNG of home and an open document (uses a fake Codex session) |
+| `bun run screenshot` | Home grid/list, project, creation dialog, and desktop/narrow editor PNGs using fictional content |
 
-New documents use `~/.codex/threads` (Codex) or your home folder (OpenCode)
-unless you pick **File → Open folder**.
+Choose **Blank document** or a template to name a document and select its location.
+Projects are browsable folders, including empty projects. Opening a project remembers
+that location when you return from a document; **New document** inside it preselects the project.
+Use **Add project** to choose its name and folder. OpenCode projects use Git folders;
+other directories work through **Location → Choose folder**.
+
+**My documents · No project** starts in `~/.codex/threads` for Codex or your home
+folder for OpenCode, without inheriting the last document's project. Templates
+place a starter in the composer; they never send it automatically.
+
+The toolbar keeps the Docs appearance: **Normal text** selects the model,
+**Arial** selects effort, **11** selects speed, and **Editing** selects the provider.
+Available choices come from the provider. Provider/account details stay in menus.
+
+Opening a document shows immediate, cancellable feedback. Recent turns load first;
+**Load earlier** retrieves the rest while preserving the reading position. Streaming
+updates are batched at 32 ms, completed answers are memoized, and independent
+catalog requests run in parallel. OpenCode reconnects dropped event streams and
+reloads the active document and its running status.
+
+## Provider compatibility
+
+Checked on 6 September 2026 against Codex CLI **0.153.0** and OpenCode **1.18.27**.
+Codex types are regenerated from the installed CLI. Project creation and explicit
+thread project assignment use the generated `project/create` and `thread/start`
+schemas. Projects use the current recency sort and paginated catalog.
+
+OpenCode requests were checked against its locally served `/doc` OpenAPI schema:
+project names/worktrees, session creation with `directory`, session rename,
+status, and `/global/event` envelopes. Account subscriptions and generation were
+not exercised by the fake-session tests.
+
+References: [Codex App Server](https://learn.chatgpt.com/docs/app-server),
+[OpenCode Server](https://opencode.ai/docs/server/).

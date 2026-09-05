@@ -14,7 +14,7 @@ existing logins, and the UI is a Docs costume over it.
   `Command`s back (`src/shared/api.ts`). Window title = document title,
   app name is "Docs".
 - **Home = Docs file list.** `components/home/` renders a template
-  strip ("Start a new document") plus recent documents grouped by project.
+  strip ("Start a new document") plus recent documents and browsable project folders.
   A document = one provider thread/session. Search filters server-side.
 - **Document = one thread.** `components/document/` renders provider
   blocks as page content on a paper-on-gray canvas (`styles/`, Arial
@@ -44,7 +44,7 @@ existing logins, and the UI is a Docs costume over it.
 - **OpenCode** (`src/opencode/`): spawns `opencode serve` on 127.0.0.1 and
   talks REST + SSE (`GET /global/health`, `GET/POST /session`,
   `GET/POST /session/{id}/message`, `POST /session/{id}/abort`,
-  `GET /event`). Same login reuse idea: it uses the user's existing
+  `GET /global/event`). Same login reuse idea: it uses the user's existing
   `opencode auth` credentials. Maps onto the same `Snapshot`/`Block`
   shapes so the renderer barely knows which provider is active.
 
@@ -101,9 +101,9 @@ Delete dead code on sight; don't comment it out, don't leave TODO shims.
   panel in the reference screenshots).
 - Match `screenshots/` references (real Google Docs home grid, home list
   grouped by recency, editor with tabs panel + formatting toolbar) before
-  inventing new chrome. List view groups loose docs by recency
-  (Today / Yesterday / Previous 7 days / Previous 30 days) plus project
-  sections, like Docs.
+  inventing new chrome. List view groups visible docs by recency
+  (Today / Yesterday / Previous 7 days / Previous 30 days). Projects are
+  browsable folders with a location filter and a scoped New document action.
 
 ## Commands
 

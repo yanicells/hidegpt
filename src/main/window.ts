@@ -115,6 +115,37 @@ export async function captureScreenshots(win: BrowserWindow, session: Screenshot
   `)
   await new Promise((resolve) => setTimeout(resolve, 200))
   writeFileSync(join(dir, 'home.png'), (await win.capturePage()).toPNG())
+  await win.webContents.executeJavaScript(`document.querySelector('[aria-label="List view"]').click()`)
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  writeFileSync(join(dir, 'home-list.png'), (await win.capturePage()).toPNG())
+  await win.webContents.executeJavaScript(`document.querySelector('[aria-label="Grid view"]').click()`)
+  const project = session.snapshot.projects[0]
+  if (project) {
+    await win.webContents.executeJavaScript(`document.querySelector('[data-testid="project-${project.id}"]').click()`)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    writeFileSync(join(dir, 'project.png'), (await win.capturePage()).toPNG())
+    await win.webContents.executeJavaScript(
+      `Array.from(document.querySelectorAll('button')).find((button) => button.textContent === 'New document').click()`,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    writeFileSync(join(dir, 'new-document.png'), (await win.capturePage()).toPNG())
+    await win.webContents.executeJavaScript(
+      `Array.from(document.querySelectorAll('dialog button')).find((button) => button.textContent === 'Create document').click()`,
+    )
+  }
+  await win.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const started = Date.now()
+    const check = () => {
+      const composer = document.querySelector('[data-testid="composer"]')
+      if (composer && !document.querySelector('dialog')) {
+        if (document.activeElement !== composer) reject(new Error('New document composer did not receive focus'))
+        else resolve(true)
+      } else if (Date.now() - started > 8000) reject(new Error('Document creation did not complete'))
+      else setTimeout(check, 50)
+    }
+    check()
+  })`)
+  writeFileSync(join(dir, 'new-document-ready.png'), (await win.capturePage()).toPNG())
   const first = session.snapshot.threads[0]
   if (first) await session.openThread(first.id)
   else await session.newDocument()
@@ -131,5 +162,8 @@ export async function captureScreenshots(win: BrowserWindow, session: Screenshot
   `)
   await new Promise((resolve) => setTimeout(resolve, 200))
   writeFileSync(join(dir, 'document.png'), (await win.capturePage()).toPNG())
+  win.setSize(760, 700)
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  writeFileSync(join(dir, 'document-narrow.png'), (await win.capturePage()).toPNG())
   app.quit()
 }
