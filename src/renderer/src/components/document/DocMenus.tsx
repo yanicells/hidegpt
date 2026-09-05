@@ -9,12 +9,16 @@ const MENU_ORDER = ['file', 'edit', 'view', 'tools'] as const
 
 export function DocMenus({
   snap,
+  outputOnly,
+  onToggleOutputOnly,
   onNew,
   onRename,
   onGrid,
   onList,
 }: {
   snap: Snapshot
+  outputOnly: boolean
+  onToggleOutputOnly: () => void
   onNew: () => void
   onRename: () => void
   onGrid: () => void
@@ -36,6 +40,7 @@ export function DocMenus({
       { id: 'select', label: 'Select all', run: () => document.execCommand('selectAll') },
     ],
     view: [
+      { id: 'output-only', label: 'Output only', checked: outputOnly, run: onToggleOutputOnly },
       { id: 'grid', label: 'Grid view', run: onGrid },
       { id: 'list', label: 'List view', run: onList },
     ],

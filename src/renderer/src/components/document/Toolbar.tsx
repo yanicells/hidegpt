@@ -241,9 +241,15 @@ function ChipPopover({
       if (ref.current && !ref.current.contains(target)) onClose()
     }
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') {
+        onClose()
+        anchorEl?.focus()
+      }
     }
-    const onScroll = () => onClose()
+    const onScroll = (event: Event) => {
+      if (event.target instanceof Node && ref.current?.contains(event.target)) return
+      onClose()
+    }
     document.addEventListener('mousedown', onPointer)
     document.addEventListener('keydown', onKey)
     window.addEventListener('resize', onScroll)

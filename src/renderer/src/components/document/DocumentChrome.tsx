@@ -4,17 +4,22 @@ import type { Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
 import { AccountMenu } from '../layout/AccountMenu'
 import { CloudIcon, DocsIcon, FolderIcon } from '../ui/Icons'
+import { threadProjectId } from '../home/ProjectFolders'
 import { DocMenus } from './DocMenus'
 import { Toolbar } from './Toolbar'
 
 export function DocumentChrome({
   snap,
+  outputOnly,
+  onToggleOutputOnly,
   onNew,
   titleRef,
   onGrid,
   onList,
 }: {
   snap: Snapshot
+  outputOnly: boolean
+  onToggleOutputOnly: () => void
   onNew: () => void
   titleRef: RefObject<HTMLInputElement | null>
   onGrid: () => void
@@ -23,7 +28,7 @@ export function DocumentChrome({
   const [draft, setDraft] = useState<string | null>(null)
   const cancelRef = useRef(false)
   const thread = snap.threads.find((item) => snap.route.kind === 'doc' && item.id === snap.route.threadId)
-  const project = snap.projects.find((item) => item.id === thread?.projectId)
+  const project = snap.projects.find((item) => thread && item.id === threadProjectId(snap, thread))
 
   const commit = () => {
     if (cancelRef.current) {
@@ -82,6 +87,8 @@ export function DocumentChrome({
             </span>
           </div>
           <DocMenus
+            outputOnly={outputOnly}
+            onToggleOutputOnly={onToggleOutputOnly}
             onNew={onNew}
             snap={snap}
             onRename={() => titleRef.current?.focus()}

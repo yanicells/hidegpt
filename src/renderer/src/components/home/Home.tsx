@@ -6,7 +6,7 @@ import { DocCard } from './DocCard'
 import { groupByRecency } from './grouping'
 import { ListView } from './ListView'
 import { TemplateCard } from './TemplateCard'
-import { ProjectFolders, projectFolders } from './ProjectFolders'
+import { ProjectFolders, projectFolders, threadProjectId } from './ProjectFolders'
 import type { Creation } from './NewDocumentDialog'
 import type { HomeView } from './useHomeView'
 
@@ -32,7 +32,8 @@ export function Home({
   const threads = snap.threads
     .filter(
       (thread) =>
-        (projectId === 'all' || (projectId === 'loose' ? !thread.projectId : thread.projectId === projectId)) &&
+        (projectId === 'all' ||
+          (projectId === 'loose' ? !threadProjectId(snap, thread) : threadProjectId(snap, thread) === projectId)) &&
         (!query || `${thread.name ?? ''} ${thread.preview}`.toLowerCase().includes(query)),
     )
     .sort((a, b) =>

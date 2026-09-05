@@ -1,7 +1,7 @@
 export function DocsIcon({ size = 40 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
-      <path fill="#4285F4" d="M8 2h22l12 12v32H8z" />
+      <path fill="#4285F4" d="M12 2h18l12 12v28a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4z" />
       <path fill="#A1C2FA" d="M30 2v12h12" />
       <path fill="#fff" d="M14 22h20v2.4H14zm0 6.2h20v2.4H14zm0 6.2h14v2.4H14z" />
     </svg>

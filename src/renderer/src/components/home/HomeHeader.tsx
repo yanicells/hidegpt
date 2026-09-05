@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
+import { ProviderSwitch } from './ProviderSwitch'
 import { AccountMenu } from '../layout/AccountMenu'
 import { DocsIcon, SearchIcon } from '../ui/Icons'
 
@@ -53,6 +54,7 @@ export function HomeHeader({ snap }: { snap: Snapshot }) {
         />
       </label>
       <div className="header-end">
+        <ProviderSwitch provider={snap.provider} />
         <AccountMenu snap={snap} />
       </div>
     </header>

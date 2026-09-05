@@ -2,25 +2,45 @@ import { useState } from 'react'
 import type { Snapshot } from '../../../../codex/types'
 import { FolderIcon, PlusMonoIcon } from '../ui/Icons'
 
-export function projectFolders(snap: Snapshot) {
-  const folders = snap.projects.map((project) => ({
-    id: project.id,
-    name: project.name,
-    cwd: project.roots[0]?.path ?? snap.threads.find((thread) => thread.projectId === project.id)?.cwd,
-    count: snap.threads.filter((thread) => thread.projectId === project.id).length,
-  }))
-  const known = new Set(folders.map((folder) => folder.id))
-  for (const thread of snap.threads) {
-    if (!thread.projectId || known.has(thread.projectId)) continue
-    known.add(thread.projectId)
-    folders.push({
-      id: thread.projectId,
-      name: thread.cwd.split('/').filter(Boolean).pop() || 'Project',
-      cwd: thread.cwd,
-      count: snap.threads.filter((item) => item.projectId === thread.projectId).length,
-    })
+export function threadProjectId(snap: Snapshot, thread: Snapshot['threads'][number]): string | null {
+  if (thread.projectId) return thread.projectId
+  const cwd = thread.cwd.replace(/\/+$/, '')
+  let match: { id: string; length: number } | undefined
+  for (const project of snap.projects) {
+    for (const root of project.roots) {
+      const path = root.path.replace(/\/+$/, '')
+      if (path && (cwd === path || cwd.startsWith(`${path}/`)) && (!match || path.length > match.length)) {
+        match = { id: project.id, length: path.length }
+      }
+    }
   }
-  return folders
+  return match?.id ?? null
+}
+
+export function projectFolders(snap: Snapshot) {
+  const folders = new Map(
+    snap.projects.map((project) => [
+      project.id,
+      {
+        id: project.id,
+        name: project.name,
+        cwd: project.roots[0]?.path,
+        count: 0,
+      },
+    ]),
+  )
+  for (const thread of snap.threads) {
+    const id = threadProjectId(snap, thread)
+    if (!id) continue
+    let folder = folders.get(id)
+    if (!folder) {
+      folder = { id, name: thread.cwd.split('/').filter(Boolean).pop() || 'Project', cwd: thread.cwd, count: 0 }
+      folders.set(id, folder)
+    }
+    folder.count++
+    folder.cwd ||= thread.cwd
+  }
+  return [...folders.values()]
 }
 
 export function ProjectFolders({

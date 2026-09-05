@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -9,7 +9,7 @@ import { emptySnapshot, type Snapshot } from '../../codex/types'
 import type { Command, HideGptApi, MenuAction } from '../../shared/api'
 import { App } from './app'
 import { groupByRecency } from './components/home/grouping'
-import { projectFolders } from './components/home/ProjectFolders'
+import { projectFolders, threadProjectId } from './components/home/ProjectFolders'
 
 import '@testing-library/jest-dom/vitest'
 
@@ -484,4 +484,65 @@ describe('project navigation and creation', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(calls).toContainEqual({ op: 'goHome' })
   })
+})
+
+describe('library and reading preferences', () => {
+  it('switches libraries from home', async () => {
+    const { calls } = mount()
+    await userEvent.click(screen.getByTestId('library-opencode'))
+    expect(calls).toContainEqual({ op: 'setProvider', provider: 'opencode', home: true })
+  })
+
+  it('keeps the model picker open while its contents scroll', async () => {
+    mount({ route: { kind: 'doc', threadId: 'thr_1' }, models: [stubModel()] })
+    await userEvent.click(screen.getByTestId('chip-model'))
+    const search = screen.getByPlaceholderText('Search models')
+    fireEvent.scroll(search.parentElement!)
+    expect(screen.getByPlaceholderText('Search models')).toBeInTheDocument()
+    fireEvent.scroll(window)
+    expect(screen.queryByPlaceholderText('Search models')).toBeNull()
+  })
+
+  it('persists output-only and keeps answers visible', async () => {
+    mount({
+      route: { kind: 'doc', threadId: 'thr_1' },
+      blocks: [
+        { kind: 'user', id: 'u', text: 'Question' },
+        { kind: 'agent', id: 'progress', text: 'Checking files', phase: 'commentary' },
+        { kind: 'callout', id: 'tool', title: 'Ran a command', body: 'ls' },
+        { kind: 'agent', id: 'answer', text: 'The final answer', phase: 'final_answer' },
+      ],
+    })
+    await userEvent.click(screen.getByTestId('menu-view'))
+    await userEvent.click(screen.getByText('Output only'))
+    expect(screen.queryByText('Checking files')).toBeNull()
+    expect(screen.queryByText('Ran a command')).toBeNull()
+    expect(screen.getByText('The final answer')).toBeInTheDocument()
+    expect(localStorage.getItem('hidegpt-output-only')).toBe('true')
+  })
+
+  it('files legacy documents under their folder and includes descendants', async () => {
+    const legacy = {
+      ...stubThread('legacy', 'Legacy document', 'Legacy document'),
+      cwd: '/tmp/course/notes',
+      projectId: null,
+    }
+    const outside = { ...stubThread('outside', 'Outside', 'Outside'), cwd: '/tmp/coursework', projectId: null }
+    mount({ projects: [projectFixture], threads: [legacy, outside] })
+    expect(screen.getByTestId('project-course')).toHaveTextContent('1 document')
+    await userEvent.click(screen.getByTestId('project-course'))
+    expect(screen.getByTestId('thread-legacy')).toBeInTheDocument()
+    expect(screen.queryByTestId('thread-outside')).toBeNull()
+  })
+})
+
+it('prefers the deepest folder root and keeps explicit assignments authoritative', () => {
+  const snap = {
+    ...emptySnapshot(),
+    projects: [projectFixture, { ...projectFixture, id: 'nested', roots: [{ path: '/tmp/course/notes/' }] }],
+  }
+  const thread = { ...stubThread('legacy', '', ''), cwd: '/tmp/course/notes/week-1/', projectId: null }
+  expect(threadProjectId(snap, thread)).toBe('nested')
+  expect(threadProjectId(snap, { ...thread, projectId: 'course' })).toBe('course')
+  expect(threadProjectId(snap, { ...thread, cwd: '/tmp/coursework' })).toBeNull()
 })

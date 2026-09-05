@@ -76,6 +76,7 @@ type ScreenshotSession = {
   readonly snapshot: Snapshot
   openThread: (threadId: string) => Promise<void>
   newDocument: () => Promise<void>
+  goHome: () => void
 }
 
 export async function captureScreenshots(win: BrowserWindow, session: ScreenshotSession): Promise<void> {
@@ -165,5 +166,24 @@ export async function captureScreenshots(win: BrowserWindow, session: Screenshot
   win.setSize(760, 700)
   await new Promise((resolve) => setTimeout(resolve, 100))
   writeFileSync(join(dir, 'document-narrow.png'), (await win.capturePage()).toPNG())
+  await session.goHome()
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  writeFileSync(join(dir, 'home-narrow.png'), (await win.capturePage()).toPNG())
+  await win.webContents.executeJavaScript(`document.querySelector('[data-testid="library-opencode"]').click()`)
+  await win.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+    const started = Date.now()
+    const check = () => {
+      const selected = document.querySelector('[data-testid="library-opencode"][aria-pressed="true"]')
+      if (selected && document.querySelector('[data-testid="docs-home"]')) resolve(true)
+      else if (Date.now() - started > 8000) reject(new Error('Library switch did not complete'))
+      else setTimeout(check, 50)
+    }
+    check()
+  })`)
+  writeFileSync(join(dir, 'opencode-home.png'), (await win.capturePage()).toPNG())
+  await win.webContents.executeJavaScript(`document.querySelector('[data-testid="library-codex"]').click()`)
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  const returnedHome = await win.webContents.executeJavaScript(`!!document.querySelector('.route-home .home')`)
+  if (!returnedHome) throw new Error('Switching back to Codex did not return to its library')
   app.quit()
 }

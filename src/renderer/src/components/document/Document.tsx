@@ -6,9 +6,22 @@ import { BlockView } from './BlockView'
 import { Composer } from './Composer'
 import { Tabs } from './Tabs'
 
-export function Document({ snap, onNew }: { snap: Snapshot; onNew: () => void }) {
+export function Document({
+  snap,
+  onNew,
+  outputOnly = false,
+}: {
+  snap: Snapshot
+  onNew: () => void
+  outputOnly?: boolean
+}) {
   const threadId = snap.route.kind === 'doc' ? snap.route.threadId : ''
-  const lastBlock = snap.blocks[snap.blocks.length - 1]
+  const visibleBlocks = outputOnly
+    ? snap.blocks.filter(
+        (block) => block.kind !== 'callout' && !(block.kind === 'agent' && block.phase === 'commentary'),
+      )
+    : snap.blocks
+  const lastBlock = visibleBlocks[visibleBlocks.length - 1]
   const streamingAgentId = snap.streaming && lastBlock?.kind === 'agent' ? lastBlock.id : null
   const waiting = snap.streaming && streamingAgentId === null
   const questions = snap.blocks.filter((block) => block.kind === 'user')
@@ -83,7 +96,7 @@ export function Document({ snap, onNew }: { snap: Snapshot; onNew: () => void })
                 {snap.loadingOlder ? 'Loading…' : 'Load earlier'}
               </button>
             ) : null}
-            {snap.blocks.map((block, index) => (
+            {visibleBlocks.map((block, index) => (
               <div
                 className={`doc-block${block.kind === 'user' && index > 0 ? ' turn-start' : ''}`}
                 data-turn={block.kind === 'user' ? block.id : undefined}

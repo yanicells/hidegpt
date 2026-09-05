@@ -23,7 +23,7 @@ export type Command =
   | { op: 'resolveApproval'; blockId: string; accept: boolean }
   | { op: 'setApprovalDraft'; blockId: string; key: string; value: string }
   | { op: 'setDocumentName'; name: string }
-  | { op: 'setProvider'; provider: Provider }
+  | { op: 'setProvider'; provider: Provider; home?: boolean }
   | { op: 'refresh' }
 
 export type MenuAction = 'rename' | 'grid' | 'list' | 'newDocument' | 'goHome' | 'focusSearch'

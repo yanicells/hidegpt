@@ -11,8 +11,7 @@ reuse your existing logins, and the window is a Docs costume over them:
 - **OpenCode**: spawns `opencode serve` on 127.0.0.1 (REST + SSE) and uses
   your existing `opencode auth` credentials.
 
-Switch providers from the **Editing** toolbar menu or **Tools → Use Codex / Use
-OpenCode**. Cloud ChatGPT Chat / Cloud Work are out of documented scope.
+Switch libraries using **Codex / OpenCode** on the home page. Each library has its own documents and projects. The **Editing** toolbar menu and **Tools** menu also switch providers. Cloud ChatGPT Chat / Cloud Work are out of documented scope.
 
 ```bash
 bun install
@@ -39,7 +38,11 @@ place a starter in the composer; they never send it automatically.
 
 The toolbar keeps the Docs appearance: **Normal text** selects the model,
 **Arial** selects effort, **11** selects speed, and **Editing** selects the provider.
-Available choices come from the provider. Provider/account details stay in menus.
+Available choices come from the provider. Account details stay in menus.
+
+Use **View → Output only** to hide tool activity and labeled progress messages.
+This preference persists across launches. Answers and approval requests remain visible;
+reasoning is always excluded, including OpenCode streaming deltas.
 
 Opening a document shows immediate, cancellable feedback. Recent turns load first;
 **Load earlier** retrieves the rest while preserving the reading position. Streaming
@@ -56,8 +59,13 @@ schemas. Projects use the current recency sort and paginated catalog.
 
 OpenCode requests were checked against its locally served `/doc` OpenAPI schema:
 project names/worktrees, session creation with `directory`, session rename,
-status, and `/global/event` envelopes. Account subscriptions and generation were
+status, `/global/event` envelopes, and `/experimental/session` for the cross-project catalog.
+Read-only live checks confirmed the global OpenCode catalog and folder matching for older Codex threads without explicit project IDs. Account subscriptions and generation were
 not exercised by the fake-session tests.
 
 References: [Codex App Server](https://learn.chatgpt.com/docs/app-server),
 [OpenCode Server](https://opencode.ai/docs/server/).
+
+Styling uses Tailwind CSS 4 through its [Vite plugin](https://tailwindcss.com/docs/installation/using-vite).
+Shared area selectors use `@apply`; new controls use utilities directly. Specialized
+paper, ruler, Markdown, and Electron window styles remain in the area stylesheets.

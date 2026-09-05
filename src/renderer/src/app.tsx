@@ -5,6 +5,7 @@ import { useCallback, useRef, useState } from 'react'
 import { Banners } from './components/layout/Banners'
 import { Document } from './components/document/Document'
 import { DocumentChrome } from './components/document/DocumentChrome'
+import { threadProjectId } from './components/home/ProjectFolders'
 import { Home } from './components/home/Home'
 import { HomeHeader } from './components/home/HomeHeader'
 import { useHomeView } from './components/home/useHomeView'
@@ -13,16 +14,21 @@ import type { MenuAction } from '../../shared/api'
 
 export function App() {
   const snap = useSnapshot()
+  const [outputOnly, setOutputOnly] = useState(() => localStorage.getItem('hidegpt-output-only') === 'true')
+  const toggleOutputOnly = () =>
+    setOutputOnly((current) => {
+      localStorage.setItem('hidegpt-output-only', String(!current))
+      return !current
+    })
   const [location, setLocation] = useState({ provider: snap.provider, id: 'all' })
   const projectId = location.provider === snap.provider ? location.id : 'all'
   const [creation, setCreation] = useState<Creation | null>(null)
-  const activeProjectId =
-    snap.route.kind === 'doc'
-      ? (snap.threads.find((thread) => snap.route.kind === 'doc' && thread.id === snap.route.threadId)?.projectId ??
-        undefined)
-      : projectId === 'all' || projectId === 'loose'
-        ? undefined
-        : projectId
+  const activeThread = snap.threads.find((thread) => snap.route.kind === 'doc' && thread.id === snap.route.threadId)
+  const activeProjectId = activeThread
+    ? (threadProjectId(snap, activeThread) ?? undefined)
+    : projectId === 'all' || projectId === 'loose'
+      ? undefined
+      : projectId
   const onNew = () => setCreation({ projectId: activeProjectId })
   const [view, setView] = useHomeView()
   const titleRef = useRef<HTMLInputElement>(null)
@@ -49,6 +55,8 @@ export function App() {
         <HomeHeader key={`header-${snap.provider}`} snap={snap} />
       ) : (
         <DocumentChrome
+          outputOnly={outputOnly}
+          onToggleOutputOnly={toggleOutputOnly}
           onNew={onNew}
           snap={snap}
           titleRef={titleRef}
@@ -74,7 +82,7 @@ export function App() {
           onView={setView}
         />
       ) : (
-        <Document onNew={onNew} snap={snap} />
+        <Document outputOnly={outputOnly} onNew={onNew} snap={snap} />
       )}
       {creation ? (
         <NewDocumentDialog

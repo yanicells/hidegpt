@@ -68,11 +68,12 @@ export async function ensureOpencode(): Promise<OpenCodeSession> {
   }
 }
 
-export async function setProvider(next: Provider): Promise<void> {
+export async function setProvider(next: Provider, home = false): Promise<void> {
   if (next === provider && (next === 'codex' || opencodeSession)) return
   if (next === 'opencode') {
     await ensureOpencode()
   }
+  if (home) (next === 'codex' ? codexSession : opencodeSession)?.goHome()
   provider = next
   sendSnapshot()
 }
