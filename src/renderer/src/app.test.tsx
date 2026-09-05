@@ -169,7 +169,7 @@ describe('document page', () => {
           rateLimitReachedType: null,
         },
         rateLimitsByLimitId: null,
-        rateLimitResetCredits: null,
+        rateLimitResetCredits: null, accountId: null, rateLimitUpsell: null,
       },
     })
     expect(screen.queryByText(/% used/)).toBeNull()
@@ -363,7 +363,7 @@ describe('home list view', () => {
   it('renders project folders by name, not hash', () => {
     mount({
       threads: [stubThread('thr_p1', 'Proj doc', 'Proj doc', 'proj_1')],
-      projects: [{ id: 'proj_1', name: 'My Project', roots: [], metadata: {}, position: 0, createdAt: 0, updatedAt: 0 }],
+      projects: [{ id: 'proj_1', name: 'My Project', roots: [], metadata: {}, position: 0, createdAt: 0, updatedAt: 0, recencyAt: null }],
     })
     expect(screen.getByText('My Project')).toBeInTheDocument()
     expect(screen.queryByText('proj_1')).toBeNull()

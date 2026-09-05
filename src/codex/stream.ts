@@ -100,7 +100,7 @@ export async function onNotification(ctx: SessionCtx, method: string, params: un
     ctx.patch({
       rateLimits: snapshot.rateLimits
         ? { ...snapshot.rateLimits, rateLimits: update.rateLimits }
-        : { rateLimits: update.rateLimits, rateLimitsByLimitId: null, rateLimitResetCredits: null },
+        : { rateLimits: update.rateLimits, rateLimitsByLimitId: null, rateLimitResetCredits: null, accountId: null, rateLimitUpsell: null },
     })
     return
   }

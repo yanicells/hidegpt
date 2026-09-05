@@ -21,6 +21,8 @@ export function stubThread(id: string, preview: string, name?: string, projectId
     projectId: projectId ?? null,
     historyMode: 'legacy',
     modelProvider: 'openai',
+    model: null,
+    reasoningEffort: null,
     createdAt: 1_700_000_000,
     updatedAt: 1_700_000_000,
     recencyAt: 1_700_000_000,
@@ -163,7 +165,7 @@ export function createFakeTransport(options?: {
         rateLimitReachedType: null,
       },
       rateLimitsByLimitId: null,
-      rateLimitResetCredits: null,
+      rateLimitResetCredits: null, accountId: null, rateLimitUpsell: null,
     }),
     'thread/start': () =>
       ({

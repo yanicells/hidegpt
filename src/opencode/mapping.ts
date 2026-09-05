@@ -144,6 +144,8 @@ export function toCodexThread(session: OpenSession): Thread {
     projectId: session.projectID || null,
     historyMode: 'legacy',
     modelProvider: 'openai',
+    model: null,
+    reasoningEffort: null,
     createdAt: created,
     updatedAt: at,
     recencyAt: at,
@@ -192,6 +194,7 @@ export function toCodexProject(project: { id: string; name: string }): Project {
     roots: [],
     metadata: {},
     position: 0,
+    recencyAt: null,
     createdAt: 0,
     updatedAt: 0,
   }
