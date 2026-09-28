@@ -148,18 +148,49 @@
   padding: 0 12px;
   @apply whitespace-nowrap text-sm;
 }
-.formatting-sample {
-  @apply flex items-center;
-  gap: 22px;
-  padding: 0 12px;
-  font-size: 17px;
-  color: var(--text-2);
-  @apply select-none;
+.toolbar .toolbar-icon {
+  width: 30px;
+  height: 28px;
 }
-.text-color {
-  @apply font-semibold;
-  border-bottom: 3px solid var(--text);
-  line-height: 20px;
+.toolbar-icon svg {
+  width: 18px;
+  height: 18px;
+}
+/* Text color "A" sits on a black swatch bar, like Docs. */
+.toolbar-icon.text-color {
+  @apply relative;
+}
+.toolbar-icon.text-color::after {
+  content: '';
+  @apply absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 4px;
+  height: 3px;
+  background: #000;
+}
+/* Font size: − [11] + */
+.font-size {
+  @apply flex items-center shrink-0;
+  gap: 2px;
+}
+.font-size-step {
+  @apply grid place-items-center;
+  width: 24px;
+  height: 28px;
+  font-size: 18px;
+  color: var(--text-2);
+}
+.font-size-box,
+.chip.font-size-box {
+  @apply inline-flex items-center justify-center;
+  height: 26px;
+  min-width: 36px;
+  padding: 0 6px;
+  border: 1px solid #747775;
+  border-radius: 4px;
+  font-size: 14px;
+  color: var(--text);
 }
 .document-location {
   @apply flex items-center gap-1.5 min-w-0;
@@ -170,12 +201,20 @@
   max-width: 160px;
   @apply overflow-hidden text-ellipsis whitespace-nowrap text-xs;
 }
+/* Docs folds decorative toolbar groups away as the window narrows. */
+@media (max-width: 1399px) {
+  .tb-wide {
+    @apply hidden;
+  }
+}
+@media (max-width: 1099px) {
+  .tb-optional {
+    @apply hidden;
+  }
+}
 @media (max-width: 960px) {
   .document-location small {
     @apply hidden;
-  }
-  .formatting-sample {
-    gap: 14px;
   }
 }
 @media print {
@@ -197,5 +236,60 @@
   .paper {
     box-shadow: none;
     @apply m-0 w-full;
+  }
+}
+
+/* Title row glyphs and the right-hand header actions (history, comments, Share). */
+.title-icon {
+  @apply grid place-items-center w-7 h-7 rounded-full;
+  color: var(--text-2);
+}
+.document-location svg {
+  width: 20px;
+  height: 20px;
+}
+.doc-actions {
+  @apply flex items-center gap-1;
+  margin-right: 8px;
+}
+.header-action {
+  @apply grid place-items-center w-10 h-10 rounded-full;
+  color: var(--text-2);
+}
+button.header-action:hover:not(:disabled) {
+  background: var(--hover);
+}
+button.header-action:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.share {
+  @apply flex items-center;
+  margin-left: 8px;
+}
+.share-button,
+.share-caret {
+  @apply flex items-center h-10;
+  background: var(--blue-soft);
+  color: #001d35;
+  @apply text-sm font-medium;
+}
+.share-button {
+  gap: 8px;
+  padding: 0 16px 0 14px;
+  border-radius: 20px 0 0 20px;
+}
+.share-caret {
+  padding: 0 10px 0 6px;
+  margin-left: 1px;
+  border-radius: 0 20px 20px 0;
+}
+.share-button:hover,
+.share-caret:hover {
+  background: #b3d7ef;
+}
+@media (max-width: 960px) {
+  .header-action {
+    @apply hidden;
   }
 }

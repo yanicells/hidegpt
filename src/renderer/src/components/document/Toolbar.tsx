@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import type { Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
 import { ChevronIcon, PenIcon } from '../ui/Icons'
+import { MIcon, type MaterialIconName } from '../ui/MaterialIcon'
 import { MenuPanel, type Item, type MenuId } from '../ui/MenuPanel'
 import { openImagePicker } from './Composer'
 
@@ -17,11 +18,11 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
   return (
     <div className="toolbar-wrap">
       <div className="toolbar" role="toolbar" aria-label="Document settings">
-        <button className="toolbar-icon" aria-label="Print document" onClick={() => window.print()}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
-            <path d="M6 8V3h12v5M6 17H3V9h18v8h-3M6 14h12v7H6z" />
-          </svg>
-        </button>
+        <Decor name="search" className="tb-optional" />
+        <ToolButton name="undo" label="Undo" onClick={() => document.execCommand('undo')} />
+        <ToolButton name="redo" label="Redo" onClick={() => document.execCommand('redo')} />
+        <ToolButton name="print" label="Print document" onClick={() => window.print()} />
+        <Decor name="paint" className="tb-optional" />
         <span className="toolbar-static">
           100% <ChevronIcon />
         </span>
@@ -58,13 +59,25 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
               onClose={() => setMenu(null)}
             />
           </>
-        ) : null}
-        {tiers.length > 0 ? (
+        ) : (
           <>
             <span className="divider" aria-hidden="true" />
+            <span className="toolbar-static" aria-hidden="true">
+              Arial <ChevronIcon />
+            </span>
+          </>
+        )}
+        <span className="divider" aria-hidden="true" />
+        <span className="font-size">
+          <span className="font-size-step" aria-hidden="true">
+            −
+          </span>
+          {tiers.length > 0 ? (
             <Chip
               testId="chip-speed"
               label="11"
+              chevron={false}
+              className="font-size-box"
               open={menu === 'serviceTier'}
               onClick={() => toggle('serviceTier')}
               items={[
@@ -83,22 +96,38 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
               ]}
               onClose={() => setMenu(null)}
             />
-          </>
-        ) : null}
+          ) : (
+            <span className="font-size-box" aria-hidden="true">
+              11
+            </span>
+          )}
+          <span className="font-size-step" aria-hidden="true">
+            +
+          </span>
+        </span>
         <span className="divider" aria-hidden="true" />
-        <div className="formatting-sample" aria-hidden="true">
-          <b>B</b>
-          <i>I</i>
-          <u>U</u>
-          <span className="text-color">A</span>
-          <span>≡</span>
-          <span>☷</span>
-        </div>
-        <button className="toolbar-icon" aria-label="Insert image" title="Insert image" onClick={openImagePicker}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2Zm0 16H5V5h14v14Zm-5.04-6.71-2.75 3.54-1.96-2.36L6.5 17h11l-3.54-4.71Z" />
-          </svg>
-        </button>
+        <Decor name="bold" />
+        <Decor name="italic" />
+        <Decor name="underline" />
+        <span className="toolbar-icon text-color" aria-hidden="true">
+          <MIcon name="textColor" />
+        </span>
+        <Decor name="highlight" className="tb-optional" />
+        <span className="divider tb-optional" aria-hidden="true" />
+        <Decor name="link" className="tb-optional" />
+        <Decor name="addComment" className="tb-optional" />
+        <ToolButton name="image" label="Insert image" onClick={openImagePicker} />
+        <span className="divider tb-wide" aria-hidden="true" />
+        <Decor name="alignLeft" className="tb-wide" />
+        <Decor name="lineSpacing" className="tb-wide" />
+        <Decor name="checklist" className="tb-wide" />
+        <Decor name="bullets" className="tb-wide" />
+        <Decor name="numbered" className="tb-wide" />
+        <Decor name="indentLess" className="tb-wide" />
+        <Decor name="indentMore" className="tb-wide" />
+        <Decor name="clearFormat" className="tb-wide" />
+        <span className="divider" aria-hidden="true" />
+        <Decor name="more" />
         <div className="toolbar-spacer" />
         <Chip
           testId="chip-provider"
@@ -142,14 +171,42 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
             />
           </>
         ) : null}
+        <Decor name="collapse" className="tb-optional" />
       </div>
     </div>
+  )
+}
+
+/** A toolbar glyph that is part of the Docs costume only. */
+function Decor({ name, className }: { name: MaterialIconName; className?: string }) {
+  return (
+    <span className={`toolbar-icon${className ? ` ${className}` : ''}`} aria-hidden="true">
+      <MIcon name={name} />
+    </span>
+  )
+}
+
+function ToolButton({ name, label, onClick }: { name: MaterialIconName; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="toolbar-icon"
+      aria-label={label}
+      title={label}
+      // Keeps focus (and the undo stack target) in the composer.
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={onClick}
+    >
+      <MIcon name={name} />
+    </button>
   )
 }
 
 function Chip({
   label,
   icon,
+  chevron = true,
+  className,
   open,
   onClick,
   testId,
@@ -161,6 +218,8 @@ function Chip({
 }: {
   label: string
   icon?: ReactNode
+  chevron?: boolean
+  className?: string
   open: boolean
   onClick: () => void
   testId: string
@@ -183,7 +242,7 @@ function Chip({
       <button
         type="button"
         ref={anchorRef}
-        className={`chip${open ? ' open' : ''}`}
+        className={`chip${open ? ' open' : ''}${className ? ` ${className}` : ''}`}
         data-testid={testId}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -191,7 +250,7 @@ function Chip({
       >
         {icon}
         <span className="chip-label">{label}</span>
-        <ChevronIcon />
+        {chevron ? <ChevronIcon /> : null}
       </button>
       {open && rect
         ? createPortal(

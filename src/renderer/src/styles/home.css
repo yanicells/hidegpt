@@ -567,6 +567,9 @@
   .home-header {
     grid-template-columns: 100px minmax(100px, 1fr) auto;
   }
+  .home-header .header-icon {
+    @apply hidden;
+  }
   .gallery-inner,
   .recent-inner {
     width: calc(100% - 40px);

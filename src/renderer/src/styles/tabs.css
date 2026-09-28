@@ -24,9 +24,8 @@
 
 .tabs-head {
   @apply flex items-center justify-between;
-  padding: 0 4px 12px 8px;
-  border-bottom: 1px solid var(--line);
-  @apply mb-3 text-sm font-semibold;
+  padding: 0 4px 0 16px;
+  @apply mb-4 text-sm font-medium;
   color: var(--text);
 }
 
@@ -56,7 +55,7 @@
   min-height: 40px;
   margin: 1px 12px 1px 0;
   padding: 8px 12px 8px 16px;
-  @apply rounded-3xl text-sm font-semibold;
+  @apply rounded-3xl text-sm font-normal;
   line-height: 1.35;
   color: var(--text);
   @apply text-left;
@@ -74,7 +73,7 @@
 .tab.active {
   background: #d3e3fd;
   color: var(--blue-dark);
-  @apply font-semibold;
+  @apply font-medium;
 }
 
 .tab.active svg {

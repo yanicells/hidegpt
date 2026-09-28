@@ -3,8 +3,10 @@ import { useRef, useState, type RefObject } from 'react'
 import type { Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
 import { AccountMenu } from '../layout/AccountMenu'
-import { CloudIcon, DocsIcon, FolderIcon } from '../ui/Icons'
+import { CloudIcon, DocsIcon } from '../ui/Icons'
+import { MIcon } from '../ui/MaterialIcon'
 import { threadProjectId } from '../home/ProjectFolders'
+import { DocActions } from './DocActions'
 import { DocMenus } from './DocMenus'
 import { Toolbar } from './Toolbar'
 
@@ -73,8 +75,11 @@ export function DocumentChrome({
                 }
               }}
             />
+            <span className="title-icon" aria-hidden="true">
+              <MIcon name="star" />
+            </span>
             <span className="document-location" title={project?.name ?? 'My documents'}>
-              <FolderIcon />
+              <MIcon name="moveFolder" />
               {project ? <small>{project.name}</small> : null}
             </span>
             <span
@@ -97,6 +102,7 @@ export function DocumentChrome({
           />
         </div>
         <div className="header-end">
+          <DocActions snap={snap} />
           <AccountMenu snap={snap} />
         </div>
       </div>
