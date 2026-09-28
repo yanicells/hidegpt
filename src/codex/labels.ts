@@ -5,6 +5,7 @@ import type { Thread } from '../generated/codex/v2/Thread'
 import type { ToolRequestUserInputParams } from '../generated/codex/v2/ToolRequestUserInputParams'
 
 import type { PendingApproval } from './blocks'
+import type { Provider } from './types'
 
 export function formatCodexError(message: string): string {
   if (/active writer|thread-store conflict/i.test(message)) {
@@ -119,4 +120,11 @@ export function previewLines(text: string, limit = 12): string {
   const trimmed = text.trim()
   if (!trimmed) return ''
   return trimmed.split(/\n+/).slice(0, limit).join('\n')
+}
+
+/** Every library the app can open, in switcher order. */
+export const PROVIDERS: Provider[] = ['codex', 'opencode', 'claude']
+
+export function providerLabel(provider: Provider): string {
+  return provider === 'codex' ? 'Codex' : provider === 'opencode' ? 'OpenCode' : 'Claude'
 }

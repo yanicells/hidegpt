@@ -9,9 +9,9 @@ import type { Thread } from '../generated/codex/v2/Thread'
 import type { Block } from './blocks'
 import type { JsonRpcId } from './jsonrpc'
 
-export type Provider = 'codex' | 'opencode'
+export type Provider = 'codex' | 'opencode' | 'claude'
 
-/** A skill the provider can load for one message (Codex `skills/list`, OpenCode `/skill`). */
+/** A skill the provider can load for one message (Codex `skills/list`, OpenCode `/skill`, Claude commands). */
 export type Skill = { name: string; description: string; path: string }
 
 export type Route = { kind: 'home' } | { kind: 'doc'; threadId: string }

@@ -1,8 +1,9 @@
 import { useState } from 'react'
+import { PROVIDERS, providerLabel } from '../../../../codex/labels'
 import type { Snapshot } from '../../../../codex/types'
 
 export function ProviderSwitch({ provider }: { provider: Snapshot['provider'] }) {
-  const [pending, setPending] = useState<string | null>(null)
+  const [pending, setPending] = useState<Snapshot['provider'] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const switchTo = async (next: Snapshot['provider']) => {
     if (next === provider || pending) return
@@ -23,7 +24,7 @@ export function ProviderSwitch({ provider }: { provider: Snapshot['provider'] })
         role="group"
         aria-label="Document library"
       >
-        {(['codex', 'opencode'] as const).map((value) => (
+        {PROVIDERS.map((value) => (
           <button
             key={value}
             type="button"
@@ -31,10 +32,10 @@ export function ProviderSwitch({ provider }: { provider: Snapshot['provider'] })
             aria-pressed={provider === value}
             disabled={!!pending}
             onClick={() => void switchTo(value)}
-            title={`Open ${value === 'codex' ? 'Codex' : 'OpenCode'} documents and projects`}
+            title={`Open ${providerLabel(value)} documents and projects`}
             className={`rounded-full px-3 py-2 text-sm transition-colors disabled:opacity-50 ${provider === value ? 'bg-white text-[#1967d2] shadow-sm' : 'text-[#5f6368] hover:bg-white/60'}`}
           >
-            {value === 'codex' ? 'Codex' : 'OpenCode'}
+            {providerLabel(value)}
           </button>
         ))}
       </div>
@@ -45,7 +46,7 @@ export function ProviderSwitch({ provider }: { provider: Snapshot['provider'] })
           aria-live="polite"
         >
           <span className="mx-auto mb-4 size-6 animate-spin rounded-full border-2 border-solid border-[#d3e3fd] border-t-[#1a73e8]" />
-          Opening {pending === 'codex' ? 'Codex' : 'OpenCode'} library…
+          Opening {providerLabel(pending)} library…
           <small className="mt-2 text-[#5f6368]">Loading documents and project folders</small>
         </div>
       )}

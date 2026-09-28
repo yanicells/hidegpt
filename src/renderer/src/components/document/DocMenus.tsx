@@ -1,6 +1,6 @@
 import { useRef, useState, type KeyboardEvent } from 'react'
 
-import { displayServerName, toolsNeedingConnect } from '../../../../codex/labels'
+import { displayServerName, PROVIDERS, providerLabel, toolsNeedingConnect } from '../../../../codex/labels'
 import type { Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
 import { MenuPanel, useDismiss, type Item, type MenuId } from '../ui/MenuPanel'
@@ -58,18 +58,12 @@ export function DocMenus({
     help: costume(['Help', 'Training', 'Updates', 'Keyboard shortcuts']),
     tools: [
       { id: 'refresh', label: 'Refresh', run: () => dispatch({ op: 'refresh' }) },
-      {
-        id: 'provider-codex',
-        label: 'Use Codex',
-        checked: snap.provider === 'codex',
-        run: () => dispatch({ op: 'setProvider', provider: 'codex' }),
-      },
-      {
-        id: 'provider-opencode',
-        label: 'Use OpenCode',
-        checked: snap.provider === 'opencode',
-        run: () => dispatch({ op: 'setProvider', provider: 'opencode' }),
-      },
+      ...PROVIDERS.map((provider) => ({
+        id: `provider-${provider}`,
+        label: `Use ${providerLabel(provider)}`,
+        checked: snap.provider === provider,
+        run: () => dispatch({ op: 'setProvider', provider }),
+      })),
       ...toolsNeedingConnect(snap.mcpServers).map((server) => ({
         id: `mcp-${server.name}`,
         label: `Connect ${displayServerName(server.name)}`,

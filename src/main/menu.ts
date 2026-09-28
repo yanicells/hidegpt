@@ -1,7 +1,7 @@
 import { app, Menu } from 'electron'
 import type { BrowserWindow } from 'electron'
 
-import { displayServerName, needsReconnect } from '../codex/labels'
+import { displayServerName, needsReconnect, PROVIDERS, providerLabel } from '../codex/labels'
 import type { Snapshot } from '../codex/types'
 import type { Command, MenuAction } from '../shared/api'
 
@@ -143,18 +143,12 @@ export function rebuildMenu(): void {
     {
       label: 'Tools',
       submenu: [
-        {
-          label: 'Use Codex',
-          type: 'checkbox',
-          checked: snap.provider === 'codex',
-          click: () => void deps.dispatch({ op: 'setProvider', provider: 'codex' }),
-        },
-        {
-          label: 'Use OpenCode',
-          type: 'checkbox',
-          checked: snap.provider === 'opencode',
-          click: () => void deps.dispatch({ op: 'setProvider', provider: 'opencode' }),
-        },
+        ...PROVIDERS.map((provider) => ({
+          label: `Use ${providerLabel(provider)}`,
+          type: 'checkbox' as const,
+          checked: snap.provider === provider,
+          click: () => void deps.dispatch({ op: 'setProvider', provider }),
+        })),
         { type: 'separator' },
         {
           label: 'Refresh',

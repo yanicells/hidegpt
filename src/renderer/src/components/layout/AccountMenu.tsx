@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 
-import { accountLabel, avatarLetter } from '../../../../codex/labels'
+import { accountLabel, avatarLetter, providerLabel } from '../../../../codex/labels'
 import type { Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
 import { MenuPanel, useDismiss, type Item } from '../ui/MenuPanel'
@@ -10,12 +10,12 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
   const ref = useRef<HTMLDivElement>(null)
   useDismiss(open, () => setOpen(false), ref)
   const items: Item[] =
-    snap.provider === 'opencode'
+    snap.provider !== 'codex'
       ? []
       : snap.account
         ? [{ id: 'logout', label: 'Log out', run: () => dispatch({ op: 'logout' }) }]
         : [{ id: 'login', label: 'Log in with ChatGPT', run: () => dispatch({ op: 'login' }) }]
-  const caption = snap.provider === 'opencode' ? 'OpenCode session' : null
+  const caption = snap.provider === 'codex' ? null : `${providerLabel(snap.provider)} session`
   return (
     <div className="menu" ref={ref}>
       <button
