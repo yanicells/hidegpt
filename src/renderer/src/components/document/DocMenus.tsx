@@ -6,7 +6,11 @@ import { dispatch } from '../../session-bridge'
 import { MenuPanel, useDismiss, type Item, type MenuId } from '../ui/MenuPanel'
 import { openImagePicker, startSmartChip } from './Composer'
 
-const MENU_ORDER = ['file', 'edit', 'view', 'insert', 'tools'] as const
+const MENU_ORDER = ['file', 'edit', 'view', 'insert', 'format', 'tools', 'extensions', 'help'] as const
+
+/** Docs-only menus: present for the look, their commands have no meaning here. */
+const costume = (labels: string[]): Item[] =>
+  labels.map((label) => ({ id: label.toLowerCase().replace(/\W+/g, '-'), label, run: () => {}, disabled: true }))
 
 export function DocMenus({
   snap,
@@ -49,6 +53,9 @@ export function DocMenus({
       { id: 'image', label: 'Image', run: openImagePicker, disabled: snap.route.kind !== 'doc' },
       { id: 'smart-chips', label: 'Smart chips', run: startSmartChip, disabled: snap.skills.length === 0 },
     ],
+    format: costume(['Text', 'Paragraph styles', 'Align & indent', 'Line & paragraph spacing', 'Clear formatting']),
+    extensions: costume(['Add-ons', 'Apps Script']),
+    help: costume(['Help', 'Training', 'Updates', 'Keyboard shortcuts']),
     tools: [
       { id: 'refresh', label: 'Refresh', run: () => dispatch({ op: 'refresh' }) },
       {

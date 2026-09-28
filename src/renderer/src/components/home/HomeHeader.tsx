@@ -5,6 +5,7 @@ import { dispatch } from '../../session-bridge'
 import { ProviderSwitch } from './ProviderSwitch'
 import { AccountMenu } from '../layout/AccountMenu'
 import { DocsIcon, SearchIcon } from '../ui/Icons'
+import { MIcon } from '../ui/MaterialIcon'
 
 export function HomeHeader({ snap }: { snap: Snapshot }) {
   const [query, setQuery] = useState(snap.search)
@@ -22,6 +23,9 @@ export function HomeHeader({ snap }: { snap: Snapshot }) {
   return (
     <header className="home-header">
       <div className="brand">
+        <span className="header-icon" aria-hidden="true">
+          <MIcon name="menu" size={24} />
+        </span>
         <DocsIcon size={40} />
         <span className="brand-name">Docs</span>
       </div>
@@ -31,7 +35,7 @@ export function HomeHeader({ snap }: { snap: Snapshot }) {
           data-testid="home-search"
           type="search"
           value={query}
-          placeholder="Search documents"
+          placeholder="Search"
           aria-label="Search documents"
           onChange={(event) => {
             setQuery(event.target.value)
@@ -55,6 +59,9 @@ export function HomeHeader({ snap }: { snap: Snapshot }) {
       </label>
       <div className="header-end">
         <ProviderSwitch provider={snap.provider} />
+        <span className="header-icon" aria-hidden="true">
+          <MIcon name="apps" size={24} />
+        </span>
         <AccountMenu snap={snap} />
       </div>
     </header>

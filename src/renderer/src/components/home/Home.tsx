@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Snapshot } from '../../../../codex/types'
 import { TEMPLATES } from '../../templates'
 import { BackIcon, FolderIcon, GridIcon, ListIcon, PlusMonoIcon } from '../ui/Icons'
+import { MIcon } from '../ui/MaterialIcon'
 import { DocCard } from './DocCard'
 import { groupByRecency } from './grouping'
 import { ListView } from './ListView'
@@ -43,6 +44,8 @@ export function Home({
     )
   const sections =
     view === 'list' && sort === 'recent' ? groupByRecency(threads) : [{ key: 'docs', title: '', threads }]
+  // Like Docs' list view, the first recency group titles the whole section.
+  const groupedTitle = view === 'list' && !query && !project
   const loading = snap.status === 'connecting' && !snap.threads.length
   return (
     <div className="home">
@@ -53,7 +56,16 @@ export function Home({
               <span className="section-title" data-testid="docs-home">
                 Start a new document
               </span>
-              <span className="gallery-caption">Templates</span>
+              <span className="gallery-tools" aria-hidden="true">
+                <span className="gallery-caption">
+                  Template gallery
+                  <MIcon name="unfold" />
+                </span>
+                <span className="gallery-divider" />
+                <span className="header-icon">
+                  <MIcon name="more" />
+                </span>
+              </span>
             </div>
             <div className="template-strip">
               {TEMPLATES.map((template) => (
@@ -85,16 +97,18 @@ export function Home({
           ) : (
             <ProjectFolders snap={snap} onOpen={onProject} onAdd={() => onCreate({ projectOnly: true })} />
           )}
-          <div className="recent-head">
+          <div className={`recent-head${view === 'list' ? ' as-list' : ''}`}>
             <span className="section-title">
-              {query ? 'Search results' : project ? 'Documents' : 'Recent documents'}
+              {query
+                ? 'Search results'
+                : project
+                  ? 'Documents'
+                  : groupedTitle && sections[0]?.title
+                    ? sections[0].title
+                    : 'Recent documents'}
             </span>
-            <div className="recent-controls">
-              <select
-                aria-label="Filter by project"
-                value={projectId}
-                onChange={(event) => onProject(event.target.value)}
-              >
+            <label className="owned-by">
+              <select aria-label="Filter by project" value={projectId} onChange={(event) => onProject(event.target.value)}>
                 <option value="all">All locations</option>
                 <option value="loose">No project</option>
                 {folders.map((folder) => (
@@ -103,28 +117,28 @@ export function Home({
                   </option>
                 ))}
               </select>
-              <select aria-label="Sort documents" value={sort} onChange={(event) => setSort(event.target.value)}>
-                <option value="recent">Last opened</option>
-                <option value="name">Title</option>
-              </select>
-              <div className="view-toggle" role="group" aria-label="Layout">
-                <button
-                  className={`icon-btn${view === 'list' ? ' active' : ''}`}
-                  aria-label="List view"
-                  aria-pressed={view === 'list'}
-                  onClick={() => onView('list')}
-                >
+              <MIcon name="dropDown" />
+            </label>
+            {view === 'list' ? <span className="list-col-label">Last opened by me</span> : <span />}
+            <div className="recent-controls">
+              {view === 'grid' ? (
+                <button className="icon-btn" aria-label="List view" title="List view" onClick={() => onView('list')}>
                   <ListIcon />
                 </button>
-                <button
-                  className={`icon-btn${view === 'grid' ? ' active' : ''}`}
-                  aria-label="Grid view"
-                  aria-pressed={view === 'grid'}
-                  onClick={() => onView('grid')}
-                >
+              ) : (
+                <button className="icon-btn" aria-label="Grid view" title="Grid view" onClick={() => onView('grid')}>
                   <GridIcon />
                 </button>
-              </div>
+              )}
+              <button
+                className={`icon-btn${sort === 'name' ? ' active' : ''}`}
+                aria-label="Sort by title"
+                aria-pressed={sort === 'name'}
+                title={sort === 'name' ? 'Sort by last opened' : 'Sort A–Z'}
+                onClick={() => setSort(sort === 'name' ? 'recent' : 'name')}
+              >
+                <MIcon name="sortAz" />
+              </button>
             </div>
           </div>
           {loading ? (
@@ -139,9 +153,11 @@ export function Home({
           ) : (
             sections.map((section, index) => (
               <section key={section.key} className="document-section">
-                {section.title ? <h2 className="recency-label">{section.title}</h2> : null}
+                {section.title && !(groupedTitle && index === 0) ? (
+                  <h2 className="recency-label">{section.title}</h2>
+                ) : null}
                 {view === 'list' ? (
-                  <ListView snap={snap} threads={section.threads} showHeader={index === 0} />
+                  <ListView snap={snap} threads={section.threads} />
                 ) : (
                   <div className="doc-grid">
                     {section.threads.map((thread) => (
