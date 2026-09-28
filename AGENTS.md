@@ -58,6 +58,13 @@ existing logins, and the UI is a Docs costume over it.
   `user` | `agent` | `callout` (collapsed tool/diff activity) | `approval`
   (inline Accept/Skip cards). **Reasoning is never rendered** — filter it
   at the mapping layer, not in the UI.
+- Snapshots cross IPC as `SnapshotPatch`es (`src/shared/snapshot-patch.ts`):
+  only fields whose reference changed, and only changed blocks. Sessions must
+  keep patching immutably — mutating a field or block in place means the
+  window never sees the change.
+- User blocks carry `images` (paths or URLs, shown via `docs://local/…`) and
+  `skills` (names, shown as smart chips). Typing `@` in the composer picks a
+  skill from `snapshot.skills` (Codex `skills/list`, OpenCode `/skill`).
 - Sessions are authoritative for state; the renderer only renders.
   Optimistic user echoes must reconcile with the server-echoed item
   (same text, server id wins) so a sent message never appears twice.
