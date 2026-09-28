@@ -24,10 +24,16 @@ export const defaultCwd = () => `${process.env.HOME ?? process.env.USERPROFILE ?
 export async function refreshCatalog(ctx: SessionCtx) {
   const threadId = ctx.getActiveId()
   const search = ctx.getSnapshot().search
+  // A big library takes ~10 sequential pages. Home paints from the first page;
+  // the rest replaces it when done. An already-filled list waits for the full
+  // result so a background refresh never shrinks it.
+  let firstPage: (threads: Thread[]) => void = () => {}
+  const first = new Promise<Thread[]>((resolve) => (firstPage = resolve))
+  const all = listAllThreads(ctx, firstPage)
   const [account, models, threads, projects, modes, rateLimits, mcp, skills] = await Promise.all([
     ctx.rpc<GetAccountResponse>('account/read', { refreshToken: false }),
     ctx.rpc<ModelListResponse>('model/list', {}),
-    listAllThreads(ctx),
+    ctx.getSnapshot().threads.length ? all : Promise.race([first, all]),
     listProjects(ctx).catch(() => ctx.getSnapshot().projects),
     ctx.rpc<{ data: CollaborationModeMask[] }>('collaborationMode/list', {}).catch(() => ({ data: [] })),
     ctx.rpc<GetAccountRateLimitsResponse>('account/rateLimits/read', {}).catch(() => null),
@@ -58,6 +64,12 @@ export async function refreshCatalog(ctx: SessionCtx) {
     mcpServers,
     skills,
   })
+  void all.then(
+    (complete) => {
+      if (complete.length !== threads.length && ctx.getSnapshot().search === search) ctx.patch({ threads: complete })
+    },
+    () => {},
+  )
 }
 
 /** Enabled skills visible from the current document folder. */
@@ -89,7 +101,10 @@ export async function refreshSkills(ctx: SessionCtx, forceReload = false) {
   }
 }
 
-export async function listAllThreads(ctx: SessionCtx): Promise<Thread[]> {
+export async function listAllThreads(
+  ctx: SessionCtx,
+  onFirstPage?: (threads: Thread[]) => void,
+): Promise<Thread[]> {
   const all: Thread[] = []
   let nextCursor: string | null = null
   const search = ctx.getSnapshot().search.trim()
@@ -102,6 +117,7 @@ export async function listAllThreads(ctx: SessionCtx): Promise<Thread[]> {
       searchTerm: search || null,
     })
     all.push(...listed.data)
+    if (page === 0) onFirstPage?.(all.slice())
     if (!listed.nextCursor) break
     nextCursor = listed.nextCursor
   }

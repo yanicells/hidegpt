@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { createFakeTransport, stubThread, stubTurn } from './fake'
 import { CodexSession, formatCodexError } from './session'
@@ -97,6 +97,19 @@ describe('CodexSession', () => {
     await session.send('one')
     await session.send('two')
     expect(transport.calls.filter((call) => call.method === 'turn/start')).toHaveLength(1)
+  })
+
+  it('is ready after the first page of documents and fills in the rest later', async () => {
+    let release = () => {}
+    const laterPages = new Promise<void>((resolve) => (release = resolve))
+    const threads = Array.from({ length: 5 }, (_, index) => stubThread(`thr_${index}`, `Doc ${index}`))
+    const transport = createFakeTransport({ threads, threadPageSize: 2, laterPages })
+    const session = new CodexSession(() => transport)
+    await session.start()
+    expect(session.snapshot.status).toBe('ready')
+    expect(session.snapshot.threads.map((thread) => thread.id)).toEqual(['thr_0', 'thr_1'])
+    release()
+    await vi.waitFor(() => expect(session.snapshot.threads).toHaveLength(5))
   })
 
   it('sends pasted images and a chosen skill as structured input', async () => {
