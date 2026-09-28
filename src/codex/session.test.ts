@@ -281,13 +281,134 @@ describe('CodexSession', () => {
   it('sends the selected speed tier with new turns', async () => {
     const { session, transport } = await readySession()
     await session.openThread('thr_1')
-    session.setSpeed('fast')
-    expect(session.snapshot.speed).toBe('fast')
+    session.setServiceTier('fast')
+    expect(session.snapshot.serviceTier).toBe('fast')
     await session.send('go fast')
     const turn = transport.calls.find((call) => call.method === 'turn/start')
     expect(turn?.params).toMatchObject({ serviceTierForTurn: 'fast' })
     session.setModel('gpt-5.6-sol')
-    expect(session.snapshot.speed).toBeNull()
+    expect(session.snapshot.serviceTier).toBeNull()
+  })
+
+  it('sends null for the default tier and passes unknown tiers through', async () => {
+    const first = await readySession()
+    await first.session.openThread('thr_1')
+    first.session.setServiceTier(null)
+    await first.session.send('standard speed')
+    const standardTurn = first.transport.calls.find((call) => call.method === 'turn/start')
+    expect(standardTurn?.params).toMatchObject({ serviceTierForTurn: null })
+
+    const second = await readySession()
+    await second.session.openThread('thr_1')
+    second.session.setServiceTier('mystery-tier')
+    await second.session.send('mystery speed')
+    const mysteryTurn = second.transport.calls.find((call) => call.method === 'turn/start')
+    expect(mysteryTurn?.params).toMatchObject({ serviceTierForTurn: 'mystery-tier' })
+  })
+
+  it('keeps a server echo with different text as a second user block', async () => {
+    const { session, transport } = await readySession()
+    await session.openThread('thr_1')
+    await session.send('original text')
+    transport.emitNotification('item/started', {
+      threadId: 'thr_1',
+      item: {
+        type: 'userMessage',
+        id: 'u-server',
+        clientId: null,
+        content: [{ type: 'text', text: 'different text', text_elements: [] }],
+      },
+    })
+    const users = session.snapshot.blocks.filter((block) => block.kind === 'user')
+    expect(users).toHaveLength(2)
+    expect(users[0]).toMatchObject({ text: 'original text' })
+    expect(users[1]).toMatchObject({ id: 'u-server', text: 'different text' })
+  })
+
+  it('reconciles two identical sends independently without cross-talk', async () => {
+    const { session, transport } = await readySession()
+    await session.openThread('thr_1')
+    await session.send('same text')
+    transport.emitNotification('item/started', {
+      threadId: 'thr_1',
+      item: {
+        type: 'userMessage',
+        id: 'u-1',
+        clientId: null,
+        content: [{ type: 'text', text: 'same text', text_elements: [] }],
+      },
+    })
+    expect(session.snapshot.blocks.filter((block) => block.kind === 'user')).toHaveLength(1)
+    transport.emitNotification('turn/completed', {
+      threadId: 'thr_1',
+      turn: { id: 'turn_1', status: 'completed', error: null },
+    })
+    expect(session.snapshot.streaming).toBe(false)
+    await session.send('same text')
+    transport.emitNotification('item/started', {
+      threadId: 'thr_1',
+      item: {
+        type: 'userMessage',
+        id: 'u-2',
+        clientId: null,
+        content: [{ type: 'text', text: 'same text', text_elements: [] }],
+      },
+    })
+    const users = session.snapshot.blocks.filter((block) => block.kind === 'user')
+    expect(users.map((block) => block.id)).toEqual(['u-1', 'u-2'])
+  })
+
+  it('declines commandExecution approvals with decline', async () => {
+    const { session, transport } = await readySession()
+    await session.openThread('thr_1')
+    transport.emitRequest(31, 'item/commandExecution/requestApproval', {
+      threadId: 'thr_1',
+      command: 'ls',
+      reason: 'list files',
+    })
+    const block = session.snapshot.blocks.find((item) => item.kind === 'approval')
+    expect(block?.kind).toBe('approval')
+    if (block?.kind !== 'approval') return
+    session.resolveApproval(block.id, false)
+    expect(transport.responses.at(-1)).toMatchObject({ id: 31, result: { decision: 'decline' } })
+  })
+
+  it('declines fileChange approvals with decline', async () => {
+    const { session, transport } = await readySession()
+    await session.openThread('thr_1')
+    transport.emitRequest(32, 'item/fileChange/requestApproval', {
+      threadId: 'thr_1',
+      reason: 'edit files',
+    })
+    const block = session.snapshot.blocks.find((item) => item.kind === 'approval')
+    expect(block?.kind).toBe('approval')
+    if (block?.kind !== 'approval') return
+    session.resolveApproval(block.id, false)
+    expect(transport.responses.at(-1)).toMatchObject({ id: 32, result: { decision: 'decline' } })
+  })
+
+  it('ignores a second resolveApproval for the same request', async () => {
+    const { session, transport } = await readySession()
+    await session.openThread('thr_1')
+    transport.emitRequest(33, 'item/commandExecution/requestApproval', {
+      threadId: 'thr_1',
+      command: 'ls',
+    })
+    const block = session.snapshot.blocks.find((item) => item.kind === 'approval')
+    if (block?.kind !== 'approval') throw new Error('expected approval')
+    session.resolveApproval(block.id, true)
+    session.resolveApproval(block.id, false)
+    expect(transport.responses.filter((response) => response.id === 33)).toHaveLength(1)
+  })
+
+  it('interrupts the turn and clears streaming', async () => {
+    const { session, transport } = await readySession()
+    await session.openThread('thr_1')
+    await session.send('hello')
+    expect(session.snapshot.streaming).toBe(true)
+    await session.interrupt()
+    expect(transport.calls.some((call) => call.method === 'turn/interrupt')).toBe(true)
+    expect(session.snapshot.streaming).toBe(false)
   })
 
   it('does not reopen a document after the user goes home', async () => {

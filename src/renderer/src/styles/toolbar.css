@@ -1,0 +1,159 @@
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 4px 0 8px;
+  border-radius: 4px;
+  font-size: 14px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.chip svg {
+  color: var(--text-2);
+}
+
+.chip:hover {
+  background: var(--hover);
+}
+
+.chip.open {
+  background: var(--blue-tint);
+}
+
+.chip-label {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Document chrome ---------- */
+
+.doc-chrome {
+  flex-shrink: 0;
+  background: var(--canvas);
+}
+
+.doc-top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  padding: 8px 16px 0 12px;
+  gap: 8px;
+}
+
+.app.platform-darwin .doc-top {
+  padding-left: 78px;
+}
+
+.doc-home {
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  padding: 4px;
+  margin-top: 2px;
+}
+
+.doc-home:hover {
+  background: var(--hover);
+}
+
+.doc-head {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.doc-title-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 32px;
+}
+
+.doc-title {
+  field-sizing: content;
+  min-width: 96px;
+  max-width: calc(100% - 40px);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 18px;
+  line-height: 24px;
+  padding: 2px 8px;
+  color: var(--text);
+  background: transparent;
+}
+
+.doc-title:hover {
+  border-color: var(--line);
+}
+
+.doc-title:focus {
+  border-color: var(--blue);
+}
+
+.save-state {
+  display: inline-flex;
+  color: var(--muted);
+  padding: 0 4px;
+}
+
+.cloud.busy {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.doc-menus {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  gap: 2px;
+}
+
+.menu-label {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 14px;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+}
+
+.menu-label:hover,
+.menu-label.open {
+  background: var(--hover);
+}
+
+.toolbar-wrap {
+  padding: 6px 16px 10px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 40px;
+  padding: 0 8px;
+  border-radius: 24px;
+  background: var(--pill);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.divider {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 20px;
+  margin: 0 6px;
+  background: #c7c7c7;
+}
+
+.toolbar-spacer {
+  flex: 1;
+}

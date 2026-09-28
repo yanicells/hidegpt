@@ -84,6 +84,14 @@ export function createFakeOpenCodeClient(options?: {
       ],
       ses_2: [],
     } satisfies Record<string, OpenMessage[]>)
+  const defaultModels: OpenProviderModel[] = [
+    { id: 'muse-spark', providerID: 'opencode', name: 'Muse Spark' },
+    { id: 'gpt-5', providerID: 'openai', name: 'GPT-5' },
+  ]
+  const catalog = async (): Promise<{ models: OpenProviderModel[]; defaults: Record<string, string> }> => ({
+    models: options?.models ?? defaultModels,
+    defaults: {},
+  })
   const handlers = new Set<(event: OpenEvent) => void>()
   const calls: FakeOpenCodeClient['calls'] = []
 
@@ -102,37 +110,37 @@ export function createFakeOpenCodeClient(options?: {
       const search = opts?.search?.toLowerCase()
       return search ? sessions.filter((session) => session.title.toLowerCase().includes(search)) : sessions
     },
-    async createSession(opts?: { title?: string }) {
+    async createSession(opts?: { title?: string; agent?: string; model?: unknown }) {
       calls.push({ method: 'createSession', args: [opts] })
       const session = stubSession('ses_new', opts?.title ?? '')
       sessions.push(session)
       messages[session.id] = []
       return session
     },
-    async deleteSession() {},
     async listMessages(sessionId: string) {
       calls.push({ method: 'listMessages', args: [sessionId] })
       return messages[sessionId] ?? []
     },
-    async promptAsync(sessionId: string, opts: { text: string }) {
+    async promptAsync(sessionId: string, opts: { model?: unknown; agent?: string; text: string }) {
       calls.push({ method: 'promptAsync', args: [sessionId, opts] })
       if (options?.failPrompt) throw new Error('nope')
     },
-    async abort() {},
+    async abort(sessionId: string) {
+      calls.push({ method: 'abort', args: [sessionId] })
+    },
+    async listCatalog() {
+      calls.push({ method: 'listCatalog', args: [] })
+      return catalog()
+    },
     async listModels() {
       calls.push({ method: 'listModels', args: [] })
-      return (
-        options?.models ?? [
-          { id: 'muse-spark', providerID: 'opencode', name: 'Muse Spark' },
-          { id: 'gpt-5', providerID: 'openai', name: 'GPT-5' },
-        ]
-      )
+      return (await catalog()).models
     },
     async listProviders() {
       return []
     },
     async providerDefaults() {
-      return {}
+      return (await catalog()).defaults
     },
     async listAgents() {
       calls.push({ method: 'listAgents', args: [] })

@@ -100,10 +100,6 @@ export class OpenCodeClient {
     )
   }
 
-  async deleteSession(sessionId: string): Promise<void> {
-    await this.call(`/session/${sessionId}`, { method: 'DELETE' }, 'session.delete')
-  }
-
   async listMessages(sessionId: string, limit = 100): Promise<OpenMessage[]> {
     return this.call(`/session/${sessionId}/message?limit=${limit}`, undefined, 'session.messages')
   }
@@ -131,6 +127,20 @@ export class OpenCodeClient {
     await this.call(`/session/${sessionId}/abort`, { method: 'POST' }, 'session.abort')
   }
 
+  async listCatalog(): Promise<{ models: OpenProviderModel[]; defaults: Record<string, string> }> {
+    const data = await this.call<{
+      providers?: { id: string; models: Record<string, { id: string; name?: string }> }[]
+      default?: Record<string, string>
+    }>('/config/providers', undefined, 'config.providers')
+    const models: OpenProviderModel[] = []
+    for (const provider of data.providers ?? []) {
+      for (const [id, model] of Object.entries(provider.models ?? {})) {
+        models.push({ id, providerID: provider.id, name: model.name ?? id })
+      }
+    }
+    return { models, defaults: data.default ?? {} }
+  }
+
   async listProviders(): Promise<{ id: string; models: Record<string, { id: string; name?: string }> }[]> {
     const data = await this.call<{
       providers: { id: string; models: Record<string, { id: string; name?: string }> }[]
@@ -140,26 +150,16 @@ export class OpenCodeClient {
 
   async providerDefaults(): Promise<Record<string, string>> {
     try {
-      const data = await this.call<{ default?: Record<string, string> }>(
-        '/config/providers',
-        undefined,
-        'config.providers',
-      )
-      return data.default ?? {}
+      const { defaults } = await this.listCatalog()
+      return defaults
     } catch {
       return {}
     }
   }
 
   async listModels(): Promise<OpenProviderModel[]> {
-    const providers = await this.listProviders()
-    const out: OpenProviderModel[] = []
-    for (const provider of providers) {
-      for (const [id, model] of Object.entries(provider.models ?? {})) {
-        out.push({ id, providerID: provider.id, name: model.name ?? id })
-      }
-    }
-    return out
+    const { models } = await this.listCatalog()
+    return models
   }
 
   async listAgents(): Promise<OpenAgent[]> {
@@ -174,13 +174,20 @@ export class OpenCodeClient {
 
   async listProjects(): Promise<OpenProject[]> {
     try {
-      const data = await this.call<{ id: string; name?: string }[] | { projects: { id: string; name?: string }[] }>(
+      const data = await this.call<{ id: string; worktree?: string }[] | { projects: { id: string; worktree?: string }[] }>(
         '/project',
         undefined,
         'project.list',
       )
       const projects = Array.isArray(data) ? data : (data.projects ?? [])
-      return projects.map((project) => ({ id: project.id, name: project.name ?? project.id }))
+      // Projects carry no display name — only a hash id and a worktree path —
+      // so folders are named after their directory. The 'global' project
+      // (worktree '/') is skipped so its sessions list as loose documents.
+      return projects.flatMap((project) => {
+        const name = (project.worktree ?? '').replace(/\/+$/, '').split('/').pop()
+        if (!name || project.id === 'global') return []
+        return [{ id: project.id, name }]
+      })
     } catch {
       return []
     }

@@ -1,0 +1,520 @@
+/* ---------- Page ---------- */
+
+.doc-layout {
+  display: flex;
+  align-items: flex-start;
+  min-height: 100%;
+}
+
+.paper-col {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.workspace {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--canvas);
+  position: relative;
+}
+
+.ruler {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  width: min(var(--paper-width), calc(100% - 48px));
+  height: 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--hairline);
+  font-family: var(--font-ui);
+  font-size: 9px;
+  color: var(--faint);
+}
+
+.ruler-num {
+  position: absolute;
+  top: 1px;
+  transform: translateX(-50%);
+}
+
+.ruler-num::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 11px;
+  width: 1px;
+  height: 8px;
+  background: var(--faint);
+}
+
+.ruler-tab {
+  position: absolute;
+  top: 0;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 7px solid var(--docs-blue);
+}
+
+.ruler-tab-left {
+  left: var(--paper-margin);
+  transform: translateX(-50%);
+}
+
+.ruler-tab-right {
+  right: var(--paper-margin);
+  transform: translateX(50%);
+}
+
+.paper {
+  width: min(var(--paper-width), calc(100% - 48px));
+  min-height: 1056px;
+  margin: 14px 0 96px;
+  padding: var(--paper-margin);
+  background: var(--surface);
+  box-shadow: var(--shadow-page);
+  font-family: var(--font-page);
+  font-size: 11pt;
+  line-height: 1.2;
+  color: #000;
+}
+
+.load-older {
+  display: block;
+  margin: 0 0 16px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--blue);
+}
+
+.load-older:hover {
+  text-decoration: underline;
+}
+
+.load-older:disabled {
+  color: var(--faint);
+  text-decoration: none;
+}
+
+/* A question is a document section at body scale, separated from the last. */
+.doc-question {
+  margin: 0 0 6pt;
+  font-size: 11pt;
+  line-height: 1.3;
+  font-weight: 700;
+  color: #000;
+  overflow-wrap: anywhere;
+}
+
+.doc-block.turn-start {
+  margin-top: 16pt;
+  padding-top: 14pt;
+  border-top: 1px solid var(--hairline);
+}
+
+.doc-body {
+  overflow-wrap: anywhere;
+}
+
+.doc-body > :first-child {
+  margin-top: 0;
+}
+
+.doc-body > :last-child {
+  margin-bottom: 0;
+}
+
+.doc-body p {
+  margin: 0 0 10pt;
+}
+
+.doc-body h1,
+.doc-body h2,
+.doc-body h3,
+.doc-body h4,
+.doc-body h5,
+.doc-body h6 {
+  line-height: 1.2;
+  margin: 18pt 0 6pt;
+}
+
+.doc-body h1 {
+  font-weight: 400;
+  font-size: 16pt;
+}
+
+.doc-body h2 {
+  font-size: 14pt;
+  font-weight: 700;
+  color: #434343;
+}
+
+.doc-body h3,
+.doc-body h4,
+.doc-body h5,
+.doc-body h6 {
+  font-size: 12pt;
+  font-weight: 700;
+  color: #666;
+}
+
+.doc-body a {
+  color: #1155cc;
+}
+
+.doc-body strong {
+  font-weight: 700;
+}
+
+.doc-body ul,
+.doc-body ol {
+  margin: 0 0 10pt;
+  padding-left: 36px;
+}
+
+.doc-body li {
+  margin: 0 0 2pt;
+}
+
+.doc-body li > p {
+  margin: 0;
+}
+
+.doc-body blockquote {
+  margin: 0 0 10pt;
+  padding: 0 0 0 12px;
+  border-left: 3px solid var(--line);
+  color: var(--text-2);
+}
+
+.doc-body hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 12pt 0;
+}
+
+.doc-body code {
+  font-family: var(--font-mono);
+  font-size: 10pt;
+  background: var(--band);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.doc-body pre {
+  margin: 0 0 10pt;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  background: #f8f9fa;
+  overflow: auto;
+  line-height: 1.4;
+}
+
+.doc-body pre code {
+  background: none;
+  padding: 0;
+}
+
+.doc-body table {
+  border-collapse: collapse;
+  margin: 0 0 10pt;
+  width: 100%;
+}
+
+.doc-body th,
+.doc-body td {
+  border: 1px solid #b7b7b7;
+  padding: 4px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.doc-body th {
+  font-weight: 700;
+}
+
+.doc-body img {
+  max-width: 100%;
+}
+
+.doc-block {
+  margin-bottom: 10pt;
+}
+
+.streaming .doc-body > :last-child {
+  display: inline;
+}
+
+.callout {
+  margin: 2pt 0;
+  font-family: var(--font-ui);
+}
+
+.callout summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 10px 0 4px;
+  border: 1px solid #dadce0;
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.callout summary::-webkit-details-marker {
+  display: none;
+}
+
+.callout summary:hover {
+  background: var(--hover-soft);
+}
+
+.callout summary svg {
+  color: var(--muted);
+  transform: rotate(-90deg);
+  transition: transform 120ms;
+}
+
+.callout[open] summary svg {
+  transform: none;
+}
+
+.callout pre {
+  margin: 6px 0 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  background: #f8f9fa;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+  max-height: 320px;
+  overflow: auto;
+}
+
+.approval {
+  margin: 6pt 0;
+  padding: 12px 16px 14px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--green);
+  border-radius: 8px;
+  background: var(--surface);
+  font-family: var(--font-ui);
+}
+
+.approval.done {
+  border-left-color: var(--line);
+}
+
+.approval-eyebrow {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--green);
+}
+
+.approval.done .approval-eyebrow {
+  color: var(--muted);
+}
+
+.approval h3 {
+  margin: 2px 0 4px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.approval p {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.approval input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.approval input:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 1px var(--blue);
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.choice {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.choice:hover {
+  background: var(--hover-soft);
+}
+
+.choice.on {
+  background: var(--blue-soft);
+  border-color: transparent;
+  color: var(--blue-dark);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.accept,
+.skip {
+  height: 36px;
+  padding: 0 20px;
+  border-radius: 18px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.accept {
+  background: var(--blue);
+  color: #fff;
+}
+
+.accept:hover {
+  background: var(--blue-dark);
+}
+
+.skip {
+  color: var(--blue);
+}
+
+.skip:hover {
+  background: var(--blue-tint);
+}
+
+.resolved {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.composer {
+  display: block;
+  width: 100%;
+  field-sizing: content;
+  min-height: 1.2em;
+  border: 0;
+  resize: none;
+  background: transparent;
+  font: inherit;
+  line-height: inherit;
+  color: inherit;
+  caret-color: #000;
+  padding: 0;
+  overflow: hidden;
+}
+
+.composer::placeholder {
+  color: var(--faint);
+}
+
+.pending {
+  margin: 0 0 10pt;
+  min-height: 1.2em;
+}
+
+.caret {
+  display: inline-block;
+  width: 1.5px;
+  height: 1em;
+  margin-left: 1px;
+  background: #000;
+  vertical-align: text-bottom;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.stop-wrap {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  padding-bottom: 24px;
+  margin-top: -80px;
+  pointer-events: none;
+}
+
+.stop {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 20px 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.25);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.stop:hover {
+  background: var(--hover-soft);
+}
+
+.stop-square {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--red);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}

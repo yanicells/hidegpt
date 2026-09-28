@@ -1,28 +1,15 @@
 import { existsSync } from 'node:fs'
 
-import type { Model } from '../generated/codex/v2/Model'
-import type { Project } from '../generated/codex/v2/Project'
-import type { Thread } from '../generated/codex/v2/Thread'
-
-import type { Block, PendingApproval } from '../codex/blocks'
 import { emptySnapshot, type Snapshot } from '../codex/types'
-import {
-  startOpenCodeServer,
-  type OpenCodeClient,
-  type OpenCodeServer,
-  type OpenEvent,
-  type OpenMessage,
-  type OpenMessagePart,
-  type PermissionAsked,
-  type QuestionAsked,
-} from './client'
+import { startOpenCodeServer, type OpenCodeClient, type OpenCodeServer, type OpenEvent } from './client'
+import { handleEvent } from './events'
+import { blocksFromMessages, messageText, preferredDefault, sessionTitle, splitModelId, toCodexModel, toCodexProject, toCodexThread } from './mapping'
 
 export type { Snapshot } from '../codex/types'
 
 type ClientFactory = (cwd: string) => Promise<{ client: OpenCodeClient; version: string; close: () => Promise<void> }>
 
 const defaultFactory: ClientFactory = (cwd) => startOpenCodeServer({ cwd })
-
 const homeDir = () => process.env.HOME ?? process.env.USERPROFILE ?? process.cwd()
 
 /** A CodexSession-compatible session backed by `opencode serve` (REST + SSE). */
@@ -38,6 +25,7 @@ export class OpenCodeSession {
   private agents: string[] = []
   /** messageId -> partId -> accumulated text for the live turn. */
   private streamText = new Map<string, Map<string, string>>()
+  private pendingLocalId: string | null = null
   private nav = 0
 
   constructor(createClient: ClientFactory = defaultFactory) {
@@ -46,22 +34,20 @@ export class OpenCodeSession {
 
   subscribe = (listener: () => void) => {
     this.listeners.add(listener)
-    return () => {
-      this.listeners.delete(listener)
-    }
+    return () => this.listeners.delete(listener)
   }
 
   getSnapshot = () => this.snapshot
-
   private emit() {
     for (const listener of this.listeners) listener()
   }
-
   private patch(partial: Partial<Snapshot>) {
     this.snapshot = { ...this.snapshot, ...partial }
     this.emit()
   }
-
+  private fail(error: unknown) {
+    this.patch({ error: error instanceof Error ? error.message : String(error) })
+  }
   private get client(): OpenCodeClient | null {
     return this.server?.client ?? null
   }
@@ -102,35 +88,28 @@ export class OpenCodeSession {
     const client = this.client
     if (!client) return
     try {
-      const [sessions, models, agents, projects, defaults] = await Promise.all([
+      const [sessions, catalog, agents, projects] = await Promise.all([
         client.listSessions({ search: this.snapshot.search || undefined, limit: 100 }),
-        client.listModels(),
+        client.listCatalog(),
         client.listAgents(),
         client.listProjects(),
-        client.providerDefaults(),
       ])
       this.agents = agents.map((agent) => agent.name).filter((name) => name.toLowerCase() !== 'plan')
       if (!this.agents.includes(this.agent)) this.agent = this.agents.includes('build') ? 'build' : (this.agents[0] ?? 'build')
-      const mappedModels = models.map(toCodexModel)
+      const mappedModels = catalog.models.map(toCodexModel)
       if (!this.model) {
-        const preferred = preferredDefault(defaults, models.map((m) => `${m.providerID}/${m.id}`))
-        const fallback = mappedModels.find((m) => m.isDefault) ?? mappedModels[0]
-        const chosen = preferred ?? fallback?.model ?? null
+        const preferred = preferredDefault(catalog.defaults, catalog.models.map((m) => `${m.providerID}/${m.id}`))
+        const chosen = preferred ?? mappedModels.find((m) => m.isDefault)?.model ?? mappedModels[0]?.model ?? null
         this.model = chosen ? splitModelId(chosen) : null
       }
       this.patch({
         models: mappedModels,
         model: this.model ? `${this.model.providerID}/${this.model.modelID}` : null,
         effort: null,
-        speed: null,
+        ...serviceTierReset,
         collaborationModes: agents
           .filter((agent) => agent.name.toLowerCase() !== 'plan')
-          .map((agent) => ({
-            name: agent.name,
-            mode: null,
-            model: null,
-            reasoning_effort: null,
-          })),
+          .map((agent) => ({ name: agent.name, mode: null, model: null, reasoning_effort: null })),
         collaborationMode: this.agent,
         projects: projects.map(toCodexProject),
         threads: sessions.map(toCodexThread),
@@ -139,9 +118,7 @@ export class OpenCodeSession {
         rateLimits: null,
         mcpServers: [],
       })
-    } catch (error) {
-      this.patch({ error: error instanceof Error ? error.message : String(error) })
-    }
+    } catch (error) { this.fail(error) }
   }
 
   setSearch(value: string) {
@@ -153,42 +130,28 @@ export class OpenCodeSession {
     try {
       const sessions = await this.client.listSessions({ search: this.snapshot.search || undefined, limit: 100 })
       this.patch({ threads: sessions.map(toCodexThread) })
-    } catch (error) {
-      this.patch({ error: error instanceof Error ? error.message : String(error) })
-    }
+    } catch (error) { this.fail(error) }
   }
 
   goHome() {
     this.nav += 1
     this.abandonTurn()
     this.activeSessionId = null
+    this.pendingLocalId = null
     this.streamText.clear()
-    this.patch({
-      route: { kind: 'home' },
-      title: 'Docs',
-      blocks: [],
-      streaming: false,
-      olderTurnsCursor: null,
-      loadingOlder: false,
-    })
+    this.patch({ route: { kind: 'home' }, title: 'Docs', blocks: [], streaming: false, olderTurnsCursor: null, loadingOlder: false })
   }
 
   setModel(model: string) {
+    if (!this.snapshot.models.some((m) => m.model === model || m.id === model)) return
     this.model = splitModelId(model)
     this.patch({ model })
   }
 
-  setEffort(_effort: string) {
-    // OpenCode models carry no separate effort dial; variants live in the model id.
-  }
-
-  setSpeed(_speed: string | null) {
-    // No speed tiers on OpenCode models; the chip stays hidden.
-  }
+  setEffort(_effort: string) {}
+  setServiceTier(_serviceTier: string | null) {}
 
   setCollaborationMode(name: string) {
-    // The mode chip doubles as the OpenCode agent picker (build / explore / …).
-    // Plan mode is not offered.
     if (name.toLowerCase() === 'plan') return
     if (this.agents.length > 0 && !this.agents.includes(name)) return
     this.agent = name
@@ -198,15 +161,15 @@ export class OpenCodeSession {
   toggleFolder(show: boolean) {
     this.patch({ showFolder: show, folderDraft: this.snapshot.cwd })
   }
-
   setFolderDraft(value: string) {
     this.patch({ folderDraft: value })
   }
 
   applyFolder() {
+    this.nav += 1
     const cwd = this.snapshot.folderDraft.trim() || homeDir()
-    this.patch({ cwd, showFolder: false, folderDraft: cwd })
-    // Sessions belong to the server's working directory, so relaunch it there.
+    this.streamText.clear()
+    this.patch({ cwd, showFolder: false, folderDraft: cwd, streaming: false })
     void this.restart()
   }
 
@@ -214,6 +177,8 @@ export class OpenCodeSession {
     await this.close()
     this.patch({ status: 'connecting' })
     await this.start()
+    if (this.activeSessionId) void this.reconcile(this.activeSessionId)
+    void this.refreshThreads()
   }
 
   async openThread(threadId: string) {
@@ -222,6 +187,7 @@ export class OpenCodeSession {
     const client = this.client
     if (!client) return
     this.abandonTurn()
+    this.pendingLocalId = null
     try {
       const messages = await client.listMessages(threadId, 200)
       if (token !== this.nav) return
@@ -232,27 +198,24 @@ export class OpenCodeSession {
       this.streamText.clear()
       if (session?.model) this.model = { ...session.model }
       if (session?.agent && session.agent.toLowerCase() !== 'plan') this.agent = session.agent
+      const keep = this.snapshot.blocks.filter((b) => b.kind === 'approval' && (b.extra as { sessionId?: string } | undefined)?.sessionId === threadId)
       this.patch({
         route: { kind: 'doc', threadId },
         title: sessionTitle(session?.title, messages),
-        blocks: blocksFromMessages(messages),
+        blocks: [...blocksFromMessages(messages), ...keep],
         cwd: session?.directory ?? this.snapshot.cwd,
         model: this.model ? `${this.model.providerID}/${this.model.modelID}` : this.snapshot.model,
         collaborationMode: this.agent,
-        streaming: false,
-        error: null,
-        olderTurnsCursor: null,
-        loadingOlder: false,
+        streaming: false, error: null, olderTurnsCursor: null, loadingOlder: false,
       })
     } catch (error) {
       if (token !== this.nav) return
-      this.patch({ error: error instanceof Error ? error.message : String(error), route: { kind: 'home' } })
+      this.fail(error)
+      this.patch({ route: { kind: 'home' } })
     }
   }
 
-  async loadOlderTurns() {
-    // Message history loads in one page; nothing older to fetch.
-  }
+  async loadOlderTurns() {}
 
   async newDocument() {
     this.nav += 1
@@ -260,6 +223,7 @@ export class OpenCodeSession {
     const client = this.client
     if (!client) return
     this.abandonTurn()
+    this.pendingLocalId = null
     try {
       const session = await client.createSession({ agent: this.agent, model: this.model ?? undefined })
       if (token !== this.nav) return
@@ -270,15 +234,13 @@ export class OpenCodeSession {
         title: 'Untitled document',
         blocks: [],
         cwd: session.directory || this.snapshot.cwd,
-        streaming: false,
-        error: null,
-        olderTurnsCursor: null,
-        loadingOlder: false,
+        streaming: false, error: null, olderTurnsCursor: null, loadingOlder: false,
       })
       await this.refreshThreads()
     } catch (error) {
       if (token !== this.nav) return
-      this.patch({ error: error instanceof Error ? error.message : String(error), route: { kind: 'home' } })
+      this.fail(error)
+      this.patch({ route: { kind: 'home' } })
     }
   }
 
@@ -292,20 +254,23 @@ export class OpenCodeSession {
       this.patch({ error: 'Pick a model first.' })
       return
     }
-    this.patch({
-      blocks: [...this.snapshot.blocks, { kind: 'user', id: `local-${Date.now()}`, text: trimmed }],
-      streaming: true,
-      error: null,
-    })
+    const localId = `local-${Date.now()}`
+    this.pendingLocalId = localId
+    this.patch({ blocks: [...this.snapshot.blocks, { kind: 'user', id: localId, text: trimmed }], streaming: true, error: null })
     try {
-      await client.promptAsync(sessionId, { model: this.toApiModel(), agent: this.agent, text: trimmed })
+      await client.promptAsync(sessionId, {
+        model: { providerID: this.model.providerID, modelID: this.model.modelID },
+        agent: this.agent,
+        text: trimmed,
+      })
     } catch (error) {
-      this.patch({ streaming: false, error: error instanceof Error ? error.message : String(error) })
+      this.pendingLocalId = null
+      this.patch({
+        blocks: this.snapshot.blocks.filter((block) => block.id !== localId),
+        streaming: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
-  }
-
-  private toApiModel(): { providerID: string; modelID: string } {
-    return this.model ?? { providerID: '', modelID: '' }
   }
 
   /** Stops a turn left running in another session when navigating away. */
@@ -322,47 +287,33 @@ export class OpenCodeSession {
     const client = this.client
     const sessionId = this.activeSessionId
     if (!client || !sessionId) return
-    try {
-      await client.abort(sessionId)
-    } catch {
-      // idle sessions may reject abort
-    }
-    this.streamText.clear()
+    try { await client.abort(sessionId) } catch { /* idle sessions may reject abort */ }
     this.patch({ streaming: false })
     await this.reconcile(sessionId)
   }
 
   async setDocumentName(name: string) {
-    // OpenCode titles sessions automatically; renaming is not exposed — keep local title.
     const trimmed = name.trim()
     if (!trimmed || trimmed === this.snapshot.title) return
     this.patch({
       title: trimmed,
-      threads: this.snapshot.threads.map((thread) =>
-        thread.id === this.activeSessionId ? { ...thread, name: trimmed } : thread,
-      ),
+      threads: this.snapshot.threads.map((thread) => (thread.id === this.activeSessionId ? { ...thread, name: trimmed } : thread)),
     })
   }
 
   async logout() {
     this.patch({ error: 'OpenCode signs in outside Docs — run `opencode auth logout` in a terminal.' })
   }
-
   async login() {
     this.patch({ error: 'OpenCode signs in outside Docs — run `opencode auth login` in a terminal, then Refresh.' })
   }
-
   async connectMcp(_name: string) {
     this.patch({ error: 'Manage OpenCode tools with `opencode mcp` in a terminal.' })
   }
 
   setApprovalDraft(blockId: string, key: string, value: string) {
     this.patch({
-      blocks: this.snapshot.blocks.map((item) =>
-        item.kind === 'approval' && item.id === blockId
-          ? { ...item, drafts: { ...item.drafts, [key]: value } }
-          : item,
-      ),
+      blocks: this.snapshot.blocks.map((item) => (item.kind === 'approval' && item.id === blockId ? { ...item, drafts: { ...item.drafts, [key]: value } } : item)),
     })
   }
 
@@ -373,26 +324,17 @@ export class OpenCodeSession {
     const extra = block.extra as { requestId: string; questions?: { id: string }[] } | undefined
     if (!extra?.requestId) return
     if (block.method === 'opencode/permission') {
-      void client.replyPermission(extra.requestId, accept).catch((error: unknown) => {
-        this.patch({ error: error instanceof Error ? error.message : String(error) })
-      })
+      void client.replyPermission(extra.requestId, accept).catch((error: unknown) => this.fail(error))
     } else if (block.method === 'opencode/question') {
       if (accept) {
-        const answers = (extra.questions ?? []).map((question) => {
-          const value = block.drafts[question.id] ?? ''
-          return value ? [value] : []
-        })
-        void client.replyQuestion(extra.requestId, answers).catch((error: unknown) => {
-          this.patch({ error: error instanceof Error ? error.message : String(error) })
-        })
+        const answers = (extra.questions ?? []).map((q) => (block.drafts[q.id] ? [block.drafts[q.id]] : []))
+        void client.replyQuestion(extra.requestId, answers).catch((error: unknown) => this.fail(error))
       } else {
         void client.rejectQuestion(extra.requestId).catch(() => {})
       }
     }
     this.patch({
-      blocks: this.snapshot.blocks.map((item) =>
-        item.id === blockId ? { ...item, resolved: accept ? 'accepted' : 'skipped' } : item,
-      ),
+      blocks: this.snapshot.blocks.map((item) => (item.id === blockId ? { ...item, resolved: accept ? 'accepted' : 'skipped' } : item)),
     })
   }
 
@@ -402,9 +344,7 @@ export class OpenCodeSession {
     try {
       const sessions = await client.listSessions({ search: this.snapshot.search || undefined, limit: 100 })
       this.patch({ threads: sessions.map(toCodexThread) })
-    } catch {
-      // home list refresh is best-effort
-    }
+    } catch { /* home list refresh is best-effort */ }
   }
 
   private async reconcile(sessionId: string) {
@@ -414,130 +354,26 @@ export class OpenCodeSession {
       const messages = await client.listMessages(sessionId, 200)
       if (this.activeSessionId !== sessionId) return
       const approvals = this.snapshot.blocks.filter((block) => block.kind === 'approval')
+      this.pendingLocalId = null
       this.patch({ blocks: [...blocksFromMessages(messages), ...approvals], streaming: false })
-    } catch {
-      this.patch({ streaming: false })
-    }
+    } catch { this.patch({ streaming: false }) }
   }
 
   private onEvent(event: OpenEvent) {
-    const props = event.properties ?? {}
-    const sessionId = typeof props.sessionID === 'string' ? props.sessionID : null
-    switch (event.type) {
-      case 'message.part.delta': {
-        if (!sessionId || sessionId !== this.activeSessionId) return
-        const messageID = typeof props.messageID === 'string' ? props.messageID : null
-        const partID = typeof props.partID === 'string' ? props.partID : null
-        if (!messageID || !partID || props.field !== 'text' || typeof props.delta !== 'string') return
-        let parts = this.streamText.get(messageID)
-        if (!parts) {
-          parts = new Map()
-          this.streamText.set(messageID, parts)
-        }
-        parts.set(partID, (parts.get(partID) ?? '') + props.delta)
-        this.patch({ blocks: applyStreamText(this.snapshot.blocks, messageID, joinParts(parts)) })
-        return
-      }
-      case 'message.part.updated': {
-        if (!sessionId || sessionId !== this.activeSessionId) return
-        const part = props.part as OpenMessagePart | undefined
-        if (!part || typeof part.messageID !== 'string') return
-        if (part.type === 'reasoning') return
-        if (part.type === 'text' && !part.synthetic) {
-          let parts = this.streamText.get(part.messageID)
-          if (!parts) {
-            parts = new Map()
-            this.streamText.set(part.messageID, parts)
-          }
-          parts.set(part.id, part.text ?? '')
-          this.patch({ blocks: applyStreamText(this.snapshot.blocks, part.messageID, joinParts(parts)) })
-          return
-        }
-        if (part.type === 'tool') {
-          this.patch({ blocks: upsertCallout(this.snapshot.blocks, toolCallout(part)) })
-          return
-        }
-        return
-      }
-      case 'message.updated': {
-        if (!sessionId || sessionId !== this.activeSessionId) return
-        const info = props.info as { id?: string; role?: string } | undefined
-        // The server echo of our optimistic user message: same text, server id wins.
-        if (info?.role === 'user' && info.id) {
-          void this.replaceLocalEcho(info.id)
-        }
-        return
-      }
-      case 'session.idle': {
-        if (!sessionId || sessionId !== this.activeSessionId) return
-        this.streamText.clear()
-        void this.reconcile(sessionId)
-        return
-      }
-      case 'session.error': {
-        if (!sessionId || sessionId !== this.activeSessionId) return
-        const error = props.error as { message?: string } | undefined
-        this.streamText.clear()
-        this.patch({ streaming: false, error: error?.message ?? 'The assistant ran into an error.' })
-        return
-      }
-      case 'permission.asked':
-      case 'permission.v2.asked': {
-        if (!sessionId || sessionId !== this.activeSessionId) return
-        const request = (props.request ?? props) as unknown as PermissionAsked
-        if (!request || typeof request.id !== 'string') return
-        if (this.snapshot.blocks.some((block) => block.kind === 'approval' && block.requestId === request.id)) return
-        this.patch({ blocks: [...this.snapshot.blocks, permissionApproval(request)] })
-        return
-      }
-      case 'permission.replied':
-      case 'permission.v2.replied':
-      case 'question.replied':
-      case 'question.v2.replied':
-      case 'question.rejected':
-      case 'question.v2.rejected': {
-        const requestId =
-          typeof props.requestID === 'string'
-            ? props.requestID
-            : typeof (props as { id?: unknown }).id === 'string'
-              ? ((props as { id?: unknown }).id as string)
-              : null
-        if (!requestId) return
-        this.patch({
-          blocks: this.snapshot.blocks.map((block) =>
-            block.kind === 'approval' && block.requestId === requestId && block.resolved === null
-              ? { ...block, resolved: 'skipped' as const }
-              : block,
-          ),
-        })
-        return
-      }
-      case 'question.asked':
-      case 'question.v2.asked': {
-        if (!sessionId || sessionId !== this.activeSessionId) return
-        const request = (props.request ?? props) as unknown as QuestionAsked
-        if (!request || typeof request.id !== 'string' || !Array.isArray(request.questions)) return
-        if (this.snapshot.blocks.some((block) => block.kind === 'approval' && block.requestId === request.id)) return
-        this.patch({ blocks: [...this.snapshot.blocks, questionApproval(request)] })
-        return
-      }
-      case 'session.updated': {
-        const info = props.info as { id?: string; title?: string } | undefined
-        if (info?.id === this.activeSessionId && info.title) this.patch({ title: info.title })
-        void this.refreshThreads()
-        return
-      }
-      case 'session.created':
-      case 'session.deleted': {
-        void this.refreshThreads()
-        return
-      }
-      default:
-        return
-    }
+    handleEvent(event, {
+      getActiveId: () => this.activeSessionId,
+      getBlocks: () => this.snapshot.blocks,
+      patch: (partial) => this.patch(partial),
+      streamText: this.streamText,
+      reconcile: (id) => void this.reconcile(id),
+      replaceLocalEcho: (id) => void this.replaceLocalEcho(id),
+      refreshThreads: () => void this.refreshThreads(),
+    })
   }
 
   private async replaceLocalEcho(serverId: string) {
+    const pending = this.pendingLocalId
+    if (!pending) return
     const client = this.client
     const sessionId = this.activeSessionId
     if (!client || !sessionId) return
@@ -546,216 +382,12 @@ export class OpenCodeSession {
       const userMessages = messages.filter((message) => message.info.role === 'user')
       const latest = userMessages[userMessages.length - 1]
       if (!latest) return
-      this.patch({
-        blocks: this.snapshot.blocks.map((block) =>
-          block.kind === 'user' && block.id.startsWith('local-') && block.text === userText(latest)
-            ? { ...block, id: serverId }
-            : block,
-        ),
-      })
-    } catch {
-      // echo reconciliation is best-effort; idle reconcile fixes stragglers
-    }
+      const block = this.snapshot.blocks.find((item) => item.id === pending)
+      if (!block || block.kind !== 'user' || block.text !== messageText(latest, '\n')) return
+      this.pendingLocalId = null
+      this.patch({ blocks: this.snapshot.blocks.map((item) => (item.id === pending ? { ...item, id: serverId } : item)) })
+    } catch { /* echo reconciliation is best-effort; idle reconcile fixes stragglers */ }
   }
 }
 
-function preferredDefault(defaults: Record<string, string>, available: string[]): string | null {
-  const values = Object.entries(defaults)
-  const exact = values.find(([provider, model]) => available.includes(`${provider}/${model}`))
-  if (exact) return `${exact[0]}/${exact[1]}`
-  return null
-}
-
-function splitModelId(id: string): { providerID: string; modelID: string } {
-  const slash = id.indexOf('/')
-  if (slash === -1) return { providerID: '', modelID: id }
-  return { providerID: id.slice(0, slash), modelID: id.slice(slash + 1) }
-}
-
-function joinParts(parts: Map<string, string>): string {
-  return [...parts.values()].join('\n\n')
-}
-
-function applyStreamText(blocks: Block[], messageId: string, text: string): Block[] {
-  const index = blocks.findIndex((block) => block.id === messageId)
-  if (index === -1) return [...blocks, { kind: 'agent', id: messageId, text }]
-  const current = blocks[index]
-  if (current.kind !== 'agent') return blocks
-  if (current.text === text) return blocks
-  const next = blocks.slice()
-  next[index] = { ...current, text }
-  return next
-}
-
-function upsertCallout(blocks: Block[], callout: Block): Block[] {
-  const index = blocks.findIndex((block) => block.id === callout.id)
-  if (index === -1) return [...blocks, callout]
-  const next = blocks.slice()
-  next[index] = callout
-  return next
-}
-
-function userText(message: OpenMessage): string {
-  return message.parts
-    .filter((part) => part.type === 'text' && !part.synthetic)
-    .map((part) => part.text ?? '')
-    .filter(Boolean)
-    .join('\n')
-}
-
-function assistantText(message: OpenMessage): string {
-  return message.parts
-    .filter((part) => part.type === 'text' && !part.synthetic)
-    .map((part) => part.text ?? '')
-    .filter(Boolean)
-    .join('\n\n')
-}
-
-function toolCallout(part: OpenMessagePart): Block {
-  const state = part.state
-  const status = state?.status ?? ''
-  const output = typeof state?.output === 'string' ? state.output : ''
-  const body = output ? output.slice(0, 2000) : status
-  return {
-    kind: 'callout',
-    id: part.id,
-    title: part.tool ? `Ran ${part.tool}` : 'Tool',
-    body,
-  }
-}
-
-function blocksFromMessages(messages: OpenMessage[]): Block[] {
-  const blocks: Block[] = []
-  for (const message of messages) {
-    if (message.info.role === 'user') {
-      const text = userText(message)
-      if (text) blocks.push({ kind: 'user', id: message.info.id, text })
-      continue
-    }
-    const text = assistantText(message)
-    if (text) blocks.push({ kind: 'agent', id: message.info.id, text })
-    for (const part of message.parts) {
-      if (part.type === 'tool') blocks.push(toolCallout(part))
-    }
-  }
-  return blocks
-}
-
-function sessionTitle(title: string | undefined, messages: OpenMessage[]): string {
-  if (title?.trim()) return title.trim()
-  const firstUser = messages.find((message) => message.info.role === 'user')
-  const text = firstUser ? userText(firstUser) : ''
-  return text.split('\n')[0]?.trim() || 'Untitled document'
-}
-
-function permissionApproval(request: PermissionAsked): PendingApproval {
-  const patterns = request.patterns?.length ? `: ${request.patterns.join(', ')}` : ''
-  return {
-    kind: 'approval',
-    id: `approval-${request.id}`,
-    requestId: request.id,
-    method: 'opencode/permission',
-    title: `Allow ${request.permission}${patterns}?`,
-    body: 'The assistant is asking for extra access.',
-    resolved: null,
-    extra: { requestId: request.id },
-    drafts: {},
-  }
-}
-
-function questionApproval(request: QuestionAsked): PendingApproval {
-  const questions = request.questions.map((question, index) => ({
-    id: `q${index}`,
-    header: question.header,
-    question: question.question,
-    isOther: question.options.length === 0,
-    isSecret: false,
-    options: question.options.map((option) => ({ label: option.label, description: option.description })),
-  }))
-  return {
-    kind: 'approval',
-    id: `approval-${request.id}`,
-    requestId: request.id,
-    method: 'opencode/question',
-    title: 'The assistant needs input',
-    body: request.questions.map((question) => question.question).filter(Boolean).join('\n') || 'Continue?',
-    resolved: null,
-    extra: { requestId: request.id, questions },
-    drafts: {},
-  }
-}
-
-function toCodexThread(session: {
-  id: string
-  title: string
-  directory: string
-  projectID: string
-  time: { created: number; updated: number }
-}): Thread {
-  const at = Math.floor((session.time.updated || session.time.created || Date.now()) / 1000)
-  const created = Math.floor((session.time.created || Date.now()) / 1000)
-  return {
-    id: session.id,
-    extra: null,
-    sessionId: session.id,
-    forkedFromId: null,
-    parentThreadId: null,
-    preview: session.title || 'Untitled document',
-    ephemeral: false,
-    section: null,
-    sectionEnteredAt: null,
-    projectId: session.projectID || null,
-    historyMode: 'legacy',
-    modelProvider: 'openai',
-    createdAt: created,
-    updatedAt: at,
-    recencyAt: at,
-    status: { type: 'notLoaded' },
-    path: null,
-    cwd: session.directory,
-    cliVersion: '0',
-    source: 'vscode',
-    canAcceptDirectInput: true,
-    threadSource: null,
-    agentNickname: null,
-    agentRole: null,
-    gitInfo: null,
-    name: session.title || null,
-    turns: [],
-  }
-}
-
-function toCodexModel(model: { id: string; providerID: string; name: string }, index: number): Model {
-  return {
-    id: `${model.providerID}/${model.id}`,
-    model: `${model.providerID}/${model.id}`,
-    upgrade: null,
-    upgradeInfo: null,
-    availabilityNux: null,
-    displayName: model.name,
-    description: '',
-    modelSpecialty: null,
-    hidden: false,
-    supportedReasoningEfforts: [],
-    defaultReasoningEffort: 'medium',
-    inputModalities: [],
-    supportsPersonality: true,
-    multiAgentVersion: null,
-    additionalSpeedTiers: [],
-    serviceTiers: [],
-    defaultServiceTier: null,
-    isDefault: index === 0,
-  }
-}
-
-function toCodexProject(project: { id: string; name: string }): Project {
-  return {
-    id: project.id,
-    name: project.name,
-    roots: [],
-    metadata: {},
-    position: 0,
-    createdAt: 0,
-    updatedAt: 0,
-  }
-}
+const serviceTierReset = { serviceTier: null } as unknown as Partial<Snapshot>

@@ -27,4 +27,5 @@ bun run dev
 | `bun run protocol` | Regenerate app-server TypeScript types from the installed CLI |
 | `bun run screenshot` | PNG of home and an open document (uses a fake Codex session) |
 
-New documents use `~/.codex/threads` unless you pick **File → Open folder**.
+New documents use `~/.codex/threads` (Codex) or your home folder (OpenCode)
+unless you pick **File → Open folder**.

@@ -13,15 +13,17 @@ existing logins, and the UI is a Docs costume over it.
   and pushes `Snapshot` objects to the window; the renderer dispatches
   `Command`s back (`src/shared/api.ts`). Window title = document title,
   app name is "Docs".
-- **Home = Docs file list.** `src/renderer/src/home.tsx` renders a template
+- **Home = Docs file list.** `components/home/` renders a template
   strip ("Start a new document") plus recent documents grouped by project.
   A document = one provider thread/session. Search filters server-side.
-- **Document = one thread.** `src/renderer/src/document.tsx` renders provider
-  blocks as page content on a paper-on-gray canvas (`styles.css`, Arial
+- **Document = one thread.** `components/document/` renders provider
+  blocks as page content on a paper-on-gray canvas (`styles/`, Arial
   11pt, `--paper-width: 816px`). The composer is the last paragraph
-  (`textarea.composer`, Enter to send). User turns render as headings,
-  agent turns as Markdown body (`markdown.tsx`, react-markdown + remark-gfm).
-- **Stealth rule:** nothing on screen may read as AI. Model/effort/speed/mode live
+  (`textarea.composer`, Enter to send). User turns render as bold body
+  sections with separators, agent turns as Markdown body
+  (`components/ui/markdown.tsx`, react-markdown + remark-gfm). A tabs
+  rail mirrors Docs' "Document tabs" and jumps between questions.
+- **Stealth rule:** nothing on screen may read as AI. Model/effort/service-tier/mode live
   in toolbar chips styled like Docs controls, never as raw model ids.
   Usage meters, provider names, and connection banners do not belong in the
   page — surface them under Tools, if at all. Toolbar dropdowns are portaled
@@ -59,6 +61,35 @@ existing logins, and the UI is a Docs costume over it.
 - Sessions are authoritative for state; the renderer only renders.
   Optimistic user echoes must reconcile with the server-echoed item
   (same text, server id wins) so a sent message never appears twice.
+
+## Project structure
+
+Entry files stay thin — they compose, never hold UI:
+
+- `src/main/index.ts` only boots and wires: window, menu, commands,
+  provider sessions. Logic lives in sibling modules (`providers.ts`,
+  `commands.ts`, `menu.ts`, `window.ts`).
+- `src/renderer/src/main.tsx` mounts `<App/>` and imports styles. `app.tsx`
+  only switches Home vs Document. Actual UI lives in `components/`:
+  - `components/<feature>/` — one folder per screen (`home/`, `document/`),
+    holding that screen's components and its local helpers.
+  - `components/layout/` — the shared shell (headers, banners, account menu).
+  - `components/ui/` — reusable primitives (menus, popovers, icons, markdown).
+- `src/renderer/src/styles/` — one CSS file per area (`base`, `home`,
+  `document`, `toolbar`, `menus`, `tabs`) joined by `index.css`. Never
+  rename a class to move it; move the rule block as-is.
+- Sessions (`src/codex/session.ts`, `src/opencode/session.ts`) are
+  orchestrators: transport calls, navigation guards, and state patches.
+  Pure mapping (thread/item/message → `Thread`/`Block`) lives in
+  `mapping.ts` next to each session; approval builders/results live in
+  `approvals.ts`.
+
+House rules: keep files small — logic files stay under ~500 lines and most
+land far below that; tests and stylesheets are organized by area, not by
+line count. No behavior changes during a move
+(same exports, same `data-testid` hooks, same styles). No new abstractions
+beyond the split — no new state, no new dependencies, no new patterns.
+Delete dead code on sight; don't comment it out, don't leave TODO shims.
 
 ## Docs-fidelity rules
 

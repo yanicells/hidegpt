@@ -10,8 +10,14 @@ async function readySession(client = createFakeOpenCodeClient()) {
   return { session, client }
 }
 
+let evtSeq = 0
 function evt(type: string, properties: Record<string, unknown>): OpenEvent {
-  return { id: `evt-${Math.random()}`, type, properties }
+  evtSeq += 1
+  return { id: `evt-${evtSeq}`, type, properties }
+}
+
+function tick(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
 }
 
 describe('OpenCodeSession', () => {
@@ -150,6 +156,114 @@ describe('OpenCodeSession', () => {
     await session.send('count')
     expect(session.snapshot.streaming).toBe(false)
     expect(session.snapshot.error).toBe('nope')
+    expect(session.snapshot.blocks.some((block) => block.id.startsWith('local-'))).toBe(false)
+  })
+
+  it('aborts mid-stream on interrupt and attempts reconcile', async () => {
+    const { session, client } = await readySession()
+    await session.openThread('ses_2')
+    const aborts: string[] = []
+    const originalAbort = client.abort.bind(client)
+    client.abort = async (sessionId: string) => {
+      aborts.push(sessionId)
+      return originalAbort(sessionId)
+    }
+    await session.send('count')
+    expect(session.snapshot.streaming).toBe(true)
+    const listsBefore = client.calls.filter((call) => call.method === 'listMessages').length
+    await session.interrupt()
+    expect(aborts).toContain('ses_2')
+    expect(session.snapshot.streaming).toBe(false)
+    expect(client.calls.filter((call) => call.method === 'listMessages').length).toBeGreaterThan(listsBefore)
+  })
+
+  it('ignores unknown models', async () => {
+    const { session } = await readySession()
+    const before = session.snapshot.model
+    session.setModel('unknown/model-xyz')
+    expect(session.snapshot.model).toBe(before)
+  })
+
+  it('reconciles a second identical send onto only the latest echo', async () => {
+    const client = createFakeOpenCodeClient({ sessions: [stubSession('ses_3', '')], messages: { ses_3: [] } })
+    const { session } = await readySession(client)
+    await session.openThread('ses_3')
+    await session.send('hello')
+    const local1 = session.snapshot.blocks.at(-1)?.id ?? ''
+    expect(local1.startsWith('local-')).toBe(true)
+
+    client.listMessages = (async (sessionId: string) => {
+      client.calls.push({ method: 'listMessages', args: [sessionId] })
+      return [stubUserMessage('msg_1', 'ses_3', 'hello')]
+    }) as typeof client.listMessages
+    client.emit(evt('message.updated', { sessionID: 'ses_3', info: { id: 'msg_1', role: 'user' } }))
+    await tick()
+    expect(session.snapshot.blocks.some((block) => block.id === 'msg_1')).toBe(true)
+    expect(session.snapshot.blocks.some((block) => block.id === local1)).toBe(false)
+
+    client.emit(evt('session.idle', { sessionID: 'ses_3' }))
+    await tick()
+    expect(session.snapshot.streaming).toBe(false)
+
+    await session.send('hello')
+    const local2 = session.snapshot.blocks.at(-1)?.id ?? ''
+    expect(local2.startsWith('local-')).toBe(true)
+    expect(local2).not.toBe(local1)
+    client.listMessages = (async (sessionId: string) => {
+      client.calls.push({ method: 'listMessages', args: [sessionId] })
+      return [stubUserMessage('msg_1', 'ses_3', 'hello'), stubUserMessage('msg_2', 'ses_3', 'hello')]
+    }) as typeof client.listMessages
+    client.emit(evt('message.updated', { sessionID: 'ses_3', info: { id: 'msg_2', role: 'user' } }))
+    await tick()
+    expect(session.snapshot.blocks.map((block) => block.id)).toContain('msg_1')
+    expect(session.snapshot.blocks.map((block) => block.id)).toContain('msg_2')
+    expect(session.snapshot.blocks.some((block) => block.id === local2)).toBe(false)
+  })
+
+  it('declines permission requests with a reject reply', async () => {
+    const { session, client } = await readySession()
+    await session.openThread('ses_2')
+    client.emit(evt('permission.asked', {
+      sessionID: 'ses_2',
+      id: 'per_2',
+      permission: 'bash',
+      patterns: ['rm *'],
+    }))
+    const block = session.snapshot.blocks.find((item) => item.kind === 'approval')
+    if (block?.kind !== 'approval') throw new Error('expected approval')
+    session.resolveApproval(block.id, false)
+    expect(client.calls.at(-1)).toMatchObject({ method: 'replyPermission', args: ['per_2', false] })
+    expect(session.snapshot.blocks.find((item) => item.id === block.id)).toMatchObject({ resolved: 'skipped' })
+  })
+
+  it('declines question requests through rejectQuestion', async () => {
+    const { session, client } = await readySession()
+    await session.openThread('ses_2')
+    client.emit(evt('question.asked', {
+      sessionID: 'ses_2',
+      id: 'que_2',
+      questions: [{ header: 'Pick', question: 'Which one?', options: [{ label: 'A', description: '' }] }],
+    }))
+    const block = session.snapshot.blocks.find((item) => item.kind === 'approval')
+    if (block?.kind !== 'approval') throw new Error('expected approval')
+    session.resolveApproval(block.id, false)
+    expect(client.calls.at(-1)).toMatchObject({ method: 'rejectQuestion', args: ['que_2'] })
+  })
+
+  it('ignores a second resolve for the same approval', async () => {
+    const { session, client } = await readySession()
+    await session.openThread('ses_2')
+    client.emit(evt('permission.asked', {
+      sessionID: 'ses_2',
+      id: 'per_3',
+      permission: 'bash',
+      patterns: ['ls *'],
+    }))
+    const block = session.snapshot.blocks.find((item) => item.kind === 'approval')
+    if (block?.kind !== 'approval') throw new Error('expected approval')
+    session.resolveApproval(block.id, true)
+    session.resolveApproval(block.id, false)
+    expect(client.calls.filter((call) => call.method === 'replyPermission' && call.args[0] === 'per_3')).toHaveLength(1)
   })
 
   it('uses terminal-auth hints for login actions', async () => {

@@ -8,10 +8,6 @@ export function DocsIcon({ size = 40 }: { size?: number }) {
   )
 }
 
-export function DocsMark({ size = 24 }: { size?: number }) {
-  return <DocsIcon size={size} />
-}
-
 export function SearchIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">

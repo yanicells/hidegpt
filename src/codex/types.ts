@@ -7,6 +7,7 @@ import type { Project } from '../generated/codex/v2/Project'
 import type { Thread } from '../generated/codex/v2/Thread'
 
 import type { Block } from './blocks'
+import type { JsonRpcId } from './jsonrpc'
 
 export type Provider = 'codex' | 'opencode'
 
@@ -22,7 +23,7 @@ export type Snapshot = {
   model: string | null
   effort: string | null
   /** Selected service-tier id (speed). Null means the thread default. Codex only. */
-  speed: string | null
+  serviceTier: string | null
   collaborationModes: CollaborationModeMask[]
   collaborationMode: string | null
   projects: Project[]
@@ -52,7 +53,7 @@ export function emptySnapshot(cwd = ''): Snapshot {
     models: [],
     model: null,
     effort: null,
-    speed: null,
+    serviceTier: null,
     collaborationModes: [],
     collaborationMode: null,
     projects: [],
@@ -71,4 +72,21 @@ export function emptySnapshot(cwd = ''): Snapshot {
     search: '',
     mcpServers: [],
   }
+}
+
+/**
+ * Minimal handle the orchestrator hands to helper modules so private
+ * session fields stay private. Reads go through getters so helpers
+ * always see the latest state, never a stale copy.
+ */
+export type SessionCtx = {
+  patch: (partial: Partial<Snapshot>) => void
+  rpc: <T>(method: string, params?: unknown) => Promise<T>
+  getSnapshot: () => Snapshot
+  getActiveId: () => string | null
+  setActiveId: (id: string | null) => void
+  guard: (token: number) => boolean
+  respond: (id: JsonRpcId, result: unknown) => void
+  reject: (id: JsonRpcId, message: string) => void
+  openUrl: (url: string) => void
 }

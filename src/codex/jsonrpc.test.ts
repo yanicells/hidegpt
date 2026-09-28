@@ -55,4 +55,57 @@ describe('jsonrpc framing', () => {
       '{"method":"x"}',
     ])
   })
+
+  it('throws on invalid JSON lines', () => {
+    expect(() => decodeLine('not json')).toThrow()
+    expect(() => decodeLine('{oops')).toThrow()
+  })
+
+  it('skips empty and whitespace lines', () => {
+    expect(decodeLine('')).toBeNull()
+    expect(decodeLine('   ')).toBeNull()
+    expect(decodeLine('\n')).toBeNull()
+    expect(decodeLine('\t  \n')).toBeNull()
+  })
+
+  it('decodes CRLF line endings', () => {
+    expect(decodeLine('{"method":"x"}\r')).toEqual({ kind: 'notification', method: 'x', params: undefined })
+    expect(decodeLine('{"method":"x"}\r\n')).toEqual({ kind: 'notification', method: 'x', params: undefined })
+    const buffer = new LineBuffer()
+    expect(buffer.push('{"method":"x"}\r\n{"id":1,"result":1}\r\n')).toEqual([
+      '{"method":"x"}\r',
+      '{"id":1,"result":1}\r',
+    ])
+    for (const line of buffer.push('leftover')) {
+      expect(decodeLine(line)).toBeNull()
+    }
+  })
+
+  it('round-trips string ids', () => {
+    const request = encodeRequest('abc-123', 'initialize', { clientInfo: { name: 'hidegpt' } })
+    expect(decodeLine(request.trim())).toEqual({
+      kind: 'request',
+      id: 'abc-123',
+      method: 'initialize',
+      params: { clientInfo: { name: 'hidegpt' } },
+    })
+    const response = encodeResponse('req-1', { ok: true })
+    expect(decodeLine(response.trim())).toEqual({ kind: 'response', id: 'req-1', result: { ok: true } })
+  })
+
+  it('splits across pushes and flushes trailing newlines', () => {
+    const split = new LineBuffer()
+    expect(split.push('{"id":1')).toEqual([])
+    expect(split.push(',"result":1}\n')).toEqual(['{"id":1,"result":1}'])
+    expect(split.push('{"method":"y"}\n')).toEqual(['{"method":"y"}'])
+
+    const trailing = new LineBuffer()
+    expect(trailing.push('leftover')).toEqual([])
+    expect(trailing.push('\n')).toEqual(['leftover'])
+    expect(trailing.push('\n')).toEqual([''])
+
+    const multi = new LineBuffer()
+    expect(multi.push('a\nb\nc')).toEqual(['a', 'b'])
+    expect(multi.push('\n')).toEqual(['c'])
+  })
 })
