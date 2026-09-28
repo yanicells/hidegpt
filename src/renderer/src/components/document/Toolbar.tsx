@@ -5,6 +5,7 @@ import type { Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
 import { ChevronIcon, PenIcon } from '../ui/Icons'
 import { MenuPanel, type Item, type MenuId } from '../ui/MenuPanel'
+import { openImagePicker } from './Composer'
 
 export function Toolbar({ snap }: { snap: Snapshot }) {
   const [menu, setMenu] = useState<MenuId>(null)
@@ -93,6 +94,11 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
           <span>≡</span>
           <span>☷</span>
         </div>
+        <button className="toolbar-icon" aria-label="Insert image" title="Insert image" onClick={openImagePicker}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2Zm0 16H5V5h14v14Zm-5.04-6.71-2.75 3.54-1.96-2.36L6.5 17h11l-3.54-4.71Z" />
+          </svg>
+        </button>
         <div className="toolbar-spacer" />
         <Chip
           testId="chip-provider"

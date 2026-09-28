@@ -1,7 +1,9 @@
 /// <reference types="electron-vite/node" />
 import { BrowserWindow, app, net, protocol, shell } from 'electron'
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { join, normalize, sep } from 'node:path'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { extname, join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 import type { Snapshot } from '../codex/types'
@@ -60,9 +62,37 @@ export function createWindow(opts: { onDidFinishLoad: () => void }): BrowserWind
   return win
 }
 
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+}
+const IMAGE_FILES = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp'])
+
+/** Pasted images live beside app data so documents can show them after restarts. */
+export async function saveImage(bytes: Uint8Array, mime: string): Promise<string> {
+  const ext = IMAGE_EXTENSIONS[mime]
+  if (!ext) throw new Error('Only PNG, JPEG, GIF, and WebP images can be inserted.')
+  const dir = join(app.getPath('userData'), 'images')
+  await mkdir(dir, { recursive: true })
+  const file = join(dir, `${randomUUID()}${ext}`)
+  await writeFile(file, bytes)
+  return file
+}
+
+/**
+ * `docs://app/...` serves the renderer bundle; `docs://local/<encoded path>`
+ * serves local images (pasted images, images in thread history) to <img>.
+ */
 export function registerDocsProtocol(): void {
   protocol.handle('docs', (request) => {
     const url = new URL(request.url)
+    if (url.host === 'local') {
+      const file = decodeURIComponent(url.pathname.slice(1))
+      if (!IMAGE_FILES.has(extname(file).toLowerCase())) return new Response('forbidden', { status: 403 })
+      return net.fetch(pathToFileURL(file).href)
+    }
     const pathname = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)
     const root = join(__dirname, '../renderer')
     const file = normalize(join(root, pathname.replace(/^\/+/, '')))

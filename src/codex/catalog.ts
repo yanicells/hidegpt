@@ -8,13 +8,14 @@ import type { ModelListResponse } from '../generated/codex/v2/ModelListResponse'
 import type { Project } from '../generated/codex/v2/Project'
 import type { ProjectListResponse } from '../generated/codex/v2/ProjectListResponse'
 import type { Thread } from '../generated/codex/v2/Thread'
+import type { SkillsListResponse } from '../generated/codex/v2/SkillsListResponse'
 import type { ThreadListResponse } from '../generated/codex/v2/ThreadListResponse'
 import type { ThreadSourceKind } from '../generated/codex/v2/ThreadSourceKind'
 import type { Turn } from '../generated/codex/v2/Turn'
 import type { TurnsPage } from '../generated/codex/v2/TurnsPage'
 
 import { blocksFromTurns, mergeOlderBlocks } from './blocks'
-import type { SessionCtx } from './types'
+import type { SessionCtx, Skill } from './types'
 
 const INTERACTIVE_SOURCES: ThreadSourceKind[] = ['cli', 'vscode', 'appServer']
 
@@ -23,7 +24,7 @@ export const defaultCwd = () => `${process.env.HOME ?? process.env.USERPROFILE ?
 export async function refreshCatalog(ctx: SessionCtx) {
   const threadId = ctx.getActiveId()
   const search = ctx.getSnapshot().search
-  const [account, models, threads, projects, modes, rateLimits, mcp] = await Promise.all([
+  const [account, models, threads, projects, modes, rateLimits, mcp, skills] = await Promise.all([
     ctx.rpc<GetAccountResponse>('account/read', { refreshToken: false }),
     ctx.rpc<ModelListResponse>('model/list', {}),
     listAllThreads(ctx),
@@ -36,6 +37,7 @@ export async function refreshCatalog(ctx: SessionCtx) {
         ...(threadId ? { threadId } : {}),
       })
       .catch(() => ({ data: [] })),
+    listSkills(ctx).catch(() => ctx.getSnapshot().skills),
   ])
   const collaborationModes = modes.data.filter((mode) => mode.mode !== 'plan' && mode.name.toLowerCase() !== 'plan')
   const mcpServers = mcp.data
@@ -54,7 +56,37 @@ export async function refreshCatalog(ctx: SessionCtx) {
     ...(ctx.getSnapshot().search === search ? { threads } : {}),
     rateLimits,
     mcpServers,
+    skills,
   })
+}
+
+/** Enabled skills visible from the current document folder. */
+export async function listSkills(ctx: SessionCtx, forceReload = false): Promise<Skill[]> {
+  const cwd = ctx.getSnapshot().cwd
+  const listed = await ctx.rpc<SkillsListResponse>('skills/list', { cwds: cwd ? [cwd] : [], forceReload })
+  const skills = new Map<string, Skill>()
+  for (const entry of listed.data) {
+    for (const skill of entry.skills) {
+      if (!skill.enabled || skills.has(skill.name)) continue
+      skills.set(skill.name, {
+        name: skill.name,
+        description: skill.interface?.shortDescription ?? skill.shortDescription ?? skill.description,
+        path: skill.path,
+      })
+    }
+  }
+  return [...skills.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** Re-reads skills after the folder changes or skill files change on disk. */
+export async function refreshSkills(ctx: SessionCtx, forceReload = false) {
+  const cwd = ctx.getSnapshot().cwd
+  try {
+    const skills = await listSkills(ctx, forceReload)
+    if (ctx.getSnapshot().cwd === cwd) ctx.patch({ skills })
+  } catch {
+    // skills are optional; the composer just offers none
+  }
 }
 
 export async function listAllThreads(ctx: SessionCtx): Promise<Thread[]> {

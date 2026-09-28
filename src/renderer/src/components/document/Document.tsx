@@ -110,7 +110,7 @@ export function Document({
                 <span className="caret" />
               </p>
             ) : null}
-            <Composer key={threadId} threadId={threadId} streaming={snap.streaming} />
+            <Composer key={threadId} threadId={threadId} streaming={snap.streaming} skills={snap.skills} />
           </article>
         </div>
       </div>

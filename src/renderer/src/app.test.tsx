@@ -66,6 +66,7 @@ function mount(partial: Partial<Snapshot> = {}) {
       for (const listener of listeners) listener(snapshot)
     },
     pickDirectory: async () => '/tmp/project',
+    saveImage: async (_bytes, mime) => `/tmp/pasted.${mime.split('/')[1]}`,
     platform: 'darwin',
   }
   window.hidegpt = api
@@ -545,4 +546,46 @@ it('prefers the deepest folder root and keeps explicit assignments authoritative
   expect(threadProjectId(snap, thread)).toBe('nested')
   expect(threadProjectId(snap, { ...thread, projectId: 'course' })).toBe('course')
   expect(threadProjectId(snap, { ...thread, cwd: '/tmp/coursework' })).toBeNull()
+})
+
+describe('composer attachments', () => {
+  const skills = [
+    { name: 'humanizer', description: 'Rewrite text so it reads naturally', path: '/s/humanizer/SKILL.md' },
+    { name: 'study-guide', description: 'Turn notes into a study guide', path: '/s/study-guide/SKILL.md' },
+  ]
+
+  it('inserts a skill chip from the @ menu and sends it with the question', async () => {
+    const user = userEvent.setup()
+    const { calls } = mount({ route: { kind: 'doc', threadId: 'thr_1' }, title: 'Photosynthesis', skills })
+    const composer = screen.getByTestId('composer')
+    await user.type(composer, 'Please @hum')
+    expect(screen.getByTestId('skill-menu')).toHaveTextContent('humanizer')
+    expect(screen.queryByTestId('skill-study-guide')).not.toBeInTheDocument()
+    await user.keyboard('{Enter}')
+    expect(screen.queryByTestId('skill-menu')).not.toBeInTheDocument()
+    expect(screen.getByTestId('chip-skill-humanizer')).toBeInTheDocument()
+    await user.type(composer, 'fix this{Enter}')
+    expect(calls.at(-1)).toEqual({ op: 'send', text: 'Please fix this', skill: 'humanizer' })
+  })
+
+  it('attaches pasted images and sends them without text', async () => {
+    const { calls } = mount({ route: { kind: 'doc', threadId: 'thr_1' }, title: 'Photosynthesis' })
+    const composer = screen.getByTestId('composer')
+    const file = new File([new Uint8Array([1, 2, 3])], 'shot.png', { type: 'image/png' })
+    fireEvent.paste(composer, { clipboardData: { files: [file] } })
+    expect(await screen.findByTestId('composer-images')).toBeInTheDocument()
+    fireEvent.keyDown(composer, { key: 'Enter' })
+    expect(calls.at(-1)).toEqual({ op: 'send', text: '', images: ['/tmp/pasted.png'] })
+  })
+
+  it('shows images and skills on sent questions', () => {
+    mount({
+      route: { kind: 'doc', threadId: 'thr_1' },
+      title: 'Photosynthesis',
+      blocks: [{ kind: 'user', id: 'u1', text: 'What is this?', images: ['/tmp/a.png'], skills: ['humanizer'] }],
+    })
+    const image = screen.getByTestId('document').querySelector('.doc-question')?.previousElementSibling
+    expect(image?.querySelector('img')).toHaveAttribute('src', 'docs://local/%2Ftmp%2Fa.png')
+    expect(screen.getByTestId('chip-skill-humanizer')).toBeInTheDocument()
+  })
 })

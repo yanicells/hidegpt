@@ -25,7 +25,7 @@ describe('OpenCode HTTP contract', () => {
     vi.stubGlobal('fetch', fetcher)
     const directory = '/tmp/course notes'
     await client.createSession({ directory, title: 'Week 4' })
-    await client.promptAsync('ses_1', { directory, text: 'hello' })
+    await client.promptAsync('ses_1', { directory, parts: [{ type: 'text', text: 'hello' }] })
     await client.listMessages('ses_1', 100, directory)
     for (const [url] of fetcher.mock.calls) expect(new URL(url).searchParams.get('directory')).toBe(directory)
     expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ title: 'Week 4' })

@@ -31,5 +31,6 @@ contextBridge.exposeInMainWorld('hidegpt', {
   },
   dispatch: (command: Command) => ipcRenderer.invoke('command', command),
   pickDirectory: () => ipcRenderer.invoke('pick-directory'),
+  saveImage: (bytes: Uint8Array, mime: string) => ipcRenderer.invoke('save-image', bytes, mime),
   platform: process.platform,
 })

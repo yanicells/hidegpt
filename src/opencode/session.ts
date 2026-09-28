@@ -1,13 +1,23 @@
 import * as approvals from './approvals'
-import type { NewDocumentOptions } from '../shared/api'
+import type { NewDocumentOptions, SendExtras } from '../shared/api'
 import { existsSync } from 'node:fs'
 
+import type { UserBlock } from '../codex/blocks'
 import { emptySnapshot, type Snapshot } from '../codex/types'
-import { startOpenCodeServer, type OpenCodeClient, type OpenCodeServer, type OpenEvent } from './client'
+import {
+  startOpenCodeServer,
+  type OpenCodeClient,
+  type OpenCodeServer,
+  type OpenEvent,
+  type OpenPromptPart,
+  type OpenSkill,
+} from './client'
 import { handleEvent } from './events'
 import {
   blocksFromMessages,
+  imagePart,
   messageText,
+  skillPart,
   preferredDefault,
   sessionTitle,
   splitModelId,
@@ -34,6 +44,8 @@ export class OpenCodeSession {
   private model: { providerID: string; modelID: string } | null = null
   private agent = 'build'
   private agents: string[] = []
+  /** Full skill bodies stay here; the snapshot only carries names and descriptions. */
+  private skillBodies = new Map<string, OpenSkill>()
   /** messageId -> partId -> accumulated text for the live turn. */
   private streamText = new Map<string, Map<string, string>>()
   private pendingLocalId: string | null = null
@@ -143,6 +155,7 @@ export class OpenCodeSession {
         client.listCatalog(),
         client.listAgents(),
         client.listProjects(),
+        this.refreshSkills(),
       ])
       this.agents = agents
         .filter((agent) => agent.mode !== 'subagent' && agent.name.toLowerCase() !== 'plan')
@@ -176,6 +189,25 @@ export class OpenCodeSession {
       })
     } catch (error) {
       this.fail(error)
+    }
+  }
+
+  /** Skills depend on the folder (repo skills), so this reruns when cwd changes. */
+  private async refreshSkills() {
+    const client = this.client
+    const cwd = this.snapshot.cwd
+    if (!client) return
+    try {
+      const listed = await client.listSkills(cwd)
+      if (this.snapshot.cwd !== cwd) return
+      this.skillBodies = new Map(listed.map((skill) => [skill.name, skill]))
+      this.patch({
+        skills: listed
+          .map((skill) => ({ name: skill.name, description: skill.description ?? '', path: skill.location }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      })
+    } catch {
+      // skills are optional; the composer just offers none
     }
   }
 
@@ -288,6 +320,7 @@ export class OpenCodeSession {
         loadingOlder: false,
         openingThreadId: null,
       })
+      void this.refreshSkills()
     } catch (error) {
       if (token !== this.nav) return
       this.fail(error)
@@ -353,6 +386,7 @@ export class OpenCodeSession {
         olderTurnsCursor: null,
         loadingOlder: false,
       })
+      void this.refreshSkills()
       await this.refreshThreads()
     } catch (error) {
       if (token !== this.nav) return
@@ -361,28 +395,38 @@ export class OpenCodeSession {
     }
   }
 
-  async send(text: string) {
+  async send(text: string, extras: SendExtras = {}) {
     const client = this.client
     const sessionId = this.activeSessionId
     if (!client || !sessionId || this.snapshot.streaming) return
     const trimmed = text.trim()
-    if (!trimmed) return
+    const images = extras.images ?? []
+    const skill = extras.skill ? this.skillBodies.get(extras.skill) : undefined
+    if (!trimmed && images.length === 0 && !skill) return
     if (!this.model) {
       this.patch({ error: 'Pick a model first.' })
       return
     }
     const localId = `local-${Date.now()}`
     this.pendingLocalId = localId
+    const echo: UserBlock = { kind: 'user', id: localId, text: trimmed }
+    if (images.length) echo.images = images
+    if (skill) echo.skills = [skill.name]
     this.patch({
-      blocks: [...this.snapshot.blocks, { kind: 'user', id: localId, text: trimmed }],
+      blocks: [...this.snapshot.blocks, echo],
       streaming: true,
       error: null,
     })
     try {
+      const parts: OpenPromptPart[] = [
+        ...(trimmed ? [{ type: 'text' as const, text: trimmed }] : []),
+        ...(skill ? [skillPart(skill)] : []),
+        ...images.map(imagePart),
+      ]
       await client.promptAsync(sessionId, {
         model: { providerID: this.model.providerID, modelID: this.model.modelID },
         agent: this.agent,
-        text: trimmed,
+        parts,
         directory: this.snapshot.cwd,
       })
     } catch (error) {

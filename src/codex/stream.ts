@@ -144,6 +144,10 @@ export async function onNotification(ctx: SessionCtx, method: string, params: un
     await catalog.refreshCatalog(ctx).catch(() => {})
     return
   }
+  if (method === 'skills/changed') {
+    await catalog.refreshSkills(ctx, true)
+    return
+  }
   if (method === 'project/changed' || method === 'mcpServer/oauthLogin/completed') {
     if (method === 'mcpServer/oauthLogin/completed') ctx.patch({ loginUrl: null })
     await catalog.refreshCatalog(ctx).catch(() => {})

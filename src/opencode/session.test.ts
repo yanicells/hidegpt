@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import type { OpenEvent } from './client'
+import type { OpenEvent, OpenPromptPart } from './client'
+import { blocksFromMessages } from './mapping'
 import { createFakeOpenCodeClient, stubAssistantMessage, stubSession, stubUserMessage, textPart } from './fake'
 import { OpenCodeSession } from './session'
 
@@ -61,7 +62,30 @@ describe('OpenCodeSession', () => {
     const users = session.snapshot.blocks.filter((block) => block.kind === 'user' && block.text === 'hello there')
     expect(users.length).toBeLessThanOrEqual(2)
     const prompt = client.calls.find((call) => call.method === 'promptAsync')
-    expect(prompt?.args[1]).toMatchObject({ text: 'hello there' })
+    expect(prompt?.args[1]).toMatchObject({ parts: [{ type: 'text', text: 'hello there' }] })
+  })
+
+  it('sends a chosen skill as a hidden part and reads it back from history', async () => {
+    const client = createFakeOpenCodeClient({ sessions: [stubSession('ses_3', '')], messages: { ses_3: [] } })
+    const { session } = await readySession(client)
+    await session.openThread('ses_3')
+    expect(session.snapshot.skills).toEqual([
+      { name: 'humanizer', description: 'Rewrite text so it reads naturally', path: '/tmp/skills/humanizer/SKILL.md' },
+    ])
+    await session.send('fix my essay', { skill: 'humanizer' })
+    const prompt = client.calls.find((call) => call.method === 'promptAsync')
+    const parts = (prompt?.args[1] as { parts: OpenPromptPart[] }).parts
+    expect(parts[0]).toEqual({ type: 'text', text: 'fix my essay' })
+    expect(parts[1]).toMatchObject({ type: 'text', synthetic: true })
+    expect(session.snapshot.blocks.at(-1)).toMatchObject({ text: 'fix my essay', skills: ['humanizer'] })
+
+    const history = blocksFromMessages([
+      {
+        info: { id: 'msg_u', sessionID: 'ses_3', role: 'user', time: { created: 1 } },
+        parts: parts.map((part, index) => ({ ...part, id: `p${index}`, sessionID: 'ses_3', messageID: 'msg_u' })),
+      },
+    ])
+    expect(history).toEqual([{ kind: 'user', id: 'msg_u', text: 'fix my essay', skills: ['humanizer'] }])
   })
 
   it('streams text deltas and snapshots into one agent block', async () => {

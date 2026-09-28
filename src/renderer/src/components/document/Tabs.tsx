@@ -51,7 +51,7 @@ export function Tabs({
                 }}
               >
                 <TabDocIcon />
-                <span className="tab-text">{truncate(question.text)}</span>
+                <span className="tab-text">{truncate(question.text) || (question.images ? 'Image' : 'Untitled')}</span>
                 {active === question.id ? <KebabIcon /> : null}
               </button>
             </li>

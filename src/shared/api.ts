@@ -7,7 +7,7 @@ export type Command =
   | { op: 'createProject'; name: string; cwd: string }
   | { op: 'openThread'; threadId: string }
   | { op: 'goHome' }
-  | { op: 'send'; text: string }
+  | { op: 'send'; text: string; skill?: string; images?: string[] }
   | { op: 'interrupt' }
   | { op: 'login' }
   | { op: 'logout' }
@@ -26,6 +26,9 @@ export type Command =
   | { op: 'setProvider'; provider: Provider; home?: boolean }
   | { op: 'refresh' }
 
+/** Extras a message can carry besides its text. */
+export type SendExtras = { skill?: string; images?: string[] }
+
 export type MenuAction = 'rename' | 'grid' | 'list' | 'newDocument' | 'goHome' | 'focusSearch'
 
 export type HideGptApi = {
@@ -34,6 +37,8 @@ export type HideGptApi = {
   onMenu: (handler: (action: MenuAction) => void) => () => void
   dispatch: (command: Command) => Promise<void>
   pickDirectory: () => Promise<string | null>
+  /** Stores pasted image bytes on disk and returns the file path to attach. */
+  saveImage: (bytes: Uint8Array, mime: string) => Promise<string>
   platform: NodeJS.Platform
 }
 

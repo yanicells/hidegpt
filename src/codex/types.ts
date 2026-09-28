@@ -11,6 +11,9 @@ import type { JsonRpcId } from './jsonrpc'
 
 export type Provider = 'codex' | 'opencode'
 
+/** A skill the provider can load for one message (Codex `skills/list`, OpenCode `/skill`). */
+export type Skill = { name: string; description: string; path: string }
+
 export type Route = { kind: 'home' } | { kind: 'doc'; threadId: string }
 
 export type Snapshot = {
@@ -42,6 +45,7 @@ export type Snapshot = {
   openingThreadId: string | null
   search: string
   mcpServers: McpServerStatus[]
+  skills: Skill[]
 }
 
 export function emptySnapshot(cwd = ''): Snapshot {
@@ -73,6 +77,7 @@ export function emptySnapshot(cwd = ''): Snapshot {
     openingThreadId: null,
     search: '',
     mcpServers: [],
+    skills: [],
   }
 }
 

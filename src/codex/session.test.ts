@@ -99,6 +99,45 @@ describe('CodexSession', () => {
     expect(transport.calls.filter((call) => call.method === 'turn/start')).toHaveLength(1)
   })
 
+  it('sends pasted images and a chosen skill as structured input', async () => {
+    const { session, transport } = await readySession()
+    await session.openThread('thr_1')
+    expect(session.snapshot.skills.map((skill) => skill.name)).toEqual(['humanizer', 'study-guide'])
+    await session.send('make this sound like me', { skill: 'humanizer', images: ['/tmp/a.png'] })
+    const turn = transport.calls.find((call) => call.method === 'turn/start')
+    expect((turn?.params as { input: unknown }).input).toEqual([
+      { type: 'text', text: 'make this sound like me', text_elements: [] },
+      { type: 'localImage', path: '/tmp/a.png' },
+      { type: 'skill', name: 'humanizer', path: '/tmp/skills/humanizer/SKILL.md' },
+    ])
+    transport.emitNotification('item/started', {
+      threadId: 'thr_1',
+      item: {
+        type: 'userMessage',
+        id: 'server-1',
+        clientId: null,
+        content: (turn?.params as { input: unknown }).input,
+      },
+    })
+    expect(session.snapshot.blocks).toEqual([
+      {
+        kind: 'user',
+        id: 'server-1',
+        text: 'make this sound like me',
+        images: ['/tmp/a.png'],
+        skills: ['humanizer'],
+      },
+    ])
+  })
+
+  it('sends an image-only message', async () => {
+    const { session, transport } = await readySession()
+    await session.openThread('thr_1')
+    await session.send('  ', { images: ['/tmp/a.png'] })
+    const turn = transport.calls.find((call) => call.method === 'turn/start')
+    expect((turn?.params as { input: unknown }).input).toEqual([{ type: 'localImage', path: '/tmp/a.png' }])
+  })
+
   it('surfaces turn errors and rate-limit updates', async () => {
     const { session, transport } = await readySession()
     await session.openThread('thr_1')

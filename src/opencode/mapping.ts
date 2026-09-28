@@ -2,10 +2,15 @@ import type { Model } from '../generated/codex/v2/Model'
 import type { Project } from '../generated/codex/v2/Project'
 import type { Thread } from '../generated/codex/v2/Thread'
 
-import type { Block, PendingApproval } from '../codex/blocks'
+import { readFileSync } from 'node:fs'
+import { basename, dirname, extname } from 'node:path'
+
+import type { Block, PendingApproval, UserBlock } from '../codex/blocks'
 import type {
   OpenMessage,
   OpenMessagePart,
+  OpenPromptPart,
+  OpenSkill,
   OpenProviderModel,
   OpenSession,
   PermissionAsked,
@@ -29,6 +34,50 @@ export function messageText(message: OpenMessage, separator: string): string {
     .map((part) => part.text ?? '')
     .filter(Boolean)
     .join(separator)
+}
+
+const SKILL_TAG = /^<skill_content name="([^"]+)">/
+const IMAGE_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+}
+
+/**
+ * A hidden prompt part carrying a skill's instructions, mirroring how Codex
+ * injects skills. Synthetic parts never render, but the name is read back so
+ * the page can still show which skill a question used.
+ */
+export function skillPart(skill: OpenSkill): OpenPromptPart {
+  const base = skill.location.startsWith('/') ? `Base directory for this skill: ${dirname(skill.location)}\n\n` : ''
+  return {
+    type: 'text',
+    synthetic: true,
+    text: `<skill_content name="${skill.name}">\nThe user attached the "${skill.name}" skill to this message. Follow it.\n\n${base}${skill.content}\n</skill_content>`,
+  }
+}
+
+/** Inlines a saved image as a data URL so the server needs no file access. */
+export function imagePart(path: string): OpenPromptPart {
+  const mime = IMAGE_TYPES[extname(path).toLowerCase()] ?? 'image/png'
+  return {
+    type: 'file',
+    mime,
+    filename: basename(path),
+    url: `data:${mime};base64,${readFileSync(path).toString('base64')}`,
+  }
+}
+
+export function userBlock(message: OpenMessage): UserBlock | null {
+  const block: UserBlock = { kind: 'user', id: message.info.id, text: messageText(message, '\n') }
+  for (const part of message.parts) {
+    if (part.type === 'file' && part.url && part.mime?.startsWith('image/')) (block.images ??= []).push(part.url)
+    const skill = part.type === 'text' && part.synthetic ? SKILL_TAG.exec(part.text ?? '')?.[1] : undefined
+    if (skill) (block.skills ??= []).push(skill)
+  }
+  return block.text || block.images || block.skills ? block : null
 }
 
 export function toolCallout(part: OpenMessagePart): Block {
@@ -71,8 +120,8 @@ export function blocksFromMessages(messages: OpenMessage[]): Block[] {
   const blocks: Block[] = []
   for (const message of messages) {
     if (message.info.role === 'user') {
-      const text = messageText(message, '\n')
-      if (text) blocks.push({ kind: 'user', id: message.info.id, text })
+      const block = userBlock(message)
+      if (block) blocks.push(block)
       continue
     }
     const text = messageText(message, '\n\n')

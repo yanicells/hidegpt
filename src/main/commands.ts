@@ -46,7 +46,7 @@ export async function runCommand(command: Command): Promise<void> {
       session.goHome()
       return
     case 'send':
-      await session.send(command.text)
+      await session.send(command.text, { skill: command.skill, images: command.images })
       return
     case 'interrupt':
       await session.interrupt()

@@ -1,12 +1,12 @@
-import type { NewDocumentOptions } from '../shared/api'
+import type { NewDocumentOptions, SendExtras } from '../shared/api'
 import { spawn } from 'node:child_process'
 
 import type { LoginAccountResponse } from '../generated/codex/v2/LoginAccountResponse'
 import type { McpServerOauthLoginResponse } from '../generated/codex/v2/McpServerOauthLoginResponse'
-import type { ThreadItem } from '../generated/codex/v2/ThreadItem'
 import type { ThreadResumeResponse } from '../generated/codex/v2/ThreadResumeResponse'
 import type { ThreadStartResponse } from '../generated/codex/v2/ThreadStartResponse'
 import type { Turn } from '../generated/codex/v2/Turn'
+import type { UserInput } from '../generated/codex/v2/UserInput'
 
 import * as approvals from './approvals'
 import { blocksFromTurns, itemToBlock } from './blocks'
@@ -146,7 +146,14 @@ export class CodexSession {
   }
 
   applyFolder() {
+    const previousCwd = this.snapshot.cwd
     catalog.applyFolder(this.ctx)
+    this.refreshSkillsIfMoved(previousCwd)
+  }
+
+  /** Repo-scoped skills depend on the folder, so a new folder means a new list. */
+  private refreshSkillsIfMoved(previousCwd: string) {
+    if (this.snapshot.cwd !== previousCwd) void catalog.refreshSkills(this.ctx)
   }
 
   goHome() {
@@ -260,6 +267,7 @@ export class CodexSession {
       }
       this.activeThreadId = resumed.thread.id
       const title = resumed.thread.name?.trim() || resumed.thread.preview?.trim() || 'Untitled document'
+      const previousCwd = this.snapshot.cwd
       this.patch({
         route: { kind: 'doc', threadId: resumed.thread.id },
         title,
@@ -274,6 +282,7 @@ export class CodexSession {
         loadingOlder: false,
         openingThreadId: null,
       })
+      this.refreshSkillsIfMoved(previousCwd)
     } catch (error) {
       if (token !== this.nav) return
       const keepCurrent = previousId === threadId ? previousId : null
@@ -331,6 +340,7 @@ export class CodexSession {
         return
       }
       this.activeThreadId = started.thread.id
+      const previousCwd = this.snapshot.cwd
       this.patch({
         route: { kind: 'doc', threadId: started.thread.id },
         title: 'Untitled document',
@@ -345,6 +355,7 @@ export class CodexSession {
         loadingOlder: false,
         openingThreadId: null,
       })
+      this.refreshSkillsIfMoved(previousCwd)
       if (options?.title?.trim()) await this.setDocumentName(options.title.trim())
       void catalog.refreshThreads(this.ctx).catch(() => {})
     } catch (error) {
@@ -363,29 +374,26 @@ export class CodexSession {
     }
   }
 
-  async send(text: string) {
+  async send(text: string, extras: SendExtras = {}) {
     const threadId = this.activeThreadId
     if (!threadId || this.snapshot.streaming) return
     const trimmed = text.trim()
-    if (!trimmed) return
-    const userItem: ThreadItem = {
-      type: 'userMessage',
-      id: `local-${Date.now()}`,
-      clientId: null,
-      content: [{ type: 'text', text: trimmed, text_elements: [] }],
-    }
-    const userBlock = itemToBlock(userItem)
+    const images = extras.images ?? []
+    const skill = this.snapshot.skills.find((item) => item.name === extras.skill)
+    if (!trimmed && images.length === 0 && !skill) return
+    const input: UserInput[] = [
+      ...(trimmed ? [{ type: 'text' as const, text: trimmed, text_elements: [] }] : []),
+      ...images.map((path) => ({ type: 'localImage' as const, path })),
+      ...(skill ? [{ type: 'skill' as const, name: skill.name, path: skill.path }] : []),
+    ]
+    const userBlock = itemToBlock({ type: 'userMessage', id: `local-${Date.now()}`, clientId: null, content: input })
     this.patch({
       blocks: userBlock ? [...this.snapshot.blocks, userBlock] : this.snapshot.blocks,
       streaming: true,
       error: null,
     })
     try {
-      await this.rpc('turn/start', {
-        threadId,
-        input: [{ type: 'text', text: trimmed, text_elements: [] }],
-        ...this.turnOverrides(),
-      })
+      await this.rpc('turn/start', { threadId, input, ...this.turnOverrides() })
     } catch (error) {
       this.patch({
         streaming: false,
