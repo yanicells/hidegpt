@@ -175,6 +175,9 @@
 
 .doc-card {
   @apply flex flex-col text-left min-w-0;
+  /* Large libraries: skip layout and paint for cards scrolled out of view. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 290px;
   border: 1px solid #dadce0;
   @apply rounded;
   background: var(--surface);
@@ -294,6 +297,8 @@
 
 .list-row {
   @apply w-full text-left rounded-lg text-sm;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 56px;
   color: var(--text);
 }
 
