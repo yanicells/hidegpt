@@ -6,6 +6,7 @@ export type MenuId =
   | 'file'
   | 'edit'
   | 'view'
+  | 'insert'
   | 'tools'
   | 'account'
   | 'model'

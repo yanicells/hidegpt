@@ -1,4 +1,5 @@
 import type {
+  OpenPromptPart,
   OpenAgent,
   OpenCodeClient,
   OpenEvent,
@@ -127,7 +128,7 @@ export function createFakeOpenCodeClient(options?: {
       calls.push({ method: 'listMessages', args: [sessionId] })
       return (messages[sessionId] ?? []).slice(-limit)
     },
-    async promptAsync(sessionId: string, opts: { model?: unknown; agent?: string; text: string }) {
+    async promptAsync(sessionId: string, opts: { model?: unknown; agent?: string; parts: OpenPromptPart[] }) {
       calls.push({ method: 'promptAsync', args: [sessionId, opts] })
       if (options?.failPrompt) throw new Error('nope')
     },
@@ -160,6 +161,16 @@ export function createFakeOpenCodeClient(options?: {
     },
     async listProjects() {
       return options?.projects ?? []
+    },
+    async listSkills() {
+      return [
+        {
+          name: 'humanizer',
+          description: 'Rewrite text so it reads naturally',
+          location: '/tmp/skills/humanizer/SKILL.md',
+          content: 'Write plainly.',
+        },
+      ]
     },
     async replyPermission(requestId: string, accept: boolean) {
       calls.push({ method: 'replyPermission', args: [requestId, accept] })

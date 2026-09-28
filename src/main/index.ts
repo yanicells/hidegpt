@@ -5,7 +5,7 @@ import type { Command } from '../shared/api'
 import { initCommands, pickDirectory, runCommand } from './commands'
 import { initMenu, updateMenuForSnapshot } from './menu'
 import { activeSession, closeSessions, getCodexSession, initProviders, sendSnapshot, setProvider } from './providers'
-import { captureScreenshots, createWindow, getWindow, registerDocsProtocol } from './window'
+import { captureScreenshots, createWindow, getWindow, registerDocsProtocol, saveImage } from './window'
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -47,6 +47,7 @@ initMenu({
 app.whenReady().then(async () => {
   registerDocsProtocol()
   ipcMain.handle('pick-directory', () => pickDirectory())
+  ipcMain.handle('save-image', (_event, bytes: Uint8Array, mime: string) => saveImage(bytes, mime))
   ipcMain.handle('command', async (_event, command: Command) => {
     await runCommand(command)
   })

@@ -4,7 +4,8 @@ import type { UserInput } from '../generated/codex/v2/UserInput'
 import type { JsonRpcId } from './jsonrpc'
 
 export type AgentBlock = { kind: 'agent'; id: string; text: string; phase?: 'commentary' | 'final_answer' | null }
-export type UserBlock = { kind: 'user'; id: string; text: string }
+/** `images` are local file paths or data/http URLs; `skills` are skill names sent with the message. */
+export type UserBlock = { kind: 'user'; id: string; text: string; images?: string[]; skills?: string[] }
 export type CalloutBlock = { kind: 'callout'; id: string; title: string; body: string }
 export type PendingApproval = {
   kind: 'approval'
@@ -20,16 +21,22 @@ export type PendingApproval = {
 
 export type Block = AgentBlock | UserBlock | CalloutBlock | PendingApproval
 
-function userText(content: UserInput[]): string {
-  return content
-    .map((part) => (part.type === 'text' ? part.text : `[${part.type}]`))
-    .filter(Boolean)
-    .join('\n')
+function userBlock(id: string, content: UserInput[]): UserBlock {
+  const block: UserBlock = { kind: 'user', id, text: '' }
+  const text: string[] = []
+  for (const part of content) {
+    if (part.type === 'text') text.push(part.text)
+    else if (part.type === 'image') (block.images ??= []).push(part.url)
+    else if (part.type === 'localImage') (block.images ??= []).push(part.path)
+    else if (part.type === 'skill') (block.skills ??= []).push(part.name)
+  }
+  block.text = text.filter(Boolean).join('\n')
+  return block
 }
 
 export function itemToBlock(item: ThreadItem): Block | null {
   if (item.type === 'userMessage') {
-    return { kind: 'user', id: item.id, text: userText(item.content) }
+    return userBlock(item.id, item.content)
   }
   if (item.type === 'agentMessage') {
     return { kind: 'agent', id: item.id, text: item.text, phase: item.phase }
@@ -170,7 +177,7 @@ export function upsertItem(blocks: Block[], item: ThreadItem): Block[] {
     // item with the same text, so a sent message never appears twice.
     if (next.kind === 'user') {
       const last = blocks[blocks.length - 1]
-      if (last && last.kind === 'user' && last.id.startsWith('local-') && last.text === next.text) {
+      if (last && last.kind === 'user' && last.id.startsWith('local-') && sameUserInput(last, next)) {
         return [...blocks.slice(0, -1), next]
       }
     }
@@ -183,4 +190,8 @@ export function upsertItem(blocks: Block[], item: ThreadItem): Block[] {
   }
   copy[index] = next
   return copy
+}
+
+function sameUserInput(a: UserBlock, b: UserBlock): boolean {
+  return a.text === b.text && (a.images?.length ?? 0) === (b.images?.length ?? 0)
 }

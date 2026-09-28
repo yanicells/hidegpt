@@ -1,13 +1,33 @@
 import { memo } from 'react'
 import type { Block } from '../../../../codex/blocks'
 import { ChevronIcon } from '../ui/Icons'
+import { imageSrc } from '../ui/imageSrc'
 import { AgentMarkdown } from '../ui/Markdown'
 import { Approval } from './Approval'
+import { SkillChip } from './SmartChips'
 
 export const BlockView = memo(
   function BlockView({ block, streaming }: { block: Block; streaming: boolean }) {
     if (block.kind === 'user') {
-      return <p className="doc-question">{block.text}</p>
+      return (
+        <>
+          {block.images?.length ? (
+            <div className="doc-images">
+              {block.images.map((ref, index) => (
+                <span className="doc-image" key={index}>
+                  <img src={imageSrc(ref)} alt="" loading="lazy" decoding="async" />
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {block.text || block.skills?.length ? (
+            <p className="doc-question">
+              {block.skills?.map((name) => <SkillChip key={name} name={name} />)}
+              {block.text}
+            </p>
+          ) : null}
+        </>
+      )
     }
     if (block.kind === 'agent') {
       return (
@@ -36,7 +56,9 @@ export const BlockView = memo(
       b = next.block
     if (a === b) return true
     if (a.id !== b.id || a.kind !== b.kind) return false
-    if ((a.kind === 'user' || a.kind === 'agent') && (b.kind === 'user' || b.kind === 'agent')) return a.text === b.text
+    if (a.kind === 'user' && b.kind === 'user')
+      return a.text === b.text && a.images?.join() === b.images?.join() && a.skills?.join() === b.skills?.join()
+    if (a.kind === 'agent' && b.kind === 'agent') return a.text === b.text
     if (a.kind === 'callout' && b.kind === 'callout') return a.title === b.title && a.body === b.body
     return false
   },

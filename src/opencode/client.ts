@@ -23,6 +23,8 @@ export type OpenMessagePart = {
   messageID: string
   type: string
   text?: string
+  mime?: string
+  url?: string
   tool?: string
   state?: { status: string; input?: unknown; output?: string; title?: string }
   synthetic?: boolean
@@ -38,6 +40,12 @@ export type OpenEvent = { id: string; type: string; properties: Record<string, u
 export type OpenProviderModel = { id: string; providerID: string; name: string }
 export type OpenAgent = { name: string; mode: string }
 export type OpenProject = { id: string; name: string; worktree?: string }
+export type OpenSkill = { name: string; description?: string; location: string; content: string }
+
+/** Prompt input parts accepted by `prompt_async` (text and file parts only). */
+export type OpenPromptPart =
+  | { type: 'text'; text: string; synthetic?: boolean }
+  | { type: 'file'; mime: string; url: string; filename?: string }
 
 export type PermissionAsked = {
   id: string
@@ -126,7 +134,12 @@ export class OpenCodeClient {
   /** Accepted immediately (204); the turn then streams over /event. */
   async promptAsync(
     sessionId: string,
-    opts: { model?: { providerID: string; modelID: string }; agent?: string; text: string; directory?: string },
+    opts: {
+      model?: { providerID: string; modelID: string }
+      agent?: string
+      parts: OpenPromptPart[]
+      directory?: string
+    },
   ): Promise<void> {
     await this.call(
       `/session/${sessionId}/prompt_async`,
@@ -135,7 +148,7 @@ export class OpenCodeClient {
         body: JSON.stringify({
           model: opts.model,
           agent: opts.agent,
-          parts: [{ type: 'text', text: opts.text }],
+          parts: opts.parts,
         }),
       },
       'session.prompt_async',
@@ -180,6 +193,10 @@ export class OpenCodeClient {
   async listModels(): Promise<OpenProviderModel[]> {
     const { models } = await this.listCatalog()
     return models
+  }
+
+  async listSkills(directory?: string): Promise<OpenSkill[]> {
+    return this.call('/skill', undefined, 'app.skills', directory)
   }
 
   async listAgents(): Promise<OpenAgent[]> {

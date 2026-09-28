@@ -4,8 +4,9 @@ import { displayServerName, toolsNeedingConnect } from '../../../../codex/labels
 import type { Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
 import { MenuPanel, useDismiss, type Item, type MenuId } from '../ui/MenuPanel'
+import { openImagePicker, startSmartChip } from './Composer'
 
-const MENU_ORDER = ['file', 'edit', 'view', 'tools'] as const
+const MENU_ORDER = ['file', 'edit', 'view', 'insert', 'tools'] as const
 
 export function DocMenus({
   snap,
@@ -43,6 +44,10 @@ export function DocMenus({
       { id: 'output-only', label: 'Output only', checked: outputOnly, run: onToggleOutputOnly },
       { id: 'grid', label: 'Grid view', run: onGrid },
       { id: 'list', label: 'List view', run: onList },
+    ],
+    insert: [
+      { id: 'image', label: 'Image', run: openImagePicker, disabled: snap.route.kind !== 'doc' },
+      { id: 'smart-chips', label: 'Smart chips', run: startSmartChip, disabled: snap.skills.length === 0 },
     ],
     tools: [
       { id: 'refresh', label: 'Refresh', run: () => dispatch({ op: 'refresh' }) },

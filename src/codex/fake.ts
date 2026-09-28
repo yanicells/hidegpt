@@ -149,6 +149,30 @@ export function createFakeTransport(options?: {
       return { project }
     },
     'mcpServerStatus/list': () => ({ data: [], nextCursor: null }),
+    'skills/list': (params) => ({
+      data: ((params as { cwds?: string[] }).cwds ?? []).map((cwd) => ({
+        cwd,
+        errors: [],
+        skills: [
+          {
+            name: 'study-guide',
+            description: 'Turn notes into a study guide',
+            path: '/tmp/skills/study-guide/SKILL.md',
+            scope: 'user',
+            enabled: true,
+            pluginId: null,
+          },
+          {
+            name: 'humanizer',
+            description: 'Rewrite text so it reads naturally',
+            path: '/tmp/skills/humanizer/SKILL.md',
+            scope: 'user',
+            enabled: true,
+            pluginId: null,
+          },
+        ],
+      })),
+    }),
     'thread/unsubscribe': () => ({ status: 'unsubscribed' }),
     'thread/turns/list': (params) => {
       const cursor = (params as { cursor?: string | null }).cursor
