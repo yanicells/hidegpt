@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { stubModel, stubThread } from '../../codex/fake'
 import { emptySnapshot, type Snapshot } from '../../codex/types'
 import type { Command, HideGptApi, MenuAction } from '../../shared/api'
+import type { SnapshotPatch } from '../../shared/snapshot-patch'
 import { App } from './app'
 import { groupByRecency } from './components/home/grouping'
 import { projectFolders, threadProjectId } from './components/home/ProjectFolders'
@@ -25,7 +26,7 @@ afterEach(() => {
 function mount(partial: Partial<Snapshot> = {}) {
   const calls: Command[] = []
   const menuHandlers = new Set<(action: MenuAction) => void>()
-  const listeners = new Set<(snapshot: Snapshot) => void>()
+  const listeners = new Set<(patch: SnapshotPatch) => void>()
   let snapshot: Snapshot = {
     ...emptySnapshot(),
     status: 'ready',
@@ -63,7 +64,7 @@ function mount(partial: Partial<Snapshot> = {}) {
       if (command.op === 'goHome') {
         snapshot = { ...snapshot, route: { kind: 'home' }, title: 'Docs' }
       }
-      for (const listener of listeners) listener(snapshot)
+      for (const listener of listeners) listener({ fields: snapshot })
     },
     pickDirectory: async () => '/tmp/project',
     saveImage: async (_bytes, mime) => `/tmp/pasted.${mime.split('/')[1]}`,

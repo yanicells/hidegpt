@@ -1,4 +1,5 @@
 import type { Provider, Snapshot } from '../codex/types'
+import type { SnapshotPatch } from './snapshot-patch'
 
 export type NewDocumentOptions = { projectId?: string | null; cwd?: string; title?: string }
 
@@ -33,7 +34,8 @@ export type MenuAction = 'rename' | 'grid' | 'list' | 'newDocument' | 'goHome' |
 
 export type HideGptApi = {
   getSnapshot: () => Snapshot
-  onSnapshot: (handler: (snapshot: Snapshot) => void) => () => void
+  /** Live updates arrive as patches against the last snapshot. */
+  onSnapshot: (handler: (patch: SnapshotPatch) => void) => () => void
   onMenu: (handler: (action: MenuAction) => void) => () => void
   dispatch: (command: Command) => Promise<void>
   pickDirectory: () => Promise<string | null>

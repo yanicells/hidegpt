@@ -101,6 +101,10 @@ export function createFakeTransport(options?: {
   failResume?: string
   resumeGate?: { wait: Promise<void> }
   requiresOpenaiAuth?: boolean
+  /** Pages thread/list like a real library; unset returns everything at once. */
+  threadPageSize?: number
+  /** Holds pages after the first until released. */
+  laterPages?: Promise<void>
 }): FakeTransport {
   const threads = options?.threads ?? [
     stubThread('thr_1', 'Essay on photosynthesis', 'Photosynthesis'),
@@ -124,14 +128,20 @@ export function createFakeTransport(options?: {
       requiresOpenaiAuth: options?.requiresOpenaiAuth ?? account == null,
     }),
     'model/list': () => ({ data: [model], nextCursor: null }),
-    'thread/list': (params) => {
-      const search = (params as { searchTerm?: string | null }).searchTerm?.toLowerCase()
+    'thread/list': async (params) => {
+      const { searchTerm, cursor } = params as { searchTerm?: string | null; cursor?: string | null }
+      const search = searchTerm?.toLowerCase()
       const data = search
         ? threads.filter(
             (thread) => thread.name?.toLowerCase().includes(search) || thread.preview.toLowerCase().includes(search),
           )
         : threads
-      return { data, nextCursor: null, backwardsCursor: null }
+      const size = options?.threadPageSize
+      if (!size) return { data, nextCursor: null, backwardsCursor: null }
+      const start = Number(cursor ?? 0)
+      if (start > 0) await options?.laterPages
+      const end = start + size
+      return { data: data.slice(start, end), nextCursor: end < data.length ? String(end) : null, backwardsCursor: null }
     },
     'project/list': () => ({ data: projects, nextCursor: null }),
     'project/create': (params) => {

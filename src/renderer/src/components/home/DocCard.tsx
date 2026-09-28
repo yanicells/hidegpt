@@ -1,9 +1,12 @@
+import { memo } from 'react'
+
 import { formatOpened, previewLines, threadTitle } from '../../../../codex/labels'
 import { dispatch } from '../../session-bridge'
 import { DocsIcon } from '../ui/Icons'
 import type { Thread } from './grouping'
 
-export function DocCard({ thread }: { thread: Thread }) {
+/** Memoized: thread objects keep their identity across snapshot patches. */
+export const DocCard = memo(function DocCard({ thread }: { thread: Thread }) {
   const title = threadTitle(thread)
   const lines = previewLines(thread.preview)
   const body = lines.startsWith(title) ? lines.slice(title.length).trim() : lines
@@ -29,4 +32,4 @@ export function DocCard({ thread }: { thread: Thread }) {
       </div>
     </button>
   )
-}
+})

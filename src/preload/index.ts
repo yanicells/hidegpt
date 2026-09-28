@@ -3,20 +3,20 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Snapshot } from '../codex/types'
 import { emptySnapshot } from '../codex/types'
 import type { Command, MenuAction } from '../shared/api'
+import { applySnapshotPatch, type SnapshotPatch } from '../shared/snapshot-patch'
 
+// The preload keeps an assembled copy only for getSnapshot(); live updates
+// cross the context bridge as small patches that the renderer applies itself.
 let snapshot: Snapshot = emptySnapshot()
 
-ipcRenderer.on('snapshot', (_event, next: Snapshot) => {
-  snapshot = next
+ipcRenderer.on('snapshot', (_event, patch: SnapshotPatch) => {
+  snapshot = applySnapshotPatch(snapshot, patch)
 })
 
 contextBridge.exposeInMainWorld('hidegpt', {
   getSnapshot: () => snapshot,
-  onSnapshot: (handler: (next: Snapshot) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, next: Snapshot) => {
-      snapshot = next
-      handler(next)
-    }
+  onSnapshot: (handler: (patch: SnapshotPatch) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, patch: SnapshotPatch) => handler(patch)
     ipcRenderer.on('snapshot', listener)
     return () => {
       ipcRenderer.off('snapshot', listener)

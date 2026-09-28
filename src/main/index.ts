@@ -4,7 +4,15 @@ import { app, BrowserWindow, ipcMain, protocol } from 'electron'
 import type { Command } from '../shared/api'
 import { initCommands, pickDirectory, runCommand } from './commands'
 import { initMenu, updateMenuForSnapshot } from './menu'
-import { activeSession, closeSessions, getCodexSession, initProviders, sendSnapshot, setProvider } from './providers'
+import {
+  activeSession,
+  closeSessions,
+  getCodexSession,
+  initProviders,
+  sendFullSnapshot,
+  sendSnapshot,
+  setProvider,
+} from './providers'
 import { captureScreenshots, createWindow, getWindow, registerDocsProtocol, saveImage } from './window'
 
 protocol.registerSchemesAsPrivileged([
@@ -52,7 +60,7 @@ app.whenReady().then(async () => {
     await runCommand(command)
   })
   getCodexSession().subscribe(sendSnapshot)
-  const win = createWindow({ onDidFinishLoad: sendSnapshot })
+  const win = createWindow({ onDidFinishLoad: sendFullSnapshot })
   try {
     await getCodexSession().start()
     await captureScreenshots(win, getCodexSession())
@@ -67,7 +75,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow({ onDidFinishLoad: sendSnapshot })
+  if (BrowserWindow.getAllWindows().length === 0) createWindow({ onDidFinishLoad: sendFullSnapshot })
 })
 
 app.on('before-quit', () => {

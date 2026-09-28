@@ -33,10 +33,17 @@ describe('streaming snapshot delivery', () => {
     expect(send).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(32)
     expect(send).toHaveBeenCalledTimes(2)
-    expect(send.mock.calls[1][1].blocks[0].text).toBe('word '.repeat(200))
+    // Only the streaming block crosses IPC; the rest of the snapshot is unchanged.
+    expect(send.mock.calls[1][1]).toEqual({
+      fields: {},
+      blocks: { length: 1, changed: [[0, { kind: 'agent', id: 'a', text: 'word '.repeat(200) }]] },
+    })
     session.snapshot = { ...session.snapshot, blocks: [{ kind: 'agent', id: 'a', text: 'complete' }], streaming: false }
     providers.sendSnapshot()
-    expect(send.mock.calls.at(-1)?.[1].blocks[0].text).toBe('complete')
+    expect(send.mock.calls.at(-1)?.[1]).toMatchObject({
+      fields: { streaming: false },
+      blocks: { changed: [[0, { text: 'complete' }]] },
+    })
     await vi.advanceTimersByTimeAsync(100)
     expect(send).toHaveBeenCalledTimes(3)
   })
