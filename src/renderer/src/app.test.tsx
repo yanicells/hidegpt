@@ -109,17 +109,19 @@ describe('docs home', () => {
 
   it('shows a search field on the homepage', () => {
     mount()
-    expect(screen.getByTestId('home-search')).toHaveAttribute('placeholder', 'Search documents')
+    expect(screen.getByTestId('home-search')).toHaveAttribute('placeholder', 'Search')
   })
 
   it('can switch recent documents to a list with owners', async () => {
     const user = userEvent.setup()
     mount()
     await user.click(screen.getByLabelText('List view'))
-    const list = screen.getByText('Name').closest('.list')
-    expect(list).toBeTruthy()
-    expect(within(list as HTMLElement).getByText('Owned by')).toBeInTheDocument()
-    expect(within(list as HTMLElement).getAllByText('me').length).toBeGreaterThan(0)
+    expect(screen.getByText('Last opened by me')).toBeInTheDocument()
+    const list = screen.getByRole('list', { name: 'Documents' })
+    expect(within(list).getAllByText('me').length).toBeGreaterThan(0)
+    // One toggle, like Docs: in list view it offers the grid.
+    expect(screen.queryByLabelText('List view')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Grid view')).toBeInTheDocument()
   })
 
   it('creates a document from the blank template', async () => {
