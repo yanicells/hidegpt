@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
+import { PROVIDERS, providerLabel } from '../../../../codex/labels'
 import type { Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
 import { ChevronIcon, PenIcon } from '../ui/Icons'
@@ -135,20 +136,12 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
           open={menu === 'provider'}
           align="end"
           onClick={() => toggle('provider')}
-          items={[
-            {
-              id: 'codex',
-              label: 'Codex',
-              checked: snap.provider === 'codex',
-              run: () => dispatch({ op: 'setProvider', provider: 'codex' }),
-            },
-            {
-              id: 'opencode',
-              label: 'OpenCode',
-              checked: snap.provider === 'opencode',
-              run: () => dispatch({ op: 'setProvider', provider: 'opencode' }),
-            },
-          ]}
+          items={PROVIDERS.map((provider) => ({
+            id: provider,
+            label: providerLabel(provider),
+            checked: snap.provider === provider,
+            run: () => dispatch({ op: 'setProvider', provider }),
+          }))}
           onClose={() => setMenu(null)}
         />
         {snap.collaborationModes.length > 1 ? (

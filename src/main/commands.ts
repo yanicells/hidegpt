@@ -1,6 +1,7 @@
 import { dialog } from 'electron'
 import type { BrowserWindow } from 'electron'
 
+import type { ClaudeSession } from '../claude/session'
 import type { CodexSession } from '../codex/session'
 import type { Provider } from '../codex/types'
 import type { OpenCodeSession } from '../opencode/session'
@@ -8,7 +9,7 @@ import type { Command } from '../shared/api'
 
 export type CommandContext = {
   getWindow: () => BrowserWindow | null
-  getSession: () => CodexSession | OpenCodeSession
+  getSession: () => CodexSession | OpenCodeSession | ClaudeSession
   setProvider: (next: Provider, home?: boolean) => Promise<void>
 }
 

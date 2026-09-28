@@ -1,7 +1,7 @@
 # HideGPT
 
 A native macOS Google Docs–looking client for your own AI subscriptions
-(Codex and OpenCode).
+(Codex, OpenCode, and Claude).
 
 It is an Electron app. The main process talks to provider subprocesses that
 reuse your existing logins, and the window is a Docs costume over them:
@@ -10,8 +10,13 @@ reuse your existing logins, and the window is a Docs costume over them:
   field) and shares `~/.codex` with the Codex CLI and ChatGPT desktop app.
 - **OpenCode**: spawns `opencode serve` on 127.0.0.1 (REST + SSE) and uses
   your existing `opencode auth` credentials.
+- **Claude**: uses the Claude Agent SDK, which runs Anthropic's unmodified
+  Claude Code binary with your own Claude login. Sign in once with `claude`
+  in a terminal; Docs never reads or stores Claude credentials. For personal,
+  individual use only: Anthropic does not allow offering Claude sign-in or
+  subscription limits to other people through a third-party app.
 
-Switch libraries using **Codex / OpenCode** on the home page. Each library has its own documents and projects. The **Editing** toolbar menu and **Tools** menu also switch providers. Cloud ChatGPT Chat / Cloud Work are out of documented scope.
+Switch libraries using **Codex / OpenCode / Claude** on the home page. Each library has its own documents and projects. The **Editing** toolbar menu and **Tools** menu also switch providers. Cloud ChatGPT Chat / Cloud Work are out of documented scope.
 
 ```bash
 bun install

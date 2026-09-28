@@ -1,6 +1,8 @@
 import { shell } from 'electron'
 import type { BrowserWindow } from 'electron'
 
+import { createFakeClaudeSdk } from '../claude/fake'
+import { ClaudeSession } from '../claude/session'
 import { createDemoTransport } from '../codex/demo'
 import { CodexSession } from '../codex/session'
 import { spawnCodexAppServer } from '../codex/transport'
@@ -10,7 +12,7 @@ import { createFakeOpenCodeClient, createFakeServer } from '../opencode/fake'
 import { OpenCodeSession } from '../opencode/session'
 import { diffSnapshot } from '../shared/snapshot-patch'
 
-export type ActiveSession = CodexSession | OpenCodeSession
+export type ActiveSession = CodexSession | OpenCodeSession | ClaudeSession
 
 type ProvidersHooks = {
   getWindow: () => BrowserWindow | null
@@ -36,6 +38,7 @@ const codexSession = new CodexSession(
 
 let opencodeSession: OpenCodeSession | null = null
 let ensureInFlight: Promise<OpenCodeSession> | null = null
+let claudeSession: ClaudeSession | null = null
 let provider: Provider = 'codex'
 
 export function getCodexSession(): CodexSession {
@@ -43,7 +46,19 @@ export function getCodexSession(): CodexSession {
 }
 
 export function activeSession(): ActiveSession {
-  return provider === 'opencode' && opencodeSession ? opencodeSession : codexSession
+  if (provider === 'opencode' && opencodeSession) return opencodeSession
+  if (provider === 'claude' && claudeSession) return claudeSession
+  return codexSession
+}
+
+/** Claude starts on first use; its SDK spawns Claude Code per document, so there is no server to wait for. */
+async function ensureClaude(): Promise<ClaudeSession> {
+  if (claudeSession) return claudeSession
+  const session = new ClaudeSession(process.env.HIDEGPT_FAKE === '1' ? createFakeClaudeSdk() : undefined)
+  session.subscribe(sendSnapshot)
+  claudeSession = session
+  await session.start()
+  return session
 }
 
 export async function ensureOpencode(): Promise<OpenCodeSession> {
@@ -70,11 +85,10 @@ export async function ensureOpencode(): Promise<OpenCodeSession> {
 }
 
 export async function setProvider(next: Provider, home = false): Promise<void> {
-  if (next === provider && (next === 'codex' || opencodeSession)) return
-  if (next === 'opencode') {
-    await ensureOpencode()
-  }
-  if (home) (next === 'codex' ? codexSession : opencodeSession)?.goHome()
+  if (next === provider && (next === 'codex' || (next === 'opencode' ? opencodeSession : claudeSession))) return
+  if (next === 'opencode') await ensureOpencode()
+  if (next === 'claude') await ensureClaude()
+  if (home) (next === 'codex' ? codexSession : next === 'opencode' ? opencodeSession : claudeSession)?.goHome()
   provider = next
   sendSnapshot()
 }
@@ -82,7 +96,7 @@ export async function setProvider(next: Provider, home = false): Promise<void> {
 export function buildSnapshot(): Snapshot {
   const session = activeSession()
   let snap = session.getSnapshot()
-  if (snap.provider === 'opencode') {
+  if (snap.provider !== 'codex') {
     // Identity display follows the ChatGPT account when one is present.
     const codexSnap = codexSession.getSnapshot()
     snap = { ...snap, account: codexSnap.account, requiresAuth: false }
@@ -143,4 +157,5 @@ export function closeSessions(): void {
   pendingSnapshot = null
   void codexSession.close()
   void opencodeSession?.close()
+  void claudeSession?.close()
 }
