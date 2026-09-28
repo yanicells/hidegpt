@@ -48,6 +48,15 @@ existing logins, and the UI is a Docs costume over it.
   `opencode auth` credentials. Maps onto the same `Snapshot`/`Block`
   shapes so the renderer barely knows which provider is active.
 
+- **Claude** (`src/claude/`): the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`)
+  runs Anthropic's unmodified Claude Code binary. One streaming `query()` per
+  open document; `listSessions` / `getSessionMessages` / `renameSession` for the
+  library. The SDK's `sdk.d.ts` is the protocol — no guessing. Policy limits
+  (Claude Code legal and compliance docs): never read, store, or proxy Claude
+  credentials, never add a Claude sign-in flow (people sign in with `claude`
+  in a terminal), and keep it personal-use — this app must not be shipped to
+  others running on their Claude subscriptions.
+
 ## State model
 
 - `Snapshot` (`src/codex/types.ts`) is the single shared view-model:
