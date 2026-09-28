@@ -121,7 +121,11 @@ export function questionApproval(request: QuestionAsked, sessionId: string | nul
     requestId: request.id,
     method: 'opencode/question',
     title: 'The assistant needs input',
-    body: request.questions.map((question) => question.question).filter(Boolean).join('\n') || 'Continue?',
+    body:
+      request.questions
+        .map((question) => question.question)
+        .filter(Boolean)
+        .join('\n') || 'Continue?',
     resolved: null,
     extra: { requestId: request.id, sessionId, questions },
     drafts: {},
@@ -141,9 +145,11 @@ export function toCodexThread(session: OpenSession): Thread {
     ephemeral: false,
     section: null,
     sectionEnteredAt: null,
-    projectId: session.projectID || null,
+    projectId: session.projectID === 'global' ? null : session.projectID || null,
     historyMode: 'legacy',
     modelProvider: 'openai',
+    model: null,
+    reasoningEffort: null,
     createdAt: created,
     updatedAt: at,
     recencyAt: at,
@@ -185,13 +191,14 @@ export function toCodexModel(model: OpenProviderModel, index: number): Model {
   }
 }
 
-export function toCodexProject(project: { id: string; name: string }): Project {
+export function toCodexProject(project: { id: string; name: string; worktree?: string }): Project {
   return {
     id: project.id,
     name: project.name,
-    roots: [],
+    roots: project.worktree ? [{ path: project.worktree }] : [],
     metadata: {},
     position: 0,
+    recencyAt: null,
     createdAt: 0,
     updatedAt: 0,
   }

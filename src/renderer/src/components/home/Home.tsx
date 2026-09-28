@@ -1,89 +1,159 @@
-import { useMemo } from 'react'
-
+import { useState } from 'react'
 import type { Snapshot } from '../../../../codex/types'
 import { TEMPLATES } from '../../templates'
-import { FolderIcon, GridIcon, ListIcon } from '../ui/Icons'
+import { BackIcon, FolderIcon, GridIcon, ListIcon, PlusMonoIcon } from '../ui/Icons'
 import { DocCard } from './DocCard'
-import { groupThreads } from './grouping'
+import { groupByRecency } from './grouping'
 import { ListView } from './ListView'
 import { TemplateCard } from './TemplateCard'
+import { ProjectFolders, projectFolders, threadProjectId } from './ProjectFolders'
+import type { Creation } from './NewDocumentDialog'
 import type { HomeView } from './useHomeView'
 
 export function Home({
   snap,
   view,
   onView,
+  onCreate,
+  projectId,
+  onProject,
 }: {
+  projectId: string
+  onProject: (id: string) => void
   snap: Snapshot
   view: HomeView
   onView: (view: HomeView) => void
+  onCreate: (creation: Creation) => void
 }) {
-  const sections = useMemo(() => groupThreads(snap, view), [snap, view])
-  const loading = snap.status === 'connecting' && snap.threads.length === 0
-
+  const [sort, setSort] = useState('recent')
+  const folders = projectFolders(snap)
+  const project = folders.find((item) => item.id === projectId)
+  const query = snap.search.trim().toLowerCase()
+  const threads = snap.threads
+    .filter(
+      (thread) =>
+        (projectId === 'all' ||
+          (projectId === 'loose' ? !threadProjectId(snap, thread) : threadProjectId(snap, thread) === projectId)) &&
+        (!query || `${thread.name ?? ''} ${thread.preview}`.toLowerCase().includes(query)),
+    )
+    .sort((a, b) =>
+      sort === 'name'
+        ? (a.name || a.preview).localeCompare(b.name || b.preview)
+        : (b.recencyAt ?? b.updatedAt) - (a.recencyAt ?? a.updatedAt),
+    )
+  const sections =
+    view === 'list' && sort === 'recent' ? groupByRecency(threads) : [{ key: 'docs', title: '', threads }]
+  const loading = snap.status === 'connecting' && !snap.threads.length
   return (
     <div className="home">
-      <section className="gallery">
-        <div className="gallery-inner">
-          <div className="gallery-head">
-            <span className="section-title" data-testid="docs-home">
-              Start a new document
-            </span>
-          </div>
-          <div className="template-strip">
-            {TEMPLATES.map((template) => (
-              <TemplateCard key={template.id} template={template} />
-            ))}
-          </div>
-        </div>
-      </section>
-      <section className="recent">
-        {sections.map((section, index) => (
-          <div key={section.key} className="recent-inner">
-            <div className="recent-head">
-              <span className="section-title">
-                {section.kind === 'folder' ? <FolderIcon /> : null}
-                {section.title}
+      {!project ? (
+        <section className="gallery">
+          <div className="gallery-inner">
+            <div className="gallery-head">
+              <span className="section-title" data-testid="docs-home">
+                Start a new document
               </span>
-              {section.kind === 'recent' && index === 0 ? (
-                <div className="view-toggle" role="group" aria-label="Layout">
-                  <button
-                    type="button"
-                    className={`icon-btn${view === 'list' ? ' active' : ''}`}
-                    aria-label="List view"
-                    aria-pressed={view === 'list'}
-                    onClick={() => onView('list')}
-                  >
-                    <ListIcon />
-                  </button>
-                  <button
-                    type="button"
-                    className={`icon-btn${view === 'grid' ? ' active' : ''}`}
-                    aria-label="Grid view"
-                    aria-pressed={view === 'grid'}
-                    onClick={() => onView('grid')}
-                  >
-                    <GridIcon />
-                  </button>
-                </div>
-              ) : null}
+              <span className="gallery-caption">Templates</span>
             </div>
-            {loading ? (
-              <SkeletonGrid />
-            ) : section.threads.length === 0 ? (
-              <EmptyState search={snap.search} />
-            ) : view === 'list' ? (
-              <ListView snap={snap} threads={section.threads} />
-            ) : (
-              <div className="doc-grid">
-                {section.threads.map((thread) => (
-                  <DocCard key={thread.id} thread={thread} />
-                ))}
-              </div>
-            )}
+            <div className="template-strip">
+              {TEMPLATES.map((template) => (
+                <TemplateCard key={template.id} template={template} onClick={() => onCreate({ template })} />
+              ))}
+            </div>
           </div>
-        ))}
-      </section>
+        </section>
+      ) : null}
+      <main className="recent">
+        <div className="recent-inner">
+          {project ? (
+            <div className="project-detail-heading">
+              <button className="icon-btn" aria-label="All documents" onClick={() => onProject('all')}>
+                <BackIcon />
+              </button>
+              <FolderIcon />
+              <div>
+                <h1>{project.name}</h1>
+                <p>
+                  {project.count} {project.count === 1 ? 'document' : 'documents'}
+                </p>
+              </div>
+              <button className="primary-button" onClick={() => onCreate({ projectId: project.id })}>
+                <PlusMonoIcon />
+                New document
+              </button>
+            </div>
+          ) : (
+            <ProjectFolders snap={snap} onOpen={onProject} onAdd={() => onCreate({ projectOnly: true })} />
+          )}
+          <div className="recent-head">
+            <span className="section-title">
+              {query ? 'Search results' : project ? 'Documents' : 'Recent documents'}
+            </span>
+            <div className="recent-controls">
+              <select
+                aria-label="Filter by project"
+                value={projectId}
+                onChange={(event) => onProject(event.target.value)}
+              >
+                <option value="all">All locations</option>
+                <option value="loose">No project</option>
+                {folders.map((folder) => (
+                  <option key={folder.id} value={folder.id}>
+                    {folder.name}
+                  </option>
+                ))}
+              </select>
+              <select aria-label="Sort documents" value={sort} onChange={(event) => setSort(event.target.value)}>
+                <option value="recent">Last opened</option>
+                <option value="name">Title</option>
+              </select>
+              <div className="view-toggle" role="group" aria-label="Layout">
+                <button
+                  className={`icon-btn${view === 'list' ? ' active' : ''}`}
+                  aria-label="List view"
+                  aria-pressed={view === 'list'}
+                  onClick={() => onView('list')}
+                >
+                  <ListIcon />
+                </button>
+                <button
+                  className={`icon-btn${view === 'grid' ? ' active' : ''}`}
+                  aria-label="Grid view"
+                  aria-pressed={view === 'grid'}
+                  onClick={() => onView('grid')}
+                >
+                  <GridIcon />
+                </button>
+              </div>
+            </div>
+          </div>
+          {loading ? (
+            <SkeletonGrid />
+          ) : !threads.length ? (
+            <>
+              <EmptyState search={snap.search} />
+              <button className="empty-create text-button" onClick={() => onCreate({ projectId: project?.id })}>
+                Create a document
+              </button>
+            </>
+          ) : (
+            sections.map((section, index) => (
+              <section key={section.key} className="document-section">
+                {section.title ? <h2 className="recency-label">{section.title}</h2> : null}
+                {view === 'list' ? (
+                  <ListView snap={snap} threads={section.threads} showHeader={index === 0} />
+                ) : (
+                  <div className="doc-grid">
+                    {section.threads.map((thread) => (
+                      <DocCard key={thread.id} thread={thread} />
+                    ))}
+                  </div>
+                )}
+              </section>
+            ))
+          )}
+        </div>
+      </main>
     </div>
   )
 }

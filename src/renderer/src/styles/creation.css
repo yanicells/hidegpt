@@ -1,0 +1,94 @@
+.creation-dialog {
+  width: min(480px, calc(100vw - 40px));
+  max-height: calc(100vh - 48px);
+  @apply overflow-auto p-7 border-0 rounded-2xl;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 16px 48px #1f1f1f33;
+}
+.creation-dialog::backdrop {
+  background: #20212455;
+}
+.creation-heading {
+  @apply flex items-center gap-3;
+}
+.creation-heading > svg {
+  color: var(--muted);
+}
+.creation-heading h2 {
+  font-size: 22px;
+  @apply font-normal m-0;
+}
+.creation-description {
+  @apply text-sm;
+  line-height: 1.5;
+  color: var(--muted);
+  margin: 16px 0 24px;
+}
+.field-label {
+  @apply flex flex-col gap-2;
+  font-size: 13px;
+  @apply font-medium mt-5;
+}
+.field-label input,
+.field-label select {
+  @apply w-full p-3;
+  font: inherit;
+  @apply text-sm;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--text);
+  background: white;
+}
+.field-label input:focus,
+.field-label select:focus {
+  outline: 2px solid var(--blue);
+  outline-offset: -1px;
+}
+.folder-choice {
+  @apply flex items-center gap-3 w-full;
+  border: 1px solid var(--line);
+  @apply p-3;
+  border-radius: 5px;
+  @apply mt-2 text-left;
+  color: var(--blue);
+}
+.folder-choice span {
+  overflow-wrap: anywhere;
+  @apply min-w-0;
+}
+.folder-choice svg {
+  @apply shrink-0;
+}
+.field-help {
+  @apply text-xs;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 9px 0;
+}
+.template-summary {
+  @apply grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  background: var(--canvas);
+  @apply rounded-lg;
+  padding: 14px;
+  margin-top: 18px;
+  @apply text-xs;
+}
+.template-summary > span {
+  color: var(--muted);
+}
+.template-summary small {
+  grid-column: 1 / -1;
+  @apply text-xs;
+  color: var(--muted);
+}
+.dialog-actions {
+  @apply flex items-center justify-end gap-3 mt-7;
+}
+.creation-error {
+  color: var(--red);
+  font-size: 13px;
+  line-height: 1.5;
+}

@@ -39,6 +39,7 @@ export type Snapshot = {
   showFolder: boolean
   olderTurnsCursor: string | null
   loadingOlder: boolean
+  openingThreadId: string | null
   search: string
   mcpServers: McpServerStatus[]
 }
@@ -69,6 +70,7 @@ export function emptySnapshot(cwd = ''): Snapshot {
     showFolder: false,
     olderTurnsCursor: null,
     loadingOlder: false,
+    openingThreadId: null,
     search: '',
     mcpServers: [],
   }

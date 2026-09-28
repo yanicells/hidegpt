@@ -1,8 +1,7 @@
-import { dispatch } from '../../session-bridge'
-import { setPendingDraft, type Template } from '../../templates'
+import { type Template } from '../../templates'
 import { PlusIcon } from '../ui/Icons'
 
-export function TemplateCard({ template }: { template: Template }) {
+export function TemplateCard({ template, onClick }: { template: Template; onClick: () => void }) {
   const blank = template.id === 'blank'
   return (
     <div className="template">
@@ -11,10 +10,7 @@ export function TemplateCard({ template }: { template: Template }) {
         className={`template-card${blank ? ' blank' : ''}`}
         data-testid={blank ? 'new-doc' : `template-${template.id}`}
         aria-label={blank ? 'Blank document' : `${template.title} template`}
-        onClick={() => {
-          setPendingDraft(template.prompt)
-          dispatch({ op: 'newDocument' })
-        }}
+        onClick={onClick}
       >
         {blank ? <PlusIcon /> : <PageSketch sketch={template.sketch} />}
       </button>
@@ -24,84 +20,50 @@ export function TemplateCard({ template }: { template: Template }) {
   )
 }
 
-export type Stroke = { k: 'title' | 'sub' | 'h' | 'line' | 'bullet' | 'box' | 'table' | 'right' | 'gap'; w?: number }
-
-export const SKETCHES: Record<Template['sketch'], Stroke[]> = {
-  blank: [],
-  essay: [
-    { k: 'title', w: 62 },
-    { k: 'gap' },
-    { k: 'line', w: 100 },
-    { k: 'line', w: 96 },
-    { k: 'line', w: 100 },
-    { k: 'line', w: 58 },
-    { k: 'gap' },
-    { k: 'line', w: 100 },
-    { k: 'line', w: 92 },
-    { k: 'line', w: 100 },
-    { k: 'line', w: 74 },
-  ],
-  notes: [
-    { k: 'title', w: 54 },
-    { k: 'gap' },
-    { k: 'h', w: 40 },
-    { k: 'bullet', w: 70 },
-    { k: 'bullet', w: 56 },
-    { k: 'bullet', w: 64 },
-    { k: 'gap' },
-    { k: 'h', w: 34 },
-    { k: 'bullet', w: 60 },
-    { k: 'bullet', w: 48 },
-  ],
-  guide: [
-    { k: 'title', w: 58 },
-    { k: 'gap' },
-    { k: 'h', w: 30 },
-    { k: 'line', w: 100 },
-    { k: 'line', w: 82 },
-    { k: 'gap' },
-    { k: 'box' },
-    { k: 'gap' },
-    { k: 'h', w: 36 },
-    { k: 'line', w: 90 },
-  ],
-  report: [
-    { k: 'title', w: 66 },
-    { k: 'sub', w: 40 },
-    { k: 'gap' },
-    { k: 'h', w: 28 },
-    { k: 'line', w: 100 },
-    { k: 'line', w: 88 },
-    { k: 'gap' },
-    { k: 'table' },
-    { k: 'gap' },
-    { k: 'line', w: 94 },
-  ],
-  letter: [
-    { k: 'right', w: 38 },
-    { k: 'gap' },
-    { k: 'line', w: 34 },
-    { k: 'line', w: 48 },
-    { k: 'gap' },
-    { k: 'gap' },
-    { k: 'line', w: 100 },
-    { k: 'line', w: 100 },
-    { k: 'line', w: 92 },
-    { k: 'gap' },
-    { k: 'line', w: 100 },
-    { k: 'line', w: 64 },
-  ],
+const PREVIEWS = {
+  blank: { title: '', subtitle: '', sections: [] },
+  essay: {
+    title: 'The shape of an idea',
+    subtitle: 'An essay outline',
+    sections: ['Introduction', 'Developing the argument', 'A different perspective', 'Conclusion'],
+  },
+  notes: {
+    title: 'Lecture notes',
+    subtitle: 'Subject · Topic · Date',
+    sections: ['Key ideas', 'From the discussion', 'Examples & connections', 'Questions to revisit'],
+  },
+  guide: {
+    title: 'Study guide',
+    subtitle: 'A little clarity, one concept at a time.',
+    sections: ['The essentials', 'Key terms', 'Put it into practice', 'Check your understanding'],
+  },
+  report: {
+    title: 'Lab report',
+    subtitle: 'Observations & findings',
+    sections: ['Objective', 'Materials and methods', 'Results', 'Discussion'],
+  },
+  letter: {
+    title: 'Your name',
+    subtitle: 'Address · City · Contact',
+    sections: ['Dear recipient,', 'A clear opening', 'The details', 'Sincerely,'],
+  },
 }
 
 export function PageSketch({ sketch }: { sketch: Template['sketch'] }) {
+  const preview = PREVIEWS[sketch]
   return (
-    <div className="sketch" aria-hidden="true">
-      {SKETCHES[sketch].map((stroke, index) => (
-        <i
-          key={index}
-          className={`sk sk-${stroke.k}`}
-          style={stroke.w ? { width: `${stroke.w}%` } : undefined}
-        />
+    <div className={`template-page template-page-${sketch}`} aria-hidden="true">
+      <strong>{preview.title}</strong>
+      <small>{preview.subtitle}</small>
+      {preview.sections.map((heading) => (
+        <section key={heading}>
+          <h3>{heading}</h3>
+          <p>
+            Begin with the main idea. Bring together the details, observations, and examples that help explain it
+            clearly.
+          </p>
+          <p>Make room for a useful connection and a question to explore.</p>
+        </section>
       ))}
     </div>
   )

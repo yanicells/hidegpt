@@ -2,7 +2,7 @@
 import { app, BrowserWindow, ipcMain, protocol } from 'electron'
 
 import type { Command } from '../shared/api'
-import { initCommands, runCommand } from './commands'
+import { initCommands, pickDirectory, runCommand } from './commands'
 import { initMenu, updateMenuForSnapshot } from './menu'
 import { activeSession, closeSessions, getCodexSession, initProviders, sendSnapshot, setProvider } from './providers'
 import { captureScreenshots, createWindow, getWindow, registerDocsProtocol } from './window'
@@ -46,6 +46,7 @@ initMenu({
 
 app.whenReady().then(async () => {
   registerDocsProtocol()
+  ipcMain.handle('pick-directory', () => pickDirectory())
   ipcMain.handle('command', async (_event, command: Command) => {
     await runCommand(command)
   })

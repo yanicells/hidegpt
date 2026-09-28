@@ -52,10 +52,12 @@ describe('OpenCodeSession', () => {
     // Server echo arrives over events; same text, server id wins — no duplicate.
     client.emit(evt('message.updated', { sessionID: 'ses_3', info: { id: 'msg_new', role: 'user' } }))
     // replaceLocalEcho fetches messages; fake has none yet, so simulate the echo directly:
-    client.emit(evt('message.part.updated', {
-      sessionID: 'ses_3',
-      part: { id: 'prt_new', sessionID: 'ses_3', messageID: 'msg_new', type: 'text', text: 'hello there' },
-    }))
+    client.emit(
+      evt('message.part.updated', {
+        sessionID: 'ses_3',
+        part: { id: 'prt_new', sessionID: 'ses_3', messageID: 'msg_new', type: 'text', text: 'hello there' },
+      }),
+    )
     const users = session.snapshot.blocks.filter((block) => block.kind === 'user' && block.text === 'hello there')
     expect(users.length).toBeLessThanOrEqual(2)
     const prompt = client.calls.find((call) => call.method === 'promptAsync')
@@ -67,26 +69,76 @@ describe('OpenCodeSession', () => {
     await session.openThread('ses_2')
     await session.send('count')
     expect(session.snapshot.streaming).toBe(true)
-    client.emit(evt('message.part.delta', {
-      sessionID: 'ses_2',
-      messageID: 'msg_live',
-      partID: 'prt_live',
-      field: 'text',
-      delta: 'One ',
-    }))
-    client.emit(evt('message.part.delta', {
-      sessionID: 'ses_2',
-      messageID: 'msg_live',
-      partID: 'prt_live',
-      field: 'text',
-      delta: 'Two',
-    }))
+    client.emit(
+      evt('message.part.updated', {
+        sessionID: 'ses_2',
+        part: { id: 'prt_live', messageID: 'msg_live', type: 'text', text: '' },
+      }),
+    )
+    client.emit(
+      evt('message.part.delta', {
+        sessionID: 'ses_2',
+        messageID: 'msg_live',
+        partID: 'prt_live',
+        field: 'text',
+        delta: 'One ',
+      }),
+    )
+    client.emit(
+      evt('message.part.delta', {
+        sessionID: 'ses_2',
+        messageID: 'msg_live',
+        partID: 'prt_live',
+        field: 'text',
+        delta: 'Two',
+      }),
+    )
     expect(session.snapshot.blocks.at(-1)).toMatchObject({ id: 'msg_live', kind: 'agent', text: 'One Two' })
-    client.emit(evt('message.part.updated', {
-      sessionID: 'ses_2',
-      part: { id: 'prt_live', sessionID: 'ses_2', messageID: 'msg_live', type: 'text', text: 'One Two Three' },
-    }))
+    client.emit(
+      evt('message.part.updated', {
+        sessionID: 'ses_2',
+        part: { id: 'prt_live', sessionID: 'ses_2', messageID: 'msg_live', type: 'text', text: 'One Two Three' },
+      }),
+    )
     expect(session.snapshot.blocks.at(-1)).toMatchObject({ text: 'One Two Three' })
+  })
+
+  it('never displays reasoning or unclassified text deltas', async () => {
+    const { session, client } = await readySession()
+    await session.openThread('ses_2')
+    const before = session.snapshot.blocks
+    client.emit(
+      evt('message.part.updated', {
+        sessionID: 'ses_2',
+        part: { id: 'thought', messageID: 'msg_live', type: 'reasoning', text: 'private' },
+      }),
+    )
+    client.emit(
+      evt('message.part.delta', {
+        sessionID: 'ses_2',
+        messageID: 'msg_live',
+        partID: 'thought',
+        field: 'text',
+        delta: 'private reasoning',
+      }),
+    )
+    client.emit(
+      evt('message.part.delta', {
+        sessionID: 'ses_2',
+        messageID: 'msg_live',
+        partID: 'unknown',
+        field: 'text',
+        delta: 'unknown',
+      }),
+    )
+    expect(session.snapshot.blocks).toEqual(before)
+    client.emit(
+      evt('message.part.updated', {
+        sessionID: 'ses_2',
+        part: { id: 'unknown', messageID: 'msg_live', type: 'text', text: 'Actual answer' },
+      }),
+    )
+    expect(session.snapshot.blocks.at(-1)).toMatchObject({ text: 'Actual answer' })
   })
 
   it('finishes the turn on session.idle', async () => {
@@ -110,12 +162,14 @@ describe('OpenCodeSession', () => {
   it('maps permission requests to approvals and replies once on accept', async () => {
     const { session, client } = await readySession()
     await session.openThread('ses_2')
-    client.emit(evt('permission.asked', {
-      sessionID: 'ses_2',
-      id: 'per_1',
-      permission: 'bash',
-      patterns: ['ls *'],
-    }))
+    client.emit(
+      evt('permission.asked', {
+        sessionID: 'ses_2',
+        id: 'per_1',
+        permission: 'bash',
+        patterns: ['ls *'],
+      }),
+    )
     const block = session.snapshot.blocks.find((item) => item.kind === 'approval')
     expect(block).toMatchObject({ method: 'opencode/permission' })
     if (block?.kind !== 'approval') return
@@ -127,11 +181,13 @@ describe('OpenCodeSession', () => {
   it('maps question requests to approvals with option answers', async () => {
     const { session, client } = await readySession()
     await session.openThread('ses_2')
-    client.emit(evt('question.asked', {
-      sessionID: 'ses_2',
-      id: 'que_1',
-      questions: [{ header: 'Pick', question: 'Which one?', options: [{ label: 'A', description: '' }] }],
-    }))
+    client.emit(
+      evt('question.asked', {
+        sessionID: 'ses_2',
+        id: 'que_1',
+        questions: [{ header: 'Pick', question: 'Which one?', options: [{ label: 'A', description: '' }] }],
+      }),
+    )
     const block = session.snapshot.blocks.find((item) => item.kind === 'approval')
     if (block?.kind !== 'approval') throw new Error('expected approval')
     session.setApprovalDraft(block.id, 'q0', 'A')
@@ -139,14 +195,23 @@ describe('OpenCodeSession', () => {
     expect(client.calls.at(-1)).toMatchObject({ method: 'replyQuestion', args: ['que_1', [['A']]] })
   })
 
-  it('switches agents through the mode picker and rejects plan and unknown ones', async () => {
-    const { session } = await readySession()
-    session.setCollaborationMode('explore')
-    expect(session.snapshot.collaborationMode).toBe('explore')
-    session.setCollaborationMode('plan')
-    expect(session.snapshot.collaborationMode).toBe('explore')
-    session.setCollaborationMode('nope')
-    expect(session.snapshot.collaborationMode).toBe('explore')
+  it('switches primary agents and rejects subagents, plan, and unknown modes', async () => {
+    const { session } = await readySession(
+      createFakeOpenCodeClient({
+        agents: [
+          { name: 'build', mode: 'primary' },
+          { name: 'writing', mode: 'primary' },
+          { name: 'explore', mode: 'subagent' },
+          { name: 'plan', mode: 'primary' },
+        ],
+      }),
+    )
+    session.setCollaborationMode('writing')
+    expect(session.snapshot.collaborationMode).toBe('writing')
+    for (const name of ['explore', 'plan', 'nope']) {
+      session.setCollaborationMode(name)
+      expect(session.snapshot.collaborationMode).toBe('writing')
+    }
   })
 
   it('reports prompt failures without hanging', async () => {
@@ -223,12 +288,14 @@ describe('OpenCodeSession', () => {
   it('declines permission requests with a reject reply', async () => {
     const { session, client } = await readySession()
     await session.openThread('ses_2')
-    client.emit(evt('permission.asked', {
-      sessionID: 'ses_2',
-      id: 'per_2',
-      permission: 'bash',
-      patterns: ['rm *'],
-    }))
+    client.emit(
+      evt('permission.asked', {
+        sessionID: 'ses_2',
+        id: 'per_2',
+        permission: 'bash',
+        patterns: ['rm *'],
+      }),
+    )
     const block = session.snapshot.blocks.find((item) => item.kind === 'approval')
     if (block?.kind !== 'approval') throw new Error('expected approval')
     session.resolveApproval(block.id, false)
@@ -239,11 +306,13 @@ describe('OpenCodeSession', () => {
   it('declines question requests through rejectQuestion', async () => {
     const { session, client } = await readySession()
     await session.openThread('ses_2')
-    client.emit(evt('question.asked', {
-      sessionID: 'ses_2',
-      id: 'que_2',
-      questions: [{ header: 'Pick', question: 'Which one?', options: [{ label: 'A', description: '' }] }],
-    }))
+    client.emit(
+      evt('question.asked', {
+        sessionID: 'ses_2',
+        id: 'que_2',
+        questions: [{ header: 'Pick', question: 'Which one?', options: [{ label: 'A', description: '' }] }],
+      }),
+    )
     const block = session.snapshot.blocks.find((item) => item.kind === 'approval')
     if (block?.kind !== 'approval') throw new Error('expected approval')
     session.resolveApproval(block.id, false)
@@ -253,12 +322,14 @@ describe('OpenCodeSession', () => {
   it('ignores a second resolve for the same approval', async () => {
     const { session, client } = await readySession()
     await session.openThread('ses_2')
-    client.emit(evt('permission.asked', {
-      sessionID: 'ses_2',
-      id: 'per_3',
-      permission: 'bash',
-      patterns: ['ls *'],
-    }))
+    client.emit(
+      evt('permission.asked', {
+        sessionID: 'ses_2',
+        id: 'per_3',
+        permission: 'bash',
+        patterns: ['ls *'],
+      }),
+    )
     const block = session.snapshot.blocks.find((item) => item.kind === 'approval')
     if (block?.kind !== 'approval') throw new Error('expected approval')
     session.resolveApproval(block.id, true)
@@ -287,5 +358,46 @@ describe('OpenCodeSession', () => {
     const { session } = await readySession(client)
     await session.openThread('ses_9')
     expect(session.snapshot.blocks.map((block) => block.id)).toEqual(['u1', 'a1', 'u2', 'a2'])
+  })
+})
+
+describe('project locations and history loading', () => {
+  it('retains folder roots and excludes subagents from selectable modes', async () => {
+    const { session } = await readySession(
+      createFakeOpenCodeClient({ projects: [{ id: 'course', name: 'Course', worktree: '/tmp/course' }] }),
+    )
+    expect(session.snapshot.projects[0].roots).toEqual([{ path: '/tmp/course' }])
+    expect(session.snapshot.collaborationModes.map((mode) => mode.name)).toEqual(['build'])
+  })
+
+  it('passes the chosen directory and title when creating a document', async () => {
+    const { session, client } = await readySession()
+    await session.newDocument({ projectId: 'course', cwd: '/tmp/course', title: 'Week 4' })
+    expect(client.calls.find((call) => call.method === 'createSession')?.args[0]).toMatchObject({
+      directory: '/tmp/course',
+      title: 'Week 4',
+    })
+    expect(session.snapshot.cwd).toBe('/tmp/course')
+  })
+
+  it('persists renames through the provider', async () => {
+    const { session, client } = await readySession()
+    await session.openThread('ses_1')
+    await session.setDocumentName('Renamed')
+    expect(client.calls.find((call) => call.method === 'renameSession')?.args).toEqual(['ses_1', 'Renamed'])
+    await session.openThread('ses_1')
+    expect(session.snapshot.title).toBe('Renamed')
+  })
+
+  it('loads recent history first and can retrieve the rest', async () => {
+    const messages = Array.from({ length: 150 }, (_, i) => stubUserMessage(`msg-${i}`, 'ses_1', `Question ${i}`))
+    const { session } = await readySession(createFakeOpenCodeClient({ messages: { ses_1: messages } }))
+    await session.openThread('ses_1')
+    expect(session.snapshot.blocks).toHaveLength(100)
+    expect(session.snapshot.olderTurnsCursor).toBe('100')
+    await session.loadOlderTurns()
+    expect(session.snapshot.blocks).toHaveLength(150)
+    expect(session.snapshot.blocks[0]).toMatchObject({ text: 'Question 0' })
+    expect(session.snapshot.olderTurnsCursor).toBeNull()
   })
 })

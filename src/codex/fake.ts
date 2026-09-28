@@ -1,3 +1,4 @@
+import type { Project } from '../generated/codex/v2/Project'
 import type { Account } from '../generated/codex/v2/Account'
 import type { Model } from '../generated/codex/v2/Model'
 import type { Thread } from '../generated/codex/v2/Thread'
@@ -21,6 +22,8 @@ export function stubThread(id: string, preview: string, name?: string, projectId
     projectId: projectId ?? null,
     historyMode: 'legacy',
     modelProvider: 'openai',
+    model: null,
+    reasoningEffort: null,
     createdAt: 1_700_000_000,
     updatedAt: 1_700_000_000,
     recencyAt: 1_700_000_000,
@@ -90,6 +93,7 @@ export type FakeTransport = CodexTransport & {
 }
 
 export function createFakeTransport(options?: {
+  projects?: Project[]
   threads?: Thread[]
   account?: Account | null
   turns?: Turn[]
@@ -102,10 +106,9 @@ export function createFakeTransport(options?: {
     stubThread('thr_1', 'Essay on photosynthesis', 'Photosynthesis'),
     stubThread('thr_2', 'Lab notes', 'Chem lab'),
   ]
+  const projects = options?.projects ?? []
   const account: Account | null =
-    options?.account === undefined
-      ? { type: 'chatgpt', email: 'yan@school.edu', planType: 'plus' }
-      : options.account
+    options?.account === undefined ? { type: 'chatgpt', email: 'yan@school.edu', planType: 'plus' } : options.account
   const notes = new Set<NotificationHandler>()
   const reqs = new Set<ServerRequestHandler>()
   const model = stubModel()
@@ -125,13 +128,26 @@ export function createFakeTransport(options?: {
       const search = (params as { searchTerm?: string | null }).searchTerm?.toLowerCase()
       const data = search
         ? threads.filter(
-            (thread) =>
-              thread.name?.toLowerCase().includes(search) || thread.preview.toLowerCase().includes(search),
+            (thread) => thread.name?.toLowerCase().includes(search) || thread.preview.toLowerCase().includes(search),
           )
         : threads
       return { data, nextCursor: null, backwardsCursor: null }
     },
-    'project/list': () => ({ data: [], nextCursor: null }),
+    'project/list': () => ({ data: projects, nextCursor: null }),
+    'project/create': (params) => {
+      const input = params as { name: string; roots: Project['roots'] }
+      const project: Project = {
+        id: `proj-${projects.length}`,
+        ...input,
+        metadata: {},
+        position: 0,
+        createdAt: 0,
+        updatedAt: 0,
+        recencyAt: null,
+      }
+      projects.push(project)
+      return { project }
+    },
     'mcpServerStatus/list': () => ({ data: [], nextCursor: null }),
     'thread/unsubscribe': () => ({ status: 'unsubscribed' }),
     'thread/turns/list': (params) => {
@@ -164,14 +180,19 @@ export function createFakeTransport(options?: {
       },
       rateLimitsByLimitId: null,
       rateLimitResetCredits: null,
+      accountId: null,
+      rateLimitUpsell: null,
     }),
-    'thread/start': () =>
-      ({
-        thread: stubThread('thr_new', '', 'Untitled document'),
+    'thread/start': (params) => {
+      const input = params as { cwd?: string; projectId?: string }
+      const thread = { ...stubThread('thr_new', '', 'Untitled document', input.projectId), cwd: input.cwd ?? '/tmp' }
+      threads.push(thread)
+      return {
+        thread,
         model: model.model,
         modelProvider: 'openai',
         serviceTier: null,
-        cwd: '/tmp',
+        cwd: thread.cwd,
         runtimeWorkspaceRoots: [],
         instructionSources: [],
         approvalPolicy: 'on-request',
@@ -186,7 +207,8 @@ export function createFakeTransport(options?: {
         activePermissionProfile: null,
         reasoningEffort: 'medium',
         multiAgentMode: 'explicitRequestOnly',
-      }) as ThreadStartResponse,
+      } as ThreadStartResponse
+    },
     'thread/resume': async (params) => {
       if (options?.resumeGate) await options.resumeGate.wait
       const threadId = (params as { threadId: string }).threadId

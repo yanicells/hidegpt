@@ -1,17 +1,17 @@
 /* ---------- Menus and chips ---------- */
 
 .menu {
-  position: relative;
+  @apply relative;
 }
 
 .menu-panel {
-  position: absolute;
+  @apply absolute;
   top: calc(100% + 4px);
   left: 0;
   min-width: 220px;
   padding: 8px 0;
   background: var(--surface);
-  border-radius: 4px;
+  @apply rounded;
   box-shadow: var(--shadow-menu);
   z-index: 30;
 }
@@ -23,31 +23,28 @@
 
 .menu-caption {
   padding: 4px 16px 10px;
-  margin-bottom: 6px;
-  font-size: 12px;
+  @apply mb-1.5 text-xs;
   color: var(--muted);
   border-bottom: 1px solid var(--hairline);
-  white-space: nowrap;
+  @apply whitespace-nowrap;
 }
 
 /* Floating toolbar dropdowns: portaled to the body so they never move the row. */
 .popover {
-  position: fixed;
+  @apply fixed;
   z-index: 100;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  @apply flex flex-col overflow-hidden;
   background: var(--surface);
-  border-radius: 8px;
+  @apply rounded-lg;
   box-shadow: var(--shadow-menu);
 }
 
 .popover .menu-panel {
   position: static;
-  min-width: 0;
+  @apply min-w-0;
   padding: 4px 0;
   box-shadow: none;
-  overflow-y: auto;
+  @apply overflow-y-auto;
 }
 
 .popover .menu-item {
@@ -61,11 +58,10 @@
 }
 
 .popover-search input {
-  width: 100%;
-  height: 32px;
+  @apply w-full h-8;
   padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  @apply rounded-2xl;
   font-size: 13px;
   background: var(--hover-soft);
   outline: none;
@@ -77,21 +73,18 @@
 }
 
 .popover-empty {
-  padding: 16px;
+  @apply p-4;
   font-size: 13px;
   color: var(--muted);
-  text-align: center;
+  @apply text-center;
 }
 
 .menu-item {
-  position: relative;
-  display: block;
-  width: 100%;
-  text-align: left;
+  @apply relative block w-full text-left;
   padding: 7px 24px 7px 36px;
-  font-size: 14px;
+  @apply text-sm;
   color: var(--text);
-  white-space: nowrap;
+  @apply whitespace-nowrap;
 }
 
 .menu-item:hover,
@@ -106,10 +99,10 @@
 
 .menu-item.checked::before {
   content: '';
-  position: absolute;
+  @apply absolute;
   left: 13px;
   top: 9px;
-  width: 6px;
+  @apply w-1.5;
   height: 11px;
   border: solid var(--text);
   border-width: 0 2px 2px 0;

@@ -1,6 +1,11 @@
-@import "./base.css";
-@import "./menus.css";
-@import "./home.css";
-@import "./toolbar.css";
-@import "./document.css";
-@import "./tabs.css";
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+@import './base.css' layer(base);
+@import './menus.css' layer(components);
+@import './home.css' layer(components);
+@import './toolbar.css' layer(components);
+@import './document.css' layer(components);
+@import './tabs.css' layer(components);
+
+@import './creation.css' layer(components);

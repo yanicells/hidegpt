@@ -1,8 +1,9 @@
+import { randomUUID } from 'node:crypto'
+import type { ProjectCreateParams } from '../generated/codex/v2/ProjectCreateParams'
 import type { CollaborationModeMask } from '../generated/codex/v2/CollaborationModeMask'
 import type { GetAccountRateLimitsResponse } from '../generated/codex/v2/GetAccountRateLimitsResponse'
 import type { GetAccountResponse } from '../generated/codex/v2/GetAccountResponse'
 import type { ListMcpServerStatusResponse } from '../generated/codex/v2/ListMcpServerStatusResponse'
-import type { McpServerStatus } from '../generated/codex/v2/McpServerStatus'
 import type { ModelListResponse } from '../generated/codex/v2/ModelListResponse'
 import type { Project } from '../generated/codex/v2/Project'
 import type { ProjectListResponse } from '../generated/codex/v2/ProjectListResponse'
@@ -20,44 +21,26 @@ const INTERACTIVE_SOURCES: ThreadSourceKind[] = ['cli', 'vscode', 'appServer']
 export const defaultCwd = () => `${process.env.HOME ?? process.env.USERPROFILE ?? ''}/.codex/threads`
 
 export async function refreshCatalog(ctx: SessionCtx) {
-  const account = await ctx.rpc<GetAccountResponse>('account/read', { refreshToken: false })
-  const models = await ctx.rpc<ModelListResponse>('model/list', {})
-  const threads = await listAllThreads(ctx)
-  let projects: Project[] = []
-  try {
-    const listed = await ctx.rpc<ProjectListResponse>('project/list', { limit: 100 })
-    projects = listed.data
-  } catch {
-    projects = []
-  }
-  let collaborationModes: CollaborationModeMask[] = []
-  try {
-    const listed = await ctx.rpc<{ data: CollaborationModeMask[] }>('collaborationMode/list', {})
-    // Plan mode is not offered here; this client only works in the default mode.
-    collaborationModes = listed.data.filter((mode) => mode.mode !== 'plan' && mode.name.toLowerCase() !== 'plan')
-  } catch {
-    collaborationModes = []
-  }
-  let rateLimits: GetAccountRateLimitsResponse | null = null
-  try {
-    rateLimits = await ctx.rpc<GetAccountRateLimitsResponse>('account/rateLimits/read', {})
-  } catch {
-    rateLimits = null
-  }
-  let mcpServers: McpServerStatus[] = []
-  try {
-    const threadId = ctx.getActiveId()
-    const listed = await ctx.rpc<ListMcpServerStatusResponse>('mcpServerStatus/list', {
-      detail: 'toolsAndAuthOnly',
-      ...(threadId ? { threadId } : {}),
-    })
-    mcpServers = listed.data
-  } catch {
-    mcpServers = []
-  }
+  const threadId = ctx.getActiveId()
+  const search = ctx.getSnapshot().search
+  const [account, models, threads, projects, modes, rateLimits, mcp] = await Promise.all([
+    ctx.rpc<GetAccountResponse>('account/read', { refreshToken: false }),
+    ctx.rpc<ModelListResponse>('model/list', {}),
+    listAllThreads(ctx),
+    listProjects(ctx).catch(() => ctx.getSnapshot().projects),
+    ctx.rpc<{ data: CollaborationModeMask[] }>('collaborationMode/list', {}).catch(() => ({ data: [] })),
+    ctx.rpc<GetAccountRateLimitsResponse>('account/rateLimits/read', {}).catch(() => null),
+    ctx
+      .rpc<ListMcpServerStatusResponse>('mcpServerStatus/list', {
+        detail: 'toolsAndAuthOnly',
+        ...(threadId ? { threadId } : {}),
+      })
+      .catch(() => ({ data: [] })),
+  ])
+  const collaborationModes = modes.data.filter((mode) => mode.mode !== 'plan' && mode.name.toLowerCase() !== 'plan')
+  const mcpServers = mcp.data
   const visibleModels = models.data.filter((model) => !model.hidden)
-  const selected =
-    visibleModels.find((model) => model.isDefault) ?? visibleModels[0] ?? models.data[0]
+  const selected = visibleModels.find((model) => model.isDefault) ?? visibleModels[0] ?? models.data[0]
   const snapshot = ctx.getSnapshot()
   ctx.patch({
     account: account.account,
@@ -68,7 +51,7 @@ export async function refreshCatalog(ctx: SessionCtx) {
     collaborationModes,
     collaborationMode: snapshot.collaborationMode ?? collaborationModes[0]?.name ?? null,
     projects,
-    threads,
+    ...(ctx.getSnapshot().search === search ? { threads } : {}),
     rateLimits,
     mcpServers,
   })
@@ -93,14 +76,11 @@ export async function listAllThreads(ctx: SessionCtx): Promise<Thread[]> {
   return all
 }
 
-export async function listTurns(
-  ctx: SessionCtx,
-  threadId: string,
-): Promise<{ turns: Turn[]; cursor: string | null }> {
+export async function listTurns(ctx: SessionCtx, threadId: string): Promise<{ turns: Turn[]; cursor: string | null }> {
   try {
     const page = await ctx.rpc<TurnsPage>('thread/turns/list', {
       threadId,
-      limit: 80,
+      limit: 30,
       sortDirection: 'desc',
       itemsView: 'full',
     })
@@ -120,7 +100,7 @@ export async function loadOlderTurns(ctx: SessionCtx, token: number) {
     const page = await ctx.rpc<TurnsPage>('thread/turns/list', {
       threadId,
       cursor,
-      limit: 80,
+      limit: 30,
       sortDirection: 'desc',
       itemsView: 'full',
     })
@@ -150,8 +130,7 @@ export function setSearch(ctx: SessionCtx, value: string) {
 }
 
 export async function applySearch(ctx: SessionCtx) {
-  const threads = await listAllThreads(ctx)
-  ctx.patch({ threads })
+  await refreshThreads(ctx)
 }
 
 export function toggleFolder(ctx: SessionCtx, show: boolean) {
@@ -184,4 +163,27 @@ export async function setDocumentName(ctx: SessionCtx, name: string) {
   } catch (error) {
     ctx.patch({ error: error instanceof Error ? error.message : String(error) })
   }
+}
+
+export async function createProject(ctx: SessionCtx, name: string, cwd: string) {
+  const params: ProjectCreateParams = { name: name.trim(), roots: [{ path: cwd }], idempotencyKey: randomUUID() }
+  await ctx.rpc('project/create', params)
+  await refreshCatalog(ctx)
+}
+
+async function listProjects(ctx: SessionCtx): Promise<Project[]> {
+  const projects: Project[] = []
+  let cursor: string | null = null
+  do {
+    const listed: ProjectListResponse = await ctx.rpc('project/list', { limit: 100, cursor, sortKey: 'recencyAt' })
+    projects.push(...listed.data)
+    cursor = listed.nextCursor
+  } while (cursor)
+  return projects
+}
+
+export async function refreshThreads(ctx: SessionCtx) {
+  const search = ctx.getSnapshot().search
+  const threads = await listAllThreads(ctx)
+  if (ctx.getSnapshot().search === search) ctx.patch({ threads })
 }

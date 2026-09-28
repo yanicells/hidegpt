@@ -9,11 +9,17 @@ const MENU_ORDER = ['file', 'edit', 'view', 'tools'] as const
 
 export function DocMenus({
   snap,
+  outputOnly,
+  onToggleOutputOnly,
+  onNew,
   onRename,
   onGrid,
   onList,
 }: {
   snap: Snapshot
+  outputOnly: boolean
+  onToggleOutputOnly: () => void
+  onNew: () => void
   onRename: () => void
   onGrid: () => void
   onList: () => void
@@ -24,7 +30,7 @@ export function DocMenus({
 
   const items: Record<(typeof MENU_ORDER)[number], Item[]> = {
     file: [
-      { id: 'new', label: 'New document', run: () => dispatch({ op: 'newDocument' }) },
+      { id: 'new', label: 'New document', run: onNew },
       { id: 'home', label: 'Open home', run: () => dispatch({ op: 'goHome' }) },
       { id: 'folder', label: 'Open folder…', run: () => dispatch({ op: 'openFolder' }) },
       { id: 'rename', label: 'Rename…', run: onRename, disabled: snap.route.kind !== 'doc' },
@@ -34,6 +40,7 @@ export function DocMenus({
       { id: 'select', label: 'Select all', run: () => document.execCommand('selectAll') },
     ],
     view: [
+      { id: 'output-only', label: 'Output only', checked: outputOnly, run: onToggleOutputOnly },
       { id: 'grid', label: 'Grid view', run: onGrid },
       { id: 'list', label: 'List view', run: onList },
     ],

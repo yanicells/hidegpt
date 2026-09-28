@@ -16,7 +16,8 @@ export function stubSession(id: string, title: string, projectID = ''): OpenSess
     directory: '/tmp',
     projectID,
     agent: 'build',
-    model: { providerID: 'opencode', modelID: 'muse-spark' },    time: { created: 1_700_000_000_000, updated: 1_700_000_100_000 },
+    model: { providerID: 'opencode', modelID: 'muse-spark' },
+    time: { created: 1_700_000_000_000, updated: 1_700_000_100_000 },
   }
 }
 
@@ -27,11 +28,7 @@ export function stubUserMessage(id: string, sessionID: string, text: string): Op
   }
 }
 
-export function stubAssistantMessage(
-  id: string,
-  sessionID: string,
-  parts: OpenMessagePart[],
-): OpenMessage {
+export function stubAssistantMessage(id: string, sessionID: string, parts: OpenMessagePart[]): OpenMessage {
   return {
     info: { id, sessionID, role: 'assistant', time: { created: 2 } },
     parts,
@@ -110,16 +107,25 @@ export function createFakeOpenCodeClient(options?: {
       const search = opts?.search?.toLowerCase()
       return search ? sessions.filter((session) => session.title.toLowerCase().includes(search)) : sessions
     },
-    async createSession(opts?: { title?: string; agent?: string; model?: unknown }) {
+    async createSession(opts?: { title?: string; directory?: string; agent?: string; model?: unknown }) {
       calls.push({ method: 'createSession', args: [opts] })
-      const session = stubSession('ses_new', opts?.title ?? '')
+      const session = { ...stubSession('ses_new', opts?.title ?? ''), directory: opts?.directory ?? '/tmp' }
       sessions.push(session)
       messages[session.id] = []
       return session
     },
-    async listMessages(sessionId: string) {
+    async getSession(sessionId: string) {
+      calls.push({ method: 'getSession', args: [sessionId] })
+      return sessions.find((session) => session.id === sessionId) ?? stubSession(sessionId, '')
+    },
+    async renameSession(sessionId: string, title: string) {
+      calls.push({ method: 'renameSession', args: [sessionId, title] })
+      const session = sessions.find((session) => session.id === sessionId)
+      if (session) session.title = title
+    },
+    async listMessages(sessionId: string, limit = 100) {
       calls.push({ method: 'listMessages', args: [sessionId] })
-      return messages[sessionId] ?? []
+      return (messages[sessionId] ?? []).slice(-limit)
     },
     async promptAsync(sessionId: string, opts: { model?: unknown; agent?: string; text: string }) {
       calls.push({ method: 'promptAsync', args: [sessionId, opts] })
@@ -144,7 +150,13 @@ export function createFakeOpenCodeClient(options?: {
     },
     async listAgents() {
       calls.push({ method: 'listAgents', args: [] })
-      return options?.agents ?? [{ name: 'build', mode: 'primary' }, { name: 'explore', mode: 'subagent' }, { name: 'plan', mode: 'primary' }]
+      return (
+        options?.agents ?? [
+          { name: 'build', mode: 'primary' },
+          { name: 'explore', mode: 'subagent' },
+          { name: 'plan', mode: 'primary' },
+        ]
+      )
     },
     async listProjects() {
       return options?.projects ?? []

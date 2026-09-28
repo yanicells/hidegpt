@@ -1,58 +1,56 @@
 /* ---------- Page ---------- */
 
 .doc-layout {
-  display: flex;
-  align-items: flex-start;
-  min-height: 100%;
+  @apply grid;
+  grid-template-columns: 260px minmax(0, 1fr) min(260px, max(0px, calc(100vw - 1124px)));
+  @apply items-start min-h-full;
 }
 
 .paper-col {
   flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  @apply min-w-0 flex flex-col items-center;
 }
 
 .workspace {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
+  @apply flex-1 min-h-0 overflow-auto;
   background: var(--canvas);
-  position: relative;
+  @apply relative;
 }
 
 .ruler {
-  position: sticky;
+  @apply sticky;
   top: 0;
   z-index: 2;
   width: min(var(--paper-width), calc(100% - 48px));
-  height: 20px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--hairline);
+  @apply h-5;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--line);
+  background-image: repeating-linear-gradient(90deg, #9aa0a6 0 1px, transparent 1px 12px);
+  background-size: 100% 5px;
+  background-position: bottom;
+  background-repeat: no-repeat;
   font-family: var(--font-ui);
-  font-size: 9px;
+  font-size: 10px;
   color: var(--faint);
 }
 
 .ruler-num {
-  position: absolute;
+  @apply absolute;
   top: 1px;
   transform: translateX(-50%);
 }
 
 .ruler-num::after {
   content: '';
-  position: absolute;
+  @apply absolute;
   left: 50%;
   top: 11px;
-  width: 1px;
-  height: 8px;
+  @apply w-0.25 h-2;
   background: var(--faint);
 }
 
 .ruler-tab {
-  position: absolute;
+  @apply absolute;
   top: 0;
   width: 0;
   height: 0;
@@ -75,7 +73,7 @@
   width: min(var(--paper-width), calc(100% - 48px));
   min-height: 1056px;
   margin: 14px 0 96px;
-  padding: var(--paper-margin);
+  padding: 96px min(11.7%, 96px);
   background: var(--surface);
   box-shadow: var(--shadow-page);
   font-family: var(--font-page);
@@ -85,7 +83,7 @@
 }
 
 .load-older {
-  display: block;
+  @apply block;
   margin: 0 0 16px;
   font-family: var(--font-ui);
   font-size: 13px;
@@ -106,7 +104,7 @@
   margin: 0 0 6pt;
   font-size: 11pt;
   line-height: 1.3;
-  font-weight: 700;
+  @apply font-bold;
   color: #000;
   overflow-wrap: anywhere;
 }
@@ -144,13 +142,13 @@
 }
 
 .doc-body h1 {
-  font-weight: 400;
+  @apply font-normal;
   font-size: 16pt;
 }
 
 .doc-body h2 {
   font-size: 14pt;
-  font-weight: 700;
+  @apply font-bold;
   color: #434343;
 }
 
@@ -159,7 +157,7 @@
 .doc-body h5,
 .doc-body h6 {
   font-size: 12pt;
-  font-weight: 700;
+  @apply font-bold;
   color: #666;
 }
 
@@ -168,13 +166,13 @@
 }
 
 .doc-body strong {
-  font-weight: 700;
+  @apply font-bold;
 }
 
 .doc-body ul,
 .doc-body ol {
   margin: 0 0 10pt;
-  padding-left: 36px;
+  @apply pl-9;
 }
 
 .doc-body li {
@@ -182,7 +180,7 @@
 }
 
 .doc-body li > p {
-  margin: 0;
+  @apply m-0;
 }
 
 .doc-body blockquote {
@@ -193,7 +191,7 @@
 }
 
 .doc-body hr {
-  border: 0;
+  @apply border-0;
   border-top: 1px solid var(--line);
   margin: 12pt 0;
 }
@@ -210,33 +208,33 @@
   margin: 0 0 10pt;
   padding: 10px 12px;
   border: 1px solid var(--hairline);
-  border-radius: 4px;
+  @apply rounded;
   background: #f8f9fa;
-  overflow: auto;
+  @apply overflow-auto;
   line-height: 1.4;
 }
 
 .doc-body pre code {
   background: none;
-  padding: 0;
+  @apply p-0;
 }
 
 .doc-body table {
   border-collapse: collapse;
   margin: 0 0 10pt;
-  width: 100%;
+  @apply w-full;
 }
 
 .doc-body th,
 .doc-body td {
   border: 1px solid #b7b7b7;
   padding: 4px 8px;
-  text-align: left;
+  @apply text-left;
   vertical-align: top;
 }
 
 .doc-body th {
-  font-weight: 700;
+  @apply font-bold;
 }
 
 .doc-body img {
@@ -257,23 +255,18 @@
 }
 
 .callout summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 24px;
+  @apply inline-flex items-center gap-1 h-6;
   padding: 0 10px 0 4px;
   border: 1px solid #dadce0;
-  border-radius: 12px;
+  @apply rounded-xl;
   background: var(--surface);
   font-size: 13px;
   color: var(--text-2);
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
+  @apply cursor-pointer list-none select-none;
 }
 
 .callout summary::-webkit-details-marker {
-  display: none;
+  @apply hidden;
 }
 
 .callout summary:hover {
@@ -294,16 +287,16 @@
   margin: 6px 0 4px;
   padding: 8px 12px;
   border: 1px solid var(--hairline);
-  border-radius: 4px;
+  @apply rounded;
   background: #f8f9fa;
-  white-space: pre-wrap;
+  @apply whitespace-pre-wrap;
   overflow-wrap: anywhere;
   font-family: var(--font-mono);
-  font-size: 12px;
+  @apply text-xs;
   line-height: 1.45;
   color: var(--text-2);
   max-height: 320px;
-  overflow: auto;
+  @apply overflow-auto;
 }
 
 .approval {
@@ -311,7 +304,7 @@
   padding: 12px 16px 14px;
   border: 1px solid var(--line);
   border-left: 4px solid var(--green);
-  border-radius: 8px;
+  @apply rounded-lg;
   background: var(--surface);
   font-family: var(--font-ui);
 }
@@ -321,9 +314,7 @@
 }
 
 .approval-eyebrow {
-  display: block;
-  font-size: 12px;
-  font-weight: 500;
+  @apply block text-xs font-medium;
   color: var(--green);
 }
 
@@ -333,8 +324,7 @@
 
 .approval h3 {
   margin: 2px 0 4px;
-  font-size: 14px;
-  font-weight: 500;
+  @apply text-sm font-medium;
   color: var(--text);
 }
 
@@ -343,23 +333,21 @@
   font-size: 13px;
   line-height: 1.4;
   color: var(--text-2);
-  white-space: pre-wrap;
+  @apply whitespace-pre-wrap;
   overflow-wrap: anywhere;
 }
 
 .field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  @apply flex flex-col gap-1.5;
   margin: 0 0 10px;
-  font-size: 12px;
+  @apply text-xs;
   color: var(--muted);
 }
 
 .approval input {
-  width: 100%;
+  @apply w-full;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  @apply rounded;
   padding: 7px 10px;
   font-size: 13px;
   color: var(--text);
@@ -372,16 +360,14 @@
 }
 
 .choices {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  @apply flex flex-wrap gap-2;
 }
 
 .choice {
-  height: 28px;
+  @apply h-7;
   padding: 0 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  @apply rounded-lg;
   font-size: 13px;
   color: var(--text);
 }
@@ -397,19 +383,15 @@
 }
 
 .actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 4px;
+  @apply flex items-center gap-2 mt-1;
 }
 
 .accept,
 .skip {
-  height: 36px;
+  @apply h-9;
   padding: 0 20px;
   border-radius: 18px;
-  font-size: 14px;
-  font-weight: 500;
+  @apply text-sm font-medium;
 }
 
 .accept {
@@ -430,24 +412,22 @@
 }
 
 .resolved {
-  font-size: 12px;
+  @apply text-xs;
   color: var(--muted);
 }
 
 .composer {
-  display: block;
-  width: 100%;
+  @apply block w-full;
   field-sizing: content;
   min-height: 1.2em;
-  border: 0;
+  @apply border-0;
   resize: none;
-  background: transparent;
+  @apply bg-transparent;
   font: inherit;
   line-height: inherit;
   color: inherit;
   caret-color: #000;
-  padding: 0;
-  overflow: hidden;
+  @apply p-0 overflow-hidden;
 }
 
 .composer::placeholder {
@@ -476,29 +456,23 @@
 }
 
 .stop-wrap {
-  position: sticky;
+  @apply sticky;
   bottom: 0;
-  display: flex;
-  justify-content: center;
-  padding-bottom: 24px;
+  @apply flex justify-center pb-6;
   margin-top: -80px;
-  pointer-events: none;
+  @apply pointer-events-none;
 }
 
 .stop {
   pointer-events: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  height: 40px;
+  @apply inline-flex items-center gap-2.5 h-10;
   padding: 0 20px 0 14px;
   border: 1px solid var(--line);
   border-radius: 20px;
   background: var(--surface);
   box-shadow: 0 1px 3px rgba(60, 64, 67, 0.25);
   font-family: var(--font-ui);
-  font-size: 14px;
-  font-weight: 500;
+  @apply text-sm font-medium;
   color: var(--text);
 }
 
@@ -507,8 +481,7 @@
 }
 
 .stop-square {
-  width: 12px;
-  height: 12px;
+  @apply w-3 h-3;
   border-radius: 2px;
   background: var(--red);
 }
@@ -516,5 +489,36 @@
 @keyframes pulse {
   50% {
     opacity: 0.35;
+  }
+}
+
+.opening-document {
+  @apply flex-1 min-h-0 overflow-hidden;
+  background: var(--canvas);
+}
+.opening-status {
+  @apply flex items-center justify-center gap-3 p-5;
+  color: var(--muted);
+}
+.opening-paper {
+  margin: 0 auto;
+}
+.opening-paper .sk-text {
+  @apply h-2.5;
+  margin-bottom: 18px;
+  border-radius: 2px;
+}
+.opening-paper .sk-text:nth-child(3n) {
+  @apply mb-9;
+}
+@media print {
+  .composer {
+    @apply hidden;
+  }
+}
+
+@media (max-width: 960px) {
+  .doc-layout {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

@@ -6,23 +6,31 @@ import { BackIcon, KebabIcon, PlusMonoIcon, TabDocIcon } from '../ui/Icons'
 
 export function Tabs({
   questions,
+  onNew,
   onJump,
 }: {
   questions: Extract<Block, { kind: 'user' }>[]
+  onNew: () => void
   onJump: (id: string) => void
 }) {
   const [activeId, setActive] = useState<string | null>(null)
-  const active = activeId && questions.some((question) => question.id === activeId)
-    ? (activeId as string)
-    : (questions[questions.length - 1]?.id ?? null)
+  const active =
+    activeId && questions.some((question) => question.id === activeId)
+      ? (activeId as string)
+      : (questions[questions.length - 1]?.id ?? null)
   return (
     <aside className="tabs" aria-label="Document tabs" data-testid="outline">
-      <button type="button" className="tabs-back" aria-label="Back to documents" onClick={() => dispatch({ op: 'goHome' })}>
+      <button
+        type="button"
+        className="tabs-back"
+        aria-label="Back to documents"
+        onClick={() => dispatch({ op: 'goHome' })}
+      >
         <BackIcon />
       </button>
       <div className="tabs-head">
         <span>Document tabs</span>
-        <button type="button" className="tabs-new" aria-label="New document" title="New document" onClick={() => dispatch({ op: 'newDocument' })}>
+        <button type="button" className="tabs-new" aria-label="New document" title="New document" onClick={onNew}>
           <PlusMonoIcon />
         </button>
       </div>

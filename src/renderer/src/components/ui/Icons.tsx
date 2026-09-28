@@ -1,7 +1,7 @@
 export function DocsIcon({ size = 40 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
-      <path fill="#4285F4" d="M8 2h22l12 12v32H8z" />
+      <path fill="#4285F4" d="M12 2h18l12 12v28a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4z" />
       <path fill="#A1C2FA" d="M30 2v12h12" />
       <path fill="#fff" d="M14 22h20v2.4H14zm0 6.2h20v2.4H14zm0 6.2h14v2.4H14z" />
     </svg>
@@ -24,7 +24,7 @@ export function PlusIcon() {
     <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
       <path fill="#4285F4" d="M18 22H8v-4h10V8h4v10h10v4H22v10h-4z" />
       <path fill="#0F9D58" d="M22 22v10h-4V22z" />
-      <path fill="#F4B400" d="M22 18h10v4H22z" />
+      <path fill="#F4B400" d="M8 18h10v4H8z" />
       <path fill="#DB4437" d="M18 8h4v10h-4z" />
     </svg>
   )
@@ -110,11 +110,17 @@ export function BackIcon() {
 
 export function TabDocIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M6 2h9l5 5v15H6zm8 1.5V8h4.5zM8 12h8v1.6H8zm0 4h8v1.6H8z"
-      />
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      aria-hidden="true"
+    >
+      <rect x="4" y="3" width="16" height="18" rx="1" />
+      <path d="M8 7h8M8 11h8M8 15h6" />
     </svg>
   )
 }

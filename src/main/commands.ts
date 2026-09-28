@@ -9,7 +9,7 @@ import type { Command } from '../shared/api'
 export type CommandContext = {
   getWindow: () => BrowserWindow | null
   getSession: () => CodexSession | OpenCodeSession
-  setProvider: (next: Provider) => Promise<void>
+  setProvider: (next: Provider, home?: boolean) => Promise<void>
 }
 
 let context: CommandContext | null = null
@@ -27,13 +27,17 @@ function deps(): CommandContext {
 export async function runCommand(command: Command): Promise<void> {
   const { getSession, setProvider } = deps()
   if (command.op === 'setProvider') {
-    await setProvider(command.provider)
+    await setProvider(command.provider, command.home)
     return
   }
   const session = getSession()
   switch (command.op) {
     case 'newDocument':
-      await session.newDocument()
+      await session.newDocument(command)
+      if (session.snapshot.route.kind !== 'doc') throw new Error(session.snapshot.error ?? 'Could not create document')
+      return
+    case 'createProject':
+      await session.createProject(command.name, command.cwd)
       return
     case 'openThread':
       await session.openThread(command.threadId)
@@ -113,4 +117,14 @@ export async function pickFolder(): Promise<void> {
   const session = getSession()
   session.setFolderDraft(result.filePaths[0])
   session.applyFolder()
+}
+
+export async function pickDirectory(): Promise<string | null> {
+  const window = deps().getWindow()
+  if (!window) return null
+  const result = await dialog.showOpenDialog(window, {
+    title: 'Choose project folder',
+    properties: ['openDirectory', 'createDirectory'],
+  })
+  return result.canceled ? null : (result.filePaths[0] ?? null)
 }

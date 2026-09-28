@@ -1,13 +1,9 @@
 .chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 28px;
+  @apply inline-flex items-center gap-1 h-7;
   padding: 0 4px 0 8px;
-  border-radius: 4px;
-  font-size: 14px;
+  @apply rounded text-sm;
   color: var(--text);
-  white-space: nowrap;
+  @apply whitespace-nowrap;
 }
 
 .chip svg {
@@ -24,23 +20,22 @@
 
 .chip-label {
   max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  @apply overflow-hidden text-ellipsis;
 }
 
 /* ---------- Document chrome ---------- */
 
 .doc-chrome {
-  flex-shrink: 0;
+  @apply shrink-0;
   background: var(--canvas);
 }
 
 .doc-top {
-  display: grid;
+  @apply grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: start;
+  @apply items-start;
   padding: 8px 16px 0 12px;
-  gap: 8px;
+  @apply gap-2;
 }
 
 .app.platform-darwin .doc-top {
@@ -48,11 +43,7 @@
 }
 
 .doc-home {
-  display: flex;
-  align-items: center;
-  border-radius: 4px;
-  padding: 4px;
-  margin-top: 2px;
+  @apply flex items-center rounded p-1 mt-0.5;
 }
 
 .doc-home:hover {
@@ -60,17 +51,11 @@
 }
 
 .doc-head {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+  @apply flex flex-col min-w-0;
 }
 
 .doc-title-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  height: 32px;
+  @apply flex items-center gap-1 min-w-0 h-8;
 }
 
 .doc-title {
@@ -78,12 +63,11 @@
   min-width: 96px;
   max-width: calc(100% - 40px);
   border: 1px solid transparent;
-  border-radius: 4px;
-  font-size: 18px;
+  @apply rounded text-lg;
   line-height: 24px;
   padding: 2px 8px;
   color: var(--text);
-  background: transparent;
+  @apply bg-transparent;
 }
 
 .doc-title:hover {
@@ -95,7 +79,7 @@
 }
 
 .save-state {
-  display: inline-flex;
+  @apply inline-flex;
   color: var(--muted);
   padding: 0 4px;
 }
@@ -105,20 +89,15 @@
 }
 
 .doc-menus {
-  display: flex;
-  align-items: center;
-  height: 28px;
-  gap: 2px;
+  @apply flex items-center h-7 gap-0.5;
 }
 
 .menu-label {
-  height: 24px;
+  @apply h-6;
   padding: 0 8px;
-  border-radius: 4px;
-  font-size: 14px;
+  @apply rounded text-sm;
   color: var(--text);
-  display: flex;
-  align-items: center;
+  @apply flex items-center;
 }
 
 .menu-label:hover,
@@ -131,29 +110,92 @@
 }
 
 .toolbar {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 40px;
+  @apply flex items-center gap-0.5 h-10;
   padding: 0 8px;
-  border-radius: 24px;
+  @apply rounded-3xl;
   background: var(--pill);
-  overflow-x: auto;
+  @apply overflow-x-auto;
   scrollbar-width: none;
 }
 
 .toolbar::-webkit-scrollbar {
-  display: none;
+  @apply hidden;
 }
 
 .divider {
   flex: 0 0 auto;
-  width: 1px;
-  height: 20px;
+  @apply w-0.25 h-5;
   margin: 0 6px;
   background: #c7c7c7;
 }
 
 .toolbar-spacer {
-  flex: 1;
+  @apply flex-1;
+}
+
+.toolbar-icon {
+  @apply grid place-items-center shrink-0;
+  height: 30px;
+  width: 34px;
+  @apply rounded;
+  color: var(--text-2);
+}
+.toolbar-icon:hover {
+  background: var(--hover);
+}
+.toolbar-static {
+  @apply flex items-center gap-2;
+  padding: 0 12px;
+  @apply whitespace-nowrap text-sm;
+}
+.formatting-sample {
+  @apply flex items-center;
+  gap: 22px;
+  padding: 0 12px;
+  font-size: 17px;
+  color: var(--text-2);
+  @apply select-none;
+}
+.text-color {
+  @apply font-semibold;
+  border-bottom: 3px solid var(--text);
+  line-height: 20px;
+}
+.document-location {
+  @apply flex items-center gap-1.5 min-w-0;
+  color: var(--muted);
+  margin: 0 6px;
+}
+.document-location small {
+  max-width: 160px;
+  @apply overflow-hidden text-ellipsis whitespace-nowrap text-xs;
+}
+@media (max-width: 960px) {
+  .document-location small {
+    @apply hidden;
+  }
+  .formatting-sample {
+    gap: 14px;
+  }
+}
+@media print {
+  .doc-chrome,
+  .tabs,
+  .stop-wrap,
+  .ruler,
+  .composer-wrap {
+    display: none !important;
+  }
+  html,
+  body,
+  #root,
+  .app,
+  .workspace {
+    height: auto;
+    overflow: visible;
+  }
+  .paper {
+    box-shadow: none;
+    @apply m-0 w-full;
+  }
 }

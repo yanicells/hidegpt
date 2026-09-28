@@ -70,10 +70,7 @@ export async function onNotification(ctx: SessionCtx, method: string, params: un
     const completed = params as TurnCompletedNotification
     ctx.patch({
       streaming: false,
-      error:
-        completed.turn.status === 'failed' && completed.turn.error
-          ? completed.turn.error.message
-          : null,
+      error: completed.turn.status === 'failed' && completed.turn.error ? completed.turn.error.message : null,
     })
     return
   }
@@ -100,7 +97,13 @@ export async function onNotification(ctx: SessionCtx, method: string, params: un
     ctx.patch({
       rateLimits: snapshot.rateLimits
         ? { ...snapshot.rateLimits, rateLimits: update.rateLimits }
-        : { rateLimits: update.rateLimits, rateLimitsByLimitId: null, rateLimitResetCredits: null },
+        : {
+            rateLimits: update.rateLimits,
+            rateLimitsByLimitId: null,
+            rateLimitResetCredits: null,
+            accountId: null,
+            rateLimitUpsell: null,
+          },
     })
     return
   }
@@ -147,10 +150,7 @@ export async function onNotification(ctx: SessionCtx, method: string, params: un
   }
 }
 
-export function onServerRequest(
-  ctx: SessionCtx,
-  request: { id: JsonRpcId; method: string; params: unknown },
-) {
+export function onServerRequest(ctx: SessionCtx, request: { id: JsonRpcId; method: string; params: unknown }) {
   if (request.method === 'currentTime/read') {
     ctx.respond(request.id, { currentTimeAt: Math.floor(Date.now() / 1000) })
     return

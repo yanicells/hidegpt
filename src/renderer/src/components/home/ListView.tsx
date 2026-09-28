@@ -4,14 +4,24 @@ import { dispatch } from '../../session-bridge'
 import { DocsIcon } from '../ui/Icons'
 import type { Thread } from './grouping'
 
-export function ListView({ snap, threads }: { snap: Snapshot; threads: Thread[] }) {
+export function ListView({
+  snap,
+  threads,
+  showHeader = true,
+}: {
+  snap: Snapshot
+  threads: Thread[]
+  showHeader?: boolean
+}) {
   return (
     <div className="list" aria-label="Documents">
-      <div className="list-head">
-        <span>Name</span>
-        <span>Owned by</span>
-        <span>Last opened</span>
-      </div>
+      {showHeader ? (
+        <div className="list-head">
+          <span>Name</span>
+          <span>Owned by</span>
+          <span>Last opened</span>
+        </div>
+      ) : null}
       <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
         {threads.map((thread) => (
           <li key={thread.id}>
@@ -25,12 +35,8 @@ export function ListView({ snap, threads }: { snap: Snapshot; threads: Thread[] 
                 <DocsIcon size={22} />
                 <span>{threadTitle(thread)}</span>
               </span>
-              <span className="list-owner">
-                {ownerLabel(snap.account)}
-              </span>
-              <span className="list-date">
-                {formatListDate(thread.recencyAt ?? thread.updatedAt)}
-              </span>
+              <span className="list-owner">{ownerLabel(snap.account)}</span>
+              <span className="list-date">{formatListDate(thread.recencyAt ?? thread.updatedAt)}</span>
             </button>
           </li>
         ))}

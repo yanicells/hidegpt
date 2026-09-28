@@ -30,5 +30,6 @@ contextBridge.exposeInMainWorld('hidegpt', {
     }
   },
   dispatch: (command: Command) => ipcRenderer.invoke('command', command),
+  pickDirectory: () => ipcRenderer.invoke('pick-directory'),
   platform: process.platform,
 })
