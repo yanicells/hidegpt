@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 
 import { emptySnapshot, type Snapshot } from '../../codex/types'
 import type { Command, MenuAction } from '../../shared/api'
+import { applySnapshotPatch } from '../../shared/snapshot-patch'
 
 let snapshot: Snapshot = emptySnapshot()
 
@@ -12,8 +13,8 @@ function getSnapshot(): Snapshot {
 function subscribe(onChange: () => void): () => void {
   if (!window.hidegpt) return () => {}
   snapshot = window.hidegpt.getSnapshot()
-  return window.hidegpt.onSnapshot((next) => {
-    snapshot = next
+  return window.hidegpt.onSnapshot((patch) => {
+    snapshot = applySnapshotPatch(snapshot, patch)
     onChange()
   })
 }

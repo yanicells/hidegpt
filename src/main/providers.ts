@@ -8,6 +8,7 @@ import type { Provider, Snapshot } from '../codex/types'
 import { startOpenCodeServer } from '../opencode/client'
 import { createFakeOpenCodeClient, createFakeServer } from '../opencode/fake'
 import { OpenCodeSession } from '../opencode/session'
+import { diffSnapshot } from '../shared/snapshot-patch'
 
 export type ActiveSession = CodexSession | OpenCodeSession
 
@@ -119,12 +120,21 @@ export function sendSnapshot(): void {
   deliverSnapshot(snap)
 }
 
+/** A freshly loaded window has no snapshot yet, so it gets the whole thing. */
+export function sendFullSnapshot(): void {
+  deliveredSnapshot = null
+  if (pendingSnapshot) clearTimeout(pendingSnapshot)
+  pendingSnapshot = null
+  deliverSnapshot(buildSnapshot())
+}
+
 function deliverSnapshot(snap: Snapshot): void {
+  const patch = diffSnapshot(deliveredSnapshot, snap)
   deliveredSnapshot = snap
   const title = snap.route.kind === 'home' ? 'Docs' : snap.title || 'Docs'
   const window = hooks.getWindow()
   window?.setTitle(title)
-  window?.webContents.send('snapshot', snap)
+  window?.webContents.send('snapshot', patch)
   hooks.onChanged(snap)
 }
 
