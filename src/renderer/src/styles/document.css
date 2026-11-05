@@ -252,6 +252,16 @@
 .doc-block[data-turn] {
   contain-intrinsic-size: auto 48px;
 }
+/* Containment keeps a child's margins inside its block, where they used to
+   collapse into the block's own 10pt. No child margin is larger, so dropping
+   the outer ones keeps the old spacing. A turn's padding already kept its
+   first child's top margin inside. */
+.doc-block:not(.turn-start) > :first-child {
+  margin-top: 0;
+}
+.doc-block > :last-child {
+  margin-bottom: 0;
+}
 
 .streaming .doc-body > :last-child {
   display: inline;
