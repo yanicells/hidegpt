@@ -1,4 +1,4 @@
-import type { Snapshot } from '../../../../codex/types'
+import type { Snapshot } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
 import { DocsIcon } from '../ui/Icons'
 

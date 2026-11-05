@@ -1,4 +1,4 @@
-import type { Command, MenuAction, Snapshot, SnapshotPatch } from './contracts'
+import type { Command, CommandResult, MenuAction, Snapshot, SnapshotPatch } from './contracts'
 
 export type { Command, CommandResult, MenuAction, SnapshotPatch } from './contracts'
 
@@ -9,8 +9,8 @@ export type HideGptApi = {
   /** Live updates arrive as patches against the last snapshot. */
   onSnapshot: (handler: (patch: SnapshotPatch) => void) => () => void
   onMenu: (handler: (action: MenuAction) => void) => () => void
-  /** Rejects with the command's error message when it fails. */
-  dispatch: (command: Command) => Promise<void>
+  /** Settles with the command's result; a failure carries a message to show. */
+  dispatch: (command: Command) => Promise<CommandResult>
   pickDirectory: () => Promise<string | null>
   /** Stores pasted image bytes on disk and returns the file path to attach. */
   saveImage: (bytes: Uint8Array, mime: string) => Promise<string>

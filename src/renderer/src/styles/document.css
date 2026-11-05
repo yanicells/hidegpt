@@ -416,6 +416,14 @@
   color: var(--muted);
 }
 
+/* A reply is on its way. */
+.accept:disabled,
+.skip:disabled,
+.choice:disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 .composer {
   @apply block w-full;
   field-sizing: content;
@@ -478,6 +486,12 @@
 
 .stop:hover {
   background: var(--hover-soft);
+}
+
+/* Stop was pressed; the turn has not ended yet. */
+.stop:disabled {
+  color: var(--muted);
+  pointer-events: none;
 }
 
 .stop-square {

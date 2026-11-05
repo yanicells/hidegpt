@@ -137,6 +137,10 @@ const program = Effect.gen(function* () {
     updateMenu(snapshot)
   })
   yield* Effect.forkScoped(publisher.run)
+  // The preload asks synchronously before the first paint, so this must exist before any window.
+  ipcMain.on('snapshot-now', (event) => {
+    event.returnValue = publisher.delivered()
+  })
 
   const open = () =>
     createWindow({

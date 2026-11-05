@@ -1,57 +1,83 @@
-import type { Block } from '../../../../codex/blocks'
-import { formFields, inputQuestions } from '../../../../codex/labels'
+import { useState } from 'react'
+
+import type { ApprovalBlock } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
 
-export function Approval({ block }: { block: Extract<Block, { kind: 'approval' }> }) {
-  const fields = formFields(block)
-  const questions = inputQuestions(block)
-  const setDraft = (key: string, value: string) => dispatch({ op: 'setApprovalDraft', blockId: block.id, key, value })
+/** Starting answers: each field's `initial` value; questions start blank. */
+function initialAnswers(block: ApprovalBlock): Record<string, string> {
+  const answers: Record<string, string> = {}
+  for (const field of block.fields) if (field.initial !== undefined) answers[field.id] = field.initial
+  return answers
+}
+
+// Answers are drafted locally and sent once with the reply; buttons stay
+// disabled while that reply is on its way. Adapted from T3 Code
+// (apps/web/src/components/chat/usePendingThreadRequests.ts and
+// ComposerPendingApprovalActions.tsx) at commit 8a14762c.
+// Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+
+/** A suggestion waiting on the person: optional fields and questions, then Accept or Skip. */
+export function Approval({ block }: { block: ApprovalBlock }) {
+  const [answers, setAnswers] = useState(() => initialAnswers(block))
+  // Covers the gap between the click and main marking the block pending.
+  const [sending, setSending] = useState(false)
+  const busy = sending || Boolean(block.pending)
+  const setAnswer = (id: string, value: string) => setAnswers((current) => ({ ...current, [id]: value }))
+  const reply = async (accept: boolean) => {
+    if (busy) return
+    setSending(true)
+    await dispatch({ op: 'resolveApproval', blockId: block.id, accept, answers })
+    setSending(false)
+  }
   return (
     <div className={`approval${block.resolved ? ' done' : ''}`} data-testid={`approval-${block.id}`}>
       <span className="approval-eyebrow">{block.resolved ? 'Suggestion' : 'Suggestion · needs your reply'}</span>
       <h3>{block.title}</h3>
       {block.body ? <p>{block.body}</p> : null}
       {!block.resolved
-        ? fields.map((field) => (
-            <label key={field.key} className="field">
+        ? block.fields.map((field) => (
+            <label key={field.id} className="field">
               <span>{field.label}</span>
               <input
-                data-testid={`draft-${block.id}-${field.key}`}
-                value={block.drafts[field.key] ?? ''}
-                onChange={(event) => setDraft(field.key, event.target.value)}
+                data-testid={`draft-${block.id}-${field.id}`}
+                value={answers[field.id] ?? ''}
+                disabled={busy}
+                onChange={(event) => setAnswer(field.id, event.target.value)}
               />
             </label>
           ))
         : null}
       {!block.resolved
-        ? questions.map((question) => (
+        ? block.questions.map((question) => (
             <div key={question.id} className="field">
               <span>{question.question}</span>
-              {question.options?.length ? (
+              {question.options.length ? (
                 <div className="choices" role="radiogroup" aria-label={question.question}>
                   {question.options.map((option) => {
-                    const on = block.drafts[question.id] === option.label
+                    const on = answers[question.id] === option
                     return (
                       <button
                         type="button"
-                        key={option.label}
+                        key={option}
                         role="radio"
                         aria-checked={on}
                         className={`choice${on ? ' on' : ''}`}
-                        onClick={() => setDraft(question.id, option.label)}
+                        disabled={busy}
+                        onClick={() => setAnswer(question.id, option)}
                       >
-                        {option.label}
+                        {option}
                       </button>
                     )
                   })}
                 </div>
               ) : null}
-              {question.isOther || !question.options?.length ? (
+              {question.allowText || !question.options.length ? (
                 <input
                   data-testid={`draft-${block.id}-${question.id}`}
                   aria-label={question.question}
-                  value={block.drafts[question.id] ?? ''}
-                  onChange={(event) => setDraft(question.id, event.target.value)}
+                  value={answers[question.id] ?? ''}
+                  disabled={busy}
+                  onChange={(event) => setAnswer(question.id, event.target.value)}
                 />
               ) : null}
             </div>
@@ -65,7 +91,8 @@ export function Approval({ block }: { block: Extract<Block, { kind: 'approval' }
             type="button"
             className="accept"
             data-testid={`accept-${block.id}`}
-            onClick={() => dispatch({ op: 'resolveApproval', blockId: block.id, accept: true })}
+            disabled={busy}
+            onClick={() => void reply(true)}
           >
             Accept
           </button>
@@ -73,10 +100,16 @@ export function Approval({ block }: { block: Extract<Block, { kind: 'approval' }
             type="button"
             className="skip"
             data-testid={`skip-${block.id}`}
-            onClick={() => dispatch({ op: 'resolveApproval', blockId: block.id, accept: false })}
+            disabled={busy}
+            onClick={() => void reply(false)}
           >
             Skip
           </button>
+          {busy ? (
+            <span className="resolved" role="status">
+              Sending…
+            </span>
+          ) : null}
         </div>
       )}
     </div>

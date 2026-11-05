@@ -20,6 +20,8 @@ export interface SnapshotPublisher {
   readonly run: Effect.Effect<void>
   /** The window reloaded: its next patch must carry the whole snapshot. */
   readonly resync: (snapshot: Snapshot) => void
+  /** What the window last got (null before the first patch); later patches apply on top of it. */
+  readonly delivered: () => Snapshot | null
 }
 
 export function makeSnapshotPublisher(
@@ -47,6 +49,7 @@ export function makeSnapshotPublisher(
       delivered = null
       deliver(snapshot)
     },
+    delivered: () => delivered,
   }
 }
 

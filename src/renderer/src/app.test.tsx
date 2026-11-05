@@ -4,11 +4,10 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { stubModel, stubThread } from '../../codex/fake'
-import { emptySnapshot, type Snapshot } from '../../codex/types'
-import type { Command, HideGptApi, MenuAction } from '../../shared/api'
-import type { SnapshotPatch } from '../../shared/snapshot-patch'
+import type { Command, HideGptApi, MenuAction, SnapshotPatch } from '../../shared/api'
+import { CAPABILITIES, emptySnapshot, type DocSummary, type ModelOption, type Snapshot } from '../../shared/model'
 import { App } from './app'
+import { clearCommandError } from './session-bridge'
 import { groupByRecency } from './components/home/grouping'
 import { projectFolders, threadProjectId } from './components/home/ProjectFolders'
 
@@ -21,16 +20,26 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   localStorage.clear()
+  clearCommandError()
 })
 
-function mount(partial: Partial<Snapshot> = {}) {
+function stubThread(id: string, preview: string, name?: string, projectId: string | null = null): DocSummary {
+  return { id, name: name ?? null, preview, updatedAt: 1_700_000_000, cwd: '/tmp', projectId }
+}
+
+function stubModel(id = 'gpt-5.6-sol', label = 'GPT-5.6 Sol', isDefault = true): ModelOption {
+  return { id, label, efforts: [], defaultEffort: null, serviceTiers: [{ id: 'fast', name: 'Fast' }], isDefault }
+}
+
+/** Renders the app over a stub bridge; `fail` turns a command into a rejection with that message. */
+function mount(partial: Partial<Snapshot> = {}, fail: (command: Command) => string | null = () => null) {
   const calls: Command[] = []
   const menuHandlers = new Set<(action: MenuAction) => void>()
   const listeners = new Set<(patch: SnapshotPatch) => void>()
   let snapshot: Snapshot = {
     ...emptySnapshot(),
     status: 'ready',
-    account: { type: 'chatgpt', email: 'yan@school.edu', planType: 'plus' },
+    account: { kind: 'chatgpt', label: 'yan@school.edu' },
     threads: [
       stubThread('thr_1', 'Essay on photosynthesis', 'Photosynthesis'),
       stubThread('thr_2', 'Lab notes', 'Chem lab'),
@@ -50,6 +59,8 @@ function mount(partial: Partial<Snapshot> = {}) {
     },
     dispatch: async (command) => {
       calls.push(command)
+      const failure = fail(command)
+      if (failure) return { ok: false, error: failure }
       if (command.op === 'setSearch') {
         snapshot = { ...snapshot, search: command.value }
       }
@@ -61,10 +72,20 @@ function mount(partial: Partial<Snapshot> = {}) {
           title: thread?.name ?? 'Untitled document',
         }
       }
+      if (command.op === 'resolveApproval') {
+        const resolved = command.accept ? 'accepted' : 'skipped'
+        snapshot = {
+          ...snapshot,
+          blocks: snapshot.blocks.map((block) => 
+            block.kind === 'approval' && block.id === command.blockId ? { ...block, resolved } : block,
+          ),
+        }
+      }
       if (command.op === 'goHome') {
         snapshot = { ...snapshot, route: { kind: 'home' }, title: 'Docs' }
       }
       for (const listener of listeners) listener({ fields: snapshot })
+      return { ok: true }
     },
     pickDirectory: async () => '/tmp/project',
     saveImage: async (_bytes, mime) => `/tmp/pasted.${mime.split('/')[1]}`,
@@ -157,35 +178,6 @@ describe('document page', () => {
     expect(screen.getByTestId('outline-u2')).toHaveTextContent('Why is it green?')
   })
 
-  it('hides reasoning callouts and usage meters from the page', () => {
-    mount({
-      route: { kind: 'doc', threadId: 'thr_1' },
-      title: 'Photosynthesis',
-      blocks: [
-        { kind: 'user', id: 'u1', text: 'Hi' },
-        { kind: 'agent', id: 'a1', text: 'Hello.' },
-      ],
-      rateLimits: {
-        rateLimits: {
-          limitId: 'codex',
-          limitName: 'Codex',
-          primary: { usedPercent: 88, windowDurationMins: 300, resetsAt: null },
-          secondary: null,
-          credits: null,
-          individualLimit: null,
-          spendControlReached: null,
-          planType: 'plus',
-          rateLimitReachedType: null,
-        },
-        rateLimitsByLimitId: null,
-        rateLimitResetCredits: null,
-        accountId: null,
-        rateLimitUpsell: null,
-      },
-    })
-    expect(screen.queryByText(/% used/)).toBeNull()
-  })
-
   it('switches providers from the toolbar', async () => {
     const user = userEvent.setup()
     const { calls } = mount({
@@ -202,28 +194,7 @@ describe('document page', () => {
     const { calls } = mount({
       route: { kind: 'doc', threadId: 'thr_1' },
       title: 'Photosynthesis',
-      models: [
-        {
-          id: 'a',
-          model: 'a',
-          upgrade: null,
-          upgradeInfo: null,
-          availabilityNux: null,
-          displayName: 'AlphaGuide',
-          description: '',
-          modelSpecialty: null,
-          hidden: false,
-          supportedReasoningEfforts: [],
-          defaultReasoningEffort: 'medium',
-          inputModalities: [],
-          supportsPersonality: true,
-          multiAgentVersion: null,
-          additionalSpeedTiers: [],
-          serviceTiers: [{ id: 'fast', name: 'Fast', description: '' }],
-          defaultServiceTier: null,
-          isDefault: true,
-        },
-      ],
+      models: [stubModel('a', 'AlphaGuide')],
       model: 'a',
     })
     await user.click(screen.getByTestId('chip-model'))
@@ -256,9 +227,7 @@ describe('document page', () => {
 })
 
 function docModels() {
-  const alpha = { ...stubModel(), id: 'alpha', model: 'alpha', displayName: 'AlphaGuide', isDefault: true }
-  const beta = { ...stubModel(), id: 'beta', model: 'beta', displayName: 'BetaHelper', isDefault: false }
-  return [alpha, beta]
+  return [stubModel('alpha', 'AlphaGuide'), stubModel('beta', 'BetaHelper', false)]
 }
 
 describe('toolbar dropdowns', () => {
@@ -313,7 +282,7 @@ describe('toolbar dropdowns', () => {
     const { calls } = mount({
       route: { kind: 'doc', threadId: 'thr_1' },
       title: 'Photosynthesis',
-      models: [{ ...stubModel(), id: 'a', model: 'a', displayName: 'AlphaGuide', isDefault: true }],
+      models: [stubModel('a', 'AlphaGuide')],
       model: 'a',
     })
     await user.click(screen.getByTestId('chip-speed'))
@@ -361,8 +330,8 @@ describe('home list view', () => {
     const user = userEvent.setup()
     mount({
       threads: [
-        { ...stubThread('thr_today', 'Today doc', 'Today doc'), recencyAt: noonSec(0), updatedAt: noonSec(0) },
-        { ...stubThread('thr_yest', 'Yesterday doc', 'Yesterday doc'), recencyAt: noonSec(1), updatedAt: noonSec(1) },
+        { ...stubThread('thr_today', 'Today doc', 'Today doc'), updatedAt: noonSec(0) },
+        { ...stubThread('thr_yest', 'Yesterday doc', 'Yesterday doc'), updatedAt: noonSec(1) },
       ],
     })
     await user.click(screen.getByLabelText('List view'))
@@ -375,18 +344,7 @@ describe('home list view', () => {
   it('renders project folders by name, not hash', () => {
     mount({
       threads: [stubThread('thr_p1', 'Proj doc', 'Proj doc', 'proj_1')],
-      projects: [
-        {
-          id: 'proj_1',
-          name: 'My Project',
-          roots: [],
-          metadata: {},
-          position: 0,
-          createdAt: 0,
-          updatedAt: 0,
-          recencyAt: null,
-        },
-      ],
+      projects: [{ id: 'proj_1', name: 'My Project', roots: [] }],
     })
     expect(screen.getByTestId('project-proj_1')).toHaveTextContent('My Project')
     expect(screen.queryByText('proj_1')).toBeNull()
@@ -415,16 +373,10 @@ describe('grouping', () => {
     expect(orphan?.name).not.toContain('unknown-hash')
   })
 
-  it('buckets ms timestamps correctly', () => {
-    const now = new Date()
-    const noonMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0, 0).getTime()
+  it('buckets documents by the day they were last updated', () => {
     const threads = [
-      { ...stubThread('m-today', 't', 'T'), recencyAt: noonMs, updatedAt: Math.floor(noonMs / 1000) },
-      {
-        ...stubThread('m-yest', 'y', 'Y'),
-        recencyAt: noonMs - 86_400_000,
-        updatedAt: Math.floor((noonMs - 86_400_000) / 1000),
-      },
+      { ...stubThread('m-today', 't', 'T'), updatedAt: noonSec(0) },
+      { ...stubThread('m-yest', 'y', 'Y'), updatedAt: noonSec(1) },
     ]
     const sections = groupByRecency(threads)
     expect(sections.find((section) => section.title === 'Today')?.threads.map((thread) => thread.id)).toContain(
@@ -436,16 +388,7 @@ describe('grouping', () => {
   })
 })
 
-const projectFixture = {
-  id: 'course',
-  name: 'Course notes',
-  roots: [{ path: '/tmp/course' }],
-  metadata: {},
-  position: 0,
-  createdAt: 0,
-  updatedAt: 0,
-  recencyAt: null,
-}
+const projectFixture = { id: 'course', name: 'Course notes', roots: [{ path: '/tmp/course' }] }
 
 describe('project navigation and creation', () => {
   it('opens empty projects, keeps layout controls, and preselects the destination', async () => {
@@ -512,9 +455,9 @@ describe('library and reading preferences', () => {
       route: { kind: 'doc', threadId: 'thr_1' },
       blocks: [
         { kind: 'user', id: 'u', text: 'Question' },
-        { kind: 'agent', id: 'progress', text: 'Checking files', phase: 'commentary' },
+        { kind: 'agent', id: 'progress', text: 'Checking files', commentary: true },
         { kind: 'callout', id: 'tool', title: 'Ran a command', body: 'ls' },
-        { kind: 'agent', id: 'answer', text: 'The final answer', phase: 'final_answer' },
+        { kind: 'agent', id: 'answer', text: 'The final answer' },
       ],
     })
     await userEvent.click(screen.getByTestId('menu-view'))
@@ -590,5 +533,63 @@ describe('composer attachments', () => {
     const image = screen.getByTestId('document').querySelector('.doc-question')?.previousElementSibling
     expect(image?.querySelector('img')).toHaveAttribute('src', 'docs://local/%2Ftmp%2Fa.png')
     expect(screen.getByTestId('chip-skill-humanizer')).toBeInTheDocument()
+  })
+})
+
+describe('failures and replies', () => {
+  const doc = { route: { kind: 'doc', threadId: 'thr_1' }, title: 'Photosynthesis' } as const
+
+  it('keeps the draft when a question is not accepted, and says why', async () => {
+    const user = userEvent.setup()
+    mount(doc, (command) => (command.op === 'send' ? 'Wait for the current answer to finish.' : null))
+    await user.type(screen.getByTestId('composer'), 'Why is it green?{Enter}')
+    expect(await screen.findByTestId('error-banner')).toHaveTextContent('Wait for the current answer to finish.')
+    expect(screen.getByTestId('composer')).toHaveValue('Why is it green?')
+  })
+
+  it('shows a library error as a banner without hiding the page', async () => {
+    const user = userEvent.setup()
+    const { calls } = mount({ status: 'error', error: 'Docs couldn’t reach this library.' })
+    expect(screen.getByTestId('error-banner')).toHaveTextContent('Docs couldn’t reach this library.')
+    expect(screen.getByTestId('thread-thr_1')).toBeInTheDocument()
+    await user.click(screen.getByTestId('error-refresh'))
+    expect(calls).toContainEqual({ op: 'refresh' })
+    await user.click(screen.getByTestId('error-dismiss'))
+    expect(screen.queryByTestId('error-banner')).toBeNull()
+  })
+
+  it('drafts approval answers locally and sends them once', async () => {
+    const user = userEvent.setup()
+    const { calls } = mount({
+      ...doc,
+      blocks: [
+        {
+          kind: 'approval',
+          id: 'ap1',
+          title: 'Fill in the details',
+          body: '',
+          fields: [{ id: 'name', label: 'Name', initial: 'Yan' }],
+          questions: [{ id: 'size', question: 'Which size?', options: ['Small', 'Large'], allowText: false }],
+          resolved: null,
+        },
+      ],
+    })
+    await user.type(screen.getByTestId('draft-ap1-name'), 'i')
+    await user.click(screen.getByRole('radio', { name: 'Large' }))
+    expect(calls).toEqual([])
+    await user.click(screen.getByTestId('accept-ap1'))
+    expect(await screen.findByText('Accepted')).toBeInTheDocument()
+    expect(calls).toEqual([{ op: 'resolveApproval', blockId: 'ap1', accept: true, answers: { name: 'Yani', size: 'Large' } }])
+  })
+
+  it('offers Log in only to libraries that sign in inside Docs', async () => {
+    const user = userEvent.setup()
+    mount({ provider: 'claude', capabilities: CAPABILITIES.claude, account: { kind: 'local', label: 'yan@school.edu' } })
+    await user.click(screen.getByTestId('menu-account'))
+    expect(screen.getByTestId('panel-account')).not.toHaveTextContent(/Log (in|out)/)
+    cleanup()
+    mount({ account: null })
+    await user.click(screen.getByTestId('menu-account'))
+    expect(screen.getByTestId('panel-account')).toHaveTextContent('Log in with ChatGPT')
   })
 })

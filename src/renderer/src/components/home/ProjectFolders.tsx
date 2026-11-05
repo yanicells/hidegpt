@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Snapshot } from '../../../../codex/types'
+import type { Snapshot } from '../../../../shared/model'
 import { FolderIcon, PlusMonoIcon } from '../ui/Icons'
 
 export function threadProjectId(snap: Snapshot, thread: Snapshot['threads'][number]): string | null {
@@ -59,10 +59,12 @@ export function ProjectFolders({
     <section className="projects-section" aria-label="Projects">
       <div className="projects-heading">
         <h2>Projects</h2>
-        <button className="text-button" onClick={onAdd}>
-          <PlusMonoIcon />
-          Add project
-        </button>
+        {snap.capabilities.createProjects ? (
+          <button className="text-button" onClick={onAdd}>
+            <PlusMonoIcon />
+            Add project
+          </button>
+        ) : null}
       </div>
       {folders.length ? (
         <div className="folder-grid">
@@ -88,7 +90,11 @@ export function ProjectFolders({
           ))}
         </div>
       ) : (
-        <p className="project-empty">Keep related documents together. Add a project to get started.</p>
+        <p className="project-empty">
+          {snap.capabilities.createProjects
+            ? 'Keep related documents together. Add a project to get started.'
+            : 'Documents you create in a folder are grouped here.'}
+        </p>
       )}
       {folders.length > 4 ? (
         <button className="text-button" onClick={() => setExpanded(!expanded)}>
