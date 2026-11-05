@@ -26,7 +26,7 @@
   --hover-soft: #f0f4f9;
   --shadow-menu: 0 2px 6px 2px rgba(60, 64, 67, 0.15), 0 1px 2px 0 rgba(60, 64, 67, 0.3);
   --shadow-page: 0 0 0 0.75pt #d1d1d1, 0 0 3pt 0.75pt #ccc;
-  /* Chrome: Google Sans (bundled as Google Sans Flex, see main.tsx) and Roboto for small labels. */
+  /* Chrome: Google Sans (bundled as Google Sans Flex, see fonts.ts) and Roboto for small labels. */
   --font-ui: 'Google Sans Flex Variable', 'Google Sans', Roboto, Arial, sans-serif;
   --font-text: Roboto, 'Google Sans Flex Variable', Arial, sans-serif;
   --font-page: Arial, Helvetica, sans-serif;

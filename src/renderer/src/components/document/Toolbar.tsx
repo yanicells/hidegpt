@@ -7,6 +7,7 @@ import { PlaySparkIcon } from '../ui/Icons'
 import { MIcon, type MaterialIconName } from '../ui/MaterialIcon'
 import { MenuRows, type Item } from '../ui/MenuPanel'
 import { Popover, PopoverPopup, PopoverTrigger } from '../ui/popover'
+import { capitalize } from '../ui/text'
 import { Tip } from '../ui/tooltip'
 import { Chip } from './Chip'
 import { openImagePicker } from './Composer'
@@ -392,8 +393,4 @@ function fitZoom(): number {
   const area = document.querySelector<HTMLElement>('.paper-col')
   if (!area) return 100
   return Math.max(50, Math.min(100, Math.floor(((area.clientWidth - 32) / 816) * 100)))
-}
-
-function capitalize(text: string): string {
-  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text
 }

@@ -5,6 +5,7 @@ import type { Provider, Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
 import { MIcon, type MaterialIconName } from '../ui/MaterialIcon'
 import { Popover, PopoverClose, PopoverPopup, PopoverTrigger } from '../ui/popover'
+import { capitalize } from '../ui/text'
 import { Tip } from '../ui/tooltip'
 
 const LIBRARY_COLORS: Record<Provider, string> = { codex: '#0b8043', opencode: '#e8710a', claude: '#c5221f' }
@@ -45,73 +46,73 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
         </PopoverTrigger>
       </Tip>
       <PopoverPopup className="account-panel" data-testid="panel-account" aria-label="Google Account">
-          <div className="account-card">
-            <span className="account-email">{snap.account ? label : 'Not signed in'}</span>
-            <span className="avatar-lg">{avatarLetter(snap.account)}</span>
-            <span className="account-hello">{name ? `Hi, ${capitalize(name)}!` : 'Hi there!'}</span>
-            <PopoverClose className="account-manage">Manage your Google Account</PopoverClose>
-          </div>
-          <div className="account-list" role="group" aria-label="Switch account">
-            {PROVIDERS.map((provider) => (
-              <button
-                key={provider}
-                type="button"
-                className="account-row"
-                aria-pressed={snap.provider === provider}
-                data-testid={`library-${provider}`}
-                disabled={Boolean(pending)}
-                onClick={() => void switchTo(provider)}
-              >
-                <span className="avatar-sm" style={{ background: LIBRARY_COLORS[provider] }}>
-                  {providerLabel(provider).charAt(0)}
+        <div className="account-card">
+          <span className="account-email">{snap.account ? label : 'Not signed in'}</span>
+          <span className="avatar-lg">{avatarLetter(snap.account)}</span>
+          <span className="account-hello">{name ? `Hi, ${capitalize(name)}!` : 'Hi there!'}</span>
+          <PopoverClose className="account-manage">Manage your Google Account</PopoverClose>
+        </div>
+        <div className="account-list" role="group" aria-label="Switch account">
+          {PROVIDERS.map((provider) => (
+            <button
+              key={provider}
+              type="button"
+              className="account-row"
+              aria-pressed={snap.provider === provider}
+              data-testid={`library-${provider}`}
+              disabled={Boolean(pending)}
+              onClick={() => void switchTo(provider)}
+            >
+              <span className="avatar-sm" style={{ background: LIBRARY_COLORS[provider] }}>
+                {providerLabel(provider).charAt(0)}
+              </span>
+              <span className="account-row-text">
+                {providerLabel(provider)}
+                <small>{pending === provider ? 'Switching…' : accountLine(provider, snap)}</small>
+              </span>
+              {snap.provider === provider ? (
+                <span className="row-icon ml-auto">
+                  <MIcon name="check" />
                 </span>
-                <span className="account-row-text">
-                  {providerLabel(provider)}
-                  <small>{pending === provider ? 'Switching…' : accountLine(provider, snap)}</small>
-                </span>
-                {snap.provider === provider ? (
-                  <span className="row-icon ml-auto">
-                    <MIcon name="check" />
-                  </span>
-                ) : null}
-              </button>
-            ))}
-            {/* Only Codex signs in from here; the others reuse their CLI's login, so the row is costume. */}
+              ) : null}
+            </button>
+          ))}
+          {/* Only Codex signs in from here; the others reuse their CLI's login, so the row is costume. */}
+          <AccountAction
+            testId={snap.provider === 'codex' && !snap.account ? 'action-login' : undefined}
+            icon="person_add"
+            label="Add another account"
+            run={
+              snap.provider === 'codex' && !snap.account
+                ? () => {
+                    dispatch({ op: 'login' })
+                    setOpen(false)
+                  }
+                : undefined
+            }
+          />
+          {snap.provider === 'codex' && snap.account ? (
             <AccountAction
-              testId={snap.provider === 'codex' && !snap.account ? 'action-login' : undefined}
-              icon="person_add"
-              label="Add another account"
-              run={
-                snap.provider === 'codex' && !snap.account
-                  ? () => {
-                      dispatch({ op: 'login' })
-                      setOpen(false)
-                    }
-                  : undefined
-              }
+              testId="action-logout"
+              icon="logout"
+              label="Sign out"
+              run={() => {
+                dispatch({ op: 'logout' })
+                setOpen(false)
+              }}
             />
-            {snap.provider === 'codex' && snap.account ? (
-              <AccountAction
-                testId="action-logout"
-                icon="logout"
-                label="Sign out"
-                run={() => {
-                  dispatch({ op: 'logout' })
-                  setOpen(false)
-                }}
-              />
-            ) : null}
-          </div>
-          {error ? (
-            <p className="account-error" role="alert">
-              {error}
-            </p>
           ) : null}
-          <div className="account-foot">
-            <span>Privacy Policy</span>
-            <span aria-hidden="true">•</span>
-            <span>Terms of Service</span>
-          </div>
+        </div>
+        {error ? (
+          <p className="account-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <div className="account-foot">
+          <span>Privacy Policy</span>
+          <span aria-hidden="true">•</span>
+          <span>Terms of Service</span>
+        </div>
       </PopoverPopup>
       {pending ? <div className="top-progress" role="progressbar" aria-label="Loading" /> : null}
     </Popover>
@@ -147,8 +148,4 @@ function AccountAction({
       <span className="account-row-text">{label}</span>
     </button>
   )
-}
-
-function capitalize(text: string): string {
-  return text ? text.charAt(0).toUpperCase() + text.slice(1) : text
 }
