@@ -6,6 +6,7 @@ import { BlockView } from './BlockView'
 import { Composer } from './Composer'
 import { Tabs } from './Tabs'
 import { useFollowBottom } from './useFollowBottom'
+import { useProgressiveRows } from './useProgressiveRows'
 
 /**
  * The open document. `snap` is the shell's copy, which skips streamed text;
@@ -31,6 +32,7 @@ export function Document({
   const waiting = snap.streaming && streamingAgentId === null
   const questions = blocks.filter((block) => block.kind === 'user')
   const newest = blocks[blocks.length - 1]
+  const rows = useProgressiveRows(threadId, visibleBlocks.length)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const paperRef = useRef<HTMLElement>(null)
@@ -87,7 +89,7 @@ export function Document({
                 {snap.loadingOlder ? 'Loading…' : 'Load earlier'}
               </button>
             ) : null}
-            {visibleBlocks.map((block, index) => (
+            {visibleBlocks.slice(0, rows).map((block, index) => (
               <BlockRow
                 key={block.id}
                 block={block}
