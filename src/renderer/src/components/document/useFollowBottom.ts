@@ -7,9 +7,10 @@ const NEAR_END = '0px 0px 120px 0px'
  * Keeps the page at the bottom while an answer streams, if you are there,
  * without reading layout on every delta. A ResizeObserver scrolls once the
  * browser has laid out new text, and an IntersectionObserver on `end` tracks
- * whether you are near the bottom. A new question of yours pulls the page
- * down; another document starts at the top. Returns `release`, for jumps that
- * move the page on purpose.
+ * whether you are near the bottom. A document opens at the top and follows
+ * only once you scroll to its end or ask a question, so a resize or a late
+ * image never pulls it down. Returns `release`, for jumps that move the page
+ * on purpose.
  */
 export function useFollowBottom({
   scrollRef,
@@ -26,6 +27,10 @@ export function useFollowBottom({
   askedId: string | null
 }): { release: () => void } {
   const follow = useRef(false)
+  // You have scrolled or asked since the document opened.
+  const engaged = useRef(false)
+  // The end marker's last reported state.
+  const nearEnd = useRef(false)
   const seen = useRef({ threadId, askedId })
 
   // Layout effects, so the flag is set before the browser lays out and the observers run.
@@ -34,9 +39,11 @@ export function useFollowBottom({
     seen.current = { threadId, askedId }
     if (before.threadId !== threadId) {
       follow.current = false
+      engaged.current = false
       if (scrollRef.current) scrollRef.current.scrollTop = 0
     } else if (askedId !== null && askedId !== before.askedId) {
       follow.current = true
+      engaged.current = true
     }
   }, [threadId, askedId, scrollRef])
 
@@ -52,15 +59,25 @@ export function useFollowBottom({
     const near = new IntersectionObserver(
       (entries) => {
         const entry = entries[entries.length - 1]
-        if (entry) follow.current = entry.isIntersecting
+        if (!entry) return
+        nearEnd.current = entry.isIntersecting
+        if (engaged.current) follow.current = entry.isIntersecting
       },
       { root, rootMargin: NEAR_END },
     )
+    // The observer decides where you are; your first scroll only starts listening to it.
+    const scrolled = () => {
+      if (engaged.current) return
+      engaged.current = true
+      follow.current = nearEnd.current
+    }
     grew.observe(content)
     near.observe(end)
+    root.addEventListener('scroll', scrolled, { passive: true })
     return () => {
       grew.disconnect()
       near.disconnect()
+      root.removeEventListener('scroll', scrolled)
     }
   }, [scrollRef, contentRef, endRef])
 
