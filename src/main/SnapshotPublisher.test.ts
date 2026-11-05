@@ -41,12 +41,19 @@ describe('SnapshotPublisher', () => {
       const appended = [sent[1], sent[2]].flatMap((patch) => patch.blocks?.append ?? []).map(([, text]) => text).join('')
       expect(appended).toBe('word '.repeat(200))
 
-      // The turn's end waits out the current frame at most.
+      // Text that arrives mid-frame waits; the turn's end does not, and carries that text with it.
+      yield* SubscriptionRef.update(state, (s) => ({ ...s, blocks: [{ kind: 'agent' as const, id: 'a', text: 'word '.repeat(201) }] }))
+      yield* settle
+      expect(sent).toHaveLength(3)
       yield* SubscriptionRef.update(state, (s) => ({ ...s, streaming: false }))
-      yield* TestClock.adjust('32 millis')
       yield* settle
       expect(sent).toHaveLength(4)
-      expect(sent.at(-1)).toEqual({ fields: { streaming: false } })
+      expect(sent[3]).toEqual({ fields: { streaming: false }, blocks: { length: 1, append: [[0, 'word ']] } })
+
+      // The cancelled frame sends nothing more later.
+      yield* TestClock.adjust('100 millis')
+      yield* settle
+      expect(sent).toHaveLength(4)
     }),
   )
 

@@ -1,5 +1,6 @@
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
+import * as FiberHandle from 'effect/FiberHandle'
 import * as Stream from 'effect/Stream'
 
 import type { Snapshot, SnapshotPatch } from '../shared/contracts'
@@ -7,11 +8,11 @@ import { diffSnapshot, isEmptyPatch } from '../shared/snapshot-patch'
 
 /**
  * Sends snapshot changes to the window as patches against what it last got.
- * While an answer streams, at most one patch goes out per frame: the sliding
- * buffer keeps only the newest snapshot while the publisher waits, so a burst
- * of deltas becomes one patch carrying all of their text. Other changes
- * (navigation, a new block, the turn ending) go out as soon as the current
- * frame, if any, is over.
+ * While an answer streams, at most one patch goes out per frame: the first
+ * text goes out at once, and text that arrives during the frame waits for its
+ * end, so a burst of deltas becomes one patch carrying all of their text.
+ * Anything else (navigation, a new block, the turn ending) goes out at once,
+ * carrying the waiting text with it.
  */
 export const STREAM_FRAME = Duration.millis(32)
 
@@ -29,21 +30,32 @@ export function makeSnapshotPublisher(
   send: (patch: SnapshotPatch, snapshot: Snapshot) => void,
 ): SnapshotPublisher {
   let delivered: Snapshot | null = null
+  /** Streamed text that arrived during the current frame. */
+  let pending: Snapshot | null = null
   const deliver = (snapshot: Snapshot) => {
+    pending = null
     const patch = diffSnapshot(delivered, snapshot)
     delivered = snapshot
     if (!isEmptyPatch(patch)) send(patch, snapshot)
   }
+  // Sends the waiting text, then holds a frame; text that arrived meanwhile starts the next one.
+  const frame: Effect.Effect<void> = Effect.suspend(() => {
+    if (pending === null) return Effect.void
+    deliver(pending)
+    return Effect.sleep(STREAM_FRAME).pipe(Effect.andThen(frame))
+  })
   return {
-    run: snapshots.pipe(
-      Stream.buffer({ capacity: 1, strategy: 'sliding' }),
-      Stream.runForEach((snapshot) =>
-        Effect.gen(function* () {
-          const textOnly = delivered !== null && delivered.streaming && snapshot.streaming && sameShape(delivered, snapshot)
-          deliver(snapshot)
-          if (textOnly) yield* Effect.sleep(STREAM_FRAME)
-        }),
-      ),
+    run: Effect.scoped(
+      Effect.gen(function* () {
+        const frames = yield* FiberHandle.make<void, never>()
+        yield* Stream.runForEach(snapshots, (snapshot) => {
+          if (delivered !== null && delivered.streaming && snapshot.streaming && sameShape(delivered, snapshot)) {
+            pending = snapshot
+            return FiberHandle.run(frames, frame, { onlyIfMissing: true })
+          }
+          return FiberHandle.clear(frames).pipe(Effect.andThen(Effect.sync(() => deliver(snapshot))))
+        })
+      }),
     ),
     resync: (snapshot) => {
       delivered = null
