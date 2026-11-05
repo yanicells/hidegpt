@@ -8,4 +8,4 @@
 @import './document.css' layer(components);
 @import './tabs.css' layer(components);
 
-@import './creation.css' layer(components);
+@import './dialogs.css' layer(components);
