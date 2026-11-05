@@ -6,7 +6,9 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { extname, join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+import type { Block } from '../codex/blocks'
 import type { Snapshot } from '../codex/types'
+import type { SnapshotPatch } from '../shared/snapshot-patch'
 
 let window: BrowserWindow | null = null
 
@@ -263,6 +265,53 @@ export async function captureScreenshots(win: BrowserWindow, session: Screenshot
   await shot('document-page-break')
   await js(`(() => {
     document.querySelectorAll('[data-screenshot-copy]').forEach((node) => node.remove())
+    document.querySelector('[data-testid="document"]').scrollTop = 0
+    return true
+  })()`)
+  await pause(300)
+  // States the fake session never reaches: a reply streaming in (with a code
+  // block), then a pending approval. They are screenshot-only snapshot
+  // patches on top of the real blocks, and the real blocks come back after.
+  const real = session.snapshot.blocks.length
+  const showBlocks = (blocks: Block[], streaming: boolean) =>
+    win.webContents.send('snapshot', {
+      fields: { streaming },
+      blocks: { length: real + blocks.length, changed: blocks.map((block, index) => [real + index, block]) },
+    } satisfies SnapshotPatch)
+  const question: Block = { kind: 'user', id: 'shot-question', text: 'How would we check the worked examples?' }
+  const reply: Block = {
+    kind: 'agent',
+    id: 'shot-reply',
+    text: 'Run each example as a short script and compare its output with the expected value:\n\n```\nfor example in examples/*.txt; do\n  check-example "$example" --expect "${example%.txt}.out"\ndone\n```\n\nIf an example',
+  }
+  const suggestion: Block = {
+    kind: 'approval',
+    id: 'shot-approval',
+    requestId: 'shot-approval',
+    method: 'item/commandExecution/requestApproval',
+    title: 'Run command?',
+    body: 'check-example examples/week-3.txt',
+    resolved: null,
+    drafts: {},
+  }
+  const scrollToQuestion = () =>
+    js(`(() => {
+      const workspace = document.querySelector('[data-testid="document"]')
+      const question = Array.from(document.querySelectorAll('.doc-question')).pop()
+      if (workspace && question) workspace.scrollTop += question.getBoundingClientRect().top - workspace.getBoundingClientRect().top - 120
+      return true
+    })()`)
+  showBlocks([question, reply], true)
+  await pause(400)
+  await scrollToQuestion()
+  await shot('document-streaming')
+  showBlocks([question, { ...reply, text: reply.text.replace(/\n\nIf an example$/, '') }, suggestion], true)
+  await pause(400)
+  await scrollToQuestion()
+  await shot('document-suggestion')
+  win.webContents.send('snapshot', { fields: { streaming: false }, blocks: { length: real, changed: [] } } satisfies SnapshotPatch)
+  await pause(300)
+  await js(`(() => {
     document.querySelector('[data-testid="document"]').scrollTop = 0
     return true
   })()`)
