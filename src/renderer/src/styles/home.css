@@ -216,11 +216,12 @@
   color: #000;
 }
 
-.thumb-title {
+/* The document's Heading 1, as .doc-question sets it: 20pt with 6pt after. */
+.thumb-heading {
   @apply block;
-  margin-bottom: 8pt;
+  margin-bottom: 6pt;
   font-size: 20pt;
-  line-height: 1.32;
+  line-height: 1.2;
   overflow-wrap: anywhere;
 }
 
