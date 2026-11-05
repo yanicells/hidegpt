@@ -74,3 +74,12 @@ References: [Codex App Server](https://learn.chatgpt.com/docs/app-server),
 Styling uses Tailwind CSS 4 through its [Vite plugin](https://tailwindcss.com/docs/installation/using-vite).
 Shared area selectors use `@apply`; new controls use utilities directly. Specialized
 paper, ruler, Markdown, and Electron window styles remain in the area stylesheets.
+
+## Acknowledgements
+
+[T3 Code](https://github.com/pingdotgg/t3code) is a major inspiration for
+HideGPT's architecture and the source of reused code. The Effect client for
+`codex app-server` in `src/vendor/effect-codex-app-server/` is vendored from
+T3 Code, and the provider adapters, session manager, process supervision, and
+replay tests follow its patterns. T3 Code is MIT licensed, Copyright (c) 2026
+T3 Tools Inc.; the full notice is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
