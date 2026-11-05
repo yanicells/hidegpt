@@ -356,12 +356,13 @@
   font-family: var(--font-mono);
 }
 
-/* Docs' code block building block: a square, light grey box. */
+/* Docs' code block building block: a square, light grey box whose lines wrap like any page text. */
 .doc-body pre {
   margin: 0 0 1lh;
   padding: 8px 12px;
   background: #f8f9fa;
-  @apply overflow-auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-size: 10pt;
   line-height: 1.4;
 }

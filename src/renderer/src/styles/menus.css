@@ -108,6 +108,19 @@
   line-height: 16px;
 }
 
+.menu-dot {
+  width: 8px;
+  height: 8px;
+  margin-left: 16px;
+  border-radius: 50%;
+  background: var(--blue);
+}
+
+/* Docs sets the dot just before the ▸. */
+.menu-dot + .menu-arrow {
+  margin-left: 4px;
+}
+
 .menu-item[data-disabled] .menu-icon {
   opacity: 0.5;
 }
@@ -324,7 +337,7 @@
 }
 
 .account-card {
-  @apply flex flex-col items-center text-center;
+  @apply relative flex flex-col items-center text-center;
   padding: 16px 16px 20px;
   border-radius: 20px;
   background: var(--surface);
@@ -336,8 +349,35 @@
   color: var(--text);
 }
 
-.account-card .avatar-lg {
+/* Google's × in the card's top-right corner. */
+.account-close {
+  @apply absolute grid place-items-center rounded-full;
+  top: 6px;
+  right: 6px;
+  width: 40px;
+  height: 40px;
+  color: var(--text-2);
+}
+
+.account-close:hover {
+  background: var(--hover);
+}
+
+.account-photo {
+  @apply relative;
   margin: 20px 0 10px;
+}
+
+/* The white camera disc on the big avatar's lower right. */
+.account-camera {
+  @apply absolute grid place-items-center rounded-full;
+  right: -4px;
+  bottom: -2px;
+  width: 28px;
+  height: 28px;
+  background: var(--surface);
+  color: var(--text-2);
+  box-shadow: 0 1px 2px rgb(60 64 67 / 30%), 0 1px 3px 1px rgb(60 64 67 / 15%);
 }
 
 .account-hello {

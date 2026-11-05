@@ -21,7 +21,7 @@ from fontTools.ttLib import TTFont
 from fontTools.varLib.instancer import instantiateVariableFont
 
 NAMES = """
-menu apps search unfold_more more_vert view_list view_module sort_by_alpha folder folder_open
+menu apps search photo_camera unfold_more more_vert view_list view_module sort_by_alpha folder folder_open
 arrow_drop_down arrow_right arrow_back add remove check close group star drive_file_move
 cloud_done history comment videocam lock undo redo print spellcheck format_paint format_bold
 format_italic format_underlined format_color_text ink_highlighter link add_comment image

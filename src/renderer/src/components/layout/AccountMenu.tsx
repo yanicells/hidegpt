@@ -48,7 +48,16 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
       <PopoverPopup className="account-panel" data-testid="panel-account" aria-label="Google Account">
         <div className="account-card">
           <span className="account-email">{snap.account ? label : 'Not signed in'}</span>
-          <span className="avatar-lg">{avatarLetter(snap.account)}</span>
+          <PopoverClose className="account-close" aria-label="Close">
+            <MIcon name="close" size={24} />
+          </PopoverClose>
+          <span className="account-photo">
+            <span className="avatar-lg">{avatarLetter(snap.account)}</span>
+            {/* Google's "Change profile picture" badge; costume, like Manage. */}
+            <span className="account-camera" aria-hidden="true">
+              <MIcon name="photo_camera" size={18} />
+            </span>
+          </span>
           <span className="account-hello">{name ? `Hi, ${capitalize(name)}!` : 'Hi there!'}</span>
           <PopoverClose className="account-manage">Manage your Google Account</PopoverClose>
         </div>

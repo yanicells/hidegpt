@@ -39,6 +39,7 @@ export function DocMenus({
     file: [
       row('New', {
         icon: 'article_fill',
+        dot: true,
         submenu: [
           { id: 'new-document', label: 'Document', icon: 'article', run: onNew },
           row('From template', { icon: 'description', run: () => dispatch({ op: 'goHome' }) }),

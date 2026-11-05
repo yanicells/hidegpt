@@ -36,6 +36,8 @@ export type Item = {
   description?: string
   /** A small blue pill after the label, like Docs' "New". */
   badge?: string
+  /** Docs' small blue "something new inside" dot before a cascade's ▸. */
+  dot?: boolean
   className?: string
   style?: CSSProperties
 }
@@ -150,6 +152,7 @@ function RowBody({ item }: { item: Item }) {
         {item.description ? <span className="menu-desc">{item.description}</span> : null}
       </span>
       {item.badge ? <span className="menu-badge">{item.badge}</span> : null}
+      {item.dot ? <span className="menu-dot" aria-hidden="true" /> : null}
       {item.shortcut ? <MenuShortcut>{item.shortcut}</MenuShortcut> : null}
     </>
   )

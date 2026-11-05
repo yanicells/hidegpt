@@ -182,7 +182,8 @@ button.header-action:disabled {
 
 /* Leaves room for the side rail, like Docs' toolbar stopping short of it. */
 .toolbar-wrap {
-  margin: 0 calc(var(--rail-width) + 16px) 8px 16px;
+  /* 5px down to the ruler puts its baseline at y=128, as in Docs. */
+  margin: 0 calc(var(--rail-width) + 16px) 5px 16px;
 }
 
 /* #f0f4f9, radius 28, 40px tall, padding 0 8px; 30px buttons on a 32px pitch. */
