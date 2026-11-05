@@ -243,6 +243,14 @@
 
 .doc-block {
   margin-bottom: 10pt;
+  /* Off-screen blocks skip style, layout and paint, so a streamed delta costs
+     the same at 300 turns as at 3. `auto` remembers each block's real height
+     once it has been on screen. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 480px;
+}
+.doc-block[data-turn] {
+  contain-intrinsic-size: auto 48px;
 }
 
 .streaming .doc-body > :last-child {
