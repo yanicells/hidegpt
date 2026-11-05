@@ -31,7 +31,7 @@ export function Document({
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const paperRef = useRef<HTMLElement>(null)
-  const pages = usePages(paperRef, visibleBlocks)
+  const pages = usePages(paperRef)
   const stickToBottom = useRef(false)
   const seenBlocks = useRef<number | null>(null)
   const seenThread = useRef(threadId)

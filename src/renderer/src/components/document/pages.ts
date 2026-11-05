@@ -22,24 +22,44 @@ const UNITS = [
 /**
  * Paginates the print layout: pushes each unit that would cross a page's
  * bottom margin onto the next page (a top padding, so margins stay put) and
- * returns how many sheets to draw. Runs when `content` changes and whenever
- * the paper grows past its sheets, which is when a new break can be needed.
+ * returns how many sheets to draw. Text edits (streaming included) and
+ * resizes are coalesced into at most one pass per frame.
  */
-export function usePages(paperRef: RefObject<HTMLElement | null>, content: unknown): number {
+export function usePages(paperRef: RefObject<HTMLElement | null>): number {
   const [pages, setPages] = useState(1)
   useLayoutEffect(() => {
     const paper = paperRef.current
     if (!paper) return
-    const update = () => setPages(paginate(paper))
+    let frame = 0
+    const update = () => {
+      frame = 0
+      setPages(paginate(paper))
+    }
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(update)
+    }
     update()
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(update)
-    observer.observe(paper)
-    return () => observer.disconnect()
-  }, [paperRef, content])
+    // Our own padding writes are attribute changes, so they don't retrigger this.
+    const mutations = new MutationObserver(schedule)
+    mutations.observe(paper, { childList: true, subtree: true, characterData: true })
+    const resizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule)
+    resizes?.observe(paper)
+    void document.fonts?.ready.then(schedule)
+    return () => {
+      cancelAnimationFrame(frame)
+      mutations.disconnect()
+      resizes?.disconnect()
+    }
+  }, [paperRef])
   return pages
 }
 
+type PageBreak = { el: HTMLElement; push: number }
+
+/**
+ * One layout read, then all writes: units are measured once with the old
+ * breaks cleared, and each push shifts everything after it by the same amount.
+ */
 function paginate(paper: HTMLElement): number {
   for (const el of Array.from(paper.querySelectorAll<HTMLElement>('[data-page-break]'))) {
     el.style.paddingTop = ''
@@ -49,31 +69,40 @@ function paginate(paper: HTMLElement): number {
   // The page zoom scales client rects; layout values stay in page px.
   const scale = box.width / parseFloat(getComputedStyle(paper).width)
   if (!scale) return 1
-  const measure = (el: HTMLElement) => {
+  const units = Array.from(paper.querySelectorAll<HTMLElement>(UNITS), (el) => {
     const rect = el.getBoundingClientRect()
-    const top = (rect.top - box.top) / scale
-    return { top, bottom: top + rect.height / scale, page: Math.floor(top / PAGE_PITCH) }
-  }
+    return { el, top: (rect.top - box.top) / scale, height: rect.height / scale }
+  })
+
+  const breaks: PageBreak[] = []
+  let shift = 0
   let bottom = 0
-  let previous: HTMLElement | null = null
-  for (const el of Array.from(paper.querySelectorAll<HTMLElement>(UNITS))) {
-    const unit = measure(el)
-    const limit = unit.page * PAGE_PITCH + PAGE_HEIGHT - MARGIN
+  units.forEach((unit, index) => {
+    const top = unit.top + shift
+    const page = Math.floor(top / PAGE_PITCH)
+    const limit = page * PAGE_PITCH + PAGE_HEIGHT - MARGIN
     // Taller than a page's text area: it has to cross a break, so leave it.
-    const fits = unit.bottom - unit.top <= PAGE_HEIGHT - 2 * MARGIN
-    if (fits && unit.bottom > limit) {
+    const fits = unit.height <= PAGE_HEIGHT - 2 * MARGIN
+    if (fits && top + unit.height > limit) {
       // Docs keeps a heading with the paragraph after it, so the heading moves too.
-      const lead =
-        previous && /^H[1-6]$/.test(previous.tagName) && !previous.dataset.pageBreak && measure(previous).page === unit.page
-          ? previous
-          : el
-      const top = measure(lead).top
-      const push = (unit.page + 1) * PAGE_PITCH + MARGIN - top
-      lead.style.paddingTop = `${parseFloat(getComputedStyle(lead).paddingTop) + push}px`
-      lead.dataset.pageBreak = ''
+      const previous = units[index - 1]
+      const keep =
+        previous &&
+        /^H[1-6]$/.test(previous.el.tagName) &&
+        breaks.at(-1)?.el !== previous.el &&
+        Math.floor((previous.top + shift) / PAGE_PITCH) === page
+      const lead = keep ? previous : unit
+      const push = (page + 1) * PAGE_PITCH + MARGIN - (lead.top + shift)
+      breaks.push({ el: lead.el, push })
+      shift += push
     }
-    bottom = Math.max(bottom, measure(el).bottom)
-    previous = el
-  }
+    bottom = Math.max(bottom, unit.top + shift + unit.height)
+  })
+
+  const paddings = breaks.map(({ el }) => parseFloat(getComputedStyle(el).paddingTop))
+  breaks.forEach(({ el, push }, index) => {
+    el.style.paddingTop = `${paddings[index] + push}px`
+    el.dataset.pageBreak = ''
+  })
   return Math.floor(bottom / PAGE_PITCH) + 1
 }
