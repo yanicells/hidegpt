@@ -108,7 +108,7 @@
   transform: translateX(-50%);
 }
 
-/* The left one carries the first-line indent bar directly on top. */
+/* The left one carries the first-line indent bar on top, a 1px gap apart. */
 .ruler-indent-left {
   top: 4px;
   left: var(--paper-margin);
@@ -120,7 +120,7 @@
   left: -6px;
   top: -11px;
   width: 12px;
-  height: 4px;
+  height: 3px;
   background: var(--docs-blue);
 }
 
