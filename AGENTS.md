@@ -32,7 +32,8 @@ existing logins, and the UI is a Docs costume over it.
   service tier is the font size, collaboration mode is Editing/Suggesting/Viewing,
   and the provider switch lives in the Google account (avatar) menu.
   Tool activity is hidden by default and shown with View → "Show
-  non-printing characters". Usage meters and connection banners do not belong
+  non-printing characters". Approvals are Docs suggestion cards, and errors use
+  Docs' own wording with the raw message behind "Details". Usage meters and connection banners do not belong
   in the page — surface them under Tools, if at all. Plan mode is not offered
   on either provider.
 
@@ -71,7 +72,7 @@ existing logins, and the UI is a Docs costume over it.
   `account`, `search`, banners/error fields.
 - `Block` (`src/codex/blocks.ts`) is the single content model:
   `user` | `agent` | `callout` (collapsed tool/diff activity) | `approval`
-  (inline Accept/Skip cards). **Reasoning is never rendered** — filter it
+  (Docs suggestion cards in the right margin, ✓/✗). **Reasoning is never rendered** — filter it
   at the mapping layer, not in the UI.
 - Snapshots cross IPC as `SnapshotPatch`es (`src/shared/snapshot-patch.ts`):
   only fields whose reference changed, and only changed blocks. Sessions must
