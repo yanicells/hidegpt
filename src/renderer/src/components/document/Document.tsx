@@ -5,6 +5,7 @@ import { dispatch } from '../../session-bridge'
 import { BlockView } from './BlockView'
 import { SparkIcon } from '../ui/Icons'
 import { Composer } from './Composer'
+import { outlineEntries, type OutlineEntry } from './outline'
 import { Tabs } from './Tabs'
 
 export function Document({
@@ -25,7 +26,7 @@ export function Document({
   const lastBlock = visibleBlocks[visibleBlocks.length - 1]
   const streamingAgentId = snap.streaming && lastBlock?.kind === 'agent' ? lastBlock.id : null
   const waiting = snap.streaming && streamingAgentId === null
-  const questions = snap.blocks.filter((block) => block.kind === 'user')
+  const outline = outlineEntries(visibleBlocks)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(false)
@@ -72,9 +73,9 @@ export function Document({
     const el = event.currentTarget
     stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
   }
-  const jumpTo = (id: string) => {
-    const root = scrollRef.current
-    const target = root?.querySelector(`[data-turn="${id}"]`)
+  const jumpTo = (entry: OutlineEntry) => {
+    const block = scrollRef.current?.querySelector(`[data-block="${entry.blockId}"]`)
+    const target = entry.heading === undefined ? block : (block?.querySelectorAll('h1, h2, h3')[entry.heading] ?? block)
     stickToBottom.current = false
     target?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
   }
@@ -83,7 +84,7 @@ export function Document({
     <div className="workspace" data-testid="document" ref={scrollRef} onScroll={onScroll}>
       <div className="doc-layout">
         <VerticalRuler />
-        <Tabs onNew={onNew} questions={questions} onJump={jumpTo} />
+        <Tabs onNew={onNew} entries={outline} onJump={jumpTo} />
         <div className="paper-col">
           <Ruler />
           <article className="paper">
@@ -101,7 +102,7 @@ export function Document({
             {visibleBlocks.map((block) => (
               <div
                 className="doc-block"
-                data-turn={block.kind === 'user' ? block.id : undefined}
+                data-block={block.id}
                 key={block.id}
               >
                 <BlockView block={block} streaming={block.id === streamingAgentId} />
@@ -116,7 +117,7 @@ export function Document({
           </article>
         </div>
       </div>
-      {/* Docs' floating spark pill; while an answer streams it pulses, and a click stops it. */}
+      {/* Docs' floating spark pill; while an answer streams, a click stops it. */}
       <div className="spark-wrap">
         {snap.streaming ? (
           <button

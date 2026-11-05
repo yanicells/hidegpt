@@ -68,13 +68,13 @@
   padding: 0 8px 0 18px;
   border-radius: 20px;
   background: #d3e3fd;
-  color: #041e49;
+  color: #0842a0;
   font-size: 14px;
   font-weight: 500;
 }
 
 .tab-pill > svg {
-  color: #041e49;
+  color: #0842a0;
 }
 
 .tab-pill-name {
@@ -109,6 +109,11 @@
   font-size: 14px;
   line-height: 16px;
   color: var(--text-2);
+}
+
+/* Answer sections (Heading 2) sit one step in, as in Docs' outline. */
+.outline-item.sub {
+  padding-left: 33px;
 }
 
 .outline-item:hover {

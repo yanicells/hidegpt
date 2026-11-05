@@ -1,23 +1,25 @@
 import { useEffect, useState } from 'react'
 
-import type { Block } from '../../../../codex/blocks'
+import { cn } from '../ui/cn'
 import { MIcon } from '../ui/MaterialIcon'
+import type { OutlineEntry } from './outline'
 
 const NARROW = '(max-width: 960px)'
 
 /**
  * Docs' "Document tabs" panel: one "Tab 1" pill and the heading outline below
- * it. Each question is a Heading 1, so the outline jumps between turns. The ←
- * collapses the panel to a round button; narrow windows start collapsed.
+ * it. Questions are Heading 1 and answer sections nest under them, so the
+ * outline jumps through the document. The ← collapses the panel to a round
+ * button; narrow windows start collapsed.
  */
 export function Tabs({
-  questions,
+  entries,
   onNew,
   onJump,
 }: {
-  questions: Extract<Block, { kind: 'user' }>[]
+  entries: OutlineEntry[]
   onNew: () => void
-  onJump: (id: string) => void
+  onJump: (entry: OutlineEntry) => void
 }) {
   const [activeId, setActive] = useState<string | null>(null)
   const [open, setOpen] = useState(() => !window.matchMedia?.(NARROW).matches)
@@ -29,9 +31,9 @@ export function Tabs({
     return () => query.removeEventListener('change', onChange)
   }, [])
   const active =
-    activeId && questions.some((question) => question.id === activeId)
+    activeId && entries.some((entry) => entry.key === activeId)
       ? activeId
-      : (questions[questions.length - 1]?.id ?? null)
+      : (entries.filter((entry) => entry.level === 1).pop()?.key ?? null)
 
   if (!open) {
     return (
@@ -62,7 +64,7 @@ export function Tabs({
       </button>
       <div className="tabs-head">
         <span>Document tabs</span>
-        <button type="button" className="tabs-new" aria-label="New document" title="Add tab" onClick={onNew}>
+        <button type="button" className="tabs-new" aria-label="Add tab" title="Add tab" onClick={onNew}>
           <MIcon name="add" />
         </button>
       </div>
@@ -73,24 +75,24 @@ export function Tabs({
           <MIcon name="more_vert" />
         </span>
       </div>
-      {questions.length === 0 ? (
+      {entries.length === 0 ? (
         <p className="tabs-hint">Headings you add to the document will appear here.</p>
       ) : (
         <ol className="doc-outline">
-          {questions.map((question) => (
-            <li key={question.id}>
+          {entries.map((entry) => (
+            <li key={entry.key}>
               <button
                 type="button"
-                className={`outline-item${active === question.id ? ' active' : ''}`}
-                data-testid={`outline-${question.id}`}
-                aria-current={active === question.id ? 'location' : undefined}
-                title={question.text}
+                className={cn('outline-item', entry.level === 2 && 'sub', active === entry.key && 'active')}
+                data-testid={`outline-${entry.key}`}
+                aria-current={active === entry.key ? 'location' : undefined}
+                title={entry.text}
                 onClick={() => {
-                  setActive(question.id)
-                  onJump(question.id)
+                  setActive(entry.key)
+                  onJump(entry)
                 }}
               >
-                {truncate(question.text) || (question.images ? 'Image' : 'Untitled')}
+                {truncate(entry.text)}
               </button>
             </li>
           ))}
