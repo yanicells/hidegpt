@@ -506,12 +506,12 @@ function registerNotifications(
       on('turn/completed', (p) => {
         if (activeTurns.get(p.threadId) === p.turn.id) activeTurns.delete(p.threadId)
         return [
-        {
-          type: 'turnEnded',
-          threadId: p.threadId,
-          ...(p.turn.status === 'failed' && p.turn.error ? { error: p.turn.error.message } : {}),
-        },
-      ]
+          {
+            type: 'turnEnded',
+            threadId: p.threadId,
+            ...(p.turn.status === 'failed' && p.turn.error ? { error: p.turn.error.message } : {}),
+          },
+        ]
       }),
       on('error', (p) =>
         p.willRetry
