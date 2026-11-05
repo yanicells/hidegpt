@@ -1,33 +1,36 @@
-import { memo, useDeferredValue, useMemo } from 'react'
-import Markdown, { type Components } from 'react-markdown'
+import type { Components } from 'hast-util-to-jsx-runtime'
+import { memo, useDeferredValue } from 'react'
+import { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-import { markdownChunks } from './markdownChunks'
-
-const plugins = [remarkGfm]
+import { createMarkdownRenderer } from './markdownRenderer'
+import { splitMarkdownBlocks } from './markdownStreamBlocks'
 
 // Links open in the browser: main's window-open handler hands `_blank` links to the OS.
-const components: Components = {
+const components: Partial<Components> = {
   a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
 }
 
-/** Renders an answer chunk by chunk; unchanged chunks skip re-parsing while text streams in. */
-export const AgentMarkdown = memo(function AgentMarkdown({ text }: { text: string }) {
+const render = createMarkdownRenderer({ remarkPlugins: [remarkGfm], components, urlTransform: defaultUrlTransform })
+
+/**
+ * Renders an answer block by block. While it streams, only the last block
+ * re-parses; finished blocks come from the shared cache, so reopening a
+ * document does not parse it again.
+ */
+export const AgentMarkdown = memo(function AgentMarkdown({ text, streaming }: { text: string; streaming: boolean }) {
   const deferredText = useDeferredValue(text)
-  const chunks = useMemo(() => markdownChunks(deferredText), [deferredText])
+  const blocks = splitMarkdownBlocks(deferredText) ?? [deferredText]
   return (
     <div className="doc-body">
-      {chunks.map((chunk, index) => (
-        <MarkdownChunk key={index} text={chunk} />
+      {blocks.map((block, index) => (
+        // Streamed blocks only change at the end, so the index is a stable key.
+        <MarkdownBlock key={index} text={block} cache={!streaming || index < blocks.length - 1} />
       ))}
     </div>
   )
 })
 
-const MarkdownChunk = memo(function MarkdownChunk({ text }: { text: string }) {
-  return (
-    <Markdown remarkPlugins={plugins} components={components}>
-      {text}
-    </Markdown>
-  )
+const MarkdownBlock = memo(function MarkdownBlock({ text, cache }: { text: string; cache: boolean }) {
+  return render(text, cache)
 })
