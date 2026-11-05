@@ -103,7 +103,8 @@ Entry files stay thin — they compose, never hold UI:
   - Fonts are npm `@fontsource` packages imported in `main.tsx` (Google Sans
     Flex for chrome, Roboto for text), never system fonts or a CDN.
 - `src/renderer/src/styles/` — one CSS file per area (`base`, `home`,
-  `document`, `toolbar`, `menus`, `tabs`, `dialogs`) joined by `index.css`. Never
+  `templates`, `toolbar`, `document`, `approvals`, `composer`, `menus`,
+  `tabs`, `dialogs`) joined by `index.css`. Never
   rename a class to move it; move the rule block as-is.
 - Sessions (`src/codex/session.ts`, `src/opencode/session.ts`) are
   orchestrators: transport calls, navigation guards, and state patches.

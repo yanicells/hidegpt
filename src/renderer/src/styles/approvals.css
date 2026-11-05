@@ -1,0 +1,124 @@
+/* ---------- Approvals: Docs' suggestion card ---------- */
+
+.approval {
+  margin: 0 0 1lh;
+  padding: 12px 16px 14px;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+  font-family: var(--font-ui);
+}
+
+.approval.done {
+  box-shadow: none;
+  border: 1px solid var(--hairline);
+}
+
+.approval-eyebrow {
+  @apply block;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  color: var(--green);
+}
+
+.approval.done .approval-eyebrow {
+  color: var(--muted);
+}
+
+.approval h3 {
+  margin: 4px 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.approval p {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-2);
+  @apply whitespace-pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.field {
+  @apply flex flex-col gap-1.5;
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.approval input {
+  @apply w-full;
+  border: 1px solid #747775;
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.approval input:focus {
+  border-color: var(--blue);
+  outline: 1px solid var(--blue);
+}
+
+.choices {
+  @apply flex flex-wrap gap-2;
+}
+
+.choice {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid #747775;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.choice:hover {
+  background: var(--hover);
+}
+
+.choice.on {
+  background: #c2e7ff;
+  border-color: transparent;
+  color: #001d35;
+}
+
+.actions {
+  @apply flex items-center gap-2 mt-1;
+}
+
+.accept,
+.skip {
+  height: 36px;
+  padding: 0 24px;
+  border-radius: 18px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+}
+
+.accept {
+  background: var(--blue);
+  color: #fff;
+}
+
+.accept:hover {
+  background: var(--blue-dark);
+}
+
+.skip {
+  color: var(--blue);
+}
+
+.skip:hover {
+  background: var(--blue-tint);
+}
+
+.resolved {
+  font-size: 12px;
+  color: var(--muted);
+}
