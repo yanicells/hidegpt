@@ -263,6 +263,7 @@ export async function captureScreenshots(win: BrowserWindow, session: Screenshot
     }
     if (trigger === 'chip-model') {
       await hover('pick-gpt-5.6-sol')
+      await pause(600)
       await shot('menu-style-cascade')
       await click('pick-options')
       await shot('menu-style-options')
