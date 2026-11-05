@@ -14,7 +14,6 @@ export function Chip({
   chevron = true,
   className,
   menuClass,
-  menuWidth = 240,
   testId,
   title,
   align = 'start',
@@ -24,8 +23,8 @@ export function Chip({
   icon?: ReactNode
   chevron?: boolean
   className?: string
+  /** Popup class; its width lives with the rest of that menu's CSS. */
   menuClass?: string
-  menuWidth?: number
   testId: string
   title?: string
   align?: 'start' | 'end'
@@ -38,7 +37,7 @@ export function Chip({
         {label !== undefined ? <span className="chip-label">{label}</span> : null}
         {chevron ? <MIcon name="arrow_drop_down" /> : null}
       </MenuTrigger>
-      <MenuPopup align={align} className={`popover${menuClass ? ` ${menuClass}` : ''}`} style={{ width: menuWidth }}>
+      <MenuPopup align={align} className={`popover${menuClass ? ` ${menuClass}` : ''}`}>
         {children}
       </MenuPopup>
     </Menu>

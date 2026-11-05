@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react'
 import type { Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
 import { MIcon, type MaterialIconName } from '../ui/MaterialIcon'
-import { MenuSearchInput } from '../ui/menu'
 import { MenuRows, type Item } from '../ui/MenuPanel'
 import { Chip } from './Chip'
 import { openImagePicker } from './Composer'
@@ -41,32 +40,26 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
     <div className="toolbar-wrap">
       <div className="toolbar" role="toolbar" aria-label="Document settings">
         <Decor name="search" />
+        {/* execCommand is deprecated but still the only way to drive the composer's native undo stack. */}
         <ToolButton name="undo" label="Undo (⌘Z)" onClick={() => document.execCommand('undo')} />
         <ToolButton name="redo" label="Redo (⌘Y)" onClick={() => document.execCommand('redo')} />
         <ToolButton name="print" label="Print (⌘P)" onClick={() => window.print()} />
         <Decor name="spellcheck" className="tb-sm" />
         <Decor name="format_paint" className="tb-sm" />
-        <Chip
-          testId="chip-zoom"
-          label={`${zoom}%`}
-          className="chip-zoom"
-          menuClass="zoom-menu"
-          menuWidth={96}
-          title="Zoom"
-          >
-            <MenuRows
-              itemPrefix="zoom"
-              items={[
-                { id: 'fit', label: 'Fit', run: () => setZoom(fitZoom()) },
-                ...ZOOMS.map((value, index) => ({
-                  id: String(value),
-                  label: `${value}%`,
-                  divider: index === 0,
-                  checked: value === zoom,
-                  run: () => setZoom(value),
-                })),
-              ]}
-            />
+        <Chip testId="chip-zoom" label={`${zoom}%`} className="chip-zoom" menuClass="zoom-menu" title="Zoom">
+          <MenuRows
+            itemPrefix="zoom"
+            items={[
+              { id: 'fit', label: 'Fit', run: () => setZoom(fitZoom()) },
+              ...ZOOMS.map((value, index) => ({
+                id: String(value),
+                label: `${value}%`,
+                divider: index === 0,
+                checked: value === zoom,
+                run: () => setZoom(value),
+              })),
+            ]}
+          />
         </Chip>
         <span className="divider" aria-hidden="true" />
         <Chip
@@ -74,35 +67,27 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
           label={modelIndex >= 0 ? styleName(modelIndex) : 'Normal text'}
           className="chip-style"
           menuClass="style-menu"
-          menuWidth={222}
           title="Styles"
-          >
+        >
           <StyleMenu snap={snap} />
         </Chip>
         <span className="divider" aria-hidden="true" />
-        <Chip
-          testId="chip-effort"
-          label={currentFont}
-          className="chip-font"
-          menuClass="font-menu"
-          menuWidth={222}
-          title="Font"
-          >
-            <MenuRows
-              itemPrefix="pick"
-              items={[
-                { id: 'more-fonts', label: 'More fonts', icon: 'text_format' },
-                ...efforts.map((item, index) => ({
-                  id: item.effort,
-                  label: item.font,
-                  title: capitalize(item.effort),
-                  divider: index === 0,
-                  checked: item.effort === snap.effort,
-                  style: { fontFamily: item.font },
-                  run: () => dispatch({ op: 'setEffort', effort: item.effort }),
-                })),
-              ]}
-            />
+        <Chip testId="chip-effort" label={currentFont} className="chip-font" menuClass="font-menu" title="Font">
+          <MenuRows
+            itemPrefix="pick"
+            items={[
+              { id: 'more-fonts', label: 'More fonts', icon: 'text_format' },
+              ...efforts.map((item, index) => ({
+                id: item.effort,
+                label: item.font,
+                title: capitalize(item.effort),
+                divider: index === 0,
+                checked: item.effort === snap.effort,
+                style: { fontFamily: item.font },
+                run: () => dispatch({ op: 'setEffort', effort: item.effort }),
+              })),
+            ]}
+          />
         </Chip>
         <span className="divider" aria-hidden="true" />
         <span className="font-size">
@@ -122,21 +107,20 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
             chevron={false}
             className="font-size-box"
             menuClass="size-menu"
-            menuWidth={60}
             title="Font size"
-            >
-              <MenuRows
-                itemPrefix="pick"
-                  items={FONT_SIZES.map((value) => {
-                  const tier = tierForSize(value, tiers)
-                  return {
-                    id: value === 11 ? 'default' : value === sizeForTier(tier, tiers) && tier ? tier : `size-${value}`,
-                    label: String(value),
-                    checked: value === size,
-                    run: () => dispatch({ op: 'setServiceTier', serviceTier: tier }),
-                  }
-                })}
-              />
+          >
+            <MenuRows
+              itemPrefix="pick"
+              items={FONT_SIZES.map((value) => {
+                const tier = tierForSize(value, tiers)
+                return {
+                  id: value === 11 ? 'default' : value === sizeForTier(tier, tiers) && tier ? tier : `size-${value}`,
+                  label: String(value),
+                  checked: value === size,
+                  run: () => dispatch({ op: 'setServiceTier', serviceTier: tier }),
+                }
+              })}
+            />
           </Chip>
           <button
             type="button"
@@ -173,10 +157,9 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
           icon={<MIcon name="edit" />}
           className="chip-mode"
           menuClass="mode-menu"
-          menuWidth={290}
           title="Editing mode"
           align="end"
-          >
+        >
           <ModeMenu snap={snap} />
         </Chip>
         <span className="divider" aria-hidden="true" />
@@ -186,39 +169,13 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
   )
 }
 
-/** "Normal text ▾": each paragraph style is a model slot; Options lists every model. */
+/**
+ * "Normal text ▾": each Docs paragraph style is a model slot, and slots beyond
+ * the provider's list stay plain styles. Options ▸ cascades to every model
+ * (menu typeahead finds one by name).
+ */
 function StyleMenu({ snap }: { snap: Snapshot }) {
-  const [all, setAll] = useState(false)
-  const [query, setQuery] = useState('')
-  if (all) {
-    const needle = query.trim().toLowerCase()
-    const items: Item[] = snap.models
-      .filter((item) => !needle || `${item.displayName} ${item.model}`.toLowerCase().includes(needle))
-      .map((item) => ({
-        id: item.model,
-        label: item.displayName,
-        checked: item.model === snap.model,
-        run: () => dispatch({ op: 'setModel', model: item.model }),
-      }))
-    return (
-      <div className="all-styles">
-        <MenuSearchInput
-          autoFocus
-          data-testid="menu-search"
-          aria-label="Search styles"
-          placeholder="Search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        {items.length ? (
-          <MenuRows items={items} itemPrefix="pick" />
-        ) : (
-          <div className="popover-empty">No matches</div>
-        )}
-      </div>
-    )
-  }
-  // Each Docs style is a model slot; slots beyond the provider's list stay plain styles.
+  const pick = (model: string) => () => dispatch({ op: 'setModel', model })
   const items: Item[] = [
     ...STYLE_SLOTS.map((slot, index) => {
       const item = snap.models[index]
@@ -226,13 +183,22 @@ function StyleMenu({ snap }: { snap: Snapshot }) {
         id: item?.model ?? `style-${index}`,
         label: slot.name,
         className: slot.className,
-        title: item?.displayName,
         arrow: true,
         checked: item ? item.model === snap.model : undefined,
-        run: item ? () => dispatch({ op: 'setModel', model: item.model }) : undefined,
+        run: item ? pick(item.model) : undefined,
       }
     }),
-    { id: 'options', label: 'Options', className: 'style-options', arrow: true, keepOpen: true, run: () => setAll(true) },
+    {
+      id: 'options',
+      label: 'Options',
+      className: 'style-options',
+      submenu: snap.models.map((item) => ({
+        id: `all-${item.model}`,
+        label: item.displayName,
+        checked: item.model === snap.model,
+        run: pick(item.model),
+      })),
+    },
   ]
   return <MenuRows items={items} itemPrefix="pick" />
 }
@@ -266,7 +232,7 @@ function Decor({ name, className, caret }: { name: MaterialIconName; className?:
   return (
     <span className={`toolbar-icon${caret ? ' with-caret' : ''}${className ? ` ${className}` : ''}`} aria-hidden="true">
       <MIcon name={name} />
-      {caret ? <MIcon name="arrow_drop_down" size={16} className="caret" /> : null}
+      {caret ? <MIcon name="arrow_drop_down" size={16} className="tb-caret" /> : null}
     </span>
   )
 }

@@ -223,7 +223,7 @@ button.header-action:disabled {
   padding-left: 2px;
 }
 
-.toolbar-icon .caret {
+.toolbar-icon .tb-caret {
   margin: 0 -2px 0 -3px;
 }
 

@@ -210,7 +210,7 @@ describe('document page', () => {
     expect(calls).toContainEqual({ op: 'setProvider', provider: 'opencode', home: false })
   })
 
-  it('searches models and picks a speed from floating dropdowns', async () => {
+  it('picks a model from Options and a speed from floating dropdowns', async () => {
     const user = userEvent.setup()
     const { calls } = mount({
       route: { kind: 'doc', threadId: 'thr_1' },
@@ -241,8 +241,9 @@ describe('document page', () => {
     })
     await user.click(screen.getByTestId('chip-model'))
     await user.click(await screen.findByTestId('pick-options'))
-    await user.type(screen.getByTestId('menu-search'), 'alpha')
-    expect(screen.getByTestId('pick-a')).toBeInTheDocument()
+    // Submenus ignore pointer events until they finish opening.
+    fireEvent.click(await screen.findByTestId('pick-all-a'))
+    expect(calls).toContainEqual({ op: 'setModel', model: 'a' })
     await user.click(screen.getByTestId('chip-speed'))
     await user.click(await screen.findByTestId('pick-fast'))
     expect(calls).toContainEqual({ op: 'setServiceTier', serviceTier: 'fast' })
@@ -309,7 +310,7 @@ describe('toolbar dropdowns', () => {
     await waitFor(() => expect(screen.queryByTestId('pick-options')).toBeNull())
   })
 
-  it('filters models by search text', async () => {
+  it('lists every model by name under Options', async () => {
     const user = userEvent.setup()
     mount({
       route: { kind: 'doc', threadId: 'thr_1' },
@@ -318,12 +319,13 @@ describe('toolbar dropdowns', () => {
       model: 'alpha',
     })
     await user.click(screen.getByTestId('chip-model'))
-    await user.click(await screen.findByTestId('pick-options'))
-    expect(screen.getByTestId('pick-alpha')).toHaveTextContent('AlphaGuide')
-    expect(screen.getByTestId('pick-beta')).toHaveTextContent('BetaHelper')
-    await user.type(screen.getByTestId('menu-search'), 'alpha')
-    expect(screen.getByTestId('pick-alpha')).toBeInTheDocument()
-    expect(screen.queryByTestId('pick-beta')).toBeNull()
+    // Slots show style names only; real names wait one level down.
+    expect(await screen.findByTestId('pick-alpha')).toHaveTextContent('Normal text')
+    expect(screen.queryByText('AlphaGuide')).toBeNull()
+    await user.click(screen.getByTestId('pick-options'))
+    expect(await screen.findByTestId('pick-all-alpha')).toHaveTextContent('AlphaGuide')
+    expect(screen.getByTestId('pick-all-beta')).toHaveTextContent('BetaHelper')
+    expect(screen.getByTestId('pick-all-alpha')).toHaveAttribute('aria-checked', 'true')
   })
 
   it('dispatches setServiceTier from the speed chip', async () => {
@@ -486,6 +488,15 @@ describe('project navigation and creation', () => {
     await user.click(await screen.findByTestId('project-loose'))
     await user.click(screen.getByTestId('template-essay'))
     expect(calls).toContainEqual({ op: 'newDocument', projectId: null, cwd: undefined })
+  })
+
+  it('searches folders in the file picker', async () => {
+    const user = userEvent.setup()
+    mount({ projects: [projectFixture] })
+    await user.click(screen.getByTestId('open-picker'))
+    await user.type(await screen.findByLabelText('Search in Drive'), 'zzz')
+    expect(screen.queryByTestId('picker-course')).toBeNull()
+    expect(screen.getByText('No results')).toBeInTheDocument()
   })
 
   it('opens folders and adds new ones from the file picker', async () => {
