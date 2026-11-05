@@ -51,7 +51,6 @@ body {
   font-family: var(--font-ui);
   /* Docs uses the display cut of Google Sans; Flex at opsz 18 matches its widths. */
   font-variation-settings: 'opsz' 18;
-  font-optical-sizing: auto;
   @apply text-sm;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
@@ -81,7 +80,7 @@ button:disabled {
 .doc-title:focus-visible,
 .composer:focus-visible,
 .search input:focus-visible,
-.approval input:focus-visible {
+.suggestion input:focus-visible {
   outline: none;
 }
 
@@ -183,6 +182,42 @@ label,
   background: var(--canvas);
   color: var(--text-2);
   @apply text-sm text-center;
+}
+
+.status p {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.status-reload {
+  height: 36px;
+  padding: 0 24px;
+  border-radius: 18px;
+  background: var(--blue);
+  color: #fff;
+  font-weight: 500;
+}
+
+.status-reload:hover {
+  background: var(--blue-dark);
+}
+
+.status .error-details-toggle,
+.status .error-details {
+  @apply block mx-auto;
+  margin-top: 12px;
+}
+
+.error-details-toggle {
+  color: var(--blue);
+}
+
+.error-details {
+  max-width: 560px;
+  font-size: 12px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
 }
 
 /* ---------- Responsive ---------- */

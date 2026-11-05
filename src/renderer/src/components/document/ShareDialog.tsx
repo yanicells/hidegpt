@@ -2,7 +2,7 @@ import { accountLabel, avatarLetter } from '../../../../codex/labels'
 import type { Snapshot } from '../../../../codex/types'
 import { Dialog, DialogClose, DialogPopup, DialogTitle } from '../ui/dialog'
 import { MIcon } from '../ui/MaterialIcon'
-import { capitalize } from '../ui/text'
+import { personName } from '../ui/text'
 
 /**
  * Drive's "Share" dialog, behind the Share button. A document here is private
@@ -22,7 +22,7 @@ export function ShareDialog({
 }) {
   const label = accountLabel(snap.account)
   const email = label.includes('@') ? label : null
-  const name = email ? capitalize(email.split('@')[0]) : 'Me'
+  const name = personName(label)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

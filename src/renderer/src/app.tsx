@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 
 import { LoadingDocument } from './components/document/LoadingDocument'
-import { Banners } from './components/layout/Banners'
+import { Banners, LoadError } from './components/layout/Banners'
 import { Document } from './components/document/Document'
 import { DocumentChrome } from './components/document/DocumentChrome'
 import { createDocument } from './components/home/createDocument'
@@ -69,9 +69,7 @@ export function App() {
       )}
       <Banners snap={snap} />
       {snap.status === 'error' ? (
-        <button type="button" className="status" data-testid="status" onClick={() => dispatch({ op: 'refresh' })}>
-          {snap.error ?? 'Something went wrong'}
-        </button>
+        <LoadError message={snap.error} />
       ) : snap.openingThreadId ? (
         <LoadingDocument snap={snap} />
       ) : snap.route.kind === 'home' ? (
