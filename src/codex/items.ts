@@ -1,124 +1,88 @@
-import type { ThreadItem } from '../generated/codex/v2/ThreadItem'
-import type { Turn } from '../generated/codex/v2/Turn'
-import type { UserInput } from '../generated/codex/v2/UserInput'
-import type { JsonRpcId } from './jsonrpc'
+import type * as CodexRpc from '../vendor/effect-codex-app-server/rpc.ts'
 
-export type AgentBlock = { kind: 'agent'; id: string; text: string; phase?: 'commentary' | 'final_answer' | null }
-/** `images` are local file paths or data/http URLs; `skills` are skill names sent with the message. */
-export type UserBlock = { kind: 'user'; id: string; text: string; images?: string[]; skills?: string[] }
-export type CalloutBlock = { kind: 'callout'; id: string; title: string; body: string }
-export type PendingApproval = {
-  kind: 'approval'
-  id: string
-  requestId: JsonRpcId
-  method: string
-  title: string
-  body: string
-  resolved: 'accepted' | 'skipped' | null
-  extra?: unknown
-  drafts: Record<string, string>
-}
+import type { Block, UserBlock } from '../shared/model'
 
-export type Block = AgentBlock | UserBlock | CalloutBlock | PendingApproval
+/** Maps Codex thread items onto the shared page blocks. Reasoning, plans, and subagent traffic stay off the page. */
 
-function userBlock(id: string, content: UserInput[]): UserBlock {
-  const block: UserBlock = { kind: 'user', id, text: '' }
+export type ThreadItem = CodexRpc.ServerNotificationParamsByMethod['item/completed']['item']
+export type Turn = CodexRpc.ClientRequestResponsesByMethod['thread/turns/list']['data'][number]
+type UserInput = Extract<ThreadItem, { type: 'userMessage' }>['content'][number]
+
+export function userBlock(id: string, content: ReadonlyArray<UserInput>): UserBlock {
   const text: string[] = []
+  const images: string[] = []
+  const skills: string[] = []
   for (const part of content) {
     if (part.type === 'text') text.push(part.text)
-    else if (part.type === 'image') (block.images ??= []).push(part.url)
-    else if (part.type === 'localImage') (block.images ??= []).push(part.path)
-    else if (part.type === 'skill') (block.skills ??= []).push(part.name)
+    else if (part.type === 'image' && 'url' in part) images.push(part.url)
+    else if (part.type === 'localImage') images.push(part.path)
+    else if (part.type === 'skill') skills.push(part.name)
   }
-  block.text = text.filter(Boolean).join('\n')
-  return block
+  return {
+    kind: 'user',
+    id,
+    text: text.filter(Boolean).join('\n'),
+    ...(images.length ? { images } : {}),
+    ...(skills.length ? { skills } : {}),
+  }
+}
+
+function callout(id: string, title: string, body: string): Block {
+  return { kind: 'callout', id, title, body }
 }
 
 export function itemToBlock(item: ThreadItem): Block | null {
-  if (item.type === 'userMessage') {
-    return userBlock(item.id, item.content)
-  }
-  if (item.type === 'agentMessage') {
-    return { kind: 'agent', id: item.id, text: item.text, phase: item.phase }
-  }
-  // Reasoning and plans stay off the page: the document shows outputs only.
-  if (item.type === 'reasoning' || item.type === 'plan') {
-    return null
-  }
-  if (item.type === 'commandExecution') {
-    const output = item.aggregatedOutput?.trim()
-    return {
-      kind: 'callout',
-      id: item.id,
-      title: item.status === 'completed' ? 'Ran a command' : 'Running a command',
-      body: output ? `${item.command}\n${output}` : item.command,
+  switch (item.type) {
+    case 'userMessage':
+      return userBlock(item.id, item.content)
+    case 'agentMessage':
+      return { kind: 'agent', id: item.id, text: item.text, ...(item.phase === 'commentary' ? { commentary: true } : {}) }
+    case 'reasoning':
+    case 'plan':
+    case 'hookPrompt':
+    case 'subAgentActivity':
+    case 'sleep':
+      return null
+    case 'commandExecution': {
+      const output = item.aggregatedOutput?.trim()
+      return callout(
+        item.id,
+        item.status === 'completed' ? 'Ran a command' : 'Running a command',
+        output ? `${item.command}\n${output}` : item.command,
+      )
     }
+    case 'fileChange':
+      return callout(
+        item.id,
+        `${item.changes.length} file change${item.changes.length === 1 ? '' : 's'}`,
+        item.changes.map((change) => change.path).join('\n'),
+      )
+    case 'mcpToolCall':
+      return callout(item.id, `${item.server} · ${item.tool}`, item.error?.message ?? item.status)
+    case 'dynamicToolCall':
+      return callout(item.id, item.namespace ? `${item.namespace} · ${item.tool}` : item.tool, item.status)
+    case 'webSearch':
+      return callout(item.id, 'Looked something up', item.query)
+    case 'imageView':
+      return callout(item.id, 'Image', item.path)
+    case 'imageGeneration':
+      return callout(item.id, 'Generated image', item.savedPath ?? item.revisedPrompt ?? item.status)
+    case 'collabAgentToolCall':
+      return callout(item.id, `Agent · ${item.tool}`, item.prompt ?? item.status)
+    case 'contextCompaction':
+      return callout(item.id, 'Compacted context', '')
+    case 'enteredReviewMode':
+      return callout(item.id, 'Review', item.review)
+    case 'exitedReviewMode':
+      return callout(item.id, 'Left review', item.review)
+    case 'functionCallOutput':
+      return callout(item.id, item.name, item.namespace ?? '')
+    default:
+      return callout((item as { id: string }).id, (item as { type: string }).type, '')
   }
-  if (item.type === 'fileChange') {
-    return {
-      kind: 'callout',
-      id: item.id,
-      title: `${item.changes.length} file change${item.changes.length === 1 ? '' : 's'}`,
-      body: item.changes.map((change) => change.path).join('\n'),
-    }
-  }
-  if (item.type === 'mcpToolCall') {
-    const detail = item.error?.message ?? item.status
-    return {
-      kind: 'callout',
-      id: item.id,
-      title: `${item.server} · ${item.tool}`,
-      body: detail,
-    }
-  }
-  if (item.type === 'dynamicToolCall') {
-    return {
-      kind: 'callout',
-      id: item.id,
-      title: item.namespace ? `${item.namespace} · ${item.tool}` : item.tool,
-      body: item.status,
-    }
-  }
-  if (item.type === 'webSearch') {
-    return { kind: 'callout', id: item.id, title: 'Looked something up', body: item.query }
-  }
-  if (item.type === 'imageView') {
-    return { kind: 'callout', id: item.id, title: 'Image', body: item.path }
-  }
-  if (item.type === 'imageGeneration') {
-    return {
-      kind: 'callout',
-      id: item.id,
-      title: 'Generated image',
-      body: item.savedPath ?? item.revisedPrompt ?? item.status,
-    }
-  }
-  if (item.type === 'collabAgentToolCall') {
-    return {
-      kind: 'callout',
-      id: item.id,
-      title: `Agent · ${item.tool}`,
-      body: item.prompt ?? item.status,
-    }
-  }
-  if (item.type === 'contextCompaction') {
-    return { kind: 'callout', id: item.id, title: 'Compacted context', body: '' }
-  }
-  if (item.type === 'enteredReviewMode' || item.type === 'exitedReviewMode') {
-    return {
-      kind: 'callout',
-      id: item.id,
-      title: item.type === 'enteredReviewMode' ? 'Review' : 'Left review',
-      body: item.review,
-    }
-  }
-  if (item.type === 'functionCallOutput') {
-    return { kind: 'callout', id: item.id, title: item.name, body: item.namespace ?? '' }
-  }
-  return { kind: 'callout', id: item.id, title: item.type, body: '' }
 }
 
-export function blocksFromTurns(turns: Turn[]): Block[] {
+export function blocksFromTurns(turns: ReadonlyArray<Turn>): Block[] {
   const blocks: Block[] = []
   for (const turn of turns) {
     for (const item of turn.items) {
@@ -127,71 +91,4 @@ export function blocksFromTurns(turns: Turn[]): Block[] {
     }
   }
   return blocks
-}
-
-export function mergeOlderBlocks(older: Block[], current: Block[]): Block[] {
-  const seen = new Set(current.map((block) => block.id))
-  return [...older.filter((block) => !seen.has(block.id)), ...current]
-}
-
-export function upsertAgentDelta(blocks: Block[], itemId: string, delta: string): Block[] {
-  const index = blocks.findIndex((block) => block.id === itemId)
-  if (index === -1) {
-    return [...blocks, { kind: 'agent', id: itemId, text: delta }]
-  }
-  const current = blocks[index]
-  if (current.kind !== 'agent') return blocks
-  const next = blocks.slice()
-  next[index] = { ...current, text: current.text + delta }
-  return next
-}
-
-export function upsertCalloutDelta(blocks: Block[], itemId: string, title: string, delta: string): Block[] {
-  const index = blocks.findIndex((block) => block.id === itemId)
-  if (index === -1) {
-    return [...blocks, { kind: 'callout', id: itemId, title, body: delta }]
-  }
-  const current = blocks[index]
-  if (current.kind !== 'callout') return blocks
-  const next = blocks.slice()
-  next[index] = { ...current, body: current.body + delta }
-  return next
-}
-
-export function upsertCalloutReplace(blocks: Block[], itemId: string, title: string, body: string): Block[] {
-  const index = blocks.findIndex((block) => block.id === itemId)
-  if (index === -1) return [...blocks, { kind: 'callout', id: itemId, title, body }]
-  const next = blocks.slice()
-  const current = next[index]
-  next[index] = current.kind === 'callout' ? { ...current, body } : { kind: 'callout', id: itemId, title, body }
-  return next
-}
-
-export function upsertItem(blocks: Block[], item: ThreadItem): Block[] {
-  const next = itemToBlock(item)
-  // Hidden items (reasoning, plans) never touch the page.
-  if (!next) return blocks
-  const index = blocks.findIndex((block) => block.id === item.id)
-  if (index === -1) {
-    // The optimistic user echo (local-* id) is replaced by the server-echoed
-    // item with the same text, so a sent message never appears twice.
-    if (next.kind === 'user') {
-      const last = blocks[blocks.length - 1]
-      if (last && last.kind === 'user' && last.id.startsWith('local-') && sameUserInput(last, next)) {
-        return [...blocks.slice(0, -1), next]
-      }
-    }
-    return [...blocks, next]
-  }
-  const copy = blocks.slice()
-  const previous = copy[index]
-  if (previous.kind === 'agent' && next.kind === 'agent' && previous.text.length > next.text.length) {
-    return copy
-  }
-  copy[index] = next
-  return copy
-}
-
-function sameUserInput(a: UserBlock, b: UserBlock): boolean {
-  return a.text === b.text && (a.images?.length ?? 0) === (b.images?.length ?? 0)
 }
