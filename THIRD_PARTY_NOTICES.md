@@ -24,6 +24,15 @@ or adapted file carries a header naming its source.
     and `apps/server/src/provider/ClaudeProvider.ts`.
   - `src/claude/mapping.ts`: `isSignedIn` and `resultError`, from the same two
     files.
+  - `src/main/index.ts`: quitting after shutdown (cancel the first
+    `before-quit`, close every scope, then quit; exit if shutdown stalls),
+    from `apps/desktop/src/app/DesktopLifecycle.ts`.
+  - `src/renderer/src/session-bridge.ts` and `components/document/Approval.tsx`:
+    failed commands kept as a local error and replies tracked while they are
+    on their way, from `apps/web/src/components/chat/usePendingThreadRequests.ts`
+    and `ComposerPendingApprovalActions.tsx`.
+  - `src/renderer/src/components/layout/Banners.tsx`: banner dismissal keyed by
+    the error text, from `apps/web/src/components/chat/ThreadErrorBanner.tsx`.
 - License: MIT
 
 ```

@@ -136,6 +136,8 @@ Codex and OpenCode run as child processes. Effect's Node spawner gives each chil
 
 The Claude SDK spawns its own Claude Code processes. Each `query()` is closed when its document is released, its library closes, or the app quits.
 
+Quitting follows T3 Code's desktop lifecycle. The first `before-quit` is cancelled, every scope closes (so the processes above get their SIGTERM), and then the app quits for real. A shutdown that takes longer than 5 s exits anyway, and the ledger cleans up on the next launch.
+
 ## 6. Slim IPC (`src/main/SnapshotPublisher.ts`, `src/shared/snapshot-patch.ts`)
 
 Main sends `snapshot` patches on one channel:
@@ -149,11 +151,12 @@ type SnapshotPatch = {
 
 - While streaming, `diffSnapshot` sees that a block only grew (same id and kind, new text starts with the old text). It then sends `append: [[i, delta]]` instead of the whole block, so IPC is proportional to the new text, not to the size of the answer.
 - Token bursts are coalesced into 32 ms frames. Navigation, new blocks, and turn ends go out right away.
-- The preload keeps an assembled copy, so `getSnapshot()` is synchronous at startup. The renderer store applies the same patches.
+- The preload starts from what main last published (one `sendSync` before the first paint) and keeps an assembled copy, so `getSnapshot()` is the real library at startup. Main also sends a whole-snapshot patch once the page loads. The renderer store applies the same patches.
 
 ## 7. Renderer (`src/renderer/`)
 
-- `session-bridge.ts` is the store over the preload. `dispatch` returns the command's `CommandResult` and never throws.
+- `session-bridge.ts` is the store over the preload. `dispatch` returns the command's `CommandResult` and never throws. A failure shows on the banner until it is dismissed or a later command succeeds; `request` is the same without the banner, for callers that show the error themselves.
+- Errors never replace the page. Library and command errors sit on a dismissible banner with Refresh.
 - `components/home/` and `components/document/` render the snapshot. The UI branches on `capabilities`, never on provider names.
 
 ## 8. Rules that don't change
