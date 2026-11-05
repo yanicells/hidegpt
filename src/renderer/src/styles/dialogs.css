@@ -62,13 +62,6 @@
   padding: 0 15px;
 }
 
-.field-help {
-  margin: 8px 0 0;
-  font-family: var(--font-text);
-  font-size: 12px;
-  color: var(--text-2);
-}
-
 .dialog-error {
   margin: 12px 0 0;
   font-family: var(--font-text);
@@ -205,4 +198,109 @@
   @apply flex;
   padding: 12px 24px 20px;
   border-top: 1px solid var(--hairline);
+}
+
+/* Drive's Share dialog: 512px, radius 8, 24px padding, people and access rows. */
+.drive-dialog.share-dialog {
+  width: min(512px, calc(100vw - 40px));
+  padding: 24px 24px 20px;
+  border-radius: 8px;
+}
+
+.share-head {
+  @apply flex items-center justify-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.share-head h2 {
+  @apply min-w-0 overflow-hidden text-ellipsis whitespace-nowrap;
+  margin: 0;
+}
+
+.share-head-icons {
+  @apply flex shrink-0;
+  gap: 16px;
+  color: var(--text-2);
+}
+
+.share-section {
+  margin: 20px 0 8px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.share-person {
+  @apply flex items-center;
+  gap: 12px;
+  min-height: 56px;
+}
+
+.share-avatar {
+  background: #7b5ea7;
+}
+
+.share-person-text {
+  @apply flex flex-col flex-1 min-w-0;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.share-person-text small {
+  font-family: var(--font-text);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-2);
+}
+
+.share-role {
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.share-access-icon {
+  @apply grid place-items-center rounded-full shrink-0;
+  width: 32px;
+  height: 32px;
+  background: #e3e3e3;
+  color: var(--text-2);
+}
+
+.share-access {
+  @apply inline-flex items-center self-start;
+  margin-left: -8px;
+  padding: 0 4px 0 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.share-access:hover {
+  background: var(--hover);
+}
+
+.share-foot {
+  @apply flex items-center justify-between;
+  margin-top: 24px;
+}
+
+.share-foot .outlined-button {
+  height: 40px;
+  border-radius: 20px;
+}
+
+/* Docs' bottom-left snackbar ("Link copied"). */
+.snackbar {
+  @apply fixed;
+  left: 24px;
+  bottom: 24px;
+  z-index: 160;
+  padding: 14px 16px;
+  border-radius: 4px;
+  background: #303030;
+  color: #f2f2f2;
+  font-family: var(--font-text);
+  font-size: 14px;
+  line-height: 20px;
+  box-shadow: 0 2px 6px 2px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.3);
 }

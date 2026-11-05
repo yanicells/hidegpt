@@ -241,6 +241,11 @@ export async function captureScreenshots(win: BrowserWindow, session: Screenshot
   else await session.newDocument()
   await waitFor('[data-testid="document"] .doc-block', 'document')
   await shot('document')
+  // Docs' own dark hover label, not the system tooltip.
+  await hover('chip-model')
+  await pause(900)
+  await shot('tooltip')
+  await rest()
   for (const [trigger, name] of [
     ['menu-file', 'menu-file'],
     ['menu-view', 'menu-view'],
@@ -250,7 +255,8 @@ export async function captureScreenshots(win: BrowserWindow, session: Screenshot
     ['chip-speed', 'menu-size'],
     ['chip-mode', 'menu-mode'],
     ['toolbar-more', 'toolbar-more'],
-    ['share', 'menu-share'],
+    ['share', 'share-dialog'],
+    ['share-menu', 'menu-share'],
     ['menu-account', 'account-menu-doc'],
   ] as const) {
     await click(trigger)

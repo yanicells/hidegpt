@@ -1,89 +1,92 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import type { Block } from '../../../../codex/blocks'
 import type { Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
 import { SparkIcon } from '../ui/Icons'
 import { MIcon } from '../ui/MaterialIcon'
 import { Menu, MenuTrigger } from '../ui/menu'
 import { MenuPanel } from '../ui/MenuPanel'
+import { Tip } from '../ui/tooltip'
+import { ShareDialog } from './ShareDialog'
 
 /**
  * Right side of the document header, like Docs: version history (loads
- * earlier content), comments and Meet (costume), a Share split button whose
- * menu copies or prints the document, and the spark.
+ * earlier content), comments and Meet (costume), the Share split button
+ * (Drive's share dialog, and a caret menu of its quick actions), and the spark.
  */
 export function DocActions({ snap }: { snap: Snapshot }) {
-  const [open, setOpen] = useState(false)
+  const [sharing, setSharing] = useState(false)
+  const [copied, setCopied] = useState(false)
   const canLoadEarlier = Boolean(snap.olderTurnsCursor) && !snap.loadingOlder && !snap.streaming
+  const threadId = snap.route.kind === 'doc' ? snap.route.threadId : null
+
+  // Docs confirms a copied link with a snackbar that fades after a few seconds.
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(false), 4000)
+    return () => clearTimeout(timer)
+  }, [copied])
+  const copyLink = () => {
+    if (!threadId) return
+    void navigator.clipboard?.writeText(threadId).then(() => setCopied(true))
+  }
 
   return (
     <div className="doc-actions">
-      <button
-        type="button"
-        className="header-action"
-        aria-label="Last edit was seconds ago"
-        title="Open version history"
-        disabled={!canLoadEarlier}
-        onClick={() => dispatch({ op: 'loadOlderTurns' })}
-      >
-        <MIcon name="history" size={24} />
-      </button>
-      <span className="header-action" aria-hidden="true" title="Open comment history">
-        <MIcon name="comment" size={24} />
-      </span>
-      <span className="header-action meet" aria-hidden="true" title="Join a call here or present this tab to the call">
-        <MIcon name="videocam" size={24} />
-        <MIcon name="arrow_drop_down" />
-      </span>
-      <Menu open={open} onOpenChange={setOpen}>
-        <div className="share">
-          {/* Docs' Share opens its sharing dialog; here both halves open quick actions. */}
-          <button
-            type="button"
-            className="share-button"
-            data-testid="share"
-            aria-haspopup="menu"
-            aria-expanded={open}
-            title="Private to only me"
-            onClick={() => setOpen(true)}
-          >
+      <Tip label="Open version history">
+        <button
+          type="button"
+          className="header-action"
+          aria-label="Last edit was seconds ago"
+          disabled={!canLoadEarlier}
+          onClick={() => dispatch({ op: 'loadOlderTurns' })}
+        >
+          <MIcon name="history" size={24} />
+        </button>
+      </Tip>
+      <Tip label="Open comment history">
+        <span className="header-action" aria-hidden="true">
+          <MIcon name="comment" size={24} />
+        </span>
+      </Tip>
+      <Tip label="Join a call here or present this tab to the call">
+        <span className="header-action meet" aria-hidden="true">
+          <MIcon name="videocam" size={24} />
+          <MIcon name="arrow_drop_down" />
+        </span>
+      </Tip>
+      <div className="share">
+        <Tip label="Private to only me">
+          <button type="button" className="share-button" data-testid="share" onClick={() => setSharing(true)}>
             <MIcon name="lock" />
             <span>Share</span>
           </button>
-          <MenuTrigger className="share-caret" aria-label="Quick sharing actions">
-            <MIcon name="arrow_drop_down" />
-          </MenuTrigger>
-        </div>
+        </Tip>
+        <Menu>
+          <Tip label="Quick sharing actions">
+            <MenuTrigger className="share-caret" data-testid="share-menu" aria-label="Quick sharing actions">
+              <MIcon name="arrow_drop_down" />
+            </MenuTrigger>
+          </Tip>
           <MenuPanel
             testId="panel-share"
             align="end"
             items={[
-              {
-                id: 'copy',
-                label: 'Copy link',
-                icon: 'link',
-                title: 'Copies the document text',
-                run: () => void navigator.clipboard?.writeText(documentText(snap.blocks)),
-              },
-              { id: 'print', label: 'Print', icon: 'print', shortcut: '⌘P', run: () => window.print() },
+              { id: 'share-people', label: 'Share with others', icon: 'person_add', run: () => setSharing(true) },
+              { id: 'copy', label: 'Copy link', icon: 'link', disabled: !threadId, run: copyLink },
             ]}
           />
-      </Menu>
+        </Menu>
+      </div>
       <span className="header-action spark" aria-hidden="true">
         <SparkIcon size={22} />
       </span>
+      <ShareDialog snap={snap} open={sharing} onOpenChange={setSharing} onCopyLink={copyLink} />
+      {copied ? (
+        <div className="snackbar" role="status">
+          Link copied
+        </div>
+      ) : null}
     </div>
   )
-}
-
-/** The page as plain Markdown: questions as headings, answers as written. */
-export function documentText(blocks: Block[]): string {
-  return blocks
-    .flatMap((block) => {
-      if (block.kind === 'user' && block.text) return [`# ${block.text}`]
-      if (block.kind === 'agent' && block.text) return [block.text]
-      return []
-    })
-    .join('\n\n')
 }

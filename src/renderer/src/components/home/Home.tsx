@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { Snapshot } from '../../../../codex/types'
 import { TEMPLATES, type Template } from '../../templates'
 import { MIcon } from '../ui/MaterialIcon'
+import { Tip } from '../ui/tooltip'
 import { DocCard } from './DocCard'
 import { FolderPicker } from './FolderPicker'
 import { groupByRecency } from './grouping'
@@ -99,32 +100,33 @@ export function Home({
             {view === 'list' ? <span className="list-col-label">Last opened by me</span> : <span />}
             <div className="recent-controls">
               {view === 'grid' ? (
-                <button className="icon-btn" aria-label="List view" title="List view" onClick={() => onView('list')}>
-                  <MIcon name="view_list" size={24} />
-                </button>
+                <Tip label="List view">
+                  <button className="icon-btn" aria-label="List view" onClick={() => onView('list')}>
+                    <MIcon name="view_list" size={24} />
+                  </button>
+                </Tip>
               ) : (
-                <button className="icon-btn" aria-label="Grid view" title="Grid view" onClick={() => onView('grid')}>
-                  <MIcon name="view_module" size={24} />
-                </button>
+                <Tip label="Grid view">
+                  <button className="icon-btn" aria-label="Grid view" onClick={() => onView('grid')}>
+                    <MIcon name="view_module" size={24} />
+                  </button>
+                </Tip>
               )}
-              <button
-                className="icon-btn"
-                aria-label="Sort by title"
-                aria-pressed={sort === 'name'}
-                title="Sort options"
-                onClick={() => setSort(sort === 'name' ? 'recent' : 'name')}
-              >
-                <MIcon name="sort_by_alpha" size={24} />
-              </button>
-              <button
-                className="icon-btn"
-                aria-label="Open file picker"
-                title="Open file picker"
-                data-testid="open-picker"
-                onClick={() => setPicker(true)}
-              >
-                <MIcon name="folder" size={24} />
-              </button>
+              <Tip label="Sort options">
+                <button
+                  className="icon-btn"
+                  aria-label="Sort by title"
+                  aria-pressed={sort === 'name'}
+                  onClick={() => setSort(sort === 'name' ? 'recent' : 'name')}
+                >
+                  <MIcon name="sort_by_alpha" size={24} />
+                </button>
+              </Tip>
+              <Tip label="Open file picker">
+                <button className="icon-btn" aria-label="Open file picker" data-testid="open-picker" onClick={() => setPicker(true)}>
+                  <MIcon name="folder" size={24} />
+                </button>
+              </Tip>
             </div>
           </div>
           {loading ? (
@@ -153,7 +155,6 @@ export function Home({
       </main>
       {picker ? (
         <FolderPicker
-          snap={snap}
           folders={folders}
           onClose={() => setPicker(false)}
           onOpen={(id) => {

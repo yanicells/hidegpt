@@ -1,7 +1,6 @@
 import { useState } from 'react'
 
 import { formatListDate } from '../../../../codex/labels'
-import type { Snapshot } from '../../../../codex/types'
 import { Dialog, DialogClose, DialogPopup, DialogTitle } from '../ui/dialog'
 import { MIcon } from '../ui/MaterialIcon'
 import type { Folder } from './projects'
@@ -14,12 +13,10 @@ type PickerTab = (typeof PICKER_TABS)[number]
  * browses project folders; "New folder" adds a project from a local directory.
  */
 export function FolderPicker({
-  snap,
   folders,
   onOpen,
   onClose,
 }: {
-  snap: Snapshot
   folders: Folder[]
   onOpen: (id: string) => void
   onClose: () => void
@@ -84,7 +81,6 @@ export function FolderPicker({
                 disabled={busy}
               />
             </label>
-            {snap.provider === 'opencode' ? <p className="field-help">Folders must be Git repositories.</p> : null}
             {error ? (
               <p className="dialog-error" role="alert">
                 {error}
