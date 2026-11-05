@@ -2,6 +2,7 @@ import { Fragment, type CSSProperties, type ReactNode } from 'react'
 
 import { MIcon, type MaterialIconName } from './MaterialIcon'
 import {
+  MenuArrow,
   MenuCheckboxItem,
   MenuItem,
   MenuPopup,
@@ -33,6 +34,8 @@ export type Item = {
   description?: string
   /** Draw the ▸ without a cascade (style menu rows). */
   arrow?: boolean
+  /** A small blue pill after the label, like Docs' "New". */
+  badge?: string
   /** Run without closing the menu (e.g. paging inside a popover). */
   keepOpen?: boolean
   className?: string
@@ -104,35 +107,29 @@ function Row({ item, itemPrefix }: { item: Item; itemPrefix: string }) {
   return item.checked === undefined ? (
     <MenuItem {...common}>
       {body}
-      {item.arrow ? <Arrow /> : null}
+      {item.arrow ? <MenuArrow /> : null}
     </MenuItem>
   ) : (
     <MenuCheckboxItem {...common} checked={item.checked}>
       {body}
-      {item.arrow ? <Arrow /> : null}
+      {item.arrow ? <MenuArrow /> : null}
     </MenuCheckboxItem>
   )
 }
 
+/** A row's icon column holds its icon, or ✓ when a checkable row has none (rows with icons show checked by highlight). */
 function RowBody({ item }: { item: Item }) {
   return (
     <>
       <span className="menu-icon" aria-hidden="true">
-        {item.checked ? <MIcon name="check" /> : item.icon ? <MIcon name={item.icon} /> : null}
+        {item.icon ? <MIcon name={item.icon} /> : item.checked ? <MIcon name="check" /> : null}
       </span>
       <span className="menu-text" style={item.style}>
         {item.label}
         {item.description ? <span className="menu-desc">{item.description}</span> : null}
       </span>
+      {item.badge ? <span className="menu-badge">{item.badge}</span> : null}
       {item.shortcut ? <MenuShortcut>{item.shortcut}</MenuShortcut> : null}
     </>
-  )
-}
-
-function Arrow() {
-  return (
-    <span className="menu-arrow" aria-hidden="true">
-      <MIcon name="arrow_right" />
-    </span>
   )
 }

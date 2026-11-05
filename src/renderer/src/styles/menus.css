@@ -5,7 +5,7 @@
   outline: none;
 }
 
-/* Docs menus: ~322px panels, 32px rows, 20px #444746 icons, Google Sans 14px. */
+/* Docs menus: 32px rows, 20px #444746 icons, Google Sans 14px, text 39px in. */
 .menu-panel {
   min-width: 240px;
   max-height: var(--available-height);
@@ -36,7 +36,7 @@
 .menu-item {
   @apply relative flex items-center w-full text-left whitespace-nowrap cursor-pointer select-none;
   height: 32px;
-  padding: 0 16px 0 14px;
+  padding: 0 16px 0 12px;
   font-size: 14px;
   letter-spacing: 0.1px;
   color: var(--text);
@@ -57,8 +57,25 @@
   @apply grid place-items-center shrink-0;
   width: 20px;
   height: 20px;
-  margin-right: 11px;
+  margin-right: 7px;
   color: var(--text-2);
+}
+
+/* Menubar menus (File, Edit, …) are a fixed 322px wide in Docs. */
+.menubar-panel {
+  min-width: 322px;
+}
+
+/* Docs' blue "New" pill. */
+.menu-badge {
+  margin-left: 16px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
 }
 
 .menu-item[data-disabled] .menu-icon {
@@ -90,29 +107,6 @@
   color: var(--text-2);
 }
 
-/* A popup's filter field, drawn like Docs' search boxes. */
-.menu-search {
-  @apply flex items-center gap-2;
-  margin: 4px 8px 6px;
-  padding: 0 8px;
-  height: 36px;
-  border-radius: 18px;
-  background: var(--pill);
-  color: var(--text-2);
-}
-
-.menu-search input {
-  @apply flex-1 min-w-0 border-0 bg-transparent;
-  font-size: 14px;
-  outline: none;
-}
-
-.popover-empty {
-  padding: 8px 16px 10px;
-  font-size: 14px;
-  color: var(--text-2);
-}
-
 /* Toolbar dropdowns share the menu look with fixed widths. */
 .menu-panel.popover {
   min-width: 0;
@@ -123,13 +117,19 @@
   outline: none;
 }
 
+.zoom-menu {
+  width: 96px;
+}
+
 .zoom-menu .menu-item {
   padding-right: 12px;
 }
 
 /* ---------- Style menu ("Normal text") ---------- */
 
+/* 220px wide; every style row is 71px and Options 45px, like Docs. */
 .style-menu {
+  width: 222px;
   padding: 0;
 }
 
@@ -137,14 +137,9 @@
   border-top: 1px solid var(--hairline);
 }
 
-.style-menu .menu-search {
-  margin-top: 8px;
-}
-
 .style-menu .menu-item {
-  height: auto;
-  min-height: 52px;
-  padding: 10px 12px 10px 8px;
+  height: 71px;
+  padding: 0 12px 0 8px;
   font-family: var(--font-page);
   color: #000;
   letter-spacing: 0;
@@ -169,7 +164,7 @@
 
 .style-menu .style-normal .menu-text {
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .style-menu .style-title .menu-text {
@@ -202,18 +197,26 @@
 
 .style-menu .style-options .menu-text {
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: 13px;
 }
 
-.style-menu .style-options {
-  min-height: 40px;
+.style-menu .menu-item.style-options {
+  height: 45px;
 }
 
 /* ---------- Font menu ("Arial") and size menu ("11") ---------- */
 
+.font-menu {
+  width: 222px;
+}
+
 .font-menu .menu-item {
   font-size: 15px;
   letter-spacing: 0;
+}
+
+.size-menu {
+  width: 60px;
 }
 
 .size-menu .menu-item {
@@ -232,6 +235,15 @@
 }
 
 /* ---------- Editing mode menu ---------- */
+
+/* Rows keep their icons; the current mode is the shaded row. */
+.mode-menu {
+  width: 290px;
+}
+
+.mode-menu .menu-item[data-checked] {
+  background: #e8e8e8;
+}
 
 .mode-menu .menu-item {
   height: 56px;

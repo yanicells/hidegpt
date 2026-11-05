@@ -4,7 +4,7 @@
  */
 
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
-import type { ComponentProps, KeyboardEvent, ReactNode } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 
 import { renderClosingPositioner } from './closing-positioner'
 import { cn } from './cn'
@@ -57,27 +57,6 @@ function MenuPopup({
   )
 }
 
-/** A menu's filter field. Letters stay in the field instead of driving typeahead. */
-function MenuSearchInput({
-  onKeyDown,
-  ...props
-}: Omit<ComponentProps<'input'>, 'className' | 'type'>) {
-  return (
-    <div className="menu-search">
-      <MIcon name="search" />
-      <input
-        {...props}
-        type="search"
-        onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
-          // Menu typeahead would otherwise take the letters; arrows still reach the items.
-          if (event.key !== 'ArrowDown' && event.key !== 'Escape') event.stopPropagation()
-          onKeyDown?.(event)
-        }}
-      />
-    </div>
-  )
-}
-
 function MenuItem({ className, ...props }: Styled<MenuPrimitive.Item.Props>) {
   return <MenuPrimitive.Item className={cn('menu-item', className)} data-slot="menu-item" {...props} />
 }
@@ -108,10 +87,17 @@ function MenuSubTrigger({ className, children, ...props }: Styled<MenuPrimitive.
   return (
     <MenuPrimitive.SubmenuTrigger className={cn('menu-item', className)} data-slot="menu-sub-trigger" {...props}>
       {children}
-      <span className="menu-arrow" aria-hidden="true">
-        <MIcon name="arrow_right" />
-      </span>
+      <MenuArrow />
     </MenuPrimitive.SubmenuTrigger>
+  )
+}
+
+/** The ▸ at the end of a cascading row. */
+function MenuArrow() {
+  return (
+    <span className="menu-arrow" aria-hidden="true">
+      <MIcon name="arrow_right" />
+    </span>
   )
 }
 
@@ -122,10 +108,10 @@ function MenuSubPopup({ className, ...props }: Styled<MenuPrimitive.Popup.Props>
 
 export {
   Menu,
+  MenuArrow,
   MenuCheckboxItem,
   MenuItem,
   MenuPopup,
-  MenuSearchInput,
   MenuSeparator,
   MenuShortcut,
   MenuSub,

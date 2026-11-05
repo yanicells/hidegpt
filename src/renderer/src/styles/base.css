@@ -48,6 +48,8 @@ body,
 
 body {
   font-family: var(--font-ui);
+  /* Docs uses the display cut of Google Sans; Flex at opsz 18 matches its widths. */
+  font-variation-settings: 'opsz' 18;
   font-optical-sizing: auto;
   @apply text-sm;
   color: var(--text);

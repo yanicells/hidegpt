@@ -4,6 +4,8 @@
  * Material Symbol: see MaterialIcon.tsx.
  */
 
+import { useId } from 'react'
+
 /** The Docs app logo: a blue page with a folded corner and two text lines. */
 export function DocsIcon({ size = 40 }: { size?: number }) {
   return (
@@ -42,10 +44,12 @@ export function PlusIcon() {
 
 /** The multicolour spark Docs shows beside Share and in the floating pill. */
 export function SparkIcon({ size = 24 }: { size?: number }) {
+  // Unique per instance: a hidden copy's gradient would otherwise blank the others.
+  const gradient = useId()
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
       <defs>
-        <linearGradient id="spark-fill" x1="4" y1="20" x2="20" y2="4" gradientUnits="userSpaceOnUse">
+        <linearGradient id={gradient} x1="4" y1="20" x2="20" y2="4" gradientUnits="userSpaceOnUse">
           <stop offset="0" stopColor="#217BFE" />
           <stop offset=".45" stopColor="#078EFB" />
           <stop offset=".75" stopColor="#AC87EB" />
@@ -53,7 +57,7 @@ export function SparkIcon({ size = 24 }: { size?: number }) {
         </linearGradient>
       </defs>
       <path
-        fill="url(#spark-fill)"
+        fill={`url(#${gradient})`}
         d="M12 2c.6 5.4 4.6 9.4 10 10-5.4.6-9.4 4.6-10 10-.6-5.4-4.6-9.4-10-10 5.4-.6 9.4-4.6 10-10z"
       />
     </svg>

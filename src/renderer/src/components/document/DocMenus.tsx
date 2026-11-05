@@ -52,6 +52,7 @@ export function DocMenus({
         icon: 'download',
         submenu: [row('Microsoft Word (.docx)'), row('PDF Document (.pdf)'), row('Plain Text (.txt)')],
       }),
+      row('Record video', { icon: 'radio_button_checked', badge: 'New' }),
       { id: 'rename', label: 'Rename', icon: 'edit', divider: true, run: onRename, disabled: !inDoc },
       row('Move', { icon: 'drive_file_move' }),
       row('Add shortcut to Drive', { icon: 'add_to_drive' }),
@@ -197,7 +198,7 @@ export function DocMenus({
           <MenuTrigger className="menu-label" data-testid={`menu-${id}`}>
             {id.charAt(0).toUpperCase() + id.slice(1)}
           </MenuTrigger>
-          <MenuPanel testId={`panel-${id}`} className={`menu-${id}`} items={items[id]} />
+          <MenuPanel testId={`panel-${id}`} className={`menubar-panel menu-${id}`} items={items[id]} />
         </Menu>
       ))}
     </Menubar>
