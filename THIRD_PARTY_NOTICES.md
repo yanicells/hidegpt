@@ -43,6 +43,11 @@ or adapted file carries a header naming its source.
     and `ComposerPendingApprovalActions.tsx`.
   - `src/renderer/src/components/layout/Banners.tsx`: banner dismissal keyed by
     the error text, from `apps/web/src/components/chat/ThreadErrorBanner.tsx`.
+  - `src/renderer/src/session-bridge.ts`: selector subscriptions that skip
+    streamed text, after `packages/client-runtime/src/state/threadDetail.ts`.
+  - `src/renderer/src/components/ui/markdownRenderer.ts` and
+    `markdownStreamBlocks.ts`, with their tests: the cached Markdown renderer and
+    the streaming block splitter, from `apps/web/src/components/chat/`.
 - License: MIT
 
 ```

@@ -161,6 +161,17 @@ type SnapshotPatch = {
 - Errors never replace the page. Library and command errors sit on a dismissible banner with Refresh.
 - `components/home/` and `components/document/` render the snapshot. The UI branches on `capabilities`, never on provider names.
 
+### Streaming stays cheap at any length
+
+A streamed delta should cost the same at 300 turns as at 3. Each rule below removes work that grew with the document:
+
+- **Selectors, not one copy.** `useShellSnapshot()` (App, chrome, Home) skips patches that touch only the blocks; `useBlocks()` (Document) takes the blocks. One IPC listener applies each patch once. Patches keep unchanged blocks' identity, so `BlockRow`, `Tabs` and `Composer` are memoized on identity. Handlers that need the latest blocks read `currentSnapshot()`. This follows T3 Code's thread-detail atoms.
+- **No layout reads per delta.** `useFollowBottom` scrolls from a ResizeObserver, after the browser's own layout. An IntersectionObserver on the page end says whether you are near the bottom. Only "Load earlier" reads `scrollHeight`, once, to keep your place.
+- **Off-screen blocks skip rendering.** `.doc-block` has `content-visibility: auto`; `contain-intrinsic-size: auto` keeps each block's real height once seen.
+- **Markdown parses once.** `markdownRenderer.ts` (from T3) freezes one unified processor and keeps an LRU of rendered elements of about 500k characters. `splitMarkdownBlocks` (from T3) cuts an answer at closed blocks, so streaming re-parses only the last one, and reopening a document parses nothing.
+- **Markdown loads after Home.** The Markdown stack is its own chunk (`loadMarkdown.ts`), fetched once the page is idle. An answer shows as plain text for the frame before it arrives.
+- **No client-side reveal.** Main already batches text into 32 ms frames (§6), and T3 Code doesn't reveal text on the client either.
+
 ## 8. Rules that don't change
 
 - **Stealth.** Window, menus, titles, and copy all read as Google Docs. Provider names appear only where you choose a library.

@@ -22,7 +22,8 @@ existing logins, and the UI is a Docs costume over it.
   11pt, `--paper-width: 816px`). The composer is the last paragraph
   (`textarea.composer`, Enter to send). User turns render as bold body
   sections with separators, agent turns as Markdown body
-  (`components/ui/markdown.tsx`, react-markdown + remark-gfm). A tabs
+  (`components/ui/Markdown.tsx`: T3's cached unified renderer with
+  remark-gfm, loaded after Home paints). A tabs
   rail mirrors Docs' "Document tabs" and jumps between questions.
 - **Stealth rule:** nothing on screen may read as AI. Model/effort/service-tier/mode live
   in toolbar chips styled like Docs controls, never as raw model ids.
@@ -117,6 +118,11 @@ Entry files stay thin — they compose, never hold UI:
     holding that screen's components and its local helpers.
   - `components/layout/` — the shared shell (headers, banners, account menu).
   - `components/ui/` — reusable primitives (menus, popovers, icons, markdown).
+- Streaming must cost the same at 300 turns as at 3 (rules in
+  `docs/architecture.md` §7). Read blocks with `useBlocks()` and everything
+  else with `useShellSnapshot()`. Never read layout (`scrollHeight`,
+  `getBoundingClientRect`) on every delta. Keep `.doc-block` rows memoized and
+  `content-visibility: auto`.
 - `src/renderer/src/styles/` — one CSS file per area (`base`, `home`,
   `document`, `toolbar`, `menus`, `tabs`) joined by `index.css`. Never
   rename a class to move it; move the rule block as-is.
