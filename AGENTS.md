@@ -72,7 +72,7 @@ existing logins, and the UI is a Docs costume over it.
   `account`, `search`, banners/error fields.
 - `Block` (`src/codex/blocks.ts`) is the single content model:
   `user` | `agent` | `callout` (collapsed tool/diff activity) | `approval`
-  (Docs suggestion cards in the right margin, ✓/✗). **Reasoning is never rendered** — filter it
+  (green suggested text in the page with a Docs suggestion card beside it, ✓/✗). **Reasoning is never rendered** — filter it
   at the mapping layer, not in the UI.
 - Snapshots cross IPC as `SnapshotPatch`es (`src/shared/snapshot-patch.ts`):
   only fields whose reference changed, and only changed blocks. Sessions must
