@@ -9,7 +9,7 @@ export type Template = {
   /** Text placed in the composer of the new document. Empty for Blank. */
   prompt: string
   /** Mini-page layout drawn in the thumbnail. */
-  sketch: 'blank' | 'essay' | 'notes' | 'guide' | 'report' | 'letter'
+  sketch: 'blank' | 'essay' | 'notes' | 'guide' | 'report' | 'letter' | 'proposal'
 }
 
 export const TEMPLATES: Template[] = [
@@ -48,6 +48,13 @@ export const TEMPLATES: Template[] = [
     category: 'Serif',
     prompt: 'Write a formal letter to ',
     sketch: 'letter',
+  },
+  {
+    id: 'proposal',
+    title: 'Project proposal',
+    category: 'Tropic',
+    prompt: 'Write a project proposal with goals, scope, timeline, and budget for ',
+    sketch: 'proposal',
   },
 ]
 

@@ -112,17 +112,42 @@
   font-size: 22px;
 }
 
+/* Drive picker search: a 48px pill under the title. */
+.picker-search {
+  @apply flex items-center;
+  gap: 12px;
+  height: 48px;
+  margin: 12px 24px 4px;
+  padding: 0 16px;
+  border-radius: 24px;
+  background: var(--pill);
+  color: var(--text-2);
+}
+
+.picker-search input {
+  @apply flex-1 min-w-0 border-0 bg-transparent;
+  font-size: 16px;
+  color: var(--text);
+  outline: none;
+}
+
 .picker-tabs {
   @apply flex;
-  padding: 0 24px;
+  gap: 16px;
+  padding: 0 20px;
   border-bottom: 1px solid var(--hairline);
 }
 
-.picker-tabs span {
+.picker-tabs button {
   padding: 14px 4px 11px;
+  border-bottom: 3px solid transparent;
   font-size: 14px;
   font-weight: 500;
   color: var(--text-2);
+}
+
+.picker-tabs button:hover {
+  color: var(--text);
 }
 
 .picker-tabs .active {

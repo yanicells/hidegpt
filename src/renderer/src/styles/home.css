@@ -605,6 +605,26 @@
   font-weight: 400;
 }
 
+/* Proposal: "Tropic" leaf photo over a bold green title. */
+.template-page-proposal .template-hero {
+  margin: -16px -13px 10px;
+  height: 62px;
+  background:
+    radial-gradient(ellipse at 20% 110%, #1e6b4f 0 38%, transparent 39%),
+    radial-gradient(ellipse at 80% 0%, #2e8b62 0 42%, transparent 43%),
+    linear-gradient(160deg, #a8d8b9, #f4e3a1);
+}
+
+.template-page-proposal > strong {
+  font-size: 12px;
+  font-weight: 700;
+  color: #16523a;
+}
+
+.template-page-proposal h3 {
+  color: #1e7a52;
+}
+
 /* ---------- Buttons shared by home and dialogs ---------- */
 
 .text-button {
@@ -645,11 +665,7 @@
 
 @media (max-width: 960px) {
   .home-header {
-    grid-template-columns: 100px minmax(100px, 1fr) auto;
-  }
-
-  .home-header .brand .header-icon {
-    @apply hidden;
+    grid-template-columns: auto minmax(100px, 1fr) auto;
   }
 
   .gallery-inner,

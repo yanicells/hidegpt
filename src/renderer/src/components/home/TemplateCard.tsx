@@ -47,13 +47,18 @@ const PREVIEWS = {
     subtitle: 'Address · City · Contact',
     sections: ['Dear recipient,', 'A clear opening', 'The details', 'Sincerely,'],
   },
+  proposal: {
+    title: 'Project name',
+    subtitle: 'Team · Course · Date',
+    sections: ['Overview', 'Goals', 'Timeline', 'Budget'],
+  },
 }
 
 export function PageSketch({ sketch }: { sketch: Template['sketch'] }) {
   const preview = PREVIEWS[sketch]
   return (
     <div className={`template-page template-page-${sketch}`} aria-hidden="true">
-      {sketch === 'report' || sketch === 'guide' ? <i className="template-hero" /> : null}
+      {sketch === 'report' || sketch === 'guide' || sketch === 'proposal' ? <i className="template-hero" /> : null}
       <strong>{preview.title}</strong>
       <small>{preview.subtitle}</small>
       {preview.sections.map((heading) => (
