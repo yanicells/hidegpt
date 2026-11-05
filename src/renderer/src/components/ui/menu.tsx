@@ -10,7 +10,6 @@ import { renderClosingPositioner } from './closing-positioner'
 import { cn, type Styled } from './cn'
 import { MIcon } from './MaterialIcon'
 
-
 /**
  * Docs-styled menu primitives on Base UI: portaled, collision-aware popups
  * with roving focus, typeahead, hover submenus and outside-click dismissal.

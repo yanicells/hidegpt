@@ -32,13 +32,13 @@ pnpm dev
 | `pnpm screenshot` | Home grid/list, folder picker, open menus, and desktop/narrow editor PNGs using fictional content |
 
 **Blank document** or a template creates an "Untitled document" right away, like Docs;
-rename it from the title field. Projects are folders. The **Owned by** menu on the home
-page filters documents by folder, and new documents go into the folder it shows. The
-folder icon (**Open file picker**) browses every folder, including empty ones, and
-**New folder** adds a project by choosing its name and directory. OpenCode projects use
-Git folders.
+rename it from the title field. Projects are folders. The folder icon (**Open file
+picker**) browses every folder, including empty ones; opening one titles the home list
+with its name, and new documents go into it. **Owned by anyone** goes back to every
+document. **New folder** adds a project: type its name, then pick its directory after
+**Create**. OpenCode projects use Git folders.
 
-**My Drive** (no folder) starts in `~/.codex/threads` for Codex or your home folder for
+With no folder open, a new document starts in `~/.codex/threads` for Codex or your home folder for
 OpenCode, without inheriting the last document's project. Templates place a starter
 in the composer; they never send it automatically.
 

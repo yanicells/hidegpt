@@ -37,7 +37,7 @@
   height: 48px;
   padding: 0 16px 0 14px;
   border-radius: 24px;
-  background: #e9eef6;
+  background: #f0f4f9;
   color: var(--text-2);
   transition:
     background-color 120ms,
@@ -75,7 +75,7 @@
 
 .gallery {
   background: var(--pill);
-  padding: 16px 0 24px;
+  padding: 16px 0 14px;
 }
 
 .gallery-inner,
@@ -151,7 +151,7 @@
 }
 
 .recent {
-  padding: 8px 0 64px;
+  padding: 0 0 64px;
 }
 
 .view-toggle {
@@ -297,7 +297,7 @@
 
 .recent-head {
   min-height: 48px;
-  margin: 16px 0 12px;
+  margin: 9px 0 12px;
 }
 
 .recent-head.as-list {

@@ -66,28 +66,26 @@
   height: 18px;
   zoom: var(--page-zoom, 1);
   border-bottom: 1px solid #c7c7c7;
-  /* Shaded margins either side of the 6.5in writing width. */
-  background:
-    linear-gradient(90deg, #e3e3e3 0 var(--paper-margin), transparent var(--paper-margin) calc(100% - var(--paper-margin)), #e3e3e3 0),
-    var(--surface);
   font-family: var(--font-text);
   font-size: 10px;
   line-height: 1;
   color: var(--text-2);
 }
 
-/* Eighth-inch ticks, taller at the half inch. */
+/*
+ * Docs' ticks run the full width, margins included: an 8px tick at each half
+ * inch and a 4px tick every eighth. Inch numbers sit above their tick.
+ */
 .ruler-track::before {
   content: '';
   @apply absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 4px;
+  height: 8px;
   background:
-    repeating-linear-gradient(90deg, transparent 0 47px, #9aa0a6 47px 48px) 0 0 / 100% 7px no-repeat,
-    repeating-linear-gradient(90deg, transparent 0 11px, #c4c7c5 11px 12px) 0 2px / 100% 2px no-repeat;
-  background-position-x: 96px;
+    repeating-linear-gradient(90deg, transparent 0 47px, var(--ruler-tick) 47px 48px, transparent 48px 96px) 0 0 / 100% 8px no-repeat,
+    repeating-linear-gradient(90deg, var(--ruler-tick) 0 1px, transparent 1px 12px) 0 4px / 100% 4px no-repeat;
 }
 
 .ruler-num {
@@ -108,7 +106,9 @@
   transform: translateX(-50%);
 }
 
+/* The left one carries the first-line indent bar directly on top. */
 .ruler-indent-left {
+  top: 4px;
   left: var(--paper-margin);
 }
 
@@ -116,9 +116,9 @@
   content: '';
   @apply absolute;
   left: -6px;
-  top: -10px;
+  top: -11px;
   width: 12px;
-  height: 3px;
+  height: 4px;
   background: var(--docs-blue);
 }
 
@@ -134,8 +134,8 @@
   width: 16px;
   height: 100vh;
   margin-top: 20px;
-  border-right: 1px solid #c7c7c7;
-  background: var(--surface);
+  border-right: 1px solid #dadce0;
+  background: var(--canvas);
   font-family: var(--font-text);
   font-size: 10px;
   color: var(--text-2);
@@ -143,10 +143,23 @@
   overflow: hidden;
 }
 
+/* The same ticks, running down the ruler's right edge. */
+.vruler::before {
+  content: '';
+  @apply absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 47px, var(--ruler-tick) 47px 48px, transparent 48px 96px) 100% 0 / 8px 100% no-repeat,
+    repeating-linear-gradient(180deg, var(--ruler-tick) 0 1px, transparent 1px 12px) 100% 0 / 4px 100% no-repeat;
+}
+
 .vruler-num {
   @apply absolute;
   left: 0;
-  right: 0;
+  right: 6px;
   text-align: center;
   transform: translateY(-50%) rotate(-90deg);
 }
@@ -193,11 +206,6 @@
   line-height: 1.2;
   color: #000;
   overflow-wrap: anywhere;
-}
-
-.doc-block:first-child .doc-question,
-.load-older + .doc-block .doc-question {
-  margin-top: 0;
 }
 
 .doc-body {

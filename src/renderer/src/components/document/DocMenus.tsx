@@ -38,13 +38,13 @@ export function DocMenus({
   const items: Record<DocMenu, Item[]> = {
     file: [
       row('New', {
-        icon: 'article',
+        icon: 'article_fill',
         submenu: [
           { id: 'new-document', label: 'Document', icon: 'article', run: onNew },
           row('From template', { icon: 'description', run: () => dispatch({ op: 'goHome' }) }),
         ],
       }),
-      { id: 'open', label: 'Open', icon: 'folder_open', shortcut: '⌘O', run: () => dispatch({ op: 'openFolder' }) },
+      { id: 'open', label: 'Open', icon: 'folder', shortcut: '⌘O', run: () => dispatch({ op: 'openFolder' }) },
       row('Make a copy', { icon: 'file_copy' }),
       row('Share', { icon: 'person_add', divider: true, submenu: [row('Share with others'), row('Publish to web')] }),
       row('Email', { icon: 'mail', submenu: [row('Email this file'), row('Email collaborators')] }),
@@ -75,7 +75,7 @@ export function DocMenus({
       row('Security limitations', { icon: 'shield' }),
       row('Language', { icon: 'language', submenu: [row('English (US)', { checked: true })] }),
       row('Page setup', { icon: 'description' }),
-      { id: 'print', label: 'Print', icon: 'print', shortcut: '⌘P', divider: true, run: () => window.print() },
+      { id: 'print', label: 'Print', icon: 'print', shortcut: '⌘P', run: () => window.print() },
     ],
     edit: [
       { id: 'undo', label: 'Undo', icon: 'undo', shortcut: '⌘Z', run: () => document.execCommand('undo') },

@@ -10,7 +10,6 @@ import { cn, type Styled } from './cn'
 /** Modal dialogs on Base UI: focus trap, Escape and backdrop dismissal, scroll lock. Drive-styled in dialogs.css. */
 const Dialog = DialogPrimitive.Root
 
-
 function DialogPopup({ className, children, ...props }: Styled<DialogPrimitive.Popup.Props>) {
   return (
     <DialogPrimitive.Portal>

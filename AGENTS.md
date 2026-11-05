@@ -22,7 +22,8 @@ existing logins, and the UI is a Docs costume over it.
   (`textarea.composer`, Enter to send). Each question renders as a Docs
   Heading 1 (`h1.doc-question`), agent turns as Markdown body
   (`components/ui/markdown.tsx`, react-markdown + remark-gfm). The "Document
-  tabs" panel lists those headings and jumps between questions.
+  tabs" panel lists those headings, with answer sections nested under each
+  (`document/outline.ts`), and jumps to them.
 - **Stealth rule:** nothing on screen may read as AI, and no provider or
   model name is visible until a menu opens. The controls wear Docs costumes:
   models are the style menu's slots ("Normal text", "Title", "Heading 1"…;
@@ -127,17 +128,18 @@ Delete dead code on sight; don't comment it out, don't leave TODO shims.
   Google Sans Flex (`--font-ui`). Use Docs' own heading scale: a question is
   Heading 1 (20pt, weight 400, 20pt above / 6pt below); answer `#`–`###`
   are Heading 2, `####` Heading 3, and so on down Docs' scale. No separators between turns; headings structure the page.
-- The "Document tabs" panel (280px, collapsible) lists the Heading 1s and
-  jumps to them, the way Docs' outline lists headings.
+- The "Document tabs" panel (280px, collapsible) lists the Heading 1s with
+  answer sections indented under them, and jumps to them, like Docs' outline.
 - Match the live Docs references (`references/`: home grid, list grouped by
   recency, editor with tabs panel, toolbar and menus) before inventing new
   chrome. Measured sizes live as comments next to each rule in `styles/`.
   List view groups visible docs by recency (Today / Yesterday / Previous
   7 days / Previous 30 days).
 - Don't invent screens Docs doesn't have. Blank document creates "Untitled
-  document" at once (no naming dialog). Projects are folders: the home
-  "Owned by" menu filters by folder and scopes New document, and the Drive
-  style "Open a file" picker browses and creates folders.
+  document" at once (no naming dialog). Projects are folders, opened from
+  the Drive-style "Open a file" picker (which also creates them); the open
+  folder titles the home list and scopes New document. "Owned by" keeps Docs'
+  three choices, and "Owned by anyone" leaves the folder.
 
 ## Commands
 

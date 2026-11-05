@@ -80,7 +80,7 @@
   animation: pulse 1.2s ease-in-out infinite;
 }
 
-/* Menubar: 14px Google Sans, items padding 2px 7px, radius 4, letter-spacing .1px. */
+/* Menubar: 14px Google Sans, items padding 2px 8px, radius 4, letter-spacing .1px. */
 .doc-menus {
   @apply flex items-center;
   height: 28px;
@@ -90,7 +90,7 @@
 .menu-label {
   @apply flex items-center;
   height: 24px;
-  padding: 2px 7px;
+  padding: 2px 8px;
   border-radius: 4px;
   font-size: 14px;
   letter-spacing: 0.1px;

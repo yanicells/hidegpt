@@ -54,10 +54,6 @@
   background: #e9eef6;
 }
 
-.spark-pill.busy svg {
-  animation: pulse 1.6s ease-in-out infinite;
-}
-
 .spark-pill.busy:hover {
   background: #dde3ea;
 }

@@ -91,6 +91,8 @@ function Row({ item, itemPrefix }: { item: Item; itemPrefix: string }) {
           data-testid={testId}
           disabled={item.disabled}
           title={item.title}
+          // Shades the current choice like a checked row (the style menu's slots).
+          data-checked={item.checked ? '' : undefined}
           onClick={
             run
               ? () => {

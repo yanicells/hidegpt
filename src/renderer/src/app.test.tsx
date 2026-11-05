@@ -261,7 +261,7 @@ describe('document page', () => {
     })
     expect(screen.getByTestId('outline')).toHaveTextContent('Document tabs')
     await user.click(screen.getByTestId('outline-u1'))
-    await user.click(screen.getByLabelText('New document'))
+    await user.click(screen.getByLabelText('Add tab'))
     expect(calls).toContainEqual({ op: 'newDocument', projectId: null, cwd: undefined })
     await user.click(screen.getByLabelText('Hide tabs & outlines'))
     expect(screen.queryByTestId('outline-u1')).toBeNull()
@@ -408,8 +408,8 @@ describe('home list view', () => {
         },
       ],
     })
-    await userEvent.click(screen.getByTestId('home-location'))
-    expect(await screen.findByTestId('project-proj_1')).toHaveTextContent('My Project')
+    await userEvent.click(screen.getByTestId('open-picker'))
+    expect(await screen.findByTestId('picker-proj_1')).toHaveTextContent('My Project')
     expect(screen.queryByText('proj_1')).toBeNull()
   })
 
@@ -472,20 +472,23 @@ describe('project navigation and creation', () => {
   it('filters by folder and creates new documents inside it', async () => {
     const user = userEvent.setup()
     const { calls } = mount({ projects: [projectFixture] })
-    await user.click(screen.getByTestId('home-location'))
-    await user.click(await screen.findByTestId('project-course'))
-    expect(screen.getByTestId('home-location')).toHaveTextContent('Course notes')
+    await user.click(screen.getByTestId('open-picker'))
+    await user.click(await screen.findByTestId('picker-course'))
+    expect(screen.getByTestId('recent-title')).toHaveTextContent('Course notes')
     expect(screen.queryByTestId('thread-thr_1')).toBeNull()
     await user.click(screen.getByRole('button', { name: 'List view' }))
     await user.click(screen.getByTestId('new-doc'))
     expect(calls).toContainEqual({ op: 'newDocument', projectId: 'course', cwd: '/tmp/course' })
   })
 
-  it('creates unfiled documents from My Drive', async () => {
+  it('leaves a folder through Owned by anyone, creating unfiled documents again', async () => {
     const user = userEvent.setup()
     const { calls } = mount({ projects: [projectFixture] })
+    await user.click(screen.getByTestId('open-picker'))
+    await user.click(await screen.findByTestId('picker-course'))
     await user.click(screen.getByTestId('home-location'))
-    await user.click(await screen.findByTestId('project-loose'))
+    await user.click(await screen.findByTestId('owner-anyone'))
+    expect(screen.getByTestId('recent-title')).toHaveTextContent('Recent documents')
     await user.click(screen.getByTestId('template-essay'))
     expect(calls).toContainEqual({ op: 'newDocument', projectId: null, cwd: undefined })
   })
@@ -511,7 +514,7 @@ describe('project navigation and creation', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
     await user.click(await screen.findByTestId('picker-course'))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    expect(screen.getByTestId('home-location')).toHaveTextContent('Course notes')
+    expect(screen.getByTestId('recent-title')).toHaveTextContent('Course notes')
   })
 
   it('gives immediate opening feedback and permits cancellation', async () => {
