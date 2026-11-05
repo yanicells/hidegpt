@@ -80,7 +80,8 @@ export function App() {
           onView={setView}
         />
       ) : (
-        <Document outputOnly={outputOnly} onNew={onNew} snap={snap} />
+        // One instance per document, so its scroll, rows and follow state start fresh.
+        <Document key={snap.route.threadId} outputOnly={outputOnly} onNew={onNew} snap={snap} />
       )}
       {creation ? (
         <NewDocumentDialog
