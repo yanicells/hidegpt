@@ -1,49 +1,23 @@
-.chip {
-  @apply inline-flex items-center gap-1 h-7;
-  padding: 0 4px 0 8px;
-  @apply rounded text-sm;
-  color: var(--text);
-  @apply whitespace-nowrap;
-}
-
-.chip svg {
-  color: var(--text-2);
-}
-
-.chip:hover {
-  background: var(--hover);
-}
-
-.chip.open {
-  background: var(--blue-tint);
-}
-
-.chip-label {
-  max-width: 180px;
-  @apply overflow-hidden text-ellipsis;
-}
-
-/* ---------- Document chrome ---------- */
+/* ---------- Document chrome: measured from live Docs (see AGENTS.md) ---------- */
 
 .doc-chrome {
   @apply shrink-0;
   background: var(--canvas);
 }
 
+/* Logo | title + menubar | header actions. Chrome is ~113px tall with the toolbar. */
 .doc-top {
-  @apply grid;
+  @apply grid items-center;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  @apply items-start;
-  padding: 8px 16px 0 12px;
-  @apply gap-2;
-}
-
-.app.platform-darwin .doc-top {
-  padding-left: 78px;
+  height: 64px;
+  padding: 0 16px 0 8px;
+  column-gap: 6px;
 }
 
 .doc-home {
-  @apply flex items-center rounded p-1 mt-0.5;
+  @apply grid place-items-center rounded-full;
+  width: 40px;
+  height: 40px;
 }
 
 .doc-home:hover {
@@ -52,80 +26,178 @@
 
 .doc-head {
   @apply flex flex-col min-w-0;
+  padding-top: 6px;
 }
 
 .doc-title-row {
-  @apply flex items-center gap-1 min-w-0 h-8;
+  @apply flex items-center min-w-0;
+  height: 26px;
+  gap: 2px;
 }
 
+/* Title: Google Sans 18px/22px, padding 1px 6px, radius 4, outline on hover. */
 .doc-title {
   field-sizing: content;
   min-width: 96px;
-  max-width: calc(100% - 40px);
+  max-width: calc(100% - 200px);
   border: 1px solid transparent;
-  @apply rounded text-lg;
-  line-height: 24px;
-  padding: 2px 8px;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 18px;
+  line-height: 22px;
   color: var(--text);
-  @apply bg-transparent;
+  @apply bg-transparent overflow-hidden text-ellipsis;
 }
 
 .doc-title:hover {
-  border-color: var(--line);
+  border-color: var(--text);
 }
 
 .doc-title:focus {
   border-color: var(--blue);
+  outline: 1px solid var(--blue);
+}
+
+.title-icon {
+  @apply grid place-items-center rounded-full;
+  width: 28px;
+  height: 28px;
+  color: var(--text-2);
 }
 
 .save-state {
-  @apply inline-flex;
-  color: var(--muted);
+  @apply inline-flex items-center gap-1.5;
   padding: 0 4px;
+  color: var(--text-2);
+}
+
+.save-text {
+  font-size: 12px;
+  letter-spacing: 0.1px;
 }
 
 .cloud.busy {
   animation: pulse 1.2s ease-in-out infinite;
 }
 
+/* Menubar: 14px Google Sans, items padding 2px 7px, radius 4, letter-spacing .1px. */
 .doc-menus {
-  @apply flex items-center h-7 gap-0.5;
+  @apply flex items-center;
+  height: 28px;
+  margin-left: -1px;
 }
 
 .menu-label {
-  @apply h-6;
-  padding: 0 8px;
-  @apply rounded text-sm;
-  color: var(--text);
   @apply flex items-center;
+  height: 24px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 14px;
+  letter-spacing: 0.1px;
+  color: var(--text);
 }
 
 .menu-label:hover,
-.menu-label.open {
+.menu-label[data-popup-open] {
   background: var(--hover);
 }
 
+.header-end {
+  @apply flex items-center;
+  gap: 4px;
+}
+
+/* ---------- Header actions: history, comments, Meet, Share, spark ---------- */
+
+.doc-actions {
+  @apply flex items-center;
+  gap: 4px;
+  margin-right: 8px;
+}
+
+.header-action {
+  @apply flex items-center justify-center rounded-full;
+  height: 40px;
+  min-width: 40px;
+  color: var(--text-2);
+}
+
+.header-action.meet {
+  padding: 0 4px 0 8px;
+  border-radius: 20px;
+  min-width: 56px;
+}
+
+button.header-action:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+button.header-action:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+/* Share: ~132x40 #c2e7ff split pill with a lock. */
+.share {
+  @apply flex items-center;
+  margin-left: 8px;
+}
+
+.share-button,
+.share-caret {
+  @apply flex items-center;
+  height: 40px;
+  background: var(--blue-soft);
+  color: #001d35;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+}
+
+.share-button {
+  gap: 8px;
+  padding: 0 14px 0 16px;
+  border-radius: 20px 0 0 20px;
+}
+
+.share-caret {
+  padding: 0 8px 0 6px;
+  margin-left: 1px;
+  border-radius: 0 20px 20px 0;
+}
+
+.share-button:hover,
+.share-caret:hover,
+.share-caret[data-popup-open] {
+  background: #b3d7ef;
+}
+
+.spark {
+  margin-left: 4px;
+}
+
+/* ---------- Toolbar pill ---------- */
+
+/* Leaves room for the side rail, like Docs' toolbar stopping short of it. */
 .toolbar-wrap {
-  padding: 6px 16px 10px;
+  margin: 0 calc(var(--rail-width) + 16px) 8px 16px;
 }
 
+/* #f0f4f9, radius 28, 40px tall, padding 0 8px; 30px buttons on a 32px pitch. */
 .toolbar {
-  @apply flex items-center gap-0.5 h-10;
+  @apply flex items-center overflow-hidden;
+  height: 40px;
   padding: 0 8px;
-  @apply rounded-3xl;
+  border-radius: 28px;
   background: var(--pill);
-  @apply overflow-x-auto;
-  scrollbar-width: none;
-}
-
-.toolbar::-webkit-scrollbar {
-  @apply hidden;
+  font-size: 14px;
 }
 
 .divider {
   flex: 0 0 auto;
-  @apply w-0.25 h-5;
-  margin: 0 6px;
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
   background: #c7c7c7;
 }
 
@@ -134,97 +206,189 @@
 }
 
 .toolbar-icon {
-  @apply grid place-items-center shrink-0;
-  height: 30px;
-  width: 34px;
-  @apply rounded;
+  @apply relative flex items-center justify-center shrink-0;
+  height: 28px;
+  min-width: 28px;
+  margin: 0 2px;
+  border-radius: 4px;
   color: var(--text-2);
 }
-.toolbar-icon:hover {
+
+.toolbar-icon:hover,
+.toolbar-icon[data-popup-open] {
   background: var(--hover);
 }
-.toolbar-static {
-  @apply flex items-center gap-2;
-  padding: 0 12px;
-  @apply whitespace-nowrap text-sm;
+
+.toolbar-icon.with-caret {
+  padding-left: 2px;
 }
-.toolbar .toolbar-icon {
-  width: 30px;
-  height: 28px;
+
+.toolbar-icon .caret {
+  margin: 0 -2px 0 -3px;
 }
-.toolbar-icon svg {
-  width: 18px;
-  height: 18px;
-}
-/* Text color "A" sits on a black swatch bar, like Docs. */
-.toolbar-icon.text-color {
-  @apply relative;
-}
+
+/* Text colour "A" sits on a black swatch bar, like Docs. */
 .toolbar-icon.text-color::after {
   content: '';
   @apply absolute;
-  left: 8px;
-  right: 8px;
-  bottom: 4px;
+  left: 5px;
+  right: 5px;
+  bottom: 3px;
   height: 3px;
   background: #000;
 }
-/* Font size: − [11] + */
-.font-size {
-  @apply flex items-center shrink-0;
-  gap: 2px;
-}
-.font-size-step {
-  @apply grid place-items-center;
-  width: 24px;
+
+/* Toolbar dropdowns: "100% ▾", "Normal text ▾", "Arial ▾". */
+.chip {
+  @apply inline-flex items-center shrink-0 whitespace-nowrap;
   height: 28px;
-  font-size: 18px;
+  margin: 0 2px;
+  padding: 0 0 0 6px;
+  border-radius: 4px;
   color: var(--text-2);
 }
-.font-size-box,
-.chip.font-size-box {
-  @apply inline-flex items-center justify-center;
-  height: 26px;
-  min-width: 36px;
-  padding: 0 6px;
-  border: 1px solid #747775;
+
+.chip svg {
+  color: var(--text-2);
+}
+
+.chip:hover,
+.chip[data-popup-open] {
+  background: var(--hover);
+}
+
+.chip-label {
+  @apply flex-1 overflow-hidden text-ellipsis text-left;
+}
+
+.chip-zoom {
+  width: 64px;
+}
+
+.chip-style {
+  width: 120px;
+}
+
+.chip-font {
+  width: 95px;
+}
+
+.chip-mode {
+  padding: 0 2px 0 6px;
+}
+
+/* Font size: − [11] +, the box 34x24 with a #747775 outline. */
+.font-size {
+  @apply flex items-center shrink-0;
+}
+
+.font-size-step {
+  @apply grid place-items-center;
+  width: 28px;
+  height: 28px;
   border-radius: 4px;
+  color: var(--text-2);
+}
+
+.font-size-step:hover {
+  background: var(--hover);
+}
+
+.chip.font-size-box .chip-label {
+  @apply flex-none text-center;
+}
+
+.chip.font-size-box {
+  @apply justify-center;
+  width: 34px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #747775;
   font-size: 14px;
-  color: var(--text);
+  color: var(--text-2);
 }
-.document-location {
-  @apply flex items-center gap-1.5 min-w-0;
-  color: var(--muted);
-  margin: 0 6px;
+
+/* Docs folds decorative groups away from the right as the window narrows. */
+@media (max-width: 1360px) {
+  .tb-xl {
+    @apply hidden;
+  }
 }
-.document-location small {
-  max-width: 160px;
-  @apply overflow-hidden text-ellipsis whitespace-nowrap text-xs;
-}
-/* Docs folds decorative toolbar groups away as the window narrows. */
-@media (max-width: 1399px) {
+
+@media (max-width: 1240px) {
   .tb-wide {
     @apply hidden;
   }
 }
-@media (max-width: 1099px) {
-  .tb-optional {
+
+@media (max-width: 1100px) {
+  .tb-lg {
     @apply hidden;
   }
 }
+
 @media (max-width: 960px) {
-  .document-location small {
+  .tb-md,
+  .header-action {
     @apply hidden;
   }
 }
+
+@media (max-width: 860px) {
+  .tb-sm {
+    @apply hidden;
+  }
+}
+
+/* ---------- Side panel of Workspace apps ---------- */
+
+.side-rail {
+  @apply fixed flex flex-col items-center;
+  top: 64px;
+  right: 0;
+  bottom: 0;
+  width: var(--rail-width);
+  padding-top: 8px;
+  gap: 4px;
+  background: var(--canvas);
+  z-index: 5;
+}
+
+.rail-app {
+  @apply grid place-items-center rounded-full;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 8px;
+  color: var(--text-2);
+}
+
+.rail-app:hover {
+  background: var(--hover);
+}
+
+.rail-divider {
+  width: 20px;
+  height: 1px;
+  margin: 4px 0 12px;
+  background: var(--line);
+}
+
+.rail-hide {
+  margin-top: auto;
+}
+
 @media print {
   .doc-chrome,
+  .side-rail,
   .tabs,
-  .stop-wrap,
+  .vruler,
   .ruler,
+  .spark-wrap,
   .composer-wrap {
     display: none !important;
   }
+
   html,
   body,
   #root,
@@ -233,63 +397,9 @@
     height: auto;
     overflow: visible;
   }
+
   .paper {
     box-shadow: none;
     @apply m-0 w-full;
-  }
-}
-
-/* Title row glyphs and the right-hand header actions (history, comments, Share). */
-.title-icon {
-  @apply grid place-items-center w-7 h-7 rounded-full;
-  color: var(--text-2);
-}
-.document-location svg {
-  width: 20px;
-  height: 20px;
-}
-.doc-actions {
-  @apply flex items-center gap-1;
-  margin-right: 8px;
-}
-.header-action {
-  @apply grid place-items-center w-10 h-10 rounded-full;
-  color: var(--text-2);
-}
-button.header-action:hover:not(:disabled) {
-  background: var(--hover);
-}
-button.header-action:disabled {
-  opacity: 1;
-  cursor: default;
-}
-.share {
-  @apply flex items-center;
-  margin-left: 8px;
-}
-.share-button,
-.share-caret {
-  @apply flex items-center h-10;
-  background: var(--blue-soft);
-  color: #001d35;
-  @apply text-sm font-medium;
-}
-.share-button {
-  gap: 8px;
-  padding: 0 16px 0 14px;
-  border-radius: 20px 0 0 20px;
-}
-.share-caret {
-  padding: 0 10px 0 6px;
-  margin-left: 1px;
-  border-radius: 0 20px 20px 0;
-}
-.share-button:hover,
-.share-caret:hover {
-  background: #b3d7ef;
-}
-@media (max-width: 960px) {
-  .header-action {
-    @apply hidden;
   }
 }

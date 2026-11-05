@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, type UIEvent } from 'react'
 import type { Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
 import { BlockView } from './BlockView'
+import { SparkIcon } from '../ui/Icons'
 import { Composer } from './Composer'
 import { Tabs } from './Tabs'
 
@@ -81,6 +82,7 @@ export function Document({
   return (
     <div className="workspace" data-testid="document" ref={scrollRef} onScroll={onScroll}>
       <div className="doc-layout">
+        <VerticalRuler />
         <Tabs onNew={onNew} questions={questions} onJump={jumpTo} />
         <div className="paper-col">
           <Ruler />
@@ -96,9 +98,9 @@ export function Document({
                 {snap.loadingOlder ? 'Loading…' : 'Load earlier'}
               </button>
             ) : null}
-            {visibleBlocks.map((block, index) => (
+            {visibleBlocks.map((block) => (
               <div
-                className={`doc-block${block.kind === 'user' && index > 0 ? ' turn-start' : ''}`}
+                className="doc-block"
                 data-turn={block.kind === 'user' ? block.id : undefined}
                 key={block.id}
               >
@@ -114,29 +116,60 @@ export function Document({
           </article>
         </div>
       </div>
-      {snap.streaming ? (
-        <div className="stop-wrap">
-          <button type="button" className="stop" data-testid="stop-turn" onClick={() => dispatch({ op: 'interrupt' })}>
+      {/* Docs' floating spark pill; while an answer streams it stops it. */}
+      <div className="spark-wrap">
+        {snap.streaming ? (
+          <button
+            type="button"
+            className="spark-pill busy"
+            data-testid="stop-turn"
+            aria-label="Stop"
+            title="Stop"
+            onClick={() => dispatch({ op: 'interrupt' })}
+          >
             <span className="stop-square" aria-hidden="true" />
-            Stop
           </button>
-        </div>
-      ) : null}
+        ) : (
+          <span className="spark-pill" aria-hidden="true">
+            <SparkIcon size={16} />
+          </span>
+        )}
+      </div>
     </div>
   )
 }
 
-/** Decorative inch ruler above the paper, like Docs. */
+const INCHES = [-1, 1, 2, 3, 4, 5, 6, 7]
+
+/**
+ * Docs' horizontal ruler over the page: inches count from the left margin,
+ * the margins are shaded, and blue markers sit at both indents. Decorative.
+ */
 function Ruler() {
   return (
     <div className="ruler" aria-hidden="true">
-      {[1, 2, 3, 4, 5, 6, 7].map((inch) => (
-        <span key={inch} className="ruler-num" style={{ left: `${(inch / 8) * 100}%` }}>
+      <div className="ruler-track">
+        {INCHES.map((inch) => (
+          <span key={inch} className="ruler-num" style={{ left: 96 + inch * 96 }}>
+            {Math.abs(inch)}
+          </span>
+        ))}
+        <i className="ruler-indent ruler-indent-left" />
+        <i className="ruler-indent ruler-indent-right" />
+      </div>
+    </div>
+  )
+}
+
+/** The vertical ruler along the left edge of the editor. Decorative. */
+function VerticalRuler() {
+  return (
+    <div className="vruler" aria-hidden="true">
+      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((inch) => (
+        <span key={inch} className="vruler-num" style={{ top: 96 + inch * 96 }}>
           {inch}
         </span>
       ))}
-      <i className="ruler-tab ruler-tab-left" />
-      <i className="ruler-tab ruler-tab-right" />
     </div>
   )
 }

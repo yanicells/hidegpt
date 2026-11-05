@@ -1,9 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import type { Block } from '../../../../codex/blocks'
-import { dispatch } from '../../session-bridge'
-import { BackIcon, KebabIcon, PlusMonoIcon, TabDocIcon } from '../ui/Icons'
+import { MIcon } from '../ui/MaterialIcon'
 
+const NARROW = '(max-width: 960px)'
+
+/**
+ * Docs' "Document tabs" panel: one "Tab 1" pill and the heading outline below
+ * it. Each question is a Heading 1, so the outline jumps between turns. The ←
+ * collapses the panel to a round button; narrow windows start collapsed.
+ */
 export function Tabs({
   questions,
   onNew,
@@ -14,45 +20,77 @@ export function Tabs({
   onJump: (id: string) => void
 }) {
   const [activeId, setActive] = useState<string | null>(null)
+  const [open, setOpen] = useState(() => !window.matchMedia?.(NARROW).matches)
+  useEffect(() => {
+    const query = window.matchMedia?.(NARROW)
+    if (!query) return
+    const onChange = () => setOpen(!query.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
   const active =
     activeId && questions.some((question) => question.id === activeId)
-      ? (activeId as string)
+      ? activeId
       : (questions[questions.length - 1]?.id ?? null)
+
+  if (!open) {
+    return (
+      <aside className="tabs collapsed" aria-label="Document tabs" data-testid="outline">
+        <button
+          type="button"
+          className="tabs-show"
+          aria-label="Show tabs & outlines"
+          title="Show tabs & outlines"
+          onClick={() => setOpen(true)}
+        >
+          <MIcon name="list" />
+        </button>
+      </aside>
+    )
+  }
+
   return (
     <aside className="tabs" aria-label="Document tabs" data-testid="outline">
       <button
         type="button"
-        className="tabs-back"
-        aria-label="Back to documents"
-        onClick={() => dispatch({ op: 'goHome' })}
+        className="tabs-hide"
+        aria-label="Hide tabs & outlines"
+        title="Hide tabs & outlines"
+        onClick={() => setOpen(false)}
       >
-        <BackIcon />
+        <MIcon name="arrow_back" size={24} />
       </button>
       <div className="tabs-head">
         <span>Document tabs</span>
-        <button type="button" className="tabs-new" aria-label="New document" title="New document" onClick={onNew}>
-          <PlusMonoIcon />
+        <button type="button" className="tabs-new" aria-label="New document" title="Add tab" onClick={onNew}>
+          <MIcon name="add" />
         </button>
       </div>
+      <div className="tab-pill">
+        <MIcon name="article" />
+        <span className="tab-pill-name">Tab 1</span>
+        <span className="tab-pill-more" aria-hidden="true" title="Tab options">
+          <MIcon name="more_vert" />
+        </span>
+      </div>
       {questions.length === 0 ? (
-        <p className="tabs-hint">Questions you ask will appear here.</p>
+        <p className="tabs-hint">Headings you add to the document will appear here.</p>
       ) : (
-        <ol className="tabs-list">
+        <ol className="doc-outline">
           {questions.map((question) => (
             <li key={question.id}>
               <button
                 type="button"
-                className={`tab${active === question.id ? ' active' : ''}`}
+                className={`outline-item${active === question.id ? ' active' : ''}`}
                 data-testid={`outline-${question.id}`}
+                aria-current={active === question.id ? 'location' : undefined}
                 title={question.text}
                 onClick={() => {
                   setActive(question.id)
                   onJump(question.id)
                 }}
               >
-                <TabDocIcon />
-                <span className="tab-text">{truncate(question.text) || (question.images ? 'Image' : 'Untitled')}</span>
-                {active === question.id ? <KebabIcon /> : null}
+                {truncate(question.text) || (question.images ? 'Image' : 'Untitled')}
               </button>
             </li>
           ))}

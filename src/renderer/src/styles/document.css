@@ -1,84 +1,148 @@
-/* ---------- Page ---------- */
+/* ---------- Editor canvas ----------
+ * Layout follows live Docs: a 16px vertical ruler, the 280px tabs panel, and
+ * the 816px page. The page centres in the window but never slides under the
+ * panel (page left = max(centred, panel right + 5px)); narrow windows scroll.
+ */
+
+.workspace {
+  @apply relative flex-1 min-h-0 overflow-auto;
+  background: var(--canvas);
+  margin-right: var(--rail-width);
+  --page-w: calc(var(--paper-width) * var(--page-zoom, 1));
+  --tabs-w: 280px;
+}
 
 .doc-layout {
-  @apply grid;
-  grid-template-columns: 260px minmax(0, 1fr) min(260px, max(0px, calc(100vw - 1124px)));
-  @apply items-start min-h-full;
+  @apply relative flex items-start min-h-full;
+  min-width: max-content;
+}
+
+.doc-layout:has(> .tabs.collapsed) {
+  --tabs-w: 64px;
 }
 
 .paper-col {
-  flex: 1 1 auto;
-  @apply min-w-0 flex flex-col items-center;
+  @apply flex flex-col items-start;
+  flex: 1 0 auto;
+  /* Left edge of the page relative to the window, minus the ruler and panel already to its left. */
+  padding-left: max(5px, calc((100vw - var(--rail-width) - var(--page-w)) / 2 - 16px - var(--tabs-w)));
+  padding-right: 24px;
 }
 
-.workspace {
-  @apply flex-1 min-h-0 overflow-auto;
-  background: var(--canvas);
-  @apply relative;
-}
-
+/* Horizontal ruler: the page's width, numbered in inches from the left margin. */
 .ruler {
   @apply sticky;
   top: 0;
-  z-index: 2;
-  width: min(var(--paper-width), calc(100% - 48px));
-  @apply h-5;
+  z-index: 3;
+  padding: 2px 0 0;
   background: var(--canvas);
-  border-bottom: 1px solid var(--line);
-  background-image: repeating-linear-gradient(90deg, #9aa0a6 0 1px, transparent 1px 12px);
-  background-size: 100% 5px;
-  background-position: bottom;
-  background-repeat: no-repeat;
-  font-family: var(--font-ui);
+}
+
+.ruler-track {
+  @apply relative;
+  width: var(--paper-width);
+  height: 18px;
+  zoom: var(--page-zoom, 1);
+  border-bottom: 1px solid #c7c7c7;
+  /* Shaded margins either side of the 6.5in writing width. */
+  background:
+    linear-gradient(90deg, #e3e3e3 0 var(--paper-margin), transparent var(--paper-margin) calc(100% - var(--paper-margin)), #e3e3e3 0),
+    var(--surface);
+  font-family: var(--font-text);
   font-size: 10px;
-  color: var(--faint);
+  line-height: 1;
+  color: var(--text-2);
+}
+
+/* Eighth-inch ticks, taller at the half inch. */
+.ruler-track::before {
+  content: '';
+  @apply absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 47px, #9aa0a6 47px 48px) 0 0 / 100% 7px no-repeat,
+    repeating-linear-gradient(90deg, transparent 0 11px, #c4c7c5 11px 12px) 0 2px / 100% 2px no-repeat;
+  background-position-x: 96px;
 }
 
 .ruler-num {
   @apply absolute;
-  top: 1px;
+  top: 3px;
   transform: translateX(-50%);
 }
 
-.ruler-num::after {
-  content: '';
-  @apply absolute;
-  left: 50%;
-  top: 11px;
-  @apply w-0.25 h-2;
-  background: var(--faint);
-}
-
-.ruler-tab {
+/* Docs' blue indent markers: a down-pointing triangle at each margin. */
+.ruler-indent {
   @apply absolute;
   top: 0;
   width: 0;
   height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
   border-top: 7px solid var(--docs-blue);
-}
-
-.ruler-tab-left {
-  left: var(--paper-margin);
   transform: translateX(-50%);
 }
 
-.ruler-tab-right {
-  right: var(--paper-margin);
-  transform: translateX(50%);
+.ruler-indent-left {
+  left: var(--paper-margin);
 }
 
+.ruler-indent-left::after {
+  content: '';
+  @apply absolute;
+  left: -6px;
+  top: -10px;
+  width: 12px;
+  height: 3px;
+  background: var(--docs-blue);
+}
+
+.ruler-indent-right {
+  left: calc(100% - var(--paper-margin));
+}
+
+.vruler {
+  @apply sticky shrink-0;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  width: 16px;
+  height: 100vh;
+  margin-top: 20px;
+  border-right: 1px solid #c7c7c7;
+  background: var(--surface);
+  font-family: var(--font-text);
+  font-size: 10px;
+  color: var(--text-2);
+  zoom: var(--page-zoom, 1);
+  overflow: hidden;
+}
+
+.vruler-num {
+  @apply absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  transform: translateY(-50%) rotate(-90deg);
+}
+
+/* ---------- The page ---------- */
+
+/* US Letter at 96dpi with 1in margins; Arial 11pt, Docs' 1.15 spacing (~19.8px pitch). */
 .paper {
-  width: min(var(--paper-width), calc(100% - 48px));
+  width: var(--paper-width);
   min-height: 1056px;
-  margin: 14px 0 96px;
-  padding: 96px min(11.7%, 96px);
+  margin: 16px 0 96px;
+  padding: var(--paper-margin);
+  zoom: var(--page-zoom, 1);
   background: var(--surface);
   box-shadow: var(--shadow-page);
   font-family: var(--font-page);
   font-size: 11pt;
-  line-height: 1.2;
+  line-height: 1.35;
   color: #000;
 }
 
@@ -99,20 +163,19 @@
   text-decoration: none;
 }
 
-/* A question is a document section at body scale, separated from the last. */
+/* A question is the turn's Heading 1: Arial 20pt regular, 20pt before, 6pt after. */
 .doc-question {
-  margin: 0 0 6pt;
-  font-size: 11pt;
-  line-height: 1.3;
-  @apply font-bold;
+  margin: 20pt 0 6pt;
+  font-size: 20pt;
+  font-weight: 400;
+  line-height: 1.2;
   color: #000;
   overflow-wrap: anywhere;
 }
 
-.doc-block.turn-start {
-  margin-top: 16pt;
-  padding-top: 14pt;
-  border-top: 1px solid var(--hairline);
+.doc-block:first-child .doc-question,
+.load-older + .doc-block .doc-question {
+  margin-top: 0;
 }
 
 .doc-body {
@@ -127,142 +190,170 @@
   margin-bottom: 0;
 }
 
+/* Normal text: no space before, one blank line's worth after. */
 .doc-body p {
-  margin: 0 0 10pt;
+  margin: 0 0 1lh;
 }
 
-.doc-body h1,
-.doc-body h2,
-.doc-body h3,
-.doc-body h4,
-.doc-body h5,
-.doc-body h6 {
+/* Answer headings step down from the question: Docs Heading 2, 3 and 4, all regular weight. */
+.doc-body :is(h1, h2, h3, h4, h5, h6) {
+  font-weight: 400;
   line-height: 1.2;
-  margin: 18pt 0 6pt;
 }
 
-.doc-body h1 {
-  @apply font-normal;
+.doc-body :is(h1, h2) {
+  margin: 18pt 0 6pt;
   font-size: 16pt;
 }
 
-.doc-body h2 {
+.doc-body h3 {
+  margin: 16pt 0 4pt;
   font-size: 14pt;
-  @apply font-bold;
   color: #434343;
 }
 
-.doc-body h3,
-.doc-body h4,
-.doc-body h5,
-.doc-body h6 {
+.doc-body :is(h4, h5, h6) {
+  margin: 14pt 0 4pt;
   font-size: 12pt;
-  @apply font-bold;
   color: #666;
 }
 
 .doc-body a {
   color: #1155cc;
+  text-decoration: underline;
 }
 
 .doc-body strong {
   @apply font-bold;
 }
 
-.doc-body ul,
+/* Lists: marker at 0.25in, text at 0.5in; nesting adds 0.5in. */
+.doc-body :is(ul, ol) {
+  margin: 0 0 1lh;
+  padding: 0 0 0 48px;
+  list-style: none;
+}
+
+.doc-body :is(li ul, li ol) {
+  margin: 0;
+}
+
 .doc-body ol {
-  margin: 0 0 10pt;
-  @apply pl-9;
+  counter-reset: item;
 }
 
 .doc-body li {
-  margin: 0 0 2pt;
+  @apply relative;
 }
 
 .doc-body li > p {
   @apply m-0;
 }
 
+.doc-body ul > li::before {
+  content: '●';
+  @apply absolute;
+  left: -24px;
+  font-size: 0.75em;
+  line-height: 1.8;
+}
+
+.doc-body ul ul > li::before {
+  content: '○';
+}
+
+.doc-body ul ul ul > li::before {
+  content: '■';
+  font-size: 0.6em;
+  line-height: 2.25;
+}
+
+.doc-body ol > li {
+  counter-increment: item;
+}
+
+.doc-body ol > li::before {
+  content: counter(item) '.';
+  @apply absolute;
+  left: -24px;
+}
+
+.doc-body ol ol > li::before {
+  content: counter(item, lower-alpha) '.';
+}
+
+.doc-body ol ol ol > li::before {
+  content: counter(item, lower-roman) '.';
+}
+
+/* Docs has no quote style; a quote is simply indented text. */
 .doc-body blockquote {
-  margin: 0 0 10pt;
-  padding: 0 0 0 12px;
-  border-left: 3px solid var(--line);
-  color: var(--text-2);
+  margin: 0 0 1lh;
+  padding: 0 0 0 48px;
 }
 
 .doc-body hr {
   @apply border-0;
-  border-top: 1px solid var(--line);
-  margin: 12pt 0;
+  border-top: 1px solid #000;
+  margin: 0 0 1lh;
 }
 
 .doc-body code {
   font-family: var(--font-mono);
-  font-size: 10pt;
-  background: var(--band);
-  padding: 1px 4px;
-  border-radius: 3px;
 }
 
+/* Docs' code block building block: a light grey box with a hairline. */
 .doc-body pre {
-  margin: 0 0 10pt;
-  padding: 10px 12px;
-  border: 1px solid var(--hairline);
-  @apply rounded;
+  margin: 0 0 1lh;
+  padding: 8px 12px;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
   background: #f8f9fa;
   @apply overflow-auto;
+  font-size: 10pt;
   line-height: 1.4;
-}
-
-.doc-body pre code {
-  background: none;
-  @apply p-0;
 }
 
 .doc-body table {
   border-collapse: collapse;
-  margin: 0 0 10pt;
+  margin: 0 0 1lh;
   @apply w-full;
 }
 
-.doc-body th,
-.doc-body td {
-  border: 1px solid #b7b7b7;
-  padding: 4px 8px;
+.doc-body :is(th, td) {
+  border: 1px solid #000;
+  padding: 5pt;
   @apply text-left;
   vertical-align: top;
 }
 
 .doc-body th {
-  @apply font-bold;
+  font-weight: 400;
 }
 
 .doc-body img {
   max-width: 100%;
 }
 
-.doc-block {
-  margin-bottom: 10pt;
-}
-
 .streaming .doc-body > :last-child {
   display: inline;
 }
 
+/* ---------- Non-printing scaffolding (View > Show non-printing characters) ---------- */
+
 .callout {
-  margin: 2pt 0;
+  margin: 0 0 4pt;
   font-family: var(--font-ui);
 }
 
 .callout summary {
-  @apply inline-flex items-center gap-1 h-6;
-  padding: 0 10px 0 4px;
-  border: 1px solid #dadce0;
-  @apply rounded-xl;
-  background: var(--surface);
-  font-size: 13px;
+  @apply inline-flex items-center gap-1 cursor-pointer list-none select-none;
+  height: 22px;
+  padding: 0 8px 0 2px;
+  border-radius: 11px;
+  background: #f1f3f4;
+  font-size: 12px;
   color: var(--text-2);
-  @apply cursor-pointer list-none select-none;
 }
 
 .callout summary::-webkit-details-marker {
@@ -270,51 +361,52 @@
 }
 
 .callout summary:hover {
-  background: var(--hover-soft);
+  background: #e8eaed;
 }
 
-.callout summary svg {
-  color: var(--muted);
-  transform: rotate(-90deg);
+.callout-arrow {
+  color: var(--text-2);
   transition: transform 120ms;
 }
 
-.callout[open] summary svg {
-  transform: none;
+.callout[open] .callout-arrow {
+  transform: rotate(90deg);
 }
 
 .callout pre {
-  margin: 6px 0 4px;
+  margin: 4px 0;
   padding: 8px 12px;
-  border: 1px solid var(--hairline);
-  @apply rounded;
-  background: #f8f9fa;
-  @apply whitespace-pre-wrap;
+  border-left: 2px solid #dadce0;
+  @apply whitespace-pre-wrap overflow-auto;
   overflow-wrap: anywhere;
+  max-height: 320px;
   font-family: var(--font-mono);
-  @apply text-xs;
+  font-size: 12px;
   line-height: 1.45;
   color: var(--text-2);
-  max-height: 320px;
-  @apply overflow-auto;
 }
 
+/* ---------- Approvals: Docs' suggestion card ---------- */
+
 .approval {
-  margin: 6pt 0;
+  margin: 0 0 1lh;
   padding: 12px 16px 14px;
-  border: 1px solid var(--line);
-  border-left: 4px solid var(--green);
-  @apply rounded-lg;
+  border-radius: 8px;
   background: var(--surface);
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
   font-family: var(--font-ui);
 }
 
 .approval.done {
-  border-left-color: var(--line);
+  box-shadow: none;
+  border: 1px solid var(--hairline);
 }
 
 .approval-eyebrow {
-  @apply block text-xs font-medium;
+  @apply block;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
   color: var(--green);
 }
 
@@ -323,8 +415,9 @@
 }
 
 .approval h3 {
-  margin: 2px 0 4px;
-  @apply text-sm font-medium;
+  margin: 4px 0;
+  font-size: 14px;
+  font-weight: 500;
   color: var(--text);
 }
 
@@ -340,23 +433,23 @@
 .field {
   @apply flex flex-col gap-1.5;
   margin: 0 0 10px;
-  @apply text-xs;
+  font-size: 12px;
   color: var(--muted);
 }
 
 .approval input {
   @apply w-full;
-  border: 1px solid var(--line);
-  @apply rounded;
-  padding: 7px 10px;
-  font-size: 13px;
+  border: 1px solid #747775;
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 14px;
   color: var(--text);
   background: var(--surface);
 }
 
 .approval input:focus {
   border-color: var(--blue);
-  box-shadow: 0 0 0 1px var(--blue);
+  outline: 1px solid var(--blue);
 }
 
 .choices {
@@ -364,22 +457,22 @@
 }
 
 .choice {
-  @apply h-7;
+  height: 32px;
   padding: 0 12px;
-  border: 1px solid var(--line);
-  @apply rounded-lg;
-  font-size: 13px;
-  color: var(--text);
+  border: 1px solid #747775;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text-2);
 }
 
 .choice:hover {
-  background: var(--hover-soft);
+  background: var(--hover);
 }
 
 .choice.on {
-  background: var(--blue-soft);
+  background: #c2e7ff;
   border-color: transparent;
-  color: var(--blue-dark);
+  color: #001d35;
 }
 
 .actions {
@@ -388,10 +481,12 @@
 
 .accept,
 .skip {
-  @apply h-9;
-  padding: 0 20px;
+  height: 36px;
+  padding: 0 24px;
   border-radius: 18px;
-  @apply text-sm font-medium;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
 }
 
 .accept {
@@ -412,41 +507,41 @@
 }
 
 .resolved {
-  @apply text-xs;
+  font-size: 12px;
   color: var(--muted);
 }
 
+/* ---------- Writing line ---------- */
+
 .composer {
-  @apply block w-full;
+  @apply block w-full border-0 bg-transparent p-0 overflow-hidden;
   field-sizing: content;
-  min-height: 1.2em;
-  @apply border-0;
+  min-height: 1lh;
   resize: none;
-  @apply bg-transparent;
   font: inherit;
   line-height: inherit;
   color: inherit;
   caret-color: #000;
-  @apply p-0 overflow-hidden;
 }
 
 .composer::placeholder {
-  color: var(--faint);
+  color: #9aa0a6;
 }
 
 .pending {
-  margin: 0 0 10pt;
-  min-height: 1.2em;
+  margin: 0 0 1lh;
+  min-height: 1lh;
 }
 
+/* The insertion caret: a thin black bar, like Docs' own cursor. */
 .caret {
   display: inline-block;
-  width: 1.5px;
-  height: 1em;
+  width: 2px;
+  height: 1.15em;
   margin-left: 1px;
   background: #000;
   vertical-align: text-bottom;
-  animation: blink 1s step-end infinite;
+  animation: blink 1.06s step-end infinite;
 }
 
 @keyframes blink {
@@ -455,35 +550,36 @@
   }
 }
 
-.stop-wrap {
-  @apply sticky;
+/* Docs' floating spark pill at the bottom of the page; stops a streaming answer. */
+.spark-wrap {
+  @apply sticky flex justify-center pointer-events-none;
   bottom: 0;
-  @apply flex justify-center pb-6;
-  margin-top: -80px;
-  @apply pointer-events-none;
+  left: 0;
+  padding-bottom: 20px;
+  margin-top: -64px;
 }
 
-.stop {
-  pointer-events: auto;
-  @apply inline-flex items-center gap-2.5 h-10;
-  padding: 0 20px 0 14px;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  background: var(--surface);
-  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.25);
-  font-family: var(--font-ui);
-  @apply text-sm font-medium;
-  color: var(--text);
+.spark-pill {
+  @apply inline-flex items-center justify-center pointer-events-auto;
+  width: 84px;
+  height: 20px;
+  border-radius: 10px;
+  background: #e9eef6;
 }
 
-.stop:hover {
-  background: var(--hover-soft);
+.spark-pill.busy {
+  background: #d3e3fd;
+}
+
+.spark-pill.busy:hover {
+  background: #c2d7fb;
 }
 
 .stop-square {
-  @apply w-3 h-3;
-  border-radius: 2px;
-  background: var(--red);
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  background: var(--blue);
 }
 
 @keyframes pulse {
@@ -511,18 +607,6 @@
 .opening-paper .sk-text:nth-child(3n) {
   @apply mb-9;
 }
-@media print {
-  .composer-wrap {
-    @apply hidden;
-  }
-}
-
-@media (max-width: 960px) {
-  .doc-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 /* Composer attachments: images sit on the page like inserted images, skills as smart chips. */
 .composer-wrap {
   position: relative;

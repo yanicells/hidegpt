@@ -1,190 +1,292 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useState } from 'react'
 
-import { PROVIDERS, providerLabel } from '../../../../codex/labels'
 import type { Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
-import { ChevronIcon, PenIcon } from '../ui/Icons'
 import { MIcon, type MaterialIconName } from '../ui/MaterialIcon'
-import { MenuPanel, type Item, type MenuId } from '../ui/MenuPanel'
+import { MenuSearchInput } from '../ui/menu'
+import { MenuRows, type Item } from '../ui/MenuPanel'
+import { Chip } from './Chip'
 import { openImagePicker } from './Composer'
+import {
+  EDIT_MODES,
+  effortFonts,
+  FONT_SIZES,
+  sizeForTier,
+  STYLE_SLOTS,
+  styleName,
+  tierForSize,
+  ZOOMS,
+} from './toolbarMenus'
 
+/**
+ * Docs' formatting toolbar. Real settings hide inside its controls: the style
+ * menu picks the model, the font menu the reasoning effort, the size box the
+ * service tier, the pencil menu the mode. Everything else is costume.
+ */
 export function Toolbar({ snap }: { snap: Snapshot }) {
-  const [menu, setMenu] = useState<MenuId>(null)
-  const model = snap.models.find((item) => item.model === snap.model)
-  const efforts = model?.supportedReasoningEfforts ?? []
-  const tiers = model?.serviceTiers ?? []
-  const toggle = (id: MenuId) => setMenu(menu === id ? null : id)
+  const [zoom, setZoom] = usePageZoom()
+  const modelIndex = snap.models.findIndex((item) => item.model === snap.model)
+  const model = snap.models[modelIndex]
+  const efforts = effortFonts((model?.supportedReasoningEfforts ?? []).map((item) => item.reasoningEffort))
+  const currentFont = efforts.find((item) => item.effort === snap.effort)?.font ?? 'Arial'
+  const tiers = (model?.serviceTiers ?? []).map((tier) => tier.id)
+  const size = sizeForTier(snap.serviceTier, tiers)
+  const stepTier = (step: number) => {
+    const order = [null, ...tiers]
+    const next = order[Math.max(0, Math.min(order.length - 1, order.indexOf(snap.serviceTier ?? null) + step))]
+    if (next !== (snap.serviceTier ?? null)) dispatch({ op: 'setServiceTier', serviceTier: next })
+  }
 
   return (
     <div className="toolbar-wrap">
       <div className="toolbar" role="toolbar" aria-label="Document settings">
-        <Decor name="search" className="tb-optional" />
-        <ToolButton name="undo" label="Undo" onClick={() => document.execCommand('undo')} />
-        <ToolButton name="redo" label="Redo" onClick={() => document.execCommand('redo')} />
-        <ToolButton name="print" label="Print document" onClick={() => window.print()} />
-        <Decor name="paint" className="tb-optional" />
-        <span className="toolbar-static">
-          100% <ChevronIcon />
-        </span>
+        <Decor name="search" />
+        <ToolButton name="undo" label="Undo (⌘Z)" onClick={() => document.execCommand('undo')} />
+        <ToolButton name="redo" label="Redo (⌘Y)" onClick={() => document.execCommand('redo')} />
+        <ToolButton name="print" label="Print (⌘P)" onClick={() => window.print()} />
+        <Decor name="spellcheck" className="tb-sm" />
+        <Decor name="format_paint" className="tb-sm" />
+        <Chip
+          testId="chip-zoom"
+          label={`${zoom}%`}
+          className="chip-zoom"
+          menuClass="zoom-menu"
+          menuWidth={96}
+          title="Zoom"
+          >
+            <MenuRows
+              itemPrefix="zoom"
+              items={[
+                { id: 'fit', label: 'Fit', run: () => setZoom(fitZoom()) },
+                ...ZOOMS.map((value, index) => ({
+                  id: String(value),
+                  label: `${value}%`,
+                  divider: index === 0,
+                  checked: value === zoom,
+                  run: () => setZoom(value),
+                })),
+              ]}
+            />
+        </Chip>
         <span className="divider" aria-hidden="true" />
         <Chip
           testId="chip-model"
-          label="Normal text"
-          open={menu === 'model'}
-          onClick={() => toggle('model')}
-          searchable
-          searchPlaceholder="Search models"
-          items={snap.models.map((item) => ({
-            id: item.model,
-            label: item.displayName,
-            checked: item.model === snap.model,
-            run: () => dispatch({ op: 'setModel', model: item.model }),
-          }))}
-          onClose={() => setMenu(null)}
-        />
-        {efforts.length > 0 ? (
-          <>
-            <span className="divider" aria-hidden="true" />
-            <Chip
-              testId="chip-effort"
-              label="Arial"
-              open={menu === 'effort'}
-              onClick={() => toggle('effort')}
-              items={efforts.map((item) => ({
-                id: item.reasoningEffort,
-                label: capitalize(item.reasoningEffort),
-                checked: item.reasoningEffort === snap.effort,
-                run: () => dispatch({ op: 'setEffort', effort: item.reasoningEffort }),
-              }))}
-              onClose={() => setMenu(null)}
-            />
-          </>
-        ) : (
-          <>
-            <span className="divider" aria-hidden="true" />
-            <span className="toolbar-static" aria-hidden="true">
-              Arial <ChevronIcon />
-            </span>
-          </>
-        )}
+          label={modelIndex >= 0 ? styleName(modelIndex) : 'Normal text'}
+          className="chip-style"
+          menuClass="style-menu"
+          menuWidth={222}
+          title="Styles"
+          >
+          <StyleMenu snap={snap} />
+        </Chip>
         <span className="divider" aria-hidden="true" />
-        <span className="font-size">
-          <span className="font-size-step" aria-hidden="true">
-            −
-          </span>
-          {tiers.length > 0 ? (
-            <Chip
-              testId="chip-speed"
-              label="11"
-              chevron={false}
-              className="font-size-box"
-              open={menu === 'serviceTier'}
-              onClick={() => toggle('serviceTier')}
+        <Chip
+          testId="chip-effort"
+          label={currentFont}
+          className="chip-font"
+          menuClass="font-menu"
+          menuWidth={222}
+          title="Font"
+          >
+            <MenuRows
+              itemPrefix="pick"
               items={[
-                {
-                  id: 'default',
-                  label: 'Standard',
-                  checked: snap.serviceTier == null,
-                  run: () => dispatch({ op: 'setServiceTier', serviceTier: null }),
-                },
-                ...tiers.map((tier) => ({
-                  id: tier.id,
-                  label: tier.name,
-                  checked: tier.id === snap.serviceTier,
-                  run: () => dispatch({ op: 'setServiceTier', serviceTier: tier.id }),
+                { id: 'more-fonts', label: 'More fonts', icon: 'text_format' },
+                ...efforts.map((item, index) => ({
+                  id: item.effort,
+                  label: item.font,
+                  title: capitalize(item.effort),
+                  divider: index === 0,
+                  checked: item.effort === snap.effort,
+                  style: { fontFamily: item.font },
+                  run: () => dispatch({ op: 'setEffort', effort: item.effort }),
                 })),
               ]}
-              onClose={() => setMenu(null)}
             />
-          ) : (
-            <span className="font-size-box" aria-hidden="true">
-              11
-            </span>
-          )}
-          <span className="font-size-step" aria-hidden="true">
-            +
-          </span>
-        </span>
+        </Chip>
         <span className="divider" aria-hidden="true" />
-        <Decor name="bold" />
-        <Decor name="italic" />
-        <Decor name="underline" />
-        <span className="toolbar-icon text-color" aria-hidden="true">
-          <MIcon name="textColor" />
+        <span className="font-size">
+          <button
+            type="button"
+            className="font-size-step"
+            aria-label="Decrease font size"
+            title="Decrease font size (⌘⇧,)"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => stepTier(-1)}
+          >
+            <MIcon name="remove" />
+          </button>
+          <Chip
+            testId="chip-speed"
+            label={String(size)}
+            chevron={false}
+            className="font-size-box"
+            menuClass="size-menu"
+            menuWidth={60}
+            title="Font size"
+            >
+              <MenuRows
+                itemPrefix="pick"
+                  items={FONT_SIZES.map((value) => {
+                  const tier = tierForSize(value, tiers)
+                  return {
+                    id: value === 11 ? 'default' : value === sizeForTier(tier, tiers) && tier ? tier : `size-${value}`,
+                    label: String(value),
+                    checked: value === size,
+                    run: () => dispatch({ op: 'setServiceTier', serviceTier: tier }),
+                  }
+                })}
+              />
+          </Chip>
+          <button
+            type="button"
+            className="font-size-step"
+            aria-label="Increase font size"
+            title="Increase font size (⌘⇧.)"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => stepTier(1)}
+          >
+            <MIcon name="add" />
+          </button>
         </span>
-        <Decor name="highlight" className="tb-optional" />
-        <span className="divider tb-optional" aria-hidden="true" />
-        <Decor name="link" className="tb-optional" />
-        <Decor name="addComment" className="tb-optional" />
-        <ToolButton name="image" label="Insert image" onClick={openImagePicker} />
+        <span className="divider tb-md" aria-hidden="true" />
+        <Decor name="format_bold" className="tb-md" />
+        <Decor name="format_italic" className="tb-md" />
+        <Decor name="format_underlined" className="tb-md" />
+        <Decor name="format_color_text" className="tb-md text-color" />
+        <Decor name="ink_highlighter" className="tb-md highlight-color" />
+        <span className="divider tb-lg" aria-hidden="true" />
+        <Decor name="link" className="tb-lg" />
+        <Decor name="add_comment" className="tb-lg" />
+        <ToolButton name="image" label="Insert image" onClick={openImagePicker} className="tb-lg" />
         <span className="divider tb-wide" aria-hidden="true" />
-        <Decor name="alignLeft" className="tb-wide" />
-        <Decor name="lineSpacing" className="tb-wide" />
-        <Decor name="checklist" className="tb-wide" />
-        <Decor name="bullets" className="tb-wide" />
-        <Decor name="numbered" className="tb-wide" />
-        <Decor name="indentLess" className="tb-wide" />
-        <Decor name="indentMore" className="tb-wide" />
-        <Decor name="clearFormat" className="tb-wide" />
+        <Decor name="format_align_left" caret className="tb-wide" />
+        <Decor name="format_line_spacing" className="tb-wide" />
+        <Decor name="checklist" caret className="tb-wide" />
+        <Decor name="format_list_bulleted" caret className="tb-xl" />
+        <Decor name="format_list_numbered" caret className="tb-xl" />
         <span className="divider" aria-hidden="true" />
-        <Decor name="more" />
+        <Decor name="more_vert" />
         <div className="toolbar-spacer" />
         <Chip
-          testId="chip-provider"
-          label="Editing"
-          open={menu === 'provider'}
+          testId="chip-mode"
+          icon={<MIcon name="edit" />}
+          className="chip-mode"
+          menuClass="mode-menu"
+          menuWidth={290}
+          title="Editing mode"
           align="end"
-          onClick={() => toggle('provider')}
-          items={PROVIDERS.map((provider) => ({
-            id: provider,
-            label: providerLabel(provider),
-            checked: snap.provider === provider,
-            run: () => dispatch({ op: 'setProvider', provider }),
-          }))}
-          onClose={() => setMenu(null)}
-        />
-        {snap.collaborationModes.length > 1 ? (
-          <>
-            <span className="divider" aria-hidden="true" />
-            <Chip
-              testId="chip-mode"
-              icon={<PenIcon />}
-              label="Options"
-              open={menu === 'mode'}
-              align="end"
-              onClick={() => toggle('mode')}
-              items={snap.collaborationModes.map((item) => ({
-                id: item.name,
-                label: item.name,
-                checked: item.name === snap.collaborationMode,
-                run: () => dispatch({ op: 'setCollaborationMode', name: item.name }),
-              }))}
-              onClose={() => setMenu(null)}
-            />
-          </>
-        ) : null}
-        <Decor name="collapse" className="tb-optional" />
+          >
+          <ModeMenu snap={snap} />
+        </Chip>
+        <span className="divider" aria-hidden="true" />
+        <Decor name="keyboard_arrow_up" />
       </div>
     </div>
   )
 }
 
+/** "Normal text ▾": each paragraph style is a model slot; Options lists every model. */
+function StyleMenu({ snap }: { snap: Snapshot }) {
+  const [all, setAll] = useState(false)
+  const [query, setQuery] = useState('')
+  if (all) {
+    const needle = query.trim().toLowerCase()
+    const items: Item[] = snap.models
+      .filter((item) => !needle || `${item.displayName} ${item.model}`.toLowerCase().includes(needle))
+      .map((item) => ({
+        id: item.model,
+        label: item.displayName,
+        checked: item.model === snap.model,
+        run: () => dispatch({ op: 'setModel', model: item.model }),
+      }))
+    return (
+      <div className="all-styles">
+        <MenuSearchInput
+          autoFocus
+          data-testid="menu-search"
+          aria-label="Search styles"
+          placeholder="Search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        {items.length ? (
+          <MenuRows items={items} itemPrefix="pick" />
+        ) : (
+          <div className="popover-empty">No matches</div>
+        )}
+      </div>
+    )
+  }
+  // Each Docs style is a model slot; slots beyond the provider's list stay plain styles.
+  const items: Item[] = [
+    ...STYLE_SLOTS.map((slot, index) => {
+      const item = snap.models[index]
+      return {
+        id: item?.model ?? `style-${index}`,
+        label: slot.name,
+        className: slot.className,
+        title: item?.displayName,
+        arrow: true,
+        checked: item ? item.model === snap.model : undefined,
+        run: item ? () => dispatch({ op: 'setModel', model: item.model }) : undefined,
+      }
+    }),
+    { id: 'options', label: 'Options', className: 'style-options', arrow: true, keepOpen: true, run: () => setAll(true) },
+  ]
+  return <MenuRows items={items} itemPrefix="pick" />
+}
+
+/** The pencil menu: Docs' Editing / Suggesting / Viewing, standing in for modes. */
+function ModeMenu({ snap }: { snap: Snapshot }) {
+  const modes = snap.collaborationModes
+  const items: Item[] =
+    modes.length > 1
+      ? modes.map((mode, index) => ({
+          id: mode.name,
+          label: EDIT_MODES[index]?.label ?? mode.name,
+          icon: EDIT_MODES[index]?.icon ?? 'edit_note',
+          description: EDIT_MODES[index]?.description,
+          title: mode.name,
+          checked: mode.name === snap.collaborationMode,
+          run: () => dispatch({ op: 'setCollaborationMode', name: mode.name }),
+        }))
+      : EDIT_MODES.map((mode, index) => ({
+          id: mode.label.toLowerCase(),
+          label: mode.label,
+          icon: mode.icon,
+          description: mode.description,
+          checked: index === 0,
+        }))
+  return <MenuRows items={items} itemPrefix="pick" />
+}
+
 /** A toolbar glyph that is part of the Docs costume only. */
-function Decor({ name, className }: { name: MaterialIconName; className?: string }) {
+function Decor({ name, className, caret }: { name: MaterialIconName; className?: string; caret?: boolean }) {
   return (
-    <span className={`toolbar-icon${className ? ` ${className}` : ''}`} aria-hidden="true">
+    <span className={`toolbar-icon${caret ? ' with-caret' : ''}${className ? ` ${className}` : ''}`} aria-hidden="true">
       <MIcon name={name} />
+      {caret ? <MIcon name="arrow_drop_down" size={16} className="caret" /> : null}
     </span>
   )
 }
 
-function ToolButton({ name, label, onClick }: { name: MaterialIconName; label: string; onClick: () => void }) {
+function ToolButton({
+  name,
+  label,
+  onClick,
+  className,
+}: {
+  name: MaterialIconName
+  label: string
+  onClick: () => void
+  className?: string
+}) {
   return (
     <button
       type="button"
-      className="toolbar-icon"
-      aria-label={label}
+      className={`toolbar-icon${className ? ` ${className}` : ''}`}
+      aria-label={label.replace(/ \(.*\)$/, '')}
       title={label}
       // Keeps focus (and the undo stack target) in the composer.
       onMouseDown={(event) => event.preventDefault()}
@@ -195,173 +297,31 @@ function ToolButton({ name, label, onClick }: { name: MaterialIconName; label: s
   )
 }
 
-function Chip({
-  label,
-  icon,
-  chevron = true,
-  className,
-  open,
-  onClick,
-  testId,
-  items,
-  align,
-  searchable,
-  searchPlaceholder,
-  onClose,
-}: {
-  label: string
-  icon?: ReactNode
-  chevron?: boolean
-  className?: string
-  open: boolean
-  onClick: () => void
-  testId: string
-  items: Item[]
-  align?: 'start' | 'end'
-  searchable?: boolean
-  searchPlaceholder?: string
-  onClose: () => void
-}) {
-  const anchorRef = useRef<HTMLButtonElement>(null)
-  const [rect, setRect] = useState<DOMRect | null>(null)
-
-  useLayoutEffect(() => {
-    if (open) setRect(anchorRef.current?.getBoundingClientRect() ?? null)
-    else setRect(null)
-  }, [open])
-
-  return (
-    <div className="menu">
-      <button
-        type="button"
-        ref={anchorRef}
-        className={`chip${open ? ' open' : ''}${className ? ` ${className}` : ''}`}
-        data-testid={testId}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={onClick}
-      >
-        {icon}
-        <span className="chip-label">{label}</span>
-        {chevron ? <ChevronIcon /> : null}
-      </button>
-      {open && rect
-        ? createPortal(
-            <ChipPopover
-              anchor={rect}
-              anchorEl={anchorRef.current}
-              align={align}
-              items={items}
-              searchable={searchable}
-              searchPlaceholder={searchPlaceholder}
-              onClose={onClose}
-            />,
-            document.body,
-          )
-        : null}
-    </div>
-  )
+/** Page zoom shared with the document canvas through a CSS variable; persists. */
+function usePageZoom(): [number, (value: number) => void] {
+  const [zoom, setZoom] = useState(() => {
+    try {
+      return Number(localStorage.getItem('hidegpt.zoom')) || 100
+    } catch {
+      return 100
+    }
+  })
+  useEffect(() => {
+    document.documentElement.style.setProperty('--page-zoom', String(zoom / 100))
+    try {
+      localStorage.setItem('hidegpt.zoom', String(zoom))
+    } catch {
+      // Private storage: zoom just resets next launch.
+    }
+  }, [zoom])
+  return [zoom, setZoom]
 }
 
-function ChipPopover({
-  anchor,
-  anchorEl,
-  align,
-  items,
-  searchable,
-  searchPlaceholder,
-  onClose,
-}: {
-  anchor: DOMRect
-  anchorEl: HTMLElement | null
-  align?: 'start' | 'end'
-  items: Item[]
-  searchable?: boolean
-  searchPlaceholder?: string
-  onClose: () => void
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-  const searchRef = useRef<HTMLInputElement>(null)
-  const [query, setQuery] = useState('')
-  const visible =
-    query.trim() === '' ? items : items.filter((item) => item.label.toLowerCase().includes(query.trim().toLowerCase()))
-
-  useEffect(() => {
-    if (searchable) searchRef.current?.focus()
-  }, [searchable])
-
-  useEffect(() => {
-    const onPointer = (event: MouseEvent) => {
-      const target = event.target as Node
-      // Clicks on the chip button toggle via onClick; dismissing here first
-      // would let the click reopen the menu instead of closing it.
-      if (anchorEl?.contains(target)) return
-      if (ref.current && !ref.current.contains(target)) onClose()
-    }
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose()
-        anchorEl?.focus()
-      }
-    }
-    const onScroll = (event: Event) => {
-      if (event.target instanceof Node && ref.current?.contains(event.target)) return
-      onClose()
-    }
-    document.addEventListener('mousedown', onPointer)
-    document.addEventListener('keydown', onKey)
-    window.addEventListener('resize', onScroll)
-    window.addEventListener('scroll', onScroll, true)
-    return () => {
-      document.removeEventListener('mousedown', onPointer)
-      document.removeEventListener('keydown', onKey)
-      window.removeEventListener('resize', onScroll)
-      window.removeEventListener('scroll', onScroll, true)
-    }
-  }, [onClose])
-
-  const width = Math.min(360, Math.max(240, anchor.width + 48))
-  const maxHeight = Math.min(340, window.innerHeight - 16)
-  const opensUp = anchor.bottom + 8 + 200 > window.innerHeight && anchor.top - 8 - maxHeight > 0
-  const style: CSSProperties = opensUp
-    ? {
-        left: Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8)),
-        bottom: window.innerHeight - anchor.top + 8,
-        width,
-        maxHeight,
-      }
-    : {
-        left: Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8)),
-        top: anchor.bottom + 8,
-        width,
-        maxHeight,
-      }
-  if (align === 'end') {
-    style.left = Math.max(8, anchor.right - width)
-  }
-
-  return (
-    <div ref={ref} className="popover" style={style}>
-      {searchable ? (
-        <div className="popover-search">
-          <input
-            ref={searchRef}
-            data-testid="menu-search"
-            type="search"
-            aria-label={searchPlaceholder ?? 'Search'}
-            placeholder={searchPlaceholder ?? 'Search'}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </div>
-      ) : null}
-      {visible.length > 0 ? (
-        <MenuPanel items={visible} onClose={onClose} itemPrefix="pick" />
-      ) : (
-        <div className="popover-empty">No matches</div>
-      )}
-    </div>
-  )
+/** "Fit": the largest zoom (≤100%) that shows the whole page width. */
+function fitZoom(): number {
+  const area = document.querySelector<HTMLElement>('.paper-col')
+  if (!area) return 100
+  return Math.max(50, Math.min(100, Math.floor(((area.clientWidth - 32) / 816) * 100)))
 }
 
 function capitalize(text: string): string {

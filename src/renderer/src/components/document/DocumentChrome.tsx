@@ -1,11 +1,12 @@
-import { useRef, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 
 import type { Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
+import { threadProjectId } from '../home/projects'
 import { AccountMenu } from '../layout/AccountMenu'
-import { CloudIcon, DocsIcon } from '../ui/Icons'
+import { SideRail } from '../layout/SideRail'
+import { DocsIcon } from '../ui/Icons'
 import { MIcon } from '../ui/MaterialIcon'
-import { threadProjectId } from '../home/ProjectFolders'
 import { DocActions } from './DocActions'
 import { DocMenus } from './DocMenus'
 import { Toolbar } from './Toolbar'
@@ -31,6 +32,7 @@ export function DocumentChrome({
   const cancelRef = useRef(false)
   const thread = snap.threads.find((item) => snap.route.kind === 'doc' && item.id === snap.route.threadId)
   const project = snap.projects.find((item) => thread && item.id === threadProjectId(snap, thread))
+  const saved = useSavedFlash(snap.streaming)
 
   const commit = () => {
     if (cancelRef.current) {
@@ -46,7 +48,7 @@ export function DocumentChrome({
   return (
     <header className="doc-chrome">
       <div className="doc-top">
-        <button type="button" className="doc-home" aria-label="Docs home" onClick={() => dispatch({ op: 'goHome' })}>
+        <button type="button" className="doc-home" aria-label="Docs home" title="Docs home" onClick={() => dispatch({ op: 'goHome' })}>
           <DocsIcon size={40} />
         </button>
         <div className="doc-head">
@@ -56,6 +58,7 @@ export function DocumentChrome({
               className="doc-title"
               value={draft ?? snap.title}
               aria-label="Document title"
+              title="Rename"
               spellCheck={false}
               onFocus={() => {
                 cancelRef.current = false
@@ -75,20 +78,20 @@ export function DocumentChrome({
                 }
               }}
             />
-            <span className="title-icon" aria-hidden="true">
+            <span className="title-icon" aria-hidden="true" title="Star">
               <MIcon name="star" />
             </span>
-            <span className="document-location" title={project?.name ?? 'My documents'}>
-              <MIcon name="moveFolder" />
-              {project ? <small>{project.name}</small> : null}
+            <span className="title-icon document-location" title={`Move · ${project?.name ?? 'My Drive'}`} aria-hidden="true">
+              <MIcon name="drive_file_move" />
             </span>
             <span
               className="save-state"
               role="status"
-              aria-label={snap.streaming ? 'Working' : 'Saved'}
-              title={snap.streaming ? 'Working…' : 'Saved'}
+              aria-label={snap.streaming ? 'Saving…' : 'Saved to Drive'}
+              title={snap.streaming ? 'Saving…' : 'All changes saved in Drive'}
             >
-              <CloudIcon busy={snap.streaming} />
+              <MIcon name={snap.streaming ? 'cloud_sync' : 'cloud_done'} className={snap.streaming ? 'cloud busy' : 'cloud'} />
+              {snap.streaming ? <span className="save-text">Saving…</span> : saved ? <span className="save-text">Saved to Drive</span> : null}
             </span>
           </div>
           <DocMenus
@@ -107,6 +110,23 @@ export function DocumentChrome({
         </div>
       </div>
       <Toolbar snap={snap} />
+      <SideRail />
     </header>
   )
+}
+
+/** Docs shows "Saved to Drive" for a few seconds after a save finishes. */
+function useSavedFlash(busy: boolean): boolean {
+  const [saved, setSaved] = useState(false)
+  const was = useRef(busy)
+  useEffect(() => {
+    if (was.current && !busy) {
+      setSaved(true)
+      const timer = setTimeout(() => setSaved(false), 4000)
+      was.current = busy
+      return () => clearTimeout(timer)
+    }
+    was.current = busy
+  }, [busy])
+  return saved
 }

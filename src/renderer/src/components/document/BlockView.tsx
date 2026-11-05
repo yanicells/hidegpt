@@ -1,7 +1,7 @@
 import { memo } from 'react'
 import type { Block } from '../../../../codex/blocks'
-import { ChevronIcon } from '../ui/Icons'
 import { imageSrc } from '../ui/imageSrc'
+import { MIcon } from '../ui/MaterialIcon'
 import { AgentMarkdown } from '../ui/Markdown'
 import { Approval } from './Approval'
 import { SkillChip } from './SmartChips'
@@ -21,10 +21,11 @@ export const BlockView = memo(
             </div>
           ) : null}
           {block.text || block.skills?.length ? (
-            <p className="doc-question">
+            // Each question is the turn's Heading 1, as Docs would title a section.
+            <h1 className="doc-question">
               {block.skills?.map((name) => <SkillChip key={name} name={name} />)}
               {block.text}
-            </p>
+            </h1>
           ) : null}
         </>
       )
@@ -41,7 +42,7 @@ export const BlockView = memo(
       return (
         <details className="callout">
           <summary>
-            <ChevronIcon />
+            <MIcon name="arrow_right" className="callout-arrow" />
             {block.title}
           </summary>
           {block.body ? <pre>{block.body}</pre> : null}
