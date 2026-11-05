@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react'
 
-import type { Block } from '../../../../codex/blocks'
-import type { Snapshot } from '../../../../codex/types'
+import type { Block, Snapshot } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
 import { MIcon } from '../ui/MaterialIcon'
 import { MenuPanel, useDismiss } from '../ui/MenuPanel'
@@ -15,7 +14,7 @@ export function DocActions({ snap }: { snap: Snapshot }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useDismiss(open, () => setOpen(false), ref)
-  const canLoadEarlier = Boolean(snap.olderTurnsCursor) && !snap.loadingOlder && !snap.streaming
+  const canLoadEarlier = snap.hasOlder && !snap.loadingOlder && !snap.streaming
 
   return (
     <div className="doc-actions">
@@ -74,7 +73,7 @@ export function DocActions({ snap }: { snap: Snapshot }) {
 }
 
 /** The page as plain Markdown: questions in bold, answers as written. */
-export function documentText(blocks: Block[]): string {
+export function documentText(blocks: ReadonlyArray<Block>): string {
   return blocks
     .flatMap((block) => {
       if (block.kind === 'user' && block.text) return [`**${block.text}**`]

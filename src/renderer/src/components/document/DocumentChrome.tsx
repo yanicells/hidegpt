@@ -1,6 +1,6 @@
 import { useRef, useState, type RefObject } from 'react'
 
-import type { Snapshot } from '../../../../codex/types'
+import type { Snapshot } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
 import { AccountMenu } from '../layout/AccountMenu'
 import { CloudIcon, DocsIcon } from '../ui/Icons'

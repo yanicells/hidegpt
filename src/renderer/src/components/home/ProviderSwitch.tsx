@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { PROVIDERS, providerLabel } from '../../../../codex/labels'
-import type { Snapshot } from '../../../../codex/types'
+import { PROVIDERS, providerLabel } from '../../../../shared/labels'
+import type { Snapshot } from '../../../../shared/model'
+import { request } from '../../session-bridge'
 
 export function ProviderSwitch({ provider }: { provider: Snapshot['provider'] }) {
   const [pending, setPending] = useState<Snapshot['provider'] | null>(null)
@@ -9,13 +10,9 @@ export function ProviderSwitch({ provider }: { provider: Snapshot['provider'] })
     if (next === provider || pending) return
     setPending(next)
     setError(null)
-    try {
-      await window.hidegpt.dispatch({ op: 'setProvider', provider: next, home: true })
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not open this library. Try again.')
-    } finally {
-      setPending(null)
-    }
+    const result = await request({ op: 'setProvider', provider: next, home: true })
+    if (!result.ok) setError(result.error || 'Could not open this library. Try again.')
+    setPending(null)
   }
   return (
     <>

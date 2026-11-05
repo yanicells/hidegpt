@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Snapshot } from '../../../../codex/types'
+import type { Snapshot } from '../../../../shared/model'
+import { request } from '../../session-bridge'
 import { setPendingDraft, type Template } from '../../templates'
 import { DocsIcon, FolderIcon } from '../ui/Icons'
 import { projectFolders } from './ProjectFolders'
@@ -21,7 +22,8 @@ export function NewDocumentDialog({
   const [location, setLocation] = useState(creation.projectId ?? '')
   const [folder, setFolder] = useState('')
   const [projectName, setProjectName] = useState('')
-  const [adding, setAdding] = useState(Boolean(creation.projectOnly))
+  const canAddProject = snap.capabilities.createProjects
+  const [adding, setAdding] = useState(Boolean(creation.projectOnly) && canAddProject)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const folders = projectFolders(snap)
@@ -55,7 +57,8 @@ export function NewDocumentDialog({
     setBusy(true)
     setError('')
     try {
-      await window.hidegpt.dispatch({ op: 'createProject', name: projectName.trim(), cwd: folder })
+      const result = await request({ op: 'createProject', name: projectName.trim(), cwd: folder })
+      if (!result.ok) throw new Error(result.error)
       const project = window.hidegpt
         .getSnapshot()
         .projects.find((item) => item.roots.some((root) => root.path === folder))
@@ -77,12 +80,13 @@ export function NewDocumentDialog({
     setError('')
     try {
       setPendingDraft(creation.template?.prompt ?? '')
-      await window.hidegpt.dispatch({
+      const result = await request({
         op: 'newDocument',
         title: title.trim(),
         projectId: selected?.id ?? null,
         cwd: selected?.cwd ?? (location === 'folder' ? folder : undefined),
       })
+      if (!result.ok) throw new Error(result.error)
       created.current = true
       onClose()
     } catch (cause) {
@@ -135,7 +139,7 @@ export function NewDocumentDialog({
               <FolderIcon />
               <span>{folder || 'Choose a folder…'}</span>
             </button>
-            {snap.provider === 'opencode' ? (
+            {snap.capabilities.gitProjects ? (
               <p className="field-help">
                 Projects use Git folders. For other folders, choose “Choose folder…” under Location.
               </p>
@@ -182,18 +186,20 @@ export function NewDocumentDialog({
                 {selected ? `Created in ${selected.name}.` : 'Saved with your documents, outside a project.'}
               </p>
             )}
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => {
-                setAdding(true)
-                setFolder('')
-                setError('')
-              }}
-              disabled={busy}
-            >
-              + Add a project
-            </button>
+            {canAddProject ? (
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => {
+                  setAdding(true)
+                  setFolder('')
+                  setError('')
+                }}
+                disabled={busy}
+              >
+                + Add a project
+              </button>
+            ) : null}
             {creation.template && creation.template.id !== 'blank' ? (
               <div className="template-summary">
                 <span>Template</span>

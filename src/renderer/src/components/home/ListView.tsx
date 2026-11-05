@@ -1,5 +1,5 @@
-import { formatListDate, ownerLabel, threadTitle } from '../../../../codex/labels'
-import type { Snapshot } from '../../../../codex/types'
+import { formatListDate, ownerLabel, threadTitle } from '../../../../shared/labels'
+import type { Snapshot } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
 import { DocFileIcon, MIcon } from '../ui/MaterialIcon'
 import type { Thread } from './grouping'
@@ -21,7 +21,7 @@ export function ListView({ snap, threads }: { snap: Snapshot; threads: Thread[] 
               <span>{threadTitle(thread)}</span>
             </span>
             <span className="list-owner">{ownerLabel(snap.account)}</span>
-            <span className="list-date">{formatListDate(thread.recencyAt ?? thread.updatedAt)}</span>
+            <span className="list-date">{formatListDate(thread.updatedAt)}</span>
             <span className="list-more" aria-hidden="true">
               <MIcon name="more" />
             </span>

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Snapshot } from '../../../../codex/types'
+import type { Snapshot } from '../../../../shared/model'
 import { TEMPLATES } from '../../templates'
 import { BackIcon, FolderIcon, GridIcon, ListIcon, PlusMonoIcon } from '../ui/Icons'
 import { MIcon } from '../ui/MaterialIcon'
@@ -40,7 +40,7 @@ export function Home({
     .sort((a, b) =>
       sort === 'name'
         ? (a.name || a.preview).localeCompare(b.name || b.preview)
-        : (b.recencyAt ?? b.updatedAt) - (a.recencyAt ?? a.updatedAt),
+        : b.updatedAt - a.updatedAt,
     )
   const sections =
     view === 'list' && sort === 'recent' ? groupByRecency(threads) : [{ key: 'docs', title: '', threads }]

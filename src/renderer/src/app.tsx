@@ -9,7 +9,7 @@ import { threadProjectId } from './components/home/ProjectFolders'
 import { Home } from './components/home/Home'
 import { HomeHeader } from './components/home/HomeHeader'
 import { useHomeView } from './components/home/useHomeView'
-import { dispatch, platform, useMenuAction, useSnapshot } from './session-bridge'
+import { platform, useMenuAction, useSnapshot } from './session-bridge'
 import type { MenuAction } from '../../shared/api'
 
 export function App() {
@@ -65,11 +65,8 @@ export function App() {
         />
       )}
       <Banners snap={snap} />
-      {snap.status === 'error' ? (
-        <button type="button" className="status" data-testid="status" onClick={() => dispatch({ op: 'refresh' })}>
-          {snap.error ?? 'Something went wrong'}
-        </button>
-      ) : snap.openingThreadId ? (
+      {/* Errors show on the banner above; the page underneath stays usable. */}
+      {snap.openingThreadId ? (
         <LoadingDocument snap={snap} />
       ) : snap.route.kind === 'home' ? (
         <Home

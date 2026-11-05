@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 
-import type { Skill } from '../../../../codex/types'
+import type { Skill } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
 import { takePendingDraft } from '../../templates'
 import { imageSrc } from '../ui/imageSrc'
@@ -38,10 +38,19 @@ export function startSmartChip(): void {
  * The document's last paragraph. Enter sends; "@" opens the skill menu;
  * pasted, dropped, or inserted images attach to the next question.
  */
-export function Composer({ threadId, streaming, skills }: { threadId: string; streaming: boolean; skills: Skill[] }) {
+export function Composer({
+  threadId,
+  streaming,
+  skills,
+}: {
+  threadId: string
+  streaming: boolean
+  skills: ReadonlyArray<Skill>
+}) {
   const [draft, setDraft] = useState(() => consumeDraftOnce(threadId))
   const [skill, setSkill] = useState<string | null>(null)
   const [images, setImages] = useState<string[]>([])
+  const [sending, setSending] = useState(false)
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null)
   const [active, setActive] = useState(0)
   const ref = useRef<HTMLTextAreaElement>(null)
@@ -94,9 +103,14 @@ export function Composer({ threadId, streaming, skills }: { threadId: string; st
     setImages((current) => [...current, ...paths])
   }
 
-  const submit = () => {
-    if (streaming || (!draft.trim() && !images.length && !skill)) return
-    dispatch({ op: 'send', text: draft, ...(skill ? { skill } : {}), ...(images.length ? { images } : {}) })
+  // The draft clears only once main accepts the question; a failed send keeps
+  // it (the banner says why) so nothing typed is lost.
+  const submit = async () => {
+    if (streaming || sending || (!draft.trim() && !images.length && !skill)) return
+    setSending(true)
+    const result = await dispatch({ op: 'send', text: draft, ...(skill ? { skill } : {}), ...(images.length ? { images } : {}) })
+    setSending(false)
+    if (!result.ok) return
     setDraft('')
     setSkill(null)
     setImages([])
@@ -132,7 +146,7 @@ export function Composer({ threadId, streaming, skills }: { threadId: string; st
     }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
-      submit()
+      void submit()
     }
   }
 

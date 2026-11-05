@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 
-import { accountLabel, avatarLetter, providerLabel } from '../../../../codex/labels'
-import type { Snapshot } from '../../../../codex/types'
+import { accountLabel, avatarLetter, providerLabel } from '../../../../shared/labels'
+import type { Snapshot } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
 import { MenuPanel, useDismiss, type Item } from '../ui/MenuPanel'
 
@@ -9,13 +9,14 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useDismiss(open, () => setOpen(false), ref)
-  const items: Item[] =
-    snap.provider !== 'codex'
-      ? []
-      : snap.account
-        ? [{ id: 'logout', label: 'Log out', run: () => dispatch({ op: 'logout' }) }]
-        : [{ id: 'login', label: 'Log in with ChatGPT', run: () => dispatch({ op: 'login' }) }]
-  const caption = snap.provider === 'codex' ? null : `${providerLabel(snap.provider)} session`
+  // `snap.account` is always the active library's own account. Libraries that
+  // sign in outside Docs get a caption instead of Log in / Log out.
+  const items: Item[] = !snap.capabilities.login
+    ? []
+    : snap.account
+      ? [{ id: 'logout', label: 'Log out', run: () => dispatch({ op: 'logout' }) }]
+      : [{ id: 'login', label: 'Log in with ChatGPT', run: () => dispatch({ op: 'login' }) }]
+  const caption = snap.capabilities.login ? null : `${providerLabel(snap.provider)} session`
   return (
     <div className="menu" ref={ref}>
       <button
