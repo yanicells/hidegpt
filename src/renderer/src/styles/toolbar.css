@@ -110,9 +110,10 @@
 
 /* ---------- Header actions: history, comments, Meet, Share, spark ---------- */
 
+/* History, comments and Meet sit ~50px apart, as in Docs. */
 .doc-actions {
   @apply flex items-center;
-  gap: 4px;
+  gap: 8px;
   margin-right: 8px;
 }
 
@@ -408,8 +409,8 @@ button.header-action:disabled {
   right: 0;
   bottom: 0;
   width: var(--rail-width);
-  padding-top: 8px;
-  gap: 4px;
+  /* Icon centres 56px apart from y=86, like Docs' rail. */
+  padding-top: 2px;
   background: var(--canvas);
   z-index: 5;
 }
@@ -418,7 +419,7 @@ button.header-action:disabled {
   @apply grid place-items-center rounded-full;
   width: 40px;
   height: 40px;
-  margin-bottom: 8px;
+  margin-bottom: 16px;
   color: var(--text-2);
 }
 
@@ -429,7 +430,7 @@ button.header-action:disabled {
 .rail-divider {
   width: 20px;
   height: 1px;
-  margin: 4px 0 12px;
+  margin: -6px 0 22px;
   background: var(--line);
 }
 
@@ -444,8 +445,14 @@ button.header-action:disabled {
   .vruler,
   .ruler,
   .spark-wrap,
-  .composer-wrap {
+  .composer-wrap,
+  .page-sheets {
     display: none !important;
+  }
+
+  /* The printer breaks pages itself; drop the on-screen pushes. */
+  [data-page-break] {
+    padding-top: 0 !important;
   }
 
   html,
@@ -458,7 +465,7 @@ button.header-action:disabled {
   }
 
   .paper {
-    box-shadow: none;
+    min-height: 0 !important;
     @apply m-0 w-full;
   }
 }

@@ -6,6 +6,7 @@ import { BlockView } from './BlockView'
 import { SparkIcon } from '../ui/Icons'
 import { Composer } from './Composer'
 import { outlineEntries, type OutlineEntry } from './outline'
+import { PAGE_HEIGHT, PAGE_PITCH, usePages } from './pages'
 import { Tabs } from './Tabs'
 
 export function Document({
@@ -29,6 +30,8 @@ export function Document({
   const outline = outlineEntries(visibleBlocks)
 
   const scrollRef = useRef<HTMLDivElement>(null)
+  const paperRef = useRef<HTMLElement>(null)
+  const pages = usePages(paperRef, visibleBlocks)
   const stickToBottom = useRef(false)
   const seenBlocks = useRef<number | null>(null)
   const seenThread = useRef(threadId)
@@ -87,7 +90,13 @@ export function Document({
         <Tabs onNew={onNew} entries={outline} onJump={jumpTo} />
         <div className="paper-col">
           <Ruler />
-          <article className="paper">
+          <article className="paper" ref={paperRef} style={{ minHeight: (pages - 1) * PAGE_PITCH + PAGE_HEIGHT }}>
+            {/* Print layout: the sheets are drawn behind one flow of text that usePages breaks between them. */}
+            <div className="page-sheets" aria-hidden="true">
+              {Array.from({ length: pages }, (_, index) => (
+                <div key={index} className="page-sheet" style={{ top: index * PAGE_PITCH }} />
+              ))}
+            </div>
             {snap.olderTurnsCursor ? (
               <button
                 type="button"
@@ -100,11 +109,7 @@ export function Document({
               </button>
             ) : null}
             {visibleBlocks.map((block) => (
-              <div
-                className="doc-block"
-                data-block={block.id}
-                key={block.id}
-              >
+              <div className="doc-block" data-block={block.id} key={block.id}>
                 <BlockView block={block} streaming={block.id === streamingAgentId} />
               </div>
             ))}

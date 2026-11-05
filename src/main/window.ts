@@ -241,6 +241,32 @@ export async function captureScreenshots(win: BrowserWindow, session: Screenshot
   else await session.newDocument()
   await waitFor('[data-testid="document"] .doc-block', 'document')
   await shot('document')
+  // Print layout across a page break. The fake thread fits on one page, so
+  // copies of its blocks (screenshot-only, removed after) make it run long.
+  await js(`(() => {
+    const paper = document.querySelector('.paper')
+    const composer = paper.querySelector('.composer-wrap')
+    for (const block of Array.from(paper.querySelectorAll('.doc-block'))) {
+      const copy = block.cloneNode(true)
+      copy.dataset.screenshotCopy = ''
+      paper.insertBefore(copy, composer)
+    }
+    return true
+  })()`)
+  await pause(400)
+  await js(`(() => {
+    const workspace = document.querySelector('[data-testid="document"]')
+    const second = document.querySelectorAll('.page-sheet')[1]
+    if (workspace && second) workspace.scrollTop += second.getBoundingClientRect().top - workspace.getBoundingClientRect().top - 360
+    return true
+  })()`)
+  await shot('document-page-break')
+  await js(`(() => {
+    document.querySelectorAll('[data-screenshot-copy]').forEach((node) => node.remove())
+    document.querySelector('[data-testid="document"]').scrollTop = 0
+    return true
+  })()`)
+  await pause(300)
   // Docs' own dark hover label, not the system tooltip.
   await hover('chip-model')
   await pause(900)

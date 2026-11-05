@@ -168,17 +168,32 @@
 
 /* US Letter at 96dpi with 1in margins; Arial 11pt, Docs' 1.15 spacing (~19.8px pitch). */
 .paper {
+  @apply relative;
+  isolation: isolate;
   width: var(--paper-width);
   min-height: 1056px;
   margin: 16px 0 96px;
   padding: var(--paper-margin);
   zoom: var(--page-zoom, 1);
-  background: var(--surface);
-  box-shadow: var(--shadow-page);
   font-family: var(--font-page);
   font-size: 11pt;
   line-height: 1.35;
   color: #000;
+}
+
+/* One white, shadowed sheet per page with Docs' 16px gap; components/document/pages.ts sets the breaks. */
+.page-sheets {
+  @apply absolute inset-0 pointer-events-none;
+  z-index: -1;
+}
+
+.page-sheet {
+  @apply absolute;
+  left: 0;
+  right: 0;
+  height: 1056px;
+  background: var(--surface);
+  box-shadow: var(--shadow-page);
 }
 
 /* Earlier turns load from a line of page text styled as a Docs hyperlink (#1155cc, underlined). */
@@ -341,12 +356,10 @@
   font-family: var(--font-mono);
 }
 
-/* Docs' code block building block: a light grey box with a hairline. */
+/* Docs' code block building block: a square, light grey box. */
 .doc-body pre {
   margin: 0 0 1lh;
   padding: 8px 12px;
-  border: 1px solid #dadce0;
-  border-radius: 4px;
   background: #f8f9fa;
   @apply overflow-auto;
   font-size: 10pt;
