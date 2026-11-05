@@ -6,7 +6,9 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { extname, join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+import type { Block } from '../codex/blocks'
 import type { Snapshot } from '../codex/types'
+import type { SnapshotPatch } from '../shared/snapshot-patch'
 
 let window: BrowserWindow | null = null
 
@@ -31,8 +33,8 @@ export function createWindow(opts: { onDidFinishLoad: () => void }): BrowserWind
     title: 'Docs',
     backgroundColor: '#ffffff',
     show: false,
-    titleBarStyle: isMac ? 'hiddenInset' : 'default',
-    trafficLightPosition: isMac ? { x: 16, y: 22 } : undefined,
+    // A plain native title bar, like a browser window: nothing overlaps the Docs logo.
+    titleBarStyle: 'default',
     webPreferences: {
       preload: resolvePreload(),
       sandbox: true,
@@ -132,6 +134,9 @@ export async function captureScreenshots(win: BrowserWindow, session: Screenshot
       resolve()
     }
   })
+  // An occluded window stops painting and capturePage returns stale frames.
+  win.webContents.setBackgroundThrottling(false)
+  win.setAlwaysOnTop(true)
   win.show()
   await win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
@@ -144,76 +149,236 @@ export async function captureScreenshots(win: BrowserWindow, session: Screenshot
       tick()
     })
   `)
-  await new Promise((resolve) => setTimeout(resolve, 200))
-  writeFileSync(join(dir, 'home.png'), (await win.capturePage()).toPNG())
-  await win.webContents.executeJavaScript(`document.querySelector('[aria-label="List view"]').click()`)
-  await new Promise((resolve) => setTimeout(resolve, 100))
-  writeFileSync(join(dir, 'home-list.png'), (await win.capturePage()).toPNG())
-  await win.webContents.executeJavaScript(`document.querySelector('[aria-label="Grid view"]').click()`)
-  const project = session.snapshot.projects[0]
-  if (project) {
-    await win.webContents.executeJavaScript(`document.querySelector('[data-testid="project-${project.id}"]').click()`)
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    writeFileSync(join(dir, 'project.png'), (await win.capturePage()).toPNG())
-    await win.webContents.executeJavaScript(
-      `Array.from(document.querySelectorAll('button')).find((button) => button.textContent === 'New document').click()`,
-    )
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    writeFileSync(join(dir, 'new-document.png'), (await win.capturePage()).toPNG())
-    await win.webContents.executeJavaScript(
-      `Array.from(document.querySelectorAll('dialog button')).find((button) => button.textContent === 'Create document').click()`,
-    )
+  const js = (code: string) => win.webContents.executeJavaScript(code)
+  const pause = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms))
+  const shot = async (name: string) => {
+    await pause()
+    win.webContents.invalidate()
+    await js('new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))')
+    writeFileSync(join(dir, `${name}.png`), (await win.capturePage()).toPNG())
   }
-  await win.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+  const centre = async (testId: string): Promise<{ x: number; y: number }> =>
+    js(`(() => {
+      const el = document.querySelector('[data-testid="${testId}"]')
+      if (!el) throw new Error('missing ${testId}')
+      const r = el.getBoundingClientRect()
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }
+    })()`)
+  // Real mouse input, so menus and focus behave as they do for a person.
+  const clickAt = async ({ x, y }: { x: number; y: number }) => {
+    win.webContents.sendInputEvent({ type: 'mouseMove', x, y })
+    win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
+    win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 })
+    await pause(200)
+  }
+  const click = async (testId: string) => clickAt(await centre(testId))
+  const waitFor = (selector: string, what: string) =>
+    js(`new Promise((resolve, reject) => {
+      const started = Date.now()
+      const check = () => {
+        if (document.querySelector(${JSON.stringify(selector)})) resolve(true)
+        else if (Date.now() - started > 8000) reject(new Error(${JSON.stringify(`${what} did not appear`)}))
+        else setTimeout(check, 50)
+      }
+      check()
+    })`)
+  // Menus close on a click in empty canvas at the window's left edge.
+  const dismiss = () => clickAt({ x: 6, y: 520 })
+  // Park the pointer there so a button that swapped in under it doesn't show hover.
+  const rest = async () => {
+    win.webContents.sendInputEvent({ type: 'mouseMove', x: 6, y: 520 })
+    await pause(150)
+  }
+  const hover = async (testId: string) => {
+    const { x, y } = await centre(testId)
+    win.webContents.sendInputEvent({ type: 'mouseMove', x, y })
+    await pause(300)
+  }
+
+  // Fonts are bundled; record what actually loaded so reviews can verify it.
+  const fonts = await js(`document.fonts.ready.then(() => ({
+    loaded: Array.from(document.fonts).filter((face) => face.status === 'loaded').map((face) => face.family + ' ' + face.weight),
+    ui: getComputedStyle(document.body).fontFamily,
+    googleSansFlex: document.fonts.check('14px "Google Sans Flex Variable"'),
+    roboto: document.fonts.check('12px Roboto'),
+  }))`)
+  writeFileSync(join(dir, 'fonts.json'), JSON.stringify(fonts, null, 2))
+
+  await shot('home')
+  await click('home-location')
+  await shot('home-location-menu')
+  await dismiss()
+  await click('open-picker')
+  await shot('folder-picker')
+  await click('new-folder')
+  await shot('folder-new')
+  await js(`document.querySelector('[data-slot="dialog-popup"] .text-button').click()`)
+  await pause()
+  await js(`document.querySelector('[data-slot="dialog-close"]')?.click()`)
+  await pause()
+  await click('menu-account')
+  await shot('account-menu')
+  await dismiss()
+  await clickAt(await js(`(() => { const r = document.querySelector('[aria-label="List view"]').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } })()`))
+  await rest()
+  await shot('home-list')
+  await js(`document.querySelector('[aria-label="Grid view"]').click()`)
+
+  // Blank document creates immediately, like Docs, and focuses the page.
+  await click('new-doc')
+  await js(`new Promise((resolve, reject) => {
     const started = Date.now()
     const check = () => {
       const composer = document.querySelector('[data-testid="composer"]')
-      if (composer && !document.querySelector('dialog')) {
-        if (document.activeElement !== composer) reject(new Error('New document composer did not receive focus'))
-        else resolve(true)
-      } else if (Date.now() - started > 8000) reject(new Error('Document creation did not complete'))
+      if (composer && document.activeElement === composer) resolve(true)
+      else if (Date.now() - started > 8000) reject(new Error('New document composer did not receive focus'))
       else setTimeout(check, 50)
     }
     check()
   })`)
-  writeFileSync(join(dir, 'new-document-ready.png'), (await win.capturePage()).toPNG())
+  await shot('new-document-ready')
+
   const first = session.snapshot.threads[0]
   if (first) await session.openThread(first.id)
   else await session.newDocument()
-  await win.webContents.executeJavaScript(`
-    new Promise((resolve, reject) => {
-      const started = Date.now()
-      const tick = () => {
-        if (document.querySelector('[data-testid="document"]')) resolve(true)
-        else if (Date.now() - started > 8000) reject(new Error('document did not mount'))
-        else setTimeout(tick, 50)
-      }
-      tick()
-    })
-  `)
-  await new Promise((resolve) => setTimeout(resolve, 200))
-  writeFileSync(join(dir, 'document.png'), (await win.capturePage()).toPNG())
+  await waitFor('[data-testid="document"] .doc-block', 'document')
+  await shot('document')
+  // Print layout across a page break. The fake thread fits on one page, so
+  // copies of its blocks (screenshot-only, removed after) make it run long.
+  await js(`(() => {
+    const paper = document.querySelector('.paper')
+    const composer = paper.querySelector('.composer-wrap')
+    for (const block of Array.from(paper.querySelectorAll('.doc-block'))) {
+      const copy = block.cloneNode(true)
+      copy.dataset.screenshotCopy = ''
+      paper.insertBefore(copy, composer)
+    }
+    return true
+  })()`)
+  await pause(400)
+  await js(`(() => {
+    const workspace = document.querySelector('[data-testid="document"]')
+    const second = document.querySelectorAll('.page-sheet')[1]
+    if (workspace && second) workspace.scrollTop += second.getBoundingClientRect().top - workspace.getBoundingClientRect().top - 360
+    return true
+  })()`)
+  await shot('document-page-break')
+  await js(`(() => {
+    document.querySelectorAll('[data-screenshot-copy]').forEach((node) => node.remove())
+    document.querySelector('[data-testid="document"]').scrollTop = 0
+    return true
+  })()`)
+  await pause(300)
+  // States the fake session never reaches: a reply streaming in (with a code
+  // block), then a pending approval. They are screenshot-only snapshot
+  // patches on top of the real blocks, and the real blocks come back after.
+  const real = session.snapshot.blocks.length
+  const showBlocks = (blocks: Block[], streaming: boolean) =>
+    win.webContents.send('snapshot', {
+      fields: { streaming },
+      blocks: { length: real + blocks.length, changed: blocks.map((block, index) => [real + index, block]) },
+    } satisfies SnapshotPatch)
+  const question: Block = { kind: 'user', id: 'shot-question', text: 'How would we check the worked examples?' }
+  const reply: Block = {
+    kind: 'agent',
+    id: 'shot-reply',
+    text: 'Run each example as a short script and compare its output with the expected value:\n\n```\nfor example in examples/*.txt; do\n  check-example "$example" --expect "${example%.txt}.out"\ndone\n```\n\nIf an example',
+  }
+  const suggestion: Block = {
+    kind: 'approval',
+    id: 'shot-approval',
+    requestId: 'shot-approval',
+    method: 'item/commandExecution/requestApproval',
+    title: 'Run command?',
+    body: 'check-example examples/week-3.txt',
+    resolved: null,
+    drafts: {},
+  }
+  const scrollToQuestion = () =>
+    js(`(() => {
+      const workspace = document.querySelector('[data-testid="document"]')
+      const question = Array.from(document.querySelectorAll('.doc-question')).pop()
+      if (workspace && question) workspace.scrollTop += question.getBoundingClientRect().top - workspace.getBoundingClientRect().top - 120
+      return true
+    })()`)
+  showBlocks([question, reply], true)
+  await pause(400)
+  await scrollToQuestion()
+  await shot('document-streaming')
+  showBlocks([question, { ...reply, text: reply.text.replace(/\n\nIf an example$/, '') }, suggestion], true)
+  await pause(400)
+  await scrollToQuestion()
+  await shot('document-suggestion')
+  win.webContents.send('snapshot', { fields: { streaming: false }, blocks: { length: real, changed: [] } } satisfies SnapshotPatch)
+  await pause(300)
+  await js(`(() => {
+    document.querySelector('[data-testid="document"]').scrollTop = 0
+    return true
+  })()`)
+  await pause(300)
+  // Docs' own dark hover label, not the system tooltip.
+  await hover('chip-model')
+  await pause(900)
+  await shot('tooltip')
+  await rest()
+  for (const [trigger, name] of [
+    ['menu-file', 'menu-file'],
+    ['menu-view', 'menu-view'],
+    ['chip-zoom', 'menu-zoom'],
+    ['chip-model', 'menu-style'],
+    ['chip-effort', 'menu-font'],
+    ['chip-speed', 'menu-size'],
+    ['chip-mode', 'menu-mode'],
+    ['toolbar-more', 'toolbar-more'],
+    ['share', 'share-dialog'],
+    ['share-menu', 'menu-share'],
+    ['menu-account', 'account-menu-doc'],
+  ] as const) {
+    await click(trigger)
+    // Font-menu faces load the first time a row shows them.
+    if (trigger === 'chip-effort') await js('document.fonts.ready.then(() => true)')
+    await shot(name)
+    if (trigger === 'menu-file') {
+      await hover('action-new')
+      await shot('menu-file-new')
+    }
+    if (trigger === 'chip-model') {
+      await hover('pick-gpt-5.6-sol')
+      await pause(600)
+      await shot('menu-style-cascade')
+      await click('pick-options')
+      await shot('menu-style-options')
+    }
+    await dismiss()
+  }
   win.setSize(760, 700)
-  await new Promise((resolve) => setTimeout(resolve, 100))
-  writeFileSync(join(dir, 'document-narrow.png'), (await win.capturePage()).toPNG())
+  await shot('document-narrow')
+  await click('toolbar-more')
+  await shot('toolbar-more-narrow')
+  await dismiss()
   await session.goHome()
-  await new Promise((resolve) => setTimeout(resolve, 100))
-  writeFileSync(join(dir, 'home-narrow.png'), (await win.capturePage()).toPNG())
-  await win.webContents.executeJavaScript(`document.querySelector('[data-testid="library-opencode"]').click()`)
-  await win.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+  await shot('home-narrow')
+  win.setSize(1280, 840)
+
+  // Switching "accounts" swaps the document library.
+  await click('menu-account')
+  await click('library-opencode')
+  await waitFor('[data-testid="docs-home"]', 'library home')
+  await js(`new Promise((resolve, reject) => {
     const started = Date.now()
     const check = () => {
-      const selected = document.querySelector('[data-testid="library-opencode"][aria-pressed="true"]')
-      if (selected && document.querySelector('[data-testid="docs-home"]')) resolve(true)
+      if (!document.querySelector('.top-progress')) resolve(true)
       else if (Date.now() - started > 8000) reject(new Error('Library switch did not complete'))
       else setTimeout(check, 50)
     }
     check()
   })`)
-  writeFileSync(join(dir, 'opencode-home.png'), (await win.capturePage()).toPNG())
-  await win.webContents.executeJavaScript(`document.querySelector('[data-testid="library-codex"]').click()`)
-  await new Promise((resolve) => setTimeout(resolve, 100))
-  const returnedHome = await win.webContents.executeJavaScript(`!!document.querySelector('.route-home .home')`)
+  await shot('opencode-home')
+  await click('menu-account')
+  await shot('account-menu-opencode')
+  await click('library-codex')
+  await pause(300)
+  const returnedHome = await js(`!!document.querySelector('.route-home .home')`)
   if (!returnedHome) throw new Error('Switching back to Codex did not return to its library')
   app.quit()
 }

@@ -1,0 +1,145 @@
+/* ---------- Approvals: Docs' suggestion card ---------- */
+
+/*
+ * A suggestion's line: the suggested text in the page, and Docs' 256px card
+ * level with it. The card floats outside the flow, as Docs' comments do, so
+ * it never moves page text or breaks; only the text line paginates. Narrower
+ * windows hang it over the page's right edge, with the text stopping short
+ * of it; wide ones put it fully in the margin.
+ */
+.suggestion-row {
+  @apply relative;
+  /* A paragraph of its own: the answer before it ends without a margin. */
+  margin: 1lh 0;
+  /* The card's overlap with the text column, plus a gap. */
+  padding-right: calc(256px - var(--paper-margin) - 40px + 16px);
+}
+
+/* Docs' suggested insertion: page text in the suggester's colour. */
+.suggested {
+  @apply m-0 whitespace-pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--green);
+}
+
+.suggestion {
+  @apply absolute;
+  top: 0;
+  right: calc(-1 * var(--paper-margin) - 40px);
+  z-index: 1;
+  width: 256px;
+  padding: 12px 12px 14px 16px;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgb(60 64 67 / 30%), 0 4px 8px 3px rgb(60 64 67 / 15%);
+  font-family: var(--font-ui);
+}
+
+@media (min-width: 1480px) {
+  .suggestion-row {
+    padding-right: 0;
+  }
+
+  .suggestion {
+    right: auto;
+    left: calc(100% + var(--paper-margin) + 24px);
+  }
+}
+
+.suggestion-head {
+  @apply flex items-center;
+  gap: 8px;
+}
+
+.suggestion-who {
+  @apply flex flex-col flex-1 min-w-0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: 0.1px;
+  color: var(--text);
+}
+
+.suggestion-who small {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  color: var(--text-2);
+}
+
+.suggestion-act {
+  @apply grid place-items-center rounded-full shrink-0;
+  width: 32px;
+  height: 32px;
+  color: var(--text-2);
+}
+
+.suggestion-act:hover {
+  background: var(--hover);
+}
+
+.suggestion-act.accept {
+  color: var(--blue);
+}
+
+.suggestion-text {
+  margin: 10px 0 0;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--text);
+  @apply whitespace-pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.suggestion-verb {
+  font-weight: 500;
+}
+
+.field {
+  @apply flex flex-col gap-1.5;
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.suggestion input {
+  @apply w-full;
+  border: 1px solid #747775;
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.suggestion input:focus {
+  border-color: var(--blue);
+  outline: 1px solid var(--blue);
+}
+
+.choices {
+  @apply flex flex-wrap gap-2;
+}
+
+.choice {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid #747775;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.choice:hover {
+  background: var(--hover);
+}
+
+.choice.on {
+  background: #c2e7ff;
+  border-color: transparent;
+  color: #001d35;
+}
+
+.suggestion .field {
+  margin: 12px 0 0;
+}

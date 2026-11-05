@@ -1,110 +1,506 @@
-/* ---------- Menus and chips ---------- */
+/* ---------- Menus (Base UI, see components/ui/menu.tsx) ---------- */
 
-.menu {
-  @apply relative;
+.menu-positioner {
+  z-index: 130;
+  outline: none;
+}
+
+/* Docs menus: 32px rows, 20px #444746 icons, Google Sans 14px, text 39px in. */
+.menu-panel {
+  min-width: 240px;
+  max-height: var(--available-height);
+  padding: 6px 0;
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: 4px;
+  box-shadow: var(--shadow-menu);
+  font-family: var(--font-ui);
+  outline: none;
+}
+
+/* Docs' hover label: #303030, white 12px text, radius 4, 4x8 padding, under the control. */
+.tooltip-positioner {
+  z-index: 150;
+  pointer-events: none;
+}
+
+.tooltip {
+  max-width: 320px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: #303030;
+  color: #fff;
+  font-family: var(--font-text);
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0.1px;
+  white-space: pre-line;
+  transition: opacity 100ms linear;
+}
+
+.tooltip[data-starting-style],
+.tooltip[data-ending-style] {
+  opacity: 0;
+}
+
+.tooltip[data-instant] {
+  transition: none;
+}
+
+.menu-panel[data-starting-style],
+.menu-panel[data-ending-style] {
+  opacity: 0;
 }
 
 .menu-panel {
-  @apply absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 220px;
-  padding: 8px 0;
-  background: var(--surface);
-  @apply rounded;
-  box-shadow: var(--shadow-menu);
-  z-index: 30;
+  transition: opacity 80ms linear;
 }
 
-.menu-panel.align-end {
-  left: auto;
-  right: 0;
-}
-
-.menu-caption {
-  padding: 4px 16px 10px;
-  @apply mb-1.5 text-xs;
-  color: var(--muted);
-  border-bottom: 1px solid var(--hairline);
-  @apply whitespace-nowrap;
-}
-
-/* Floating toolbar dropdowns: portaled to the body so they never move the row. */
-.popover {
-  @apply fixed;
-  z-index: 100;
-  @apply flex flex-col overflow-hidden;
-  background: var(--surface);
-  @apply rounded-lg;
-  box-shadow: var(--shadow-menu);
-}
-
-.popover .menu-panel {
-  position: static;
-  @apply min-w-0;
-  padding: 4px 0;
-  box-shadow: none;
-  @apply overflow-y-auto;
-}
-
-.popover .menu-item {
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-.popover-search {
-  padding: 8px 8px 4px;
-  border-bottom: 1px solid var(--hairline);
-}
-
-.popover-search input {
-  @apply w-full h-8;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  @apply rounded-2xl;
-  font-size: 13px;
-  background: var(--hover-soft);
-  outline: none;
-}
-
-.popover-search input:focus {
-  background: var(--surface);
-  border-color: var(--blue);
-}
-
-.popover-empty {
-  @apply p-4;
-  font-size: 13px;
-  color: var(--muted);
-  @apply text-center;
+/* ~17px from row to row across a separator, as in Docs' File menu. */
+.menu-separator {
+  height: 1px;
+  margin: 8px 0;
+  background: var(--hairline);
 }
 
 .menu-item {
-  @apply relative block w-full text-left;
-  padding: 7px 24px 7px 36px;
-  @apply text-sm;
+  @apply relative flex items-center w-full text-left whitespace-nowrap cursor-pointer select-none;
+  height: 32px;
+  padding: 0 16px 0 12px;
+  font-size: 14px;
+  letter-spacing: 0.1px;
   color: var(--text);
-  @apply whitespace-nowrap;
-}
-
-.menu-item:hover,
-.menu-item:focus-visible {
-  background: var(--hover);
   outline: none;
 }
 
-.menu-item:disabled {
-  color: var(--faint);
+.menu-item[data-highlighted],
+.menu-item[aria-expanded='true'] {
+  background: var(--hover-menu);
 }
 
-.menu-item.checked::before {
-  content: '';
-  @apply absolute;
-  left: 13px;
-  top: 9px;
-  @apply w-1.5;
-  height: 11px;
-  border: solid var(--text);
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
+.menu-item[data-disabled] {
+  color: var(--faint);
+  cursor: default;
+}
+
+.menu-icon {
+  @apply grid place-items-center shrink-0;
+  width: 20px;
+  height: 20px;
+  margin-right: 7px;
+  color: var(--text-2);
+}
+
+/* Menubar menus (File, Edit, …) are a fixed 322px wide in Docs. */
+.menubar-panel {
+  min-width: 322px;
+}
+
+/* Docs' blue "New" pill. */
+.menu-badge {
+  margin-left: 16px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.menu-dot {
+  width: 8px;
+  height: 8px;
+  margin-left: 16px;
+  border-radius: 50%;
+  background: var(--blue);
+}
+
+/* File ▸ New: each editor's glyph in its product colour. */
+.app-docs .menu-icon {
+  color: #4285f4;
+}
+
+.app-sheets .menu-icon {
+  color: #0f9d58;
+}
+
+.app-slides .menu-icon {
+  color: #f4b400;
+}
+
+.app-forms .menu-icon {
+  color: #7248b9;
+}
+
+.app-drawings .menu-icon {
+  color: #db4437;
+}
+
+/* Docs sets the dot just before the ▸. */
+.menu-dot + .menu-arrow {
+  margin-left: 4px;
+}
+
+.menu-item[data-disabled] .menu-icon {
+  opacity: 0.5;
+}
+
+.menu-text {
+  @apply flex-1 min-w-0 overflow-hidden text-ellipsis;
+}
+
+.menu-desc {
+  @apply block;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-2);
+  white-space: normal;
+}
+
+.menu-shortcut {
+  margin-left: 32px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.menu-arrow {
+  @apply grid place-items-center;
+  margin: 0 -8px 0 24px;
+  color: #9aa0a6;
+}
+
+/* Toolbar dropdowns share the menu look with fixed widths. */
+.menu-panel.popover {
+  min-width: 0;
+}
+
+/* Non-menu popovers (the account switcher). */
+.popover-panel {
+  outline: none;
+}
+
+.zoom-menu {
+  width: 96px;
+}
+
+.zoom-menu .menu-item {
+  padding-right: 12px;
+}
+
+/* ---------- Style menu ("Normal text") ---------- */
+
+/* 220px wide; every style row is 71px and Options 45px, like Docs. */
+.style-menu {
+  width: 222px;
+  padding: 0;
+}
+
+.style-menu .menu-item + .menu-item {
+  border-top: 1px solid var(--hairline);
+}
+
+.style-menu .menu-item {
+  height: 71px;
+  padding: 0 12px 0 8px;
+  font-family: var(--font-page);
+  color: #000;
+  letter-spacing: 0;
+}
+
+.style-menu .menu-item[data-checked] {
+  background: #e8e8e8;
+}
+
+.style-menu .menu-item[data-checked][data-highlighted] {
+  background: #e0e0e0;
+}
+
+/* Docs' style tick is a light grey, unlike other menus' checks. */
+.style-menu .menu-icon {
+  margin-right: 8px;
+  color: #757575;
+}
+
+.style-menu .menu-arrow {
+  margin: 0 0 0 8px;
+}
+
+/* The current style's ▸ is near-black and a touch larger; the rest stay grey. */
+.style-menu .menu-item[data-checked] .menu-arrow {
+  color: #202124;
+  transform: scale(1.1);
+}
+
+/* Each row previews its page style; Normal text is Arial 11pt. */
+.style-menu .style-normal .menu-text {
+  font-family: var(--font-page);
+  font-size: 11pt;
+}
+
+/* The menu previews Title a size under its 26pt page style, as Docs does. */
+.style-menu .style-title .menu-text {
+  font-size: 24pt;
+  line-height: 1.15;
+}
+
+.style-menu .style-subtitle .menu-text {
+  font-size: 15pt;
+  color: #666;
+}
+
+.style-menu .style-h1 .menu-text {
+  font-size: 20pt;
+}
+
+.style-menu .style-h2 .menu-text {
+  font-size: 16pt;
+}
+
+.style-menu .style-h3 .menu-text {
+  font-size: 14pt;
+  color: #434343;
+}
+
+.style-menu .style-h4 .menu-text {
+  font-size: 12pt;
+  color: #666;
+}
+
+.style-menu .style-h5 .menu-text,
+.style-menu .style-h6 .menu-text {
+  font-size: 11pt;
+  color: #666;
+}
+
+.style-menu .style-h6 .menu-text {
+  font-style: italic;
+}
+
+.style-menu .style-options .menu-text {
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+
+.style-menu .menu-item.style-options {
+  height: 45px;
+}
+
+/* ---------- Font menu ("Arial") and size menu ("11") ---------- */
+
+.font-menu {
+  width: 222px;
+}
+
+.font-menu .menu-item {
+  font-size: 15px;
+  letter-spacing: 0;
+}
+
+.size-menu {
+  width: 60px;
+}
+
+.size-menu .menu-item {
+  @apply justify-center;
+  text-align: center;
+  height: 28px;
+  padding: 0;
+  font-size: 14px;
+}
+
+.size-menu .menu-icon {
+  @apply hidden;
+}
+
+.size-menu .menu-item[data-checked] {
+  background: var(--hover-menu);
+}
+
+/* ---------- Editing mode menu ---------- */
+
+/* Rows keep their icons; the current mode is the shaded row. */
+.mode-menu {
+  width: 290px;
+}
+
+.mode-menu .menu-item[data-checked] {
+  background: #e8e8e8;
+}
+
+.mode-menu .menu-item {
+  height: 56px;
+  @apply items-start;
+  padding-top: 8px;
+}
+
+.mode-menu .menu-icon {
+  margin-top: 2px;
+}
+
+.mode-menu .menu-text {
+  @apply flex flex-col;
+  white-space: normal;
+}
+
+
+
+/* ---------- Account switcher ---------- */
+
+.account-panel {
+  width: 360px;
+  max-height: var(--available-height);
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 28px;
+  background: #e9eef6;
+  box-shadow: var(--shadow-menu);
+}
+
+.account-card {
+  @apply relative flex flex-col items-center text-center;
+  padding: 16px 16px 20px;
+  border-radius: 20px;
+  background: var(--surface);
+}
+
+.account-email {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* Google's × in the card's top-right corner. */
+.account-close {
+  @apply absolute grid place-items-center rounded-full;
+  top: 6px;
+  right: 6px;
+  width: 40px;
+  height: 40px;
+  color: var(--text-2);
+}
+
+.account-close:hover {
+  background: var(--hover);
+}
+
+.account-photo {
+  @apply relative;
+  margin: 20px 0 10px;
+}
+
+/* The white camera disc on the big avatar's lower right. */
+.account-camera {
+  @apply absolute grid place-items-center rounded-full;
+  right: -4px;
+  bottom: -2px;
+  width: 28px;
+  height: 28px;
+  background: var(--surface);
+  color: var(--text-2);
+  box-shadow: 0 1px 2px rgb(60 64 67 / 30%), 0 1px 3px 1px rgb(60 64 67 / 15%);
+}
+
+.account-hello {
+  font-size: 22px;
+  color: var(--text);
+  margin-bottom: 14px;
+}
+
+.account-manage {
+  height: 36px;
+  padding: 0 24px;
+  border: 1px solid #747775;
+  border-radius: 18px;
+  color: var(--blue);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.account-manage:hover {
+  background: var(--blue-tint);
+}
+
+.account-list {
+  margin-top: 4px;
+  border-radius: 20px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.account-row {
+  @apply flex items-center w-full text-left;
+  gap: 14px;
+  min-height: 56px;
+  padding: 8px 20px;
+}
+
+.account-row:hover:not(:disabled),
+.account-row:focus-visible {
+  background: var(--hover-menu);
+  outline: none;
+}
+
+.account-row:disabled {
+  opacity: 0.6;
+}
+
+.account-row .avatar-sm {
+  flex: 0 0 auto;
+}
+
+.account-row-text {
+  @apply flex flex-col min-w-0;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.account-row-text small {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.account-row .row-icon {
+  @apply grid place-items-center;
+  width: 32px;
+  color: var(--text-2);
+}
+
+.account-foot {
+  @apply flex justify-center gap-2;
+  padding: 12px 0 6px;
+  font-family: Roboto, var(--font-ui);
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.account-error {
+  margin: 8px 16px 0;
+  font-family: var(--font-text);
+  font-size: 12px;
+  color: var(--red);
+}
+
+/* Google's thin loading bar while an account (library) switch runs. */
+.top-progress {
+  @apply fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 200;
+  background: linear-gradient(90deg, transparent, var(--blue), transparent);
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  animation: top-progress 1.1s linear infinite;
+}
+
+@keyframes top-progress {
+  from {
+    background-position: -50% 0;
+  }
+  to {
+    background-position: 150% 0;
+  }
 }

@@ -11,6 +11,69 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.3.283
         version: 0.3.283(@anthropic-ai/sdk@0.128.0(zod@4.6.5))(@modelcontextprotocol/sdk@1.30.1(zod@4.6.5))(zod@4.6.5)
+      '@base-ui/react':
+        specifier: 1.9.0
+        version: 1.9.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@fontsource-variable/google-sans-flex':
+        specifier: ^5.3.2
+        version: 5.3.2
+      '@fontsource/amatic-sc':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/caladea':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/carlito':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/caveat':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/comfortaa':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/eb-garamond':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/lexend':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/lobster':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/lora':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/merriweather':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/montserrat':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/nunito':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/open-sans':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/oswald':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/pacifico':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/playfair-display':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/roboto':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/roboto-mono':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/spectral':
+        specifier: ^5.3.0
+        version: 5.3.0
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -236,6 +299,33 @@ packages:
   '@babel/types@7.29.8':
     resolution: {integrity: sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg==}
     engines: {node: '>=6.9.0'}
+
+  '@base-ui/react@1.9.0':
+    resolution: {integrity: sha512-S8CSYosASBKtpL8SWUfS78rFElfLijiCgA7oHOK22jCJ95FULsYyKwBNFOgudt0RA+/7yNc7F81bOvQnRgbBiQ==}
+    engines: {node: '>=14.0.0'}
+    peerDependencies:
+      '@date-fns/tz': ^1.2.0
+      '@types/react': ^17 || ^18 || ^19
+      date-fns: ^4.0.0
+      react: ^17 || ^18 || ^19
+      react-dom: ^17 || ^18 || ^19
+    peerDependenciesMeta:
+      '@date-fns/tz':
+        optional: true
+      '@types/react':
+        optional: true
+      date-fns:
+        optional: true
+
+  '@base-ui/utils@0.5.0':
+    resolution: {integrity: sha512-dYGGcEttjkYiMoa5nHm8vLaJ2UcuTWxo3BFAwOYXeRg/q7UVVvA6cacEIXEs3FgBfK1CGtW1ptElqs7wsx+t9A==}
+    peerDependencies:
+      '@types/react': ^17 || ^18 || ^19
+      react: ^17 || ^18 || ^19
+      react-dom: ^17 || ^18 || ^19
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
 
   '@bramus/specificity@2.4.2':
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
@@ -605,6 +695,81 @@ packages:
     peerDependenciesMeta:
       '@noble/hashes':
         optional: true
+
+  '@floating-ui/core@1.8.0':
+    resolution: {integrity: sha512-0CIZ5itps/8x7BG8dEIhs53BvCUH2PCoogtakwRTut+Arm58sJooJ0AuZhLw2HJYIR5cMLNPBSS728sPho2khQ==}
+
+  '@floating-ui/dom@1.8.0':
+    resolution: {integrity: sha512-yXSrzeHZBTZadLOlfyhCkJHNeLJnHRnRInwdZ40L7ZiaAtrBwoYlsDrX3v5zB1Utk7CLfzcOVnVVWoXEky7Ceg==}
+
+  '@floating-ui/react-dom@2.1.9':
+    resolution: {integrity: sha512-JDjEFGCpImxDCA7JJKviA0M9+RtmJdj0m/NVU5IMgBK+AmZouAQQ7/+2GLH0GXXY0YMw9oXPB8hKdbPYg5QLYg==}
+    peerDependencies:
+      react: '>=16.8.0'
+      react-dom: '>=16.8.0'
+
+  '@floating-ui/utils@0.2.12':
+    resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
+
+  '@fontsource-variable/google-sans-flex@5.3.2':
+    resolution: {integrity: sha512-y7k6vuO6ib6GdOns4Da7NungIK7W5PXblS+ObXyaHPcKNKNSmJrEFMzsMsIL2SINGjV3+knXzyGnyfcj4X44qw==}
+
+  '@fontsource/amatic-sc@5.3.0':
+    resolution: {integrity: sha512-qGAftmq7o21ViixCApztfLOe6TP0VFp3x9ac5KVTwBqW6SU8YJeGWgcLHOfBkooAI+/411R/flMqXos8GseNkA==}
+
+  '@fontsource/caladea@5.3.0':
+    resolution: {integrity: sha512-ErBJWj9Gp/tTS33h0SUHmU3MCHzQa3RJS405ccznE8xxVK41J+mrKhjjcf3oIrnQTCgICMbl9nAH3XMXN9ANUg==}
+
+  '@fontsource/carlito@5.3.0':
+    resolution: {integrity: sha512-oPqvLGK/dtVzC4KjdDcV/YzQq37sZdMXxD58ADvguPo3dm6yzbBKs40ADmevJF0wLvyvJY7/fPl5YkCQ1njWUw==}
+
+  '@fontsource/caveat@5.3.0':
+    resolution: {integrity: sha512-eHTfzQxFSW9ABERRLNruHoNJmKed2J7pqTUc5lp4a4POMgXGKpxmWj3d9Hz10kmAg6iuTTLe6UagbA4bnsmfQw==}
+
+  '@fontsource/comfortaa@5.3.0':
+    resolution: {integrity: sha512-ab4DERH0q6ko8QCpEZzOV9ebK39LgQ2oM91AkLNqu0VIxxwT0nV2D3sOuI7iLirWWq4IMooaIN6/2llxrDN2JA==}
+
+  '@fontsource/eb-garamond@5.3.0':
+    resolution: {integrity: sha512-VplwHpB8FLuzl+4G5LDci1b3Z4SghiuXH8XEgaxjnOb5aue5mEt1njmDKeO6iyLeGa73LffU7PC7hzncLRx0ZA==}
+
+  '@fontsource/lexend@5.3.0':
+    resolution: {integrity: sha512-4igbsooynC6xwfagkAW6eo9JMrw8ALFGkWn1YChYmYchufMJSPgWihD+cy5ruX5YX/gDk/gllcl1Oj7q6KUZmw==}
+
+  '@fontsource/lobster@5.3.0':
+    resolution: {integrity: sha512-jt+RDk/8Sstl1Omhox62gTbvRSLbh06kn5BNfDFgf4rNuDPHF+19eWYFxzq5FsdkalbRJNtc5p5C3qE0+leNVg==}
+
+  '@fontsource/lora@5.3.0':
+    resolution: {integrity: sha512-OK1g1z01rHVPqO5aw/FOIoDqc46KKYZdgL3NOLkxLWDk6QhDHhdr/h2BV1cke6gTvR1tzpDfdKyUkGsC+sQLeQ==}
+
+  '@fontsource/merriweather@5.3.0':
+    resolution: {integrity: sha512-9LpPsNTYzRALj468Uj1K9Usl5eXk991L/kKmcpdWbTF1na9NfMyAXMgUABlMReViU1MYBz9kJ8jEzEOtX9qGDg==}
+
+  '@fontsource/montserrat@5.3.0':
+    resolution: {integrity: sha512-iQPDtZOnmM5ih4JBGaMSXisRap0ixb9bAUw2hDtY7EjVfaqiiNlKtVuJl9XclxUwtwMMHNcWXfQR6zI9x05+Tg==}
+
+  '@fontsource/nunito@5.3.0':
+    resolution: {integrity: sha512-vw9TaTQJ/zpEpKrsODuPmOvaVjXgdda6B+xXA4YqjrdeJ62MLgVoDerdRXFQHyBnSCt2yQ2nHKCHPP/Pv7Xq4Q==}
+
+  '@fontsource/open-sans@5.3.0':
+    resolution: {integrity: sha512-V1bdMlGNyZrJwzrdusshMOw2YR0aqYDL7kOo9dkxUEKl8dFv66A9HLckOOXl572sG/7ohhDQrCrTFGSn9LZcSw==}
+
+  '@fontsource/oswald@5.3.0':
+    resolution: {integrity: sha512-16r2aHActe0pH+9FLdk/74/YxXM7HpGak05kAzx3RvSToiJwGvyhv6GvckPz+YuZmvL1nxWbEop2jAXRcXYPRg==}
+
+  '@fontsource/pacifico@5.3.0':
+    resolution: {integrity: sha512-bWv0fHR1n36p7scRn+maaEaVeQCOq9yvfVfjyAeUzKrK4Y/3qiRAEj4hJgfxj/sjgZZGkeHyKPrbWdDaZtpCVw==}
+
+  '@fontsource/playfair-display@5.3.0':
+    resolution: {integrity: sha512-uJSABalvdWc10fEPppQjQocamT21LEyRfzzWfRfqbkPz+sRv+kKpYDKyluBUskvJREkJTos9epj1WjQROGu99Q==}
+
+  '@fontsource/roboto-mono@5.3.0':
+    resolution: {integrity: sha512-yhwplHMHW9dCk+1pZuERfcJe+K3rosGVZEoK0XktkxRSqQ9qsipSwwiuW2/8Qmtp9lzu3Ixa/ie4BMH3i8CkZQ==}
+
+  '@fontsource/roboto@5.3.0':
+    resolution: {integrity: sha512-BapRJOWYP+LZ21zp+wBQjfpPYKRoxc4LspJ/RLuI+HSMBD5u/X4O+ESDrSvEqDSy0rAl7GwBJ+09mdc16cVQ1Q==}
+
+  '@fontsource/spectral@5.3.0':
+    resolution: {integrity: sha512-2TL5WWGOZj4SIsBmPFEzKeA60tXXd1Qp1OqaaVEWkJL8IfSGLk6YmiusmC441iFkdJDIuFelu1r8lhCmQUU3mw==}
 
   '@hono/node-server@2.1.1':
     resolution: {integrity: sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg==}
@@ -1872,6 +2037,9 @@ packages:
     resolution: {integrity: sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==}
     engines: {node: '>=0.10.0'}
 
+  reselect@5.3.0:
+    resolution: {integrity: sha512-XGoLeRAVzUTcJ1qkxPQhDJyIZ5d6zzZD9nT7AEZOaaU9UbWclhycElmhO+VD5bFeLuzhPBaOV2oXC8uG35ZSpg==}
+
   rollup@4.63.1:
     resolution: {integrity: sha512-3Df9jsstwhccuEfmAMi9l8XUh/GOkVObmFTU7CCVBysEbcOZLl84jCtaAZMcPiMz2EGKsATzQcU+Xr3n/wU6cg==}
     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
@@ -2078,6 +2246,11 @@ packages:
     hasBin: true
     peerDependencies:
       browserslist: '>= 4.21.0'
+
+  use-sync-external-store@1.7.0:
+    resolution: {integrity: sha512-6L+EeigHMQhdaIPNIFUKwfWJSwWFQ8gJbJ2DLOs5sDIegTwR9fRxvnM3uciHKjIZhFz+KAv2emhWMRvDmMcY8A==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   vary@1.1.2:
     resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
@@ -2408,6 +2581,29 @@ snapshots:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
 
+  '@base-ui/react@1.9.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      '@babel/runtime': 7.29.7
+      '@base-ui/utils': 0.5.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@floating-ui/react-dom': 2.1.9(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@floating-ui/utils': 0.2.12
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+      use-sync-external-store: 1.7.0(react@19.2.8)
+    optionalDependencies:
+      '@types/react': 19.2.18
+
+  '@base-ui/utils@0.5.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      '@babel/runtime': 7.29.7
+      '@floating-ui/utils': 0.2.12
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+      reselect: 5.3.0
+      use-sync-external-store: 1.7.0(react@19.2.8)
+    optionalDependencies:
+      '@types/react': 19.2.18
+
   '@bramus/specificity@2.4.2':
     dependencies:
       css-tree: 3.2.1
@@ -2608,6 +2804,63 @@ snapshots:
     optional: true
 
   '@exodus/bytes@1.15.1': {}
+
+  '@floating-ui/core@1.8.0':
+    dependencies:
+      '@floating-ui/utils': 0.2.12
+
+  '@floating-ui/dom@1.8.0':
+    dependencies:
+      '@floating-ui/core': 1.8.0
+      '@floating-ui/utils': 0.2.12
+
+  '@floating-ui/react-dom@2.1.9(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      '@floating-ui/dom': 1.8.0
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+
+  '@floating-ui/utils@0.2.12': {}
+
+  '@fontsource-variable/google-sans-flex@5.3.2': {}
+
+  '@fontsource/amatic-sc@5.3.0': {}
+
+  '@fontsource/caladea@5.3.0': {}
+
+  '@fontsource/carlito@5.3.0': {}
+
+  '@fontsource/caveat@5.3.0': {}
+
+  '@fontsource/comfortaa@5.3.0': {}
+
+  '@fontsource/eb-garamond@5.3.0': {}
+
+  '@fontsource/lexend@5.3.0': {}
+
+  '@fontsource/lobster@5.3.0': {}
+
+  '@fontsource/lora@5.3.0': {}
+
+  '@fontsource/merriweather@5.3.0': {}
+
+  '@fontsource/montserrat@5.3.0': {}
+
+  '@fontsource/nunito@5.3.0': {}
+
+  '@fontsource/open-sans@5.3.0': {}
+
+  '@fontsource/oswald@5.3.0': {}
+
+  '@fontsource/pacifico@5.3.0': {}
+
+  '@fontsource/playfair-display@5.3.0': {}
+
+  '@fontsource/roboto-mono@5.3.0': {}
+
+  '@fontsource/roboto@5.3.0': {}
+
+  '@fontsource/spectral@5.3.0': {}
 
   '@hono/node-server@2.1.1(hono@4.13.9)':
     dependencies:
@@ -4057,6 +4310,8 @@ snapshots:
 
   require-from-string@2.0.2: {}
 
+  reselect@5.3.0: {}
+
   rollup@4.63.1:
     dependencies:
       '@types/estree': 1.0.9
@@ -4308,6 +4563,10 @@ snapshots:
       browserslist: 4.28.8
       escalade: 3.2.0
       picocolors: 1.1.1
+
+  use-sync-external-store@1.7.0(react@19.2.8):
+    dependencies:
+      react: 19.2.8
 
   vary@1.1.2: {}
 

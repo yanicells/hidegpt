@@ -16,7 +16,7 @@ reuse your existing logins, and the window is a Docs costume over them:
   individual use only: Anthropic does not allow offering Claude sign-in or
   subscription limits to other people through a third-party app.
 
-Switch libraries using **Codex / OpenCode / Claude** on the home page. Each library has its own documents and projects. The **Editing** toolbar menu and **Tools** menu also switch providers. Cloud ChatGPT Chat / Cloud Work are out of documented scope.
+Switch libraries from the Google account (avatar) menu at the top right, on the home page or inside a document. Each library has its own documents and projects. Provider names stay out of sight until that menu opens. Cloud ChatGPT Chat / Cloud Work are out of documented scope.
 
 ```bash
 pnpm install
@@ -29,25 +29,29 @@ pnpm dev
 | `pnpm test` | Session protocol tests plus renderer UI tests |
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm protocol` | Regenerate app-server TypeScript types from the installed CLI |
-| `pnpm screenshot` | Home grid/list, project, creation dialog, and desktop/narrow editor PNGs using fictional content |
+| `pnpm screenshot` | Home grid/list, folder picker, open menus, and desktop/narrow editor PNGs using fictional content |
 
-Choose **Blank document** or a template to name a document and select its location.
-Projects are browsable folders, including empty projects. Opening a project remembers
-that location when you return from a document; **New document** inside it preselects the project.
-Use **Add project** to choose its name and folder. OpenCode projects use Git folders;
-other directories work through **Location → Choose folder**.
+**Blank document** or a template creates an "Untitled document" right away, like Docs;
+rename it from the title field. Projects are folders. The folder icon (**Open file
+picker**) browses every folder, including empty ones; opening one titles the home list
+with its name, and new documents go into it. **Owned by anyone** goes back to every
+document. **New folder** adds a project: type its name, then pick its directory after
+**Create**. OpenCode projects use Git folders.
 
-**My documents · No project** starts in `~/.codex/threads` for Codex or your home
-folder for OpenCode, without inheriting the last document's project. Templates
-place a starter in the composer; they never send it automatically.
+With no folder open, a new document starts in `~/.codex/threads` for Codex or your home folder for
+OpenCode, without inheriting the last document's project. Templates place a starter
+in the composer; they never send it automatically.
 
-The toolbar keeps the Docs appearance: **Normal text** selects the model,
-**Arial** selects effort, **11** selects speed, and **Editing** selects the provider.
-Available choices come from the provider. Account details stay in menus.
+The toolbar keeps the Docs appearance. The style menu (**Normal text**, **Title**,
+**Heading 1**…) selects the model; hover a style to see which model it is.
+The font (**Arial**) selects effort, the size (**11**) selects speed, and
+**Editing / Suggesting / Viewing** selects the collaboration mode. Available choices
+come from the provider.
 
-Use **View → Output only** to hide tool activity and labeled progress messages.
-This preference persists across launches. Answers and approval requests remain visible;
-reasoning is always excluded, including OpenCode streaming deltas.
+Tool activity and labeled progress messages are hidden by default. Turn on
+**View → Show non-printing characters** to see them; the choice persists across
+launches. Answers and approval requests always stay visible; reasoning is always
+excluded, including OpenCode streaming deltas.
 
 Opening a document shows immediate, cancellable feedback. Recent turns load first;
 **Load earlier** retrieves the rest while preserving the reading position. Streaming

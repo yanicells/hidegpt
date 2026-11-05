@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -10,7 +10,8 @@ import type { Command, HideGptApi, MenuAction } from '../../shared/api'
 import type { SnapshotPatch } from '../../shared/snapshot-patch'
 import { App } from './app'
 import { groupByRecency } from './components/home/grouping'
-import { projectFolders, threadProjectId } from './components/home/ProjectFolders'
+import { projectFolders, threadProjectId } from './components/home/projects'
+import { takePendingDraft } from './templates'
 
 import '@testing-library/jest-dom/vitest'
 
@@ -21,6 +22,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   localStorage.clear()
+  // A template's starter text waits for the next composer; don't leak it across tests.
+  takePendingDraft()
 })
 
 function mount(partial: Partial<Snapshot> = {}) {
@@ -91,7 +94,7 @@ describe('docs home', () => {
     const user = userEvent.setup()
     mount()
     await user.click(screen.getByTestId('thread-thr_1'))
-    expect(screen.getByTestId('composer')).toHaveAttribute('placeholder', 'Type a question')
+    expect(screen.getByTestId('composer')).toHaveAttribute('placeholder', 'Type @ to insert')
     expect(screen.getByDisplayValue('Photosynthesis')).toBeInTheDocument()
     expect(screen.getByTestId('menu-file')).toBeInTheDocument()
   })
@@ -103,8 +106,39 @@ describe('docs home', () => {
       title: 'Photosynthesis',
     })
     await user.click(screen.getByTestId('menu-file'))
-    expect(screen.getByTestId('panel-file')).toHaveTextContent('New document')
-    expect(screen.getByTestId('panel-file')).toHaveTextContent('Open folder…')
+    expect(await screen.findByTestId('panel-file')).toHaveTextContent('New')
+    expect(screen.getByTestId('panel-file')).toHaveTextContent('Open')
+  })
+
+  it('creates a document from File > New > Document', async () => {
+    const user = userEvent.setup()
+    const { calls } = mount({ route: { kind: 'doc', threadId: 'thr_1' }, title: 'Photosynthesis' })
+    await user.click(screen.getByTestId('menu-file'))
+    await user.click(await screen.findByTestId('action-new'))
+    // The submenu ignores pointer events until it finishes opening, so click it directly.
+    fireEvent.click(await screen.findByTestId('action-new-document'))
+    expect(calls).toContainEqual({ op: 'newDocument', projectId: null, cwd: undefined })
+  })
+
+  it('shows a pending approval as a Docs suggestion card', async () => {
+    const user = userEvent.setup()
+    const approval = {
+      kind: 'approval' as const,
+      id: 'approval-1',
+      requestId: 1,
+      method: 'item/commandExecution/requestApproval',
+      title: 'Run command?',
+      body: 'npm test',
+      resolved: null,
+      drafts: {},
+    }
+    const { calls } = mount({ route: { kind: 'doc', threadId: 'thr_1' }, blocks: [approval] })
+    const card = screen.getByTestId('approval-approval-1')
+    expect(card).toHaveTextContent('Add: “npm test”')
+    expect(card).toHaveTextContent('Yan')
+    expect(card).not.toHaveTextContent('Run command')
+    await user.click(screen.getByRole('button', { name: 'Accept suggestion' }))
+    expect(calls).toContainEqual({ op: 'resolveApproval', blockId: 'approval-1', accept: true })
   })
 
   it('shows a search field on the homepage', () => {
@@ -127,16 +161,15 @@ describe('docs home', () => {
   it('creates a document from the blank template', async () => {
     const user = userEvent.setup()
     const { calls } = mount()
+    // Like Docs, Blank document creates right away with no naming step.
     await user.click(screen.getByTestId('new-doc'))
-    expect(calls.some((call) => call.op === 'newDocument')).toBe(false)
-    expect(screen.getByRole('dialog')).toHaveTextContent('Location')
-    await user.click(screen.getByRole('button', { name: 'Create document' }))
-    expect(calls).toContainEqual({ op: 'newDocument', title: '', projectId: null, cwd: undefined })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(calls).toContainEqual({ op: 'newDocument', projectId: null, cwd: undefined })
   })
 })
 
 describe('document page', () => {
-  it('renders questions at body scale with separators and an outline', () => {
+  it('renders questions as Heading 1 sections with an outline', () => {
     mount({
       route: { kind: 'doc', threadId: 'thr_1' },
       title: 'Photosynthesis',
@@ -147,11 +180,10 @@ describe('document page', () => {
         { kind: 'agent', id: 'a2', text: 'Chlorophyll.' },
       ],
     })
-    const questions = document.querySelectorAll('.doc-question')
-    expect(questions).toHaveLength(2)
-    // Later questions are separated like document sections, not giant headings.
-    expect(document.querySelectorAll('.doc-block.turn-start')).toHaveLength(1)
-    expect(document.querySelector('.doc-heading')).toBeNull()
+    const questions = screen.getAllByRole('heading', { level: 1 })
+    expect(questions.map((heading) => heading.textContent)).toEqual(['What is photosynthesis?', 'Why is it green?'])
+    // Docs has no turn separators; headings alone structure the page.
+    expect(document.querySelector('.turn-start')).toBeNull()
     const outline = screen.getByTestId('outline')
     expect(outline).toHaveTextContent('What is photosynthesis?')
     expect(screen.getByTestId('outline-u2')).toHaveTextContent('Why is it green?')
@@ -186,18 +218,20 @@ describe('document page', () => {
     expect(screen.queryByText(/% used/)).toBeNull()
   })
 
-  it('switches providers from the toolbar', async () => {
+  it('switches providers from the account menu', async () => {
     const user = userEvent.setup()
     const { calls } = mount({
       route: { kind: 'doc', threadId: 'thr_1' },
       title: 'Photosynthesis',
     })
-    await user.click(screen.getByTestId('chip-provider'))
-    await user.click(screen.getByTestId('pick-opencode'))
-    expect(calls).toContainEqual({ op: 'setProvider', provider: 'opencode' })
+    // Provider names stay hidden until the avatar menu opens.
+    expect(screen.queryByText('OpenCode')).toBeNull()
+    await user.click(screen.getByTestId('menu-account'))
+    await user.click(await screen.findByTestId('library-opencode'))
+    expect(calls).toContainEqual({ op: 'setProvider', provider: 'opencode', home: false })
   })
 
-  it('searches models and picks a speed from floating dropdowns', async () => {
+  it('picks a model from a style cascade and a speed from floating dropdowns', async () => {
     const user = userEvent.setup()
     const { calls } = mount({
       route: { kind: 'doc', threadId: 'thr_1' },
@@ -227,15 +261,16 @@ describe('document page', () => {
       model: 'a',
     })
     await user.click(screen.getByTestId('chip-model'))
-    const search = screen.getByTestId('menu-search')
-    await user.type(search, 'alpha')
-    expect(screen.getByTestId('pick-a')).toBeInTheDocument()
+    await user.hover(await screen.findByTestId('pick-a'))
+    // Submenus ignore pointer events until they finish opening.
+    fireEvent.click(await screen.findByTestId('pick-apply-0'))
+    expect(calls).toContainEqual({ op: 'setModel', model: 'a' })
     await user.click(screen.getByTestId('chip-speed'))
-    await user.click(screen.getByTestId('pick-fast'))
+    await user.click(await screen.findByTestId('pick-fast'))
     expect(calls).toContainEqual({ op: 'setServiceTier', serviceTier: 'fast' })
   })
 
-  it('walks document tabs like back, jump, and new', async () => {
+  it('walks document tabs: jump, new, collapse, and home', async () => {
     const user = userEvent.setup()
     const { calls } = mount({
       route: { kind: 'doc', threadId: 'thr_1' },
@@ -247,10 +282,13 @@ describe('document page', () => {
     })
     expect(screen.getByTestId('outline')).toHaveTextContent('Document tabs')
     await user.click(screen.getByTestId('outline-u1'))
-    await user.click(screen.getByLabelText('New document'))
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Cancel' }))
-    await user.click(screen.getByLabelText('Back to documents'))
+    await user.click(screen.getByLabelText('Add tab'))
+    expect(calls).toContainEqual({ op: 'newDocument', projectId: null, cwd: undefined })
+    await user.click(screen.getByLabelText('Hide tabs & outlines'))
+    expect(screen.queryByTestId('outline-u1')).toBeNull()
+    await user.click(screen.getByLabelText('Show tabs & outlines'))
+    expect(screen.getByTestId('outline-u1')).toBeInTheDocument()
+    await user.click(screen.getByLabelText('Docs home'))
     expect(calls).toContainEqual({ op: 'goHome' })
   })
 })
@@ -270,11 +308,11 @@ describe('toolbar dropdowns', () => {
       models: [stubModel()],
       model: 'gpt-5.6-sol',
     })
-    expect(screen.queryByTestId('menu-search')).toBeNull()
+    expect(screen.queryByTestId('pick-options')).toBeNull()
     await user.click(screen.getByTestId('chip-model'))
-    expect(screen.getByTestId('menu-search')).toBeInTheDocument()
+    expect(await screen.findByTestId('pick-options')).toBeInTheDocument()
     await user.click(screen.getByTestId('chip-model'))
-    expect(screen.queryByTestId('menu-search')).toBeNull()
+    await waitFor(() => expect(screen.queryByTestId('pick-options')).toBeNull())
   })
 
   it('dispatches setModel and closes when picking a model', async () => {
@@ -286,13 +324,14 @@ describe('toolbar dropdowns', () => {
       model: 'alpha',
     })
     await user.click(screen.getByTestId('chip-model'))
-    expect(screen.getByTestId('menu-search')).toBeInTheDocument()
+    // The second model sits in the second style slot.
+    expect(await screen.findByTestId('pick-beta')).toHaveTextContent('Title')
     await user.click(screen.getByTestId('pick-beta'))
     expect(calls).toContainEqual({ op: 'setModel', model: 'beta' })
-    expect(screen.queryByTestId('menu-search')).toBeNull()
+    await waitFor(() => expect(screen.queryByTestId('pick-options')).toBeNull())
   })
 
-  it('filters models by search text', async () => {
+  it('keeps model names out of the style menu text', async () => {
     const user = userEvent.setup()
     mount({
       route: { kind: 'doc', threadId: 'thr_1' },
@@ -301,11 +340,15 @@ describe('toolbar dropdowns', () => {
       model: 'alpha',
     })
     await user.click(screen.getByTestId('chip-model'))
-    expect(screen.getByTestId('pick-alpha')).toBeInTheDocument()
-    expect(screen.getByTestId('pick-beta')).toBeInTheDocument()
-    await user.type(screen.getByTestId('menu-search'), 'alpha')
-    expect(screen.getByTestId('pick-alpha')).toBeInTheDocument()
-    expect(screen.queryByTestId('pick-beta')).toBeNull()
+    // Slots show style names; the real name is only the row's tooltip.
+    expect(await screen.findByTestId('pick-alpha')).toHaveTextContent('Normal text')
+    expect(screen.queryByText('AlphaGuide')).toBeNull()
+    await user.hover(screen.getByTestId('pick-alpha'))
+    expect(await screen.findByText('AlphaGuide', {}, { timeout: 2000 })).toHaveClass('tooltip')
+    await user.unhover(screen.getByTestId('pick-alpha'))
+    await user.click(screen.getByTestId('pick-options'))
+    expect(await screen.findByTestId('pick-reset-styles')).toHaveTextContent('Reset styles')
+    expect(screen.queryByText('BetaHelper')).toBeNull()
   })
 
   it('dispatches setServiceTier from the speed chip', async () => {
@@ -317,7 +360,7 @@ describe('toolbar dropdowns', () => {
       model: 'a',
     })
     await user.click(screen.getByTestId('chip-speed'))
-    await user.click(screen.getByTestId('pick-fast'))
+    await user.click(await screen.findByTestId('pick-fast'))
     expect(calls).toContainEqual({ op: 'setServiceTier', serviceTier: 'fast' })
   })
 })
@@ -372,7 +415,7 @@ describe('home list view', () => {
     expect(screen.getByTestId('thread-thr_yest')).toBeInTheDocument()
   })
 
-  it('renders project folders by name, not hash', () => {
+  it('renders project folders by name, not hash', async () => {
     mount({
       threads: [stubThread('thr_p1', 'Proj doc', 'Proj doc', 'proj_1')],
       projects: [
@@ -388,7 +431,8 @@ describe('home list view', () => {
         },
       ],
     })
-    expect(screen.getByTestId('project-proj_1')).toHaveTextContent('My Project')
+    await userEvent.click(screen.getByTestId('open-picker'))
+    expect(await screen.findByTestId('picker-proj_1')).toHaveTextContent('My Project')
     expect(screen.queryByText('proj_1')).toBeNull()
   })
 
@@ -448,37 +492,57 @@ const projectFixture = {
 }
 
 describe('project navigation and creation', () => {
-  it('opens empty projects, keeps layout controls, and preselects the destination', async () => {
+  it('filters by folder and creates new documents inside it', async () => {
     const user = userEvent.setup()
     const { calls } = mount({ projects: [projectFixture] })
-    await user.click(screen.getByTestId('project-course'))
-    expect(screen.getByRole('heading', { name: 'Course notes' })).toBeInTheDocument()
+    await user.click(screen.getByTestId('open-picker'))
+    // A click only selects, as in Google Picker; Select opens it.
+    expect(screen.getByTestId('picker-select')).toBeDisabled()
+    await user.click(await screen.findByTestId('picker-course'))
+    await user.click(screen.getByTestId('picker-select'))
+    expect(screen.getByTestId('recent-title')).toHaveTextContent('Course notes')
     expect(screen.queryByTestId('thread-thr_1')).toBeNull()
     await user.click(screen.getByRole('button', { name: 'List view' }))
-    await user.click(screen.getByRole('button', { name: 'New document' }))
-    expect(screen.getByTestId('new-doc-location')).toHaveValue('course')
-    await user.type(screen.getByLabelText('Document name'), 'Week 4')
-    await user.click(screen.getByRole('button', { name: 'Create document' }))
-    expect(calls).toContainEqual({ op: 'newDocument', title: 'Week 4', projectId: 'course', cwd: '/tmp/course' })
+    await user.click(screen.getByTestId('new-doc'))
+    expect(calls).toContainEqual({ op: 'newDocument', projectId: 'course', cwd: '/tmp/course' })
   })
 
-  it('can leave a project and create an unfiled document explicitly', async () => {
+  it('leaves a folder through Owned by anyone, creating unfiled documents again', async () => {
     const user = userEvent.setup()
     const { calls } = mount({ projects: [projectFixture] })
-    await user.click(screen.getByTestId('project-course'))
-    await user.click(screen.getByRole('button', { name: 'New document' }))
-    await user.selectOptions(screen.getByTestId('new-doc-location'), '')
-    await user.click(screen.getByRole('button', { name: 'Create document' }))
-    expect(calls).toContainEqual({ op: 'newDocument', title: '', projectId: null, cwd: undefined })
+    await user.click(screen.getByTestId('open-picker'))
+    await user.dblClick(await screen.findByTestId('picker-course'))
+    await user.click(screen.getByTestId('home-location'))
+    await user.click(await screen.findByTestId('owner-anyone'))
+    expect(screen.getByTestId('recent-title')).toHaveTextContent('Recent documents')
+    await user.click(screen.getByTestId('template-essay'))
+    expect(calls).toContainEqual({ op: 'newDocument', projectId: null, cwd: undefined })
   })
 
-  it('cancels creation without making a provider thread', async () => {
+  it('searches folders in the file picker', async () => {
     const user = userEvent.setup()
-    const { calls } = mount()
-    await user.click(screen.getByTestId('template-essay'))
+    mount({ projects: [projectFixture] })
+    await user.click(screen.getByTestId('open-picker'))
+    await user.type(await screen.findByLabelText('Search in Drive'), 'zzz')
+    expect(screen.queryByTestId('picker-course')).toBeNull()
+    expect(screen.getByText('No results')).toBeInTheDocument()
+  })
+
+  it('opens folders and adds new ones from the file picker', async () => {
+    const user = userEvent.setup()
+    const { calls } = mount({ projects: [projectFixture] })
+    await user.click(screen.getByTestId('open-picker'))
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Open a file')
+    await user.click(screen.getByTestId('new-folder'))
+    expect(screen.getByLabelText('Folder name')).toHaveValue('Untitled folder')
+    await user.clear(screen.getByLabelText('Folder name'))
+    await user.type(screen.getByLabelText('Folder name'), 'Week 4')
+    await user.click(await screen.findByRole('button', { name: 'Create' }))
+    expect(calls).toContainEqual({ op: 'createProject', name: 'Week 4', cwd: '/tmp/project' })
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(calls.some((call) => call.op === 'newDocument')).toBe(false)
+    await user.dblClick(await screen.findByTestId('picker-course'))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(screen.getByTestId('recent-title')).toHaveTextContent('Course notes')
   })
 
   it('gives immediate opening feedback and permits cancellation', async () => {
@@ -493,21 +557,12 @@ describe('project navigation and creation', () => {
 describe('library and reading preferences', () => {
   it('switches libraries from home', async () => {
     const { calls } = mount()
-    await userEvent.click(screen.getByTestId('library-opencode'))
+    await userEvent.click(screen.getByTestId('menu-account'))
+    await userEvent.click(await screen.findByTestId('library-opencode'))
     expect(calls).toContainEqual({ op: 'setProvider', provider: 'opencode', home: true })
   })
 
-  it('keeps the model picker open while its contents scroll', async () => {
-    mount({ route: { kind: 'doc', threadId: 'thr_1' }, models: [stubModel()] })
-    await userEvent.click(screen.getByTestId('chip-model'))
-    const search = screen.getByPlaceholderText('Search models')
-    fireEvent.scroll(search.parentElement!)
-    expect(screen.getByPlaceholderText('Search models')).toBeInTheDocument()
-    fireEvent.scroll(window)
-    expect(screen.queryByPlaceholderText('Search models')).toBeNull()
-  })
-
-  it('persists output-only and keeps answers visible', async () => {
+  it('hides tool activity by default and shows it as non-printing characters', async () => {
     mount({
       route: { kind: 'doc', threadId: 'thr_1' },
       blocks: [
@@ -517,12 +572,14 @@ describe('library and reading preferences', () => {
         { kind: 'agent', id: 'answer', text: 'The final answer', phase: 'final_answer' },
       ],
     })
-    await userEvent.click(screen.getByTestId('menu-view'))
-    await userEvent.click(screen.getByText('Output only'))
     expect(screen.queryByText('Checking files')).toBeNull()
     expect(screen.queryByText('Ran a command')).toBeNull()
     expect(screen.getByText('The final answer')).toBeInTheDocument()
-    expect(localStorage.getItem('hidegpt-output-only')).toBe('true')
+    await userEvent.click(screen.getByTestId('menu-view'))
+    await userEvent.click(await screen.findByText('Show non-printing characters'))
+    expect(screen.getByText('Checking files')).toBeInTheDocument()
+    expect(screen.getByText('Ran a command')).toBeInTheDocument()
+    expect(localStorage.getItem('hidegpt-output-only')).toBe('false')
   })
 
   it('files legacy documents under their folder and includes descendants', async () => {
@@ -533,8 +590,8 @@ describe('library and reading preferences', () => {
     }
     const outside = { ...stubThread('outside', 'Outside', 'Outside'), cwd: '/tmp/coursework', projectId: null }
     mount({ projects: [projectFixture], threads: [legacy, outside] })
-    expect(screen.getByTestId('project-course')).toHaveTextContent('1 document')
-    await userEvent.click(screen.getByTestId('project-course'))
+    await userEvent.click(screen.getByTestId('open-picker'))
+    await userEvent.dblClick(await screen.findByTestId('picker-course'))
     expect(screen.getByTestId('thread-legacy')).toBeInTheDocument()
     expect(screen.queryByTestId('thread-outside')).toBeNull()
   })

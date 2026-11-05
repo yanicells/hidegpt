@@ -1,11 +1,11 @@
-import { LoadingDocument } from './components/document/LoadingDocument'
-import { NewDocumentDialog, type Creation } from './components/home/NewDocumentDialog'
 import { useCallback, useRef, useState } from 'react'
 
-import { Banners } from './components/layout/Banners'
+import { LoadingDocument } from './components/document/LoadingDocument'
+import { Banners, LoadError } from './components/layout/Banners'
 import { Document } from './components/document/Document'
 import { DocumentChrome } from './components/document/DocumentChrome'
-import { threadProjectId } from './components/home/ProjectFolders'
+import { createDocument } from './components/home/createDocument'
+import { threadProjectId } from './components/home/projects'
 import { Home } from './components/home/Home'
 import { HomeHeader } from './components/home/HomeHeader'
 import { useHomeView } from './components/home/useHomeView'
@@ -14,7 +14,8 @@ import type { MenuAction } from '../../shared/api'
 
 export function App() {
   const snap = useSnapshot()
-  const [outputOnly, setOutputOnly] = useState(() => localStorage.getItem('hidegpt-output-only') === 'true')
+  // Tool activity is hidden unless View → "Show non-printing characters" turns it on.
+  const [outputOnly, setOutputOnly] = useState(() => localStorage.getItem('hidegpt-output-only') !== 'false')
   const toggleOutputOnly = () =>
     setOutputOnly((current) => {
       localStorage.setItem('hidegpt-output-only', String(!current))
@@ -22,19 +23,21 @@ export function App() {
     })
   const [location, setLocation] = useState({ provider: snap.provider, id: 'all' })
   const projectId = location.provider === snap.provider ? location.id : 'all'
-  const [creation, setCreation] = useState<Creation | null>(null)
   const activeThread = snap.threads.find((thread) => snap.route.kind === 'doc' && thread.id === snap.route.threadId)
   const activeProjectId = activeThread
     ? (threadProjectId(snap, activeThread) ?? undefined)
-    : projectId === 'all' || projectId === 'loose'
+    : projectId === 'all'
       ? undefined
       : projectId
-  const onNew = () => setCreation({ projectId: activeProjectId })
+  const onNew = () => void createDocument(snap, activeProjectId)
+  // The menu listener stays registered once; it always calls the latest onNew.
+  const onNewRef = useRef(onNew)
+  onNewRef.current = onNew
   const [view, setView] = useHomeView()
   const titleRef = useRef<HTMLInputElement>(null)
   const onMenu = useCallback(
     (action: MenuAction) => {
-      if (action === 'newDocument') setCreation({ projectId: activeProjectId })
+      if (action === 'newDocument') onNewRef.current()
       if (action === 'rename') {
         titleRef.current?.focus()
         titleRef.current?.select()
@@ -45,7 +48,7 @@ export function App() {
         document.querySelector<HTMLInputElement>('[data-testid="home-search"]')?.focus()
       }
     },
-    [setView, activeProjectId],
+    [setView],
   )
   useMenuAction(onMenu)
 
@@ -66,9 +69,7 @@ export function App() {
       )}
       <Banners snap={snap} />
       {snap.status === 'error' ? (
-        <button type="button" className="status" data-testid="status" onClick={() => dispatch({ op: 'refresh' })}>
-          {snap.error ?? 'Something went wrong'}
-        </button>
+        <LoadError message={snap.error} />
       ) : snap.openingThreadId ? (
         <LoadingDocument snap={snap} />
       ) : snap.route.kind === 'home' ? (
@@ -76,7 +77,7 @@ export function App() {
           projectId={projectId}
           onProject={(id) => setLocation({ provider: snap.provider, id })}
           key={snap.provider}
-          onCreate={setCreation}
+          onCreate={(template) => void createDocument(snap, activeProjectId, template)}
           snap={snap}
           view={view}
           onView={setView}
@@ -84,14 +85,6 @@ export function App() {
       ) : (
         <Document outputOnly={outputOnly} onNew={onNew} snap={snap} />
       )}
-      {creation ? (
-        <NewDocumentDialog
-          key={`creation-${snap.provider}`}
-          snap={snap}
-          creation={creation}
-          onClose={() => setCreation(null)}
-        />
-      ) : null}
     </div>
   )
 }
