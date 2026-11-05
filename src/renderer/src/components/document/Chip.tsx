@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 
+import { cn } from '../ui/cn'
 import { MIcon } from '../ui/MaterialIcon'
 import { Menu, MenuPopup, MenuTrigger } from '../ui/menu'
 
@@ -32,12 +33,12 @@ export function Chip({
 }) {
   return (
     <Menu modal={false}>
-      <MenuTrigger className={`chip${className ? ` ${className}` : ''}`} data-testid={testId} title={title}>
+      <MenuTrigger className={cn('chip', className)} data-testid={testId} title={title}>
         {icon}
         {label !== undefined ? <span className="chip-label">{label}</span> : null}
         {chevron ? <MIcon name="arrow_drop_down" /> : null}
       </MenuTrigger>
-      <MenuPopup align={align} className={`popover${menuClass ? ` ${menuClass}` : ''}`}>
+      <MenuPopup align={align} className={cn('popover', menuClass)}>
         {children}
       </MenuPopup>
     </Menu>

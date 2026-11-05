@@ -132,6 +132,9 @@ export async function captureScreenshots(win: BrowserWindow, session: Screenshot
       resolve()
     }
   })
+  // An occluded window stops painting and capturePage returns stale frames.
+  win.webContents.setBackgroundThrottling(false)
+  win.setAlwaysOnTop(true)
   win.show()
   await win.webContents.executeJavaScript(`
     new Promise((resolve, reject) => {
@@ -148,6 +151,8 @@ export async function captureScreenshots(win: BrowserWindow, session: Screenshot
   const pause = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms))
   const shot = async (name: string) => {
     await pause()
+    win.webContents.invalidate()
+    await js('new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))')
     writeFileSync(join(dir, `${name}.png`), (await win.capturePage()).toPNG())
   }
   const centre = async (testId: string): Promise<{ x: number; y: number }> =>
@@ -244,16 +249,21 @@ export async function captureScreenshots(win: BrowserWindow, session: Screenshot
     ['chip-effort', 'menu-font'],
     ['chip-speed', 'menu-size'],
     ['chip-mode', 'menu-mode'],
+    ['toolbar-more', 'toolbar-more'],
     ['share', 'menu-share'],
     ['menu-account', 'account-menu-doc'],
   ] as const) {
     await click(trigger)
+    // Font-menu faces load the first time a row shows them.
+    if (trigger === 'chip-effort') await js('document.fonts.ready.then(() => true)')
     await shot(name)
     if (trigger === 'menu-file') {
       await hover('action-new')
       await shot('menu-file-new')
     }
     if (trigger === 'chip-model') {
+      await hover('pick-gpt-5.6-sol')
+      await shot('menu-style-cascade')
       await click('pick-options')
       await shot('menu-style-options')
     }
@@ -261,6 +271,9 @@ export async function captureScreenshots(win: BrowserWindow, session: Screenshot
   }
   win.setSize(760, 700)
   await shot('document-narrow')
+  await click('toolbar-more')
+  await shot('toolbar-more-narrow')
+  await dismiss()
   await session.goHome()
   await shot('home-narrow')
   win.setSize(1280, 840)

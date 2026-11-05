@@ -314,34 +314,78 @@ button.header-action:disabled {
   color: var(--text-2);
 }
 
-/* Docs folds decorative groups away from the right as the window narrows. */
+/*
+ * Docs folds tool groups behind ⋮ as the window narrows. Each breakpoint hides
+ * a group from the toolbar; the ⋮ row hides it again above that breakpoint,
+ * so it only ever holds what the toolbar has folded away.
+ */
+.toolbar-overflow {
+  @apply flex items-center;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 40px;
+  box-shadow: 0 1px 3px rgb(60 64 67 / 30%), 0 4px 8px 3px rgb(60 64 67 / 15%);
+}
+
 @media (max-width: 1360px) {
-  .tb-xl {
+  .toolbar:not(.toolbar-overflow) .tb-xl {
+    @apply hidden;
+  }
+}
+
+@media (min-width: 1361px) {
+  .toolbar-overflow .tb-xl {
     @apply hidden;
   }
 }
 
 @media (max-width: 1240px) {
-  .tb-wide {
+  .toolbar:not(.toolbar-overflow) .tb-wide {
+    @apply hidden;
+  }
+}
+
+@media (min-width: 1241px) {
+  .toolbar-overflow .tb-wide {
     @apply hidden;
   }
 }
 
 @media (max-width: 1100px) {
-  .tb-lg {
+  .toolbar:not(.toolbar-overflow) .tb-lg {
+    @apply hidden;
+  }
+}
+
+@media (min-width: 1101px) {
+  .toolbar-overflow .tb-lg {
     @apply hidden;
   }
 }
 
 @media (max-width: 960px) {
-  .tb-md,
+  .toolbar:not(.toolbar-overflow) .tb-md,
   .header-action {
     @apply hidden;
   }
 }
 
+@media (min-width: 961px) {
+  .toolbar-overflow .tb-md {
+    @apply hidden;
+  }
+}
+
 @media (max-width: 860px) {
-  .tb-sm {
+  .toolbar:not(.toolbar-overflow) .tb-sm {
+    @apply hidden;
+  }
+}
+
+@media (min-width: 861px) {
+  .toolbar-overflow .tb-sm {
     @apply hidden;
   }
 }

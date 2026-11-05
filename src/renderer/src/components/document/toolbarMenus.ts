@@ -11,7 +11,15 @@ export const STYLE_SLOTS = [
   { name: 'Heading 1', className: 'style-h1' },
   { name: 'Heading 2', className: 'style-h2' },
   { name: 'Heading 3', className: 'style-h3' },
+  { name: 'Heading 4', className: 'style-h4' },
+  { name: 'Heading 5', className: 'style-h5' },
+  { name: 'Heading 6', className: 'style-h6' },
 ] as const
+
+/** Docs lists Heading 4–6 only once a document uses them; here, once there are models for them. */
+export function styleSlots(models: number) {
+  return STYLE_SLOTS.slice(0, Math.max(6, models))
+}
 
 /** The style name standing in for the model at `index` in the provider's list. */
 export function styleName(index: number): string {
@@ -45,6 +53,15 @@ const DOCS_FONTS = [
   'Nunito', 'Open Sans', 'Oswald', 'Pacifico', 'Playfair Display', 'Roboto', 'Roboto Mono', 'Spectral',
   'Times New Roman', 'Trebuchet MS', 'Verdana',
 ]
+
+/** Bundled lookalikes for Docs fonts that can't ship under their own name (see fonts.ts). */
+const FONT_STAND_INS: Record<string, string> = { Calibri: 'Carlito', Cambria: 'Caladea' }
+
+/** CSS font stack that draws a font-menu row in its own face. */
+export function fontStack(font: string): string {
+  const standIn = FONT_STAND_INS[font]
+  return `'${font}',${standIn ? ` '${standIn}',` : ''} Arial, sans-serif`
+}
 
 /** Every row of the font menu, in Docs' order: effort fonts are live, the rest are costume. */
 export function fontRows(efforts: { effort: string; font: string }[]): { font: string; effort?: string }[] {

@@ -2,7 +2,6 @@ import { Fragment, type CSSProperties, type ReactNode } from 'react'
 
 import { MIcon, type MaterialIconName } from './MaterialIcon'
 import {
-  MenuArrow,
   MenuCheckboxItem,
   MenuItem,
   MenuPopup,
@@ -11,12 +10,14 @@ import {
   MenuSub,
   MenuSubPopup,
   MenuSubTrigger,
+  useMenuClose,
 } from './menu'
 
 /**
  * One Docs menu row. `icon` is the 20px leading glyph, `shortcut` the grey
- * right-hand hint, `submenu` turns the row into a ▸ cascade, and `divider`
- * draws the hairline separator above the row.
+ * right-hand hint, `submenu` turns the row into a ▸ cascade (a cascade row
+ * with `run` still acts on click, like Docs' style rows), and `divider` draws
+ * the hairline separator above the row.
  */
 export type Item = {
   id: string
@@ -32,8 +33,6 @@ export type Item = {
   title?: string
   /** Grey second line under the label (Docs' editing-mode menu). */
   description?: string
-  /** Draw the ▸ without a cascade (style menu rows). */
-  arrow?: boolean
   /** A small blue pill after the label, like Docs' "New". */
   badge?: string
   className?: string
@@ -80,12 +79,27 @@ export function MenuRows({ items, itemPrefix = 'action' }: { items: Item[]; item
 }
 
 function Row({ item, itemPrefix }: { item: Item; itemPrefix: string }) {
+  const close = useMenuClose()
   const testId = `${itemPrefix}-${item.id}`
   const body = <RowBody item={item} />
   if (item.submenu) {
+    const { run } = item
     return (
       <MenuSub>
-        <MenuSubTrigger className={item.className} data-testid={testId} disabled={item.disabled} title={item.title}>
+        <MenuSubTrigger
+          className={item.className}
+          data-testid={testId}
+          disabled={item.disabled}
+          title={item.title}
+          onClick={
+            run
+              ? () => {
+                  run()
+                  close()
+                }
+              : undefined
+          }
+        >
           {body}
         </MenuSubTrigger>
         <MenuSubPopup>
@@ -103,14 +117,10 @@ function Row({ item, itemPrefix }: { item: Item; itemPrefix: string }) {
     onClick: item.run,
   }
   return item.checked === undefined ? (
-    <MenuItem {...common}>
-      {body}
-      {item.arrow ? <MenuArrow /> : null}
-    </MenuItem>
+    <MenuItem {...common}>{body}</MenuItem>
   ) : (
     <MenuCheckboxItem {...common} checked={item.checked}>
       {body}
-      {item.arrow ? <MenuArrow /> : null}
     </MenuCheckboxItem>
   )
 }

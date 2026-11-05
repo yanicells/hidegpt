@@ -201,6 +201,16 @@
   color: #666;
 }
 
+.style-menu .style-h5 .menu-text,
+.style-menu .style-h6 .menu-text {
+  font-size: 11pt;
+  color: #666;
+}
+
+.style-menu .style-h6 .menu-text {
+  font-style: italic;
+}
+
 .style-menu .style-options .menu-text {
   font-family: var(--font-ui);
   font-size: 13px;

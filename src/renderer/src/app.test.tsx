@@ -210,7 +210,7 @@ describe('document page', () => {
     expect(calls).toContainEqual({ op: 'setProvider', provider: 'opencode', home: false })
   })
 
-  it('picks a model from Options and a speed from floating dropdowns', async () => {
+  it('picks a model from a style cascade and a speed from floating dropdowns', async () => {
     const user = userEvent.setup()
     const { calls } = mount({
       route: { kind: 'doc', threadId: 'thr_1' },
@@ -240,9 +240,9 @@ describe('document page', () => {
       model: 'a',
     })
     await user.click(screen.getByTestId('chip-model'))
-    await user.click(await screen.findByTestId('pick-options'))
+    await user.hover(await screen.findByTestId('pick-a'))
     // Submenus ignore pointer events until they finish opening.
-    fireEvent.click(await screen.findByTestId('pick-all-a'))
+    fireEvent.click(await screen.findByTestId('pick-apply-0'))
     expect(calls).toContainEqual({ op: 'setModel', model: 'a' })
     await user.click(screen.getByTestId('chip-speed'))
     await user.click(await screen.findByTestId('pick-fast'))
@@ -310,7 +310,7 @@ describe('toolbar dropdowns', () => {
     await waitFor(() => expect(screen.queryByTestId('pick-options')).toBeNull())
   })
 
-  it('lists every model by name under Options', async () => {
+  it('keeps model names out of the style menu text', async () => {
     const user = userEvent.setup()
     mount({
       route: { kind: 'doc', threadId: 'thr_1' },
@@ -319,13 +319,13 @@ describe('toolbar dropdowns', () => {
       model: 'alpha',
     })
     await user.click(screen.getByTestId('chip-model'))
-    // Slots show style names only; real names wait one level down.
+    // Slots show style names; the real name is only the row's tooltip.
     expect(await screen.findByTestId('pick-alpha')).toHaveTextContent('Normal text')
+    expect(screen.getByTestId('pick-alpha')).toHaveAttribute('title', 'AlphaGuide')
     expect(screen.queryByText('AlphaGuide')).toBeNull()
     await user.click(screen.getByTestId('pick-options'))
-    expect(await screen.findByTestId('pick-all-alpha')).toHaveTextContent('AlphaGuide')
-    expect(screen.getByTestId('pick-all-beta')).toHaveTextContent('BetaHelper')
-    expect(screen.getByTestId('pick-all-alpha')).toHaveAttribute('aria-checked', 'true')
+    expect(await screen.findByTestId('pick-reset-styles')).toHaveTextContent('Reset styles')
+    expect(screen.queryByText('BetaHelper')).toBeNull()
   })
 
   it('dispatches setServiceTier from the speed chip', async () => {
@@ -506,7 +506,6 @@ describe('project navigation and creation', () => {
     expect(await screen.findByRole('dialog')).toHaveTextContent('Open a file')
     await user.click(screen.getByTestId('new-folder'))
     await user.type(screen.getByLabelText('Folder name'), 'Week 4')
-    await user.click(screen.getByRole('button', { name: /Choose a location/ }))
     await user.click(await screen.findByRole('button', { name: 'Create' }))
     expect(calls).toContainEqual({ op: 'createProject', name: 'Week 4', cwd: '/tmp/project' })
     await user.click(screen.getByRole('button', { name: 'Cancel' }))

@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 
 import type { Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
+import { cn } from '../ui/cn'
 import { MIcon, type MaterialIconName } from '../ui/MaterialIcon'
 import { MenuRows, type Item } from '../ui/MenuPanel'
+import { Popover, PopoverPopup, PopoverTrigger } from '../ui/popover'
 import { Chip } from './Chip'
 import { openImagePicker } from './Composer'
 import {
@@ -11,9 +13,10 @@ import {
   effortFonts,
   FONT_SIZES,
   fontRows,
+  fontStack,
   sizeForTier,
-  STYLE_SLOTS,
   styleName,
+  styleSlots,
   tierForSize,
   ZOOMS,
 } from './toolbarMenus'
@@ -84,7 +87,7 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
                 title: effort ? capitalize(effort) : undefined,
                 divider: index === 0,
                 checked: effort === undefined ? undefined : effort === snap.effort,
-                style: { fontFamily: `'${font}', Arial, sans-serif` },
+                style: { fontFamily: fontStack(font) },
                 run: effort ? () => dispatch({ op: 'setEffort', effort }) : undefined,
               })),
             ]}
@@ -134,24 +137,16 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
             <MIcon name="add" />
           </button>
         </span>
-        <span className="divider tb-md" aria-hidden="true" />
-        <Decor name="format_bold" className="tb-md" />
-        <Decor name="format_italic" className="tb-md" />
-        <Decor name="format_underlined" className="tb-md" />
-        <Decor name="format_color_text" className="tb-md text-color" />
-        <Decor name="ink_highlighter" className="tb-md highlight-color" />
-        <span className="divider tb-lg" aria-hidden="true" />
-        <Decor name="link" className="tb-lg" />
-        <Decor name="add_comment" className="tb-lg" />
-        <ToolButton name="image" label="Insert image" onClick={openImagePicker} className="tb-lg" />
-        <span className="divider tb-wide" aria-hidden="true" />
-        <Decor name="format_align_left" caret className="tb-wide" />
-        <Decor name="format_line_spacing" className="tb-wide" />
-        <Decor name="checklist" caret className="tb-wide" />
-        <Decor name="format_list_bulleted" caret className="tb-xl" />
-        <Decor name="format_list_numbered" caret className="tb-xl" />
+        <FoldingTools />
         <span className="divider" aria-hidden="true" />
-        <Decor name="more_vert" />
+        <Popover>
+          <PopoverTrigger className="toolbar-icon" aria-label="More" title="More" data-testid="toolbar-more">
+            <MIcon name="more_vert" />
+          </PopoverTrigger>
+          <PopoverPopup className="toolbar toolbar-overflow" align="end" sideOffset={8}>
+            <FoldingTools overflow />
+          </PopoverPopup>
+        </Popover>
         <div className="toolbar-spacer" />
         <Chip
           testId="chip-mode"
@@ -171,34 +166,37 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
 }
 
 /**
- * "Normal text ▾": each Docs paragraph style is a model slot, and slots beyond
- * the provider's list stay plain styles. Options ▸ cascades to every model
- * (menu typeahead finds one by name).
+ * "Normal text ▾": each Docs paragraph style is a model slot. Clicking a slot
+ * picks its model; its ▸ holds Docs' "Update / Apply" rows, and the model's
+ * real name waits in the row's tooltip. Slots without a model are plain styles.
  */
 function StyleMenu({ snap }: { snap: Snapshot }) {
-  const pick = (model: string) => () => dispatch({ op: 'setModel', model })
   const items: Item[] = [
-    ...STYLE_SLOTS.map((slot, index) => {
+    ...styleSlots(snap.models.length).map((slot, index) => {
       const item = snap.models[index]
+      const run = item ? () => dispatch({ op: 'setModel', model: item.model }) : undefined
       return {
         id: item?.model ?? `style-${index}`,
         label: slot.name,
         className: slot.className,
-        arrow: true,
+        title: item?.displayName,
         checked: item ? item.model === snap.model : undefined,
-        run: item ? pick(item.model) : undefined,
+        run,
+        submenu: [
+          { id: `update-${index}`, label: `Update '${slot.name}' to match` },
+          { id: `apply-${index}`, label: `Apply '${slot.name}'`, run },
+        ],
       }
     }),
     {
       id: 'options',
       label: 'Options',
       className: 'style-options',
-      submenu: snap.models.map((item) => ({
-        id: `all-${item.model}`,
-        label: item.displayName,
-        checked: item.model === snap.model,
-        run: pick(item.model),
-      })),
+      submenu: [
+        { id: 'save-styles', label: 'Save as my default styles' },
+        { id: 'use-styles', label: 'Use my default styles' },
+        { id: 'reset-styles', label: 'Reset styles' },
+      ],
     },
   ]
   return <MenuRows items={items} itemPrefix="pick" />
@@ -228,10 +226,94 @@ function ModeMenu({ snap }: { snap: Snapshot }) {
   return <MenuRows items={items} itemPrefix="pick" />
 }
 
+/**
+ * Tool groups Docs folds behind ⋮ as the window narrows, each tagged with the
+ * class whose breakpoint hides it (toolbar.css). The toolbar draws them after
+ * the size box; the ⋮ row draws the same groups but shows only the folded
+ * ones, plus the indent and clear-formatting tools Docs always keeps there.
+ */
+const FOLDING_GROUPS: { fold: string; tools: ReactNode }[] = [
+  {
+    fold: 'tb-md',
+    tools: (
+      <>
+        <Decor name="format_bold" className="tb-md" />
+        <Decor name="format_italic" className="tb-md" />
+        <Decor name="format_underlined" className="tb-md" />
+        <Decor name="format_color_text" className="tb-md text-color" />
+        <Decor name="ink_highlighter" className="tb-md highlight-color" />
+      </>
+    ),
+  },
+  {
+    fold: 'tb-lg',
+    tools: (
+      <>
+        <Decor name="link" className="tb-lg" />
+        <Decor name="add_comment" className="tb-lg" />
+        <ToolButton name="image" label="Insert image" onClick={openImagePicker} className="tb-lg" />
+      </>
+    ),
+  },
+  {
+    fold: 'tb-wide',
+    tools: (
+      <>
+        <Decor name="format_align_left" caret className="tb-wide" />
+        <Decor name="format_line_spacing" className="tb-wide" />
+        <Decor name="checklist" caret className="tb-wide" />
+        {/* The list buttons fold a step before the rest of their group. */}
+        <Decor name="format_list_bulleted" caret className="tb-xl" />
+        <Decor name="format_list_numbered" caret className="tb-xl" />
+      </>
+    ),
+  },
+]
+
+/** The ⋮ row's extra groups: spellcheck/paint fold from before the zoom chip; indents never fit. */
+const OVERFLOW_ONLY = {
+  before: (
+    <>
+      <Decor name="spellcheck" className="tb-sm" />
+      <Decor name="format_paint" className="tb-sm" />
+      <span className="divider tb-sm" aria-hidden="true" />
+    </>
+  ),
+  after: (
+    <>
+      <Decor name="format_indent_decrease" />
+      <Decor name="format_indent_increase" />
+      <Decor name="format_clear" />
+    </>
+  ),
+}
+
+/**
+ * The folding groups. In the toolbar a divider leads each group and stays
+ * while any of it shows; in the ⋮ row it trails, showing once any of it folds.
+ */
+function FoldingTools({ overflow = false }: { overflow?: boolean }) {
+  const groups = FOLDING_GROUPS.map(({ fold, tools }) => (
+    <Fragment key={fold}>
+      {overflow ? null : <span className={cn('divider', fold)} aria-hidden="true" />}
+      {tools}
+      {overflow ? <span className={cn('divider', fold === 'tb-wide' ? 'tb-xl' : fold)} aria-hidden="true" /> : null}
+    </Fragment>
+  ))
+  if (!overflow) return groups
+  return (
+    <>
+      {OVERFLOW_ONLY.before}
+      {groups}
+      {OVERFLOW_ONLY.after}
+    </>
+  )
+}
+
 /** A toolbar glyph that is part of the Docs costume only. */
 function Decor({ name, className, caret }: { name: MaterialIconName; className?: string; caret?: boolean }) {
   return (
-    <span className={`toolbar-icon${caret ? ' with-caret' : ''}${className ? ` ${className}` : ''}`} aria-hidden="true">
+    <span className={cn('toolbar-icon', caret && 'with-caret', className)} aria-hidden="true">
       <MIcon name={name} />
       {caret ? <MIcon name="arrow_drop_down" size={16} className="tb-caret" /> : null}
     </span>
@@ -252,7 +334,7 @@ function ToolButton({
   return (
     <button
       type="button"
-      className={`toolbar-icon${className ? ` ${className}` : ''}`}
+      className={cn('toolbar-icon', className)}
       aria-label={label.replace(/ \(.*\)$/, '')}
       title={label}
       // Keeps focus (and the undo stack target) in the composer.

@@ -4,21 +4,34 @@
  */
 
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
-import type { ComponentProps, ReactNode } from 'react'
+import { createContext, useContext, useRef, type ComponentProps, type ReactNode } from 'react'
 
 import { renderClosingPositioner } from './closing-positioner'
-import { cn } from './cn'
+import { cn, type Styled } from './cn'
 import { MIcon } from './MaterialIcon'
 
-/** Base UI also accepts a className function; these wrappers take plain strings. */
-type Styled<P> = Omit<P, 'className'> & { className?: string }
 
 /**
  * Docs-styled menu primitives on Base UI: portaled, collision-aware popups
  * with roving focus, typeahead, hover submenus and outside-click dismissal.
  * Looks live in styles/menus.css, keyed by these class names.
  */
-const Menu = MenuPrimitive.Root
+function Menu({ actionsRef, ...props }: MenuPrimitive.Root.Props) {
+  const ownRef = useRef<MenuPrimitive.Root.Actions | null>(null)
+  const ref = actionsRef ?? ownRef
+  return (
+    <MenuCloseContext value={() => ref.current?.close()}>
+      <MenuPrimitive.Root actionsRef={ref} {...props} />
+    </MenuCloseContext>
+  )
+}
+
+const MenuCloseContext = createContext<() => void>(() => {})
+
+/** Closes the whole menu from inside it, e.g. after a cascade row that also acts on click. */
+function useMenuClose(): () => void {
+  return useContext(MenuCloseContext)
+}
 
 function MenuTrigger({ className, ...props }: Styled<MenuPrimitive.Trigger.Props>) {
   return <MenuPrimitive.Trigger className={className} data-slot="menu-trigger" {...props} />
@@ -118,4 +131,5 @@ export {
   MenuSubPopup,
   MenuSubTrigger,
   MenuTrigger,
+  useMenuClose,
 }
