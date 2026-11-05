@@ -7,7 +7,7 @@
   align-self: flex-start;
   width: var(--tabs-w);
   max-height: calc(100vh - 140px);
-  padding: 8px 12px 24px 12px;
+  padding: 8px 16px 24px;
   font-family: var(--font-ui);
   scrollbar-width: thin;
 }
@@ -25,7 +25,7 @@
 }
 
 .tabs-hide {
-  margin: 0 0 16px 4px;
+  margin: 0 0 16px;
 }
 
 .tabs-show {

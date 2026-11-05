@@ -513,6 +513,8 @@ describe('project navigation and creation', () => {
     await user.click(screen.getByTestId('open-picker'))
     expect(await screen.findByRole('dialog')).toHaveTextContent('Open a file')
     await user.click(screen.getByTestId('new-folder'))
+    expect(screen.getByLabelText('Folder name')).toHaveValue('Untitled folder')
+    await user.clear(screen.getByLabelText('Folder name'))
     await user.type(screen.getByLabelText('Folder name'), 'Week 4')
     await user.click(await screen.findByRole('button', { name: 'Create' }))
     expect(calls).toContainEqual({ op: 'createProject', name: 'Week 4', cwd: '/tmp/project' })

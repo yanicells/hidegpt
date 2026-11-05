@@ -41,8 +41,13 @@ export function DocMenus({
         icon: 'article_fill',
         dot: true,
         submenu: [
-          { id: 'new-document', label: 'Document', icon: 'article', run: onNew },
-          row('From template', { icon: 'description', run: () => dispatch({ op: 'goHome' }) }),
+          // Docs lists the other editors in their product colours; only Document works here.
+          { id: 'new-document', label: 'Document', icon: 'article_fill', className: 'app-docs', run: onNew },
+          row('Spreadsheet', { icon: 'table_fill', className: 'app-sheets' }),
+          row('Presentation', { icon: 'slideshow_fill', className: 'app-slides' }),
+          row('Form', { icon: 'list_alt_fill', className: 'app-forms' }),
+          row('Drawing', { icon: 'draw_fill', className: 'app-drawings' }),
+          row('From template', { icon: 'description', divider: true, run: () => dispatch({ op: 'goHome' }) }),
         ],
       }),
       { id: 'open', label: 'Open', icon: 'folder', shortcut: '⌘O', run: () => dispatch({ op: 'openFolder' }) },

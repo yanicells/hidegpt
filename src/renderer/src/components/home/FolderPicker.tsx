@@ -5,6 +5,8 @@ import { Dialog, DialogClose, DialogPopup, DialogTitle } from '../ui/dialog'
 import { MIcon } from '../ui/MaterialIcon'
 import type { Folder } from './projects'
 
+const UNTITLED = 'Untitled folder'
+
 const PICKER_TABS = ['Recent', 'My Drive', 'Shared with me', 'Starred'] as const
 type PickerTab = (typeof PICKER_TABS)[number]
 
@@ -22,7 +24,7 @@ export function FolderPicker({
   onClose: () => void
 }) {
   const [creating, setCreating] = useState(false)
-  const [name, setName] = useState('')
+  const [name, setName] = useState(UNTITLED)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [tab, setTab] = useState<PickerTab>('My Drive')
@@ -77,7 +79,8 @@ export function FolderPicker({
                 autoFocus
                 aria-label="Folder name"
                 value={name}
-                placeholder="Untitled folder"
+                // Drive pre-fills the name and selects it, so typing replaces it.
+                onFocus={(event) => event.currentTarget.select()}
                 onChange={(event) => setName(event.target.value)}
                 disabled={busy}
               />
@@ -155,7 +158,10 @@ export function FolderPicker({
               {shown.length === 0 ? <li className="picker-empty">{query ? 'No results' : 'No files here'}</li> : null}
             </ul>
             <div className="picker-foot">
-              <button type="button" className="outlined-button" data-testid="new-folder" onClick={() => setCreating(true)}>
+              <button type="button" className="outlined-button" data-testid="new-folder" onClick={() => {
+                  setName(UNTITLED)
+                  setCreating(true)
+                }}>
                 <MIcon name="add" />
                 New folder
               </button>

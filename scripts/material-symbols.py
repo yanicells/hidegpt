@@ -21,7 +21,7 @@ from fontTools.ttLib import TTFont
 from fontTools.varLib.instancer import instantiateVariableFont
 
 NAMES = """
-menu apps search photo_camera unfold_more more_vert view_list view_module sort_by_alpha folder folder_open
+menu apps search photo_camera slideshow list_alt unfold_more more_vert view_list view_module sort_by_alpha folder folder_open
 arrow_drop_down arrow_right arrow_back add remove check close group star drive_file_move
 cloud_done history comment videocam lock undo redo print spellcheck format_paint format_bold
 format_italic format_underlined format_color_text ink_highlighter link add_comment image
@@ -39,7 +39,7 @@ insert_page_break expand_more chevron_right list cloud_sync water_drop shield_pe
 """.split()
 
 # Icons Docs draws filled (File > New and Print, Drive's folders); emitted as `<name>_fill`.
-FILLED = "article folder print".split()
+FILLED = "article folder print table slideshow list_alt draw".split()
 
 class DropEmptySegments(FilterPen):
     """Skips segments that end where they start; the font has a few, and they only bloat the paths."""

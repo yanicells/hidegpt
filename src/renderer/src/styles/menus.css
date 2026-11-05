@@ -116,6 +116,27 @@
   background: var(--blue);
 }
 
+/* File ▸ New: each editor's glyph in its product colour. */
+.app-docs .menu-icon {
+  color: #4285f4;
+}
+
+.app-sheets .menu-icon {
+  color: #0f9d58;
+}
+
+.app-slides .menu-icon {
+  color: #f4b400;
+}
+
+.app-forms .menu-icon {
+  color: #7248b9;
+}
+
+.app-drawings .menu-icon {
+  color: #db4437;
+}
+
 /* Docs sets the dot just before the ▸. */
 .menu-dot + .menu-arrow {
   margin-left: 4px;
@@ -212,9 +233,10 @@
   transform: scale(1.1);
 }
 
+/* Each row previews its page style; Normal text is Arial 11pt. */
 .style-menu .style-normal .menu-text {
-  font-family: var(--font-ui);
-  font-size: 13px;
+  font-family: var(--font-page);
+  font-size: 11pt;
 }
 
 /* The menu previews Title a size under its 26pt page style, as Docs does. */
