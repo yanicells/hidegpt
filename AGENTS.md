@@ -8,7 +8,7 @@ existing logins, and the UI is a Docs costume over it.
 
 ## What it is
 
-- **Electron app** (`src/main/index.ts`, `src/preload/index.ts`, `src/renderer/`).
+- **Electron app** (`src/main/app.ts`, `src/preload/index.ts`, `src/renderer/`).
   React 19 renderer, IPC snapshot model: the main process owns session state
   and pushes `Snapshot` patches to the window; the renderer dispatches
   `Command`s back and gets a `CommandResult` (`src/shared/api.ts`). Window
@@ -106,9 +106,11 @@ plain React.
 
 Entry files stay thin — they compose, never hold UI:
 
-- `src/main/index.ts` only boots and wires: window, menu, commands,
-  provider sessions. Logic lives in sibling modules (`providers.ts`,
-  `commands.ts`, `menu.ts`, `window.ts`).
+- `src/main/index.ts` only boots: it names the app and turns on the compile
+  cache, then imports `app.ts`. `app.ts` only wires: window, menu, IPC,
+  provider sessions. Logic lives in sibling modules
+  (`ProviderSessionManager.ts`, `SnapshotPublisher.ts`, `ipc.ts`, `menu.ts`,
+  `window.ts`).
 - `src/renderer/src/main.tsx` mounts `<App/>` and imports styles. `app.tsx`
   only switches Home vs Document. Actual UI lives in `components/`:
   - `components/<feature>/` — one folder per screen (`home/`, `document/`),

@@ -12,11 +12,16 @@ export function getWindow(): BrowserWindow | null {
   return window
 }
 
+// Main is ESM and its chunks sit together in out/main. electron-vite's
+// __dirname shim is not reliable once dependencies are bundled in, so this
+// reads the folder directly.
+const here = import.meta.dirname
+
 export function resolvePreload(): string {
   const found = ['index.cjs', 'index.js', 'index.mjs']
-    .map((name) => join(__dirname, '../preload', name))
+    .map((name) => join(here, '../preload', name))
     .find((file) => existsSync(file))
-  return found ?? join(__dirname, '../preload/index.js')
+  return found ?? join(here, '../preload/index.js')
 }
 
 export function createWindow(opts: { onDidFinishLoad: () => void }): BrowserWindow {
@@ -130,7 +135,7 @@ export function registerDocsProtocol(): void {
       return net.fetch(pathToFileURL(file).href)
     }
     const pathname = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)
-    const root = join(__dirname, '../renderer')
+    const root = join(here, '../renderer')
     const file = normalize(join(root, pathname.replace(/^\/+/, '')))
     if (file !== root && !file.startsWith(root + sep)) return new Response('forbidden', { status: 403 })
     return net.fetch(pathToFileURL(file).href)

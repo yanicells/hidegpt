@@ -40,6 +40,7 @@ The conventions:
   - `ProviderTimeoutError`, `ProcessExitedError` (with the stderr line), `BinaryMissingError`, `NotLoggedInError`, `ProviderRequestError`, `ProviderNotReadyError`, `CommandRejectedError`.
   - Each `message` is already the Docs-style sentence the banner shows.
   - `endsConnection` decides which errors trigger a restart.
+- **Startup stays cheap.** `src/main/index.ts` names the app, turns on Node's compile cache (`userData/compile-cache`), then imports `app.ts`, as T3 Code's desktop `boot.ts` does. Main bundles its dependencies (Effect, the OpenCode SDK) like T3's desktop build; only `electron` and the Claude SDK, which starts the CLI inside its package, stay external. Each adapter is its own chunk, loaded when its library first connects.
 - **Contracts are schemas.** `src/shared/contracts.ts` defines `Snapshot`, `Block`, `Command`, `CommandResult`, and `SnapshotPatch` as `effect/Schema`. Main decodes every command at the IPC boundary. The renderer imports only the derived types, through `src/shared/model.ts`.
 
 ## 2. Provider-neutral model (`src/shared/`)

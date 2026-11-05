@@ -24,7 +24,10 @@ or adapted file carries a header naming its source.
     and `apps/server/src/provider/ClaudeProvider.ts`.
   - `src/claude/mapping.ts`: `isSignedIn` and `resultError`, from the same two
     files.
-  - `src/main/index.ts`: quitting after shutdown (cancel the first
+  - `src/main/index.ts`: booting through a small entry that turns on Node's
+    compile cache before the app loads, from `apps/desktop/src/boot.ts` and
+    `apps/desktop/src/compileCache.ts`.
+  - `src/main/app.ts`: quitting after shutdown (cancel the first
     `before-quit`, close every scope, then quit; exit if shutdown stalls),
     from `apps/desktop/src/app/DesktopLifecycle.ts`.
   - `src/renderer/src/session-bridge.ts` and `components/document/Approval.tsx`:
