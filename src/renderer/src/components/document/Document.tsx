@@ -96,7 +96,7 @@ export function Document({
                 disabled={snap.loadingOlder || snap.streaming}
                 onClick={() => dispatch({ op: 'loadOlderTurns' })}
               >
-                {snap.loadingOlder ? 'Loading…' : 'Load earlier'}
+                {snap.loadingOlder ? 'Loading earlier text…' : 'Show earlier text'}
               </button>
             ) : null}
             {visibleBlocks.map((block) => (
@@ -125,14 +125,13 @@ export function Document({
             className="spark-pill busy"
             data-testid="stop-turn"
             aria-label="Stop"
-            title="Stop"
             onClick={() => dispatch({ op: 'interrupt' })}
           >
-            <SparkIcon size={16} />
+            <SparkIcon size={16} mono />
           </button>
         ) : (
           <span className="spark-pill" aria-hidden="true">
-            <SparkIcon size={16} />
+            <SparkIcon size={16} mono />
           </span>
         )}
       </div>

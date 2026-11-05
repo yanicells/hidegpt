@@ -72,10 +72,10 @@ export function DocMenus({
       }),
       row('Make available offline', { icon: 'offline_pin' }),
       row('Details', { icon: 'info', divider: true }),
-      row('Security limitations', { icon: 'shield' }),
+      row('Security limitations', { icon: 'shield_person' }),
       row('Language', { icon: 'language', submenu: [row('English (US)', { checked: true })] }),
       row('Page setup', { icon: 'description' }),
-      { id: 'print', label: 'Print', icon: 'print', shortcut: '⌘P', run: () => window.print() },
+      { id: 'print', label: 'Print', icon: 'print_fill', shortcut: '⌘P', run: () => window.print() },
     ],
     edit: [
       { id: 'undo', label: 'Undo', icon: 'undo', shortcut: '⌘Z', run: () => document.execCommand('undo') },

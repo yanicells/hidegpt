@@ -181,15 +181,13 @@
   color: #000;
 }
 
+/* Earlier turns load from a line of page text styled as a Docs hyperlink (#1155cc, underlined). */
 .load-older {
   @apply block;
-  margin: 0 0 16px;
-  font-family: var(--font-ui);
-  font-size: 13px;
-  color: var(--blue);
-}
-
-.load-older:hover {
+  margin: 0 0 12pt;
+  font-family: var(--font-page);
+  font-size: 11pt;
+  color: #1155cc;
   text-decoration: underline;
 }
 

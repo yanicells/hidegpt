@@ -14,6 +14,7 @@ The woff2 comes from the `material-symbols` npm package (Apache-2.0).
 import sys
 from pathlib import Path
 
+from fontTools.pens.filterPen import FilterPen
 from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.pens.transformPen import TransformPen
 from fontTools.ttLib import TTFont
@@ -34,11 +35,38 @@ tag crop_rotate translate mic notifications settings accessibility_new monitorin
 school extension code keyboard rate_review difference format_quote format_list_numbered_rtl
 dictionary person logout manage_accounts edit_note account_circle text_fields
 format_align_center format_align_right format_align_justify page_header page_footer
-insert_page_break expand_more chevron_right list cloud_sync water_drop
+insert_page_break expand_more chevron_right list cloud_sync water_drop shield_person
 """.split()
 
-# Icons Docs draws filled (File > New, Drive's folders); emitted as `<name>_fill`.
-FILLED = "article folder".split()
+# Icons Docs draws filled (File > New and Print, Drive's folders); emitted as `<name>_fill`.
+FILLED = "article folder print".split()
+
+class DropEmptySegments(FilterPen):
+    """Skips segments that end where they start; the font has a few, and they only bloat the paths."""
+
+    def moveTo(self, pt):
+        self.current = pt
+        super().moveTo(pt)
+
+    def _segment(self, method, *points):
+        if all(point == self.current for point in points):
+            return
+        self.current = points[-1]
+        getattr(super(), method)(*points)
+
+    def lineTo(self, pt):
+        self._segment("lineTo", pt)
+
+    def curveTo(self, *points):
+        self._segment("curveTo", *points)
+
+    def qCurveTo(self, *points):
+        # A closed all-off-curve contour ends in None; keep it as drawn.
+        if points[-1] is None:
+            super().qCurveTo(*points)
+        else:
+            self._segment("qCurveTo", *points)
+
 
 def paths(font_path: str, opsz: int, fill: int = 0, names: list[str] = NAMES) -> dict[str, str]:
     font = TTFont(font_path)
@@ -50,7 +78,7 @@ def paths(font_path: str, opsz: int, fill: int = 0, names: list[str] = NAMES) ->
             sys.exit(f"missing icon: {name}")
         pen = SVGPathPen(glyphs, ntos=lambda n: str(round(n)))
         # Font units are y-up from the baseline; SVG viewBox 0 -960 960 960 is y-down.
-        glyphs[name].draw(TransformPen(pen, (1, 0, 0, -1, 0, 0)))
+        glyphs[name].draw(TransformPen(DropEmptySegments(pen), (1, 0, 0, -1, 0, 0)))
         out[f"{name}_fill" if fill else name] = pen.getCommands()
     return out
 
