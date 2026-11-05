@@ -120,6 +120,27 @@ describe('docs home', () => {
     expect(calls).toContainEqual({ op: 'newDocument', projectId: null, cwd: undefined })
   })
 
+  it('shows a pending approval as a Docs suggestion card', async () => {
+    const user = userEvent.setup()
+    const approval = {
+      kind: 'approval' as const,
+      id: 'approval-1',
+      requestId: 1,
+      method: 'item/commandExecution/requestApproval',
+      title: 'Run command?',
+      body: 'npm test',
+      resolved: null,
+      drafts: {},
+    }
+    const { calls } = mount({ route: { kind: 'doc', threadId: 'thr_1' }, blocks: [approval] })
+    const card = screen.getByTestId('approval-approval-1')
+    expect(card).toHaveTextContent('Add: “npm test”')
+    expect(card).toHaveTextContent('Yan')
+    expect(card).not.toHaveTextContent('Run command')
+    await user.click(screen.getByRole('button', { name: 'Accept suggestion' }))
+    expect(calls).toContainEqual({ op: 'resolveApproval', blockId: 'approval-1', accept: true })
+  })
+
   it('shows a search field on the homepage', () => {
     mount()
     expect(screen.getByTestId('home-search')).toHaveAttribute('placeholder', 'Search')
