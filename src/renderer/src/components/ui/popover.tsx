@@ -6,12 +6,10 @@
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
 
 import { renderClosingPositioner } from './closing-positioner'
-import { cn } from './cn'
+import { cn, type Styled } from './cn'
 
 /** A non-menu floating panel (the account switcher): portaled, placed and dismissed by Base UI. */
 const Popover = PopoverPrimitive.Root
-
-type Styled<P> = Omit<P, 'className'> & { className?: string }
 
 function PopoverTrigger({ className, ...props }: Styled<PopoverPrimitive.Trigger.Props>) {
   return <PopoverPrimitive.Trigger className={className} data-slot="popover-trigger" {...props} />

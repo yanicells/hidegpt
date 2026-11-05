@@ -5,12 +5,11 @@
 
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 
-import { cn } from './cn'
+import { cn, type Styled } from './cn'
 
 /** Modal dialogs on Base UI: focus trap, Escape and backdrop dismissal, scroll lock. Drive-styled in dialogs.css. */
 const Dialog = DialogPrimitive.Root
 
-type Styled<P> = Omit<P, 'className'> & { className?: string }
 
 function DialogPopup({ className, children, ...props }: Styled<DialogPrimitive.Popup.Props>) {
   return (
