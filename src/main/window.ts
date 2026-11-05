@@ -1,12 +1,10 @@
 /// <reference types="electron-vite/node" />
 import { BrowserWindow, app, net, protocol, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { extname, join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
-
-import type { Snapshot } from '../codex/types'
 
 let window: BrowserWindow | null = null
 
@@ -45,21 +43,59 @@ export function createWindow(opts: { onDidFinishLoad: () => void }): BrowserWind
   win.on('closed', () => {
     if (window === win) window = null
   })
+  const appUrl = process.env.ELECTRON_RENDERER_URL ?? APP_URL
+  // Links in answers open in the browser; the window itself never leaves the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    openExternal(url)
     return { action: 'deny' }
+  })
+  win.webContents.on('will-navigate', (event, url) => {
+    if (isAppNavigation(appUrl, url)) return
+    event.preventDefault()
+    openExternal(url)
   })
   win.webContents.on('did-finish-load', opts.onDidFinishLoad)
   win.webContents.on('did-fail-load', (_event, code, desc) => {
     console.error('load failed', code, desc)
   })
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void win.loadURL(process.env.ELECTRON_RENDERER_URL)
-  } else {
-    void win.loadURL('docs://app/index.html')
-  }
+  void win.loadURL(appUrl)
   return win
+}
+
+const APP_URL = 'docs://app/index.html'
+const EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
+
+// `isAppNavigation` and `safeExternalUrl` are adapted from T3 Code
+// (apps/desktop/src/window/DesktopWindow.ts `isSameOriginRendererNavigation`,
+// apps/desktop/src/electron/ElectronShell.ts `parseSafeExternalUrl`) at commit
+// 8a14762c. Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+
+/** Same scheme and host as the app (a reload, or the dev server's HMR). */
+export function isAppNavigation(appUrl: string, url: string): boolean {
+  try {
+    const app = new URL(appUrl)
+    const next = new URL(url)
+    // Node serializes custom-scheme origins as "null", so compare scheme and host instead.
+    return app.host !== '' && next.protocol === app.protocol && next.host === app.host
+  } catch {
+    return false
+  }
+}
+
+/** Only web and mail links leave the app; `file:`, `javascript:` and custom schemes do not. */
+export function safeExternalUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw)
+    return EXTERNAL_PROTOCOLS.has(url.protocol) ? url.href : null
+  } catch {
+    return null
+  }
+}
+
+export function openExternal(raw: string): void {
+  const url = safeExternalUrl(raw)
+  if (url) void shell.openExternal(url).catch(() => undefined)
 }
 
 const IMAGE_EXTENSIONS: Record<string, string> = {
@@ -99,121 +135,4 @@ export function registerDocsProtocol(): void {
     if (file !== root && !file.startsWith(root + sep)) return new Response('forbidden', { status: 403 })
     return net.fetch(pathToFileURL(file).href)
   })
-}
-
-type ScreenshotSession = {
-  subscribe: (listener: () => void) => () => void
-  readonly snapshot: Snapshot
-  openThread: (threadId: string) => Promise<void>
-  newDocument: () => Promise<void>
-  goHome: () => void
-}
-
-export async function captureScreenshots(win: BrowserWindow, session: ScreenshotSession): Promise<void> {
-  const dir = process.env.HIDEGPT_SCREENSHOT
-  if (!dir) return
-  mkdirSync(dir, { recursive: true })
-  await new Promise<void>((resolve) => {
-    if (!win.webContents.isLoading()) {
-      resolve()
-      return
-    }
-    win.webContents.once('did-finish-load', () => resolve())
-  })
-  await new Promise<void>((resolve) => {
-    const stop = session.subscribe(() => {
-      if (session.snapshot.status !== 'connecting') {
-        stop()
-        resolve()
-      }
-    })
-    if (session.snapshot.status !== 'connecting') {
-      stop()
-      resolve()
-    }
-  })
-  win.show()
-  await win.webContents.executeJavaScript(`
-    new Promise((resolve, reject) => {
-      const started = Date.now()
-      const tick = () => {
-        if (document.querySelector('[data-testid="app"]')) resolve(true)
-        else if (Date.now() - started > 8000) reject(new Error('renderer did not mount'))
-        else setTimeout(tick, 50)
-      }
-      tick()
-    })
-  `)
-  await new Promise((resolve) => setTimeout(resolve, 200))
-  writeFileSync(join(dir, 'home.png'), (await win.capturePage()).toPNG())
-  await win.webContents.executeJavaScript(`document.querySelector('[aria-label="List view"]').click()`)
-  await new Promise((resolve) => setTimeout(resolve, 100))
-  writeFileSync(join(dir, 'home-list.png'), (await win.capturePage()).toPNG())
-  await win.webContents.executeJavaScript(`document.querySelector('[aria-label="Grid view"]').click()`)
-  const project = session.snapshot.projects[0]
-  if (project) {
-    await win.webContents.executeJavaScript(`document.querySelector('[data-testid="project-${project.id}"]').click()`)
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    writeFileSync(join(dir, 'project.png'), (await win.capturePage()).toPNG())
-    await win.webContents.executeJavaScript(
-      `Array.from(document.querySelectorAll('button')).find((button) => button.textContent === 'New document').click()`,
-    )
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    writeFileSync(join(dir, 'new-document.png'), (await win.capturePage()).toPNG())
-    await win.webContents.executeJavaScript(
-      `Array.from(document.querySelectorAll('dialog button')).find((button) => button.textContent === 'Create document').click()`,
-    )
-  }
-  await win.webContents.executeJavaScript(`new Promise((resolve, reject) => {
-    const started = Date.now()
-    const check = () => {
-      const composer = document.querySelector('[data-testid="composer"]')
-      if (composer && !document.querySelector('dialog')) {
-        if (document.activeElement !== composer) reject(new Error('New document composer did not receive focus'))
-        else resolve(true)
-      } else if (Date.now() - started > 8000) reject(new Error('Document creation did not complete'))
-      else setTimeout(check, 50)
-    }
-    check()
-  })`)
-  writeFileSync(join(dir, 'new-document-ready.png'), (await win.capturePage()).toPNG())
-  const first = session.snapshot.threads[0]
-  if (first) await session.openThread(first.id)
-  else await session.newDocument()
-  await win.webContents.executeJavaScript(`
-    new Promise((resolve, reject) => {
-      const started = Date.now()
-      const tick = () => {
-        if (document.querySelector('[data-testid="document"]')) resolve(true)
-        else if (Date.now() - started > 8000) reject(new Error('document did not mount'))
-        else setTimeout(tick, 50)
-      }
-      tick()
-    })
-  `)
-  await new Promise((resolve) => setTimeout(resolve, 200))
-  writeFileSync(join(dir, 'document.png'), (await win.capturePage()).toPNG())
-  win.setSize(760, 700)
-  await new Promise((resolve) => setTimeout(resolve, 100))
-  writeFileSync(join(dir, 'document-narrow.png'), (await win.capturePage()).toPNG())
-  await session.goHome()
-  await new Promise((resolve) => setTimeout(resolve, 100))
-  writeFileSync(join(dir, 'home-narrow.png'), (await win.capturePage()).toPNG())
-  await win.webContents.executeJavaScript(`document.querySelector('[data-testid="library-opencode"]').click()`)
-  await win.webContents.executeJavaScript(`new Promise((resolve, reject) => {
-    const started = Date.now()
-    const check = () => {
-      const selected = document.querySelector('[data-testid="library-opencode"][aria-pressed="true"]')
-      if (selected && document.querySelector('[data-testid="docs-home"]')) resolve(true)
-      else if (Date.now() - started > 8000) reject(new Error('Library switch did not complete'))
-      else setTimeout(check, 50)
-    }
-    check()
-  })`)
-  writeFileSync(join(dir, 'opencode-home.png'), (await win.capturePage()).toPNG())
-  await win.webContents.executeJavaScript(`document.querySelector('[data-testid="library-codex"]').click()`)
-  await new Promise((resolve) => setTimeout(resolve, 100))
-  const returnedHome = await win.webContents.executeJavaScript(`!!document.querySelector('.route-home .home')`)
-  if (!returnedHome) throw new Error('Switching back to Codex did not return to its library')
-  app.quit()
 }

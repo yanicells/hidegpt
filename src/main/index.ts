@@ -1,83 +1,188 @@
 /// <reference types="electron-vite/node" />
-import { app, BrowserWindow, ipcMain, protocol } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, protocol } from 'electron'
+import { join } from 'node:path'
 
-import type { Command } from '../shared/api'
-import { initCommands, pickDirectory, runCommand } from './commands'
-import { initMenu, updateMenuForSnapshot } from './menu'
-import {
-  activeSession,
-  closeSessions,
-  getCodexSession,
-  initProviders,
-  sendFullSnapshot,
-  sendSnapshot,
-  setProvider,
-} from './providers'
-import { captureScreenshots, createWindow, getWindow, registerDocsProtocol, saveImage } from './window'
+import * as NodeServices from '@effect/platform-node/NodeServices'
+import * as Effect from 'effect/Effect'
+import * as Fiber from 'effect/Fiber'
+import * as Layer from 'effect/Layer'
+import * as ManagedRuntime from 'effect/ManagedRuntime'
+import * as Schema from 'effect/Schema'
+
+import { Command, type CommandResult, type MenuAction } from '../shared/contracts'
+import type { ProviderId } from '../shared/model'
+import { codexDefaultCwd } from '../codex/CodexAdapter'
+import { userMessage } from '../provider/errors'
+import * as ProcessSupervisor from '../provider/ProcessSupervisor'
+import * as Demo from './demo'
+import { handle } from './ipc'
+import { makeMenu } from './menu'
+import * as ProviderRegistry from './ProviderRegistry'
+import { ProviderSessionManager, layer as managerLayer } from './ProviderSessionManager'
+import { captureScreenshots } from './screenshots'
+import { makeSnapshotPublisher } from './SnapshotPublisher'
+import { createWindow, getWindow, openExternal, registerDocsProtocol, saveImage } from './window'
+
+// A closed terminal must not crash main through console writes (EPIPE), as in T3 Code's desktop main.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code !== 'EPIPE') throw error
+  })
+}
 
 protocol.registerSchemesAsPrivileged([
-  {
-    scheme: 'docs',
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      corsEnabled: true,
-      stream: true,
-    },
-  },
+  { scheme: 'docs', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
 ])
 
+/** GUI apps on macOS start with a bare PATH; add where the provider CLIs usually live. */
 function prependPath() {
   if (process.platform !== 'darwin') return
   const home = process.env.HOME ?? ''
-  const extras = [
-    '/opt/homebrew/bin',
-    '/usr/local/bin',
-    home ? `${home}/.bun/bin` : '',
-    home ? `${home}/.local/bin` : '',
-  ].filter(Boolean)
+  const extras = ['/opt/homebrew/bin', '/usr/local/bin', home ? `${home}/.bun/bin` : '', home ? `${home}/.local/bin` : ''].filter(Boolean)
   process.env.PATH = `${extras.join(':')}:${process.env.PATH ?? ''}`
 }
 
 prependPath()
-
 app.setName('Docs')
 
-initProviders({ getWindow, onChanged: updateMenuForSnapshot })
-initCommands({ getWindow, getSession: activeSession, setProvider })
-initMenu({
-  getSnapshot: () => activeSession().getSnapshot(),
-  dispatch: (command: Command) => void runCommand(command),
-  getWindow,
-})
+const demo = process.env.HIDEGPT_FAKE === '1'
+const home = () => process.env.HOME ?? process.env.USERPROFILE ?? process.cwd()
+const defaultCwd = (id: ProviderId) => (id === 'codex' ? codexDefaultCwd() : home())
 
-app.whenReady().then(async () => {
+const MainLayer = managerLayer({
+  defaultCwd,
+  openExternal: (url) => Effect.sync(() => openExternal(url)),
+}).pipe(
+  Layer.provideMerge(demo ? Demo.layer : ProviderRegistry.layer),
+  Layer.provideMerge(ProcessSupervisor.layer(demo ? null : join(app.getPath('userData'), 'provider-processes.json'))),
+  Layer.provideMerge(NodeServices.layer),
+)
+const runtime = ManagedRuntime.make(MainLayer)
+
+const decodeFailed: CommandResult = { ok: false, error: 'Docs could not read that request.' }
+
+/** The app: IPC, the window, the menu, and the first library's connection. Runs until quit. */
+const program = Effect.gen(function* () {
+  yield* Effect.promise(() => app.whenReady())
   registerDocsProtocol()
-  ipcMain.handle('pick-directory', () => pickDirectory())
-  ipcMain.handle('save-image', (_event, bytes: Uint8Array, mime: string) => saveImage(bytes, mime))
-  ipcMain.handle('command', async (_event, command: Command) => {
-    await runCommand(command)
+  const supervisor = yield* ProcessSupervisor.ProcessSupervisor
+  const reaped = yield* supervisor.reapOrphans
+  if (reaped > 0) console.warn(`Stopped ${reaped} provider process(es) left by the last run.`)
+  const manager = yield* ProviderSessionManager
+
+  const send = (channel: string, value: unknown) => getWindow()?.webContents.send(channel, value)
+  const sendMenu = (action: MenuAction) => send('menu', action)
+
+  /** Every command, from the window or the menu, ends in a result; nothing is thrown away. */
+  const run = (command: Command): Effect.Effect<CommandResult> =>
+    (command.op === 'openFolder' ? openFolder : manager.dispatch(command)).pipe(
+      Effect.as<CommandResult>({ ok: true }),
+      Effect.catchCause((cause) => Effect.succeed<CommandResult>({ ok: false, error: userMessage(causeError(cause)) })),
+    )
+
+  const openFolder = Effect.gen(function* () {
+    const win = getWindow()
+    if (!win) return
+    const current = yield* manager.snapshot
+    const picked = yield* Effect.promise(() =>
+      dialog.showOpenDialog(win, { title: 'Open folder', properties: ['openDirectory'], defaultPath: current.cwd || undefined }),
+    )
+    const folder = picked.canceled ? undefined : picked.filePaths[0]
+    if (folder) yield* manager.setFolder(folder)
   })
-  getCodexSession().subscribe(sendSnapshot)
-  const win = createWindow({ onDidFinishLoad: sendFullSnapshot })
-  try {
-    await getCodexSession().start()
-    await captureScreenshots(win, getCodexSession())
-  } catch (error) {
-    console.error(error)
+
+  // Menu commands have no caller to show an error to, so a failure lands on the banner.
+  const dispatchFromMenu = (command: Command) =>
+    runtime.runFork(
+      run(command).pipe(Effect.flatMap((result) => (result.ok ? Effect.void : manager.notify(result.error)))),
+    )
+  const updateMenu = makeMenu({ dispatch: dispatchFromMenu, send: sendMenu })
+
+  yield* handle(ipcMain, {
+    channel: 'command',
+    payload: Command,
+    handler: run,
+    invalid: () => decodeFailed,
+  })
+  yield* handle(ipcMain, {
+    channel: 'pick-directory',
+    payload: Schema.Undefined,
+    handler: () =>
+      Effect.promise(async () => {
+        const win = getWindow()
+        if (!win) return null
+        const picked = await dialog.showOpenDialog(win, {
+          title: 'Choose project folder',
+          properties: ['openDirectory', 'createDirectory'],
+        })
+        return picked.canceled ? null : (picked.filePaths[0] ?? null)
+      }),
+    invalid: () => null,
+  })
+  yield* handle(ipcMain, {
+    channel: 'save-image',
+    payload: Schema.Tuple([Schema.Uint8Array, Schema.String]),
+    handler: ([bytes, mime]) =>
+      Effect.tryPromise(() => saveImage(bytes, mime)).pipe(
+        Effect.map((path): { ok: true; path: string } | { ok: false; error: string } => ({ ok: true, path })),
+        Effect.catch((error) => Effect.succeed({ ok: false as const, error: userMessage(error.cause) })),
+      ),
+    invalid: () => ({ ok: false, error: 'Docs could not read that image.' }),
+  })
+
+  const publisher = makeSnapshotPublisher(manager.snapshots, (patch, snapshot) => {
+    const win = getWindow()
+    win?.setTitle(snapshot.route.kind === 'home' ? 'Docs' : snapshot.title || 'Docs')
+    win?.webContents.send('snapshot', patch)
+    updateMenu(snapshot)
+  })
+  yield* Effect.forkScoped(publisher.run)
+
+  const open = () =>
+    createWindow({
+      onDidFinishLoad: () => runtime.runFork(Effect.map(manager.snapshot, publisher.resync)),
+    })
+  const win = open()
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) open()
+  })
+
+  yield* manager.start('codex')
+  const shots = process.env.HIDEGPT_SCREENSHOT
+  if (shots) {
+    yield* captureScreenshots(win, manager, shots)
     app.quit()
   }
+  return yield* Effect.never
+}).pipe(Effect.scoped)
+
+/** The first error in a failed command (a tagged provider error, a rejection, or a defect). */
+function causeError(cause: import('effect/Cause').Cause<unknown>): unknown {
+  for (const reason of cause.reasons) {
+    if (reason._tag === 'Fail') return reason.error
+    if (reason._tag === 'Die') return reason.defect
+  }
+  return null
+}
+
+const main = runtime.runFork(program)
+main.addObserver((exit) => {
+  if (exit._tag === 'Failure' && !app.isReady()) console.error(exit.cause)
 })
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow({ onDidFinishLoad: sendFullSnapshot })
-})
-
-app.on('before-quit', () => {
-  closeSessions()
+// Quitting closes every scope: provider processes get SIGTERM (then SIGKILL) before Electron exits.
+let disposed = false
+app.on('will-quit', (event) => {
+  if (disposed) return
+  event.preventDefault()
+  disposed = true
+  void runtime
+    .runPromise(Fiber.interrupt(main))
+    .then(() => runtime.dispose())
+    .catch((error: unknown) => console.error(error))
+    .finally(() => app.quit())
 })
