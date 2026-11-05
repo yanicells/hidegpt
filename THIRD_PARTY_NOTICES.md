@@ -15,6 +15,7 @@ header pointing to its source file:
 | `src/renderer/src/components/ui/menu.tsx` | `menu.tsx` |
 | `src/renderer/src/components/ui/popover.tsx` | `popover.tsx` |
 | `src/renderer/src/components/ui/dialog.tsx` | `dialog.tsx` |
+| `src/renderer/src/components/ui/tooltip.tsx` | `tooltip.tsx` |
 
 ```
 MIT License

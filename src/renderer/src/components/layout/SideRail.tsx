@@ -1,5 +1,6 @@
 import { RailIcon } from '../ui/Icons'
 import { MIcon } from '../ui/MaterialIcon'
+import { Tip } from '../ui/tooltip'
 
 const APPS = [
   { app: 'calendar', label: 'Calendar' },
@@ -14,17 +15,23 @@ export function SideRail() {
   return (
     <aside className="side-rail" aria-hidden="true">
       {APPS.map(({ app, label }) => (
-        <span key={app} className="rail-app" title={label}>
-          <RailIcon app={app} />
-        </span>
+        <Tip key={app} label={label} side="left">
+          <span className="rail-app">
+            <RailIcon app={app} />
+          </span>
+        </Tip>
       ))}
       <span className="rail-divider" />
-      <span className="rail-app" title="Get add-ons">
-        <MIcon name="add" />
-      </span>
-      <span className="rail-app rail-hide" title="Hide side panel">
-        <MIcon name="chevron_right" />
-      </span>
+      <Tip label="Get add-ons" side="left">
+        <span className="rail-app">
+          <MIcon name="add" />
+        </span>
+      </Tip>
+      <Tip label="Hide side panel" side="left">
+        <span className="rail-app rail-hide">
+          <MIcon name="chevron_right" />
+        </span>
+      </Tip>
     </aside>
   )
 }

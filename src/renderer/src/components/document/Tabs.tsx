@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { cn } from '../ui/cn'
 import { MIcon } from '../ui/MaterialIcon'
+import { Tip } from '../ui/tooltip'
 import type { OutlineEntry } from './outline'
 
 const NARROW = '(max-width: 960px)'
@@ -38,42 +39,38 @@ export function Tabs({
   if (!open) {
     return (
       <aside className="tabs collapsed" aria-label="Document tabs" data-testid="outline">
-        <button
-          type="button"
-          className="tabs-show"
-          aria-label="Show tabs & outlines"
-          title="Show tabs & outlines"
-          onClick={() => setOpen(true)}
-        >
-          <MIcon name="list" />
-        </button>
+        <Tip label="Show tabs & outlines" side="right">
+          <button type="button" className="tabs-show" aria-label="Show tabs & outlines" onClick={() => setOpen(true)}>
+            <MIcon name="list" />
+          </button>
+        </Tip>
       </aside>
     )
   }
 
   return (
     <aside className="tabs" aria-label="Document tabs" data-testid="outline">
-      <button
-        type="button"
-        className="tabs-hide"
-        aria-label="Hide tabs & outlines"
-        title="Hide tabs & outlines"
-        onClick={() => setOpen(false)}
-      >
-        <MIcon name="arrow_back" size={24} />
-      </button>
+      <Tip label="Hide tabs & outlines">
+        <button type="button" className="tabs-hide" aria-label="Hide tabs & outlines" onClick={() => setOpen(false)}>
+          <MIcon name="arrow_back" size={24} />
+        </button>
+      </Tip>
       <div className="tabs-head">
         <span>Document tabs</span>
-        <button type="button" className="tabs-new" aria-label="Add tab" title="Add tab" onClick={onNew}>
-          <MIcon name="add" />
-        </button>
+        <Tip label="Add tab">
+          <button type="button" className="tabs-new" aria-label="Add tab" onClick={onNew}>
+            <MIcon name="add" />
+          </button>
+        </Tip>
       </div>
       <div className="tab-pill">
         <MIcon name="article" />
         <span className="tab-pill-name">Tab 1</span>
-        <span className="tab-pill-more" aria-hidden="true" title="Tab options">
-          <MIcon name="more_vert" />
-        </span>
+        <Tip label="Tab options">
+          <span className="tab-pill-more" aria-hidden="true">
+            <MIcon name="more_vert" />
+          </span>
+        </Tip>
       </div>
       {entries.length === 0 ? (
         <p className="tabs-hint">Headings you add to the document will appear here.</p>
@@ -81,19 +78,21 @@ export function Tabs({
         <ol className="doc-outline">
           {entries.map((entry) => (
             <li key={entry.key}>
-              <button
-                type="button"
-                className={cn('outline-item', entry.level === 2 && 'sub', active === entry.key && 'active')}
-                data-testid={`outline-${entry.key}`}
-                aria-current={active === entry.key ? 'location' : undefined}
-                title={entry.text}
-                onClick={() => {
-                  setActive(entry.key)
-                  onJump(entry)
-                }}
-              >
-                {truncate(entry.text)}
-              </button>
+              {/* A clipped heading shows in full on hover. */}
+              <Tip label={truncate(entry.text) === entry.text ? undefined : entry.text} side="right">
+                <button
+                  type="button"
+                  className={cn('outline-item', entry.level === 2 && 'sub', active === entry.key && 'active')}
+                  data-testid={`outline-${entry.key}`}
+                  aria-current={active === entry.key ? 'location' : undefined}
+                  onClick={() => {
+                    setActive(entry.key)
+                    onJump(entry)
+                  }}
+                >
+                  {truncate(entry.text)}
+                </button>
+              </Tip>
             </li>
           ))}
         </ol>

@@ -18,6 +18,35 @@
   outline: none;
 }
 
+/* Docs' hover label: #303030, white 12px text, radius 4, 4x8 padding, under the control. */
+.tooltip-positioner {
+  z-index: 150;
+  pointer-events: none;
+}
+
+.tooltip {
+  max-width: 320px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: #303030;
+  color: #fff;
+  font-family: var(--font-text);
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0.1px;
+  white-space: pre-line;
+  transition: opacity 100ms linear;
+}
+
+.tooltip[data-starting-style],
+.tooltip[data-ending-style] {
+  opacity: 0;
+}
+
+.tooltip[data-instant] {
+  transition: none;
+}
+
 .menu-panel[data-starting-style],
 .menu-panel[data-ending-style] {
   opacity: 0;
@@ -27,9 +56,10 @@
   transition: opacity 80ms linear;
 }
 
+/* ~17px from row to row across a separator, as in Docs' File menu. */
 .menu-separator {
   height: 1px;
-  margin: 6px 0;
+  margin: 8px 0;
   background: var(--hairline);
 }
 
@@ -44,7 +74,7 @@
 }
 
 .menu-item[data-highlighted],
-.menu-item[data-popup-open] {
+.menu-item[aria-expanded='true'] {
   background: var(--hover-menu);
 }
 
@@ -161,13 +191,20 @@
   margin: 0 0 0 8px;
 }
 
+/* The current style's ▸ is near-black and a size up; the rest stay grey. */
+.style-menu .menu-item[data-checked] .menu-arrow {
+  color: #202124;
+  transform: scale(1.2);
+}
+
 .style-menu .style-normal .menu-text {
   font-family: var(--font-ui);
   font-size: 13px;
 }
 
+/* The menu previews Title a size under its 26pt page style, as Docs does. */
 .style-menu .style-title .menu-text {
-  font-size: 26pt;
+  font-size: 24pt;
   line-height: 1.15;
 }
 

@@ -12,6 +12,7 @@ import {
   MenuSubTrigger,
   useMenuClose,
 } from './menu'
+import { Tip } from './tooltip'
 
 /**
  * One Docs menu row. `icon` is the 20px leading glyph, `shortcut` the grey
@@ -29,8 +30,8 @@ export type Item = {
   shortcut?: string
   submenu?: Item[]
   divider?: boolean
-  /** Extra text for the tooltip, e.g. what a costume label really selects. */
-  title?: string
+  /** A hover label, e.g. what a costume row really selects. */
+  tip?: string
   /** Grey second line under the label (Docs' editing-mode menu). */
   description?: string
   /** A small blue pill after the label, like Docs' "New". */
@@ -86,24 +87,25 @@ function Row({ item, itemPrefix }: { item: Item; itemPrefix: string }) {
     const { run } = item
     return (
       <MenuSub>
-        <MenuSubTrigger
-          className={item.className}
-          data-testid={testId}
-          disabled={item.disabled}
-          title={item.title}
-          // Shades the current choice like a checked row (the style menu's slots).
-          data-checked={item.checked ? '' : undefined}
-          onClick={
-            run
-              ? () => {
-                  run()
-                  close()
-                }
-              : undefined
-          }
-        >
-          {body}
-        </MenuSubTrigger>
+        <Tip label={item.tip} side="right">
+          <MenuSubTrigger
+            className={item.className}
+            data-testid={testId}
+            disabled={item.disabled}
+            // Shades the current choice like a checked row (the style menu's slots).
+            data-checked={item.checked ? '' : undefined}
+            onClick={
+              run
+                ? () => {
+                    run()
+                    close()
+                  }
+                : undefined
+            }
+          >
+            {body}
+          </MenuSubTrigger>
+        </Tip>
         <MenuSubPopup>
           <MenuRows items={item.submenu} itemPrefix={itemPrefix} />
         </MenuSubPopup>
@@ -114,16 +116,19 @@ function Row({ item, itemPrefix }: { item: Item; itemPrefix: string }) {
     className: item.className,
     'data-testid': testId,
     disabled: item.disabled,
-    title: item.title,
     closeOnClick: true,
     onClick: item.run,
   }
-  return item.checked === undefined ? (
-    <MenuItem {...common}>{body}</MenuItem>
-  ) : (
-    <MenuCheckboxItem {...common} checked={item.checked}>
-      {body}
-    </MenuCheckboxItem>
+  return (
+    <Tip label={item.tip} side="right">
+      {item.checked === undefined ? (
+        <MenuItem {...common}>{body}</MenuItem>
+      ) : (
+        <MenuCheckboxItem {...common} checked={item.checked}>
+          {body}
+        </MenuCheckboxItem>
+      )}
+    </Tip>
   )
 }
 

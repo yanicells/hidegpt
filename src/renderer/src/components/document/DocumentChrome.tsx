@@ -7,6 +7,7 @@ import { AccountMenu } from '../layout/AccountMenu'
 import { SideRail } from '../layout/SideRail'
 import { DocsIcon } from '../ui/Icons'
 import { MIcon } from '../ui/MaterialIcon'
+import { Tip } from '../ui/tooltip'
 import { DocActions } from './DocActions'
 import { DocMenus } from './DocMenus'
 import { Toolbar } from './Toolbar'
@@ -48,51 +49,55 @@ export function DocumentChrome({
   return (
     <header className="doc-chrome">
       <div className="doc-top">
-        <button type="button" className="doc-home" aria-label="Docs home" title="Docs home" onClick={() => dispatch({ op: 'goHome' })}>
-          <DocsIcon size={40} />
-        </button>
+        <Tip label="Docs home">
+          <button type="button" className="doc-home" aria-label="Docs home" onClick={() => dispatch({ op: 'goHome' })}>
+            <DocsIcon size={40} />
+          </button>
+        </Tip>
         <div className="doc-head">
           <div className="doc-title-row">
-            <input
-              ref={titleRef}
-              className="doc-title"
-              value={draft ?? snap.title}
-              aria-label="Document title"
-              title="Rename"
-              spellCheck={false}
-              onFocus={() => {
-                cancelRef.current = false
-                setDraft(snap.title)
-              }}
-              onChange={(event) => setDraft(event.target.value)}
-              onBlur={commit}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  event.currentTarget.blur()
-                }
-                if (event.key === 'Escape') {
-                  cancelRef.current = true
-                  setDraft(null)
-                  event.currentTarget.blur()
-                }
-              }}
-            />
-            <span className="title-icon" aria-hidden="true" title="Star">
-              <MIcon name="star" />
-            </span>
-            <span className="title-icon document-location" title={`Move · ${project?.name ?? 'My Drive'}`} aria-hidden="true">
-              <MIcon name="drive_file_move" />
-            </span>
-            <span
-              className="save-state"
-              role="status"
-              aria-label={snap.streaming ? 'Saving…' : 'Saved to Drive'}
-              title={snap.streaming ? 'Saving…' : 'All changes saved in Drive'}
-            >
-              <MIcon name={snap.streaming ? 'cloud_sync' : 'cloud_done'} className={snap.streaming ? 'cloud busy' : 'cloud'} />
-              {snap.streaming ? <span className="save-text">Saving…</span> : saved ? <span className="save-text">Saved to Drive</span> : null}
-            </span>
+            <Tip label="Rename">
+              <input
+                ref={titleRef}
+                className="doc-title"
+                value={draft ?? snap.title}
+                aria-label="Document title"
+                spellCheck={false}
+                onFocus={() => {
+                  cancelRef.current = false
+                  setDraft(snap.title)
+                }}
+                onChange={(event) => setDraft(event.target.value)}
+                onBlur={commit}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    event.currentTarget.blur()
+                  }
+                  if (event.key === 'Escape') {
+                    cancelRef.current = true
+                    setDraft(null)
+                    event.currentTarget.blur()
+                  }
+                }}
+              />
+            </Tip>
+            <Tip label="Star">
+              <span className="title-icon" aria-hidden="true">
+                <MIcon name="star" />
+              </span>
+            </Tip>
+            <Tip label={`Move · ${project?.name ?? 'My Drive'}`}>
+              <span className="title-icon document-location" aria-hidden="true">
+                <MIcon name="drive_file_move" />
+              </span>
+            </Tip>
+            <Tip label={snap.streaming ? 'Saving…' : 'All changes saved in Drive'}>
+              <span className="save-state" role="status" aria-label={snap.streaming ? 'Saving…' : 'Saved to Drive'}>
+                <MIcon name={snap.streaming ? 'cloud_sync' : 'cloud_done'} className={snap.streaming ? 'cloud busy' : 'cloud'} />
+                {snap.streaming ? <span className="save-text">Saving…</span> : saved ? <span className="save-text">Saved to Drive</span> : null}
+              </span>
+            </Tip>
           </div>
           <DocMenus
             outputOnly={outputOnly}

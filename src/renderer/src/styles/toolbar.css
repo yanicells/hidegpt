@@ -24,9 +24,10 @@
   background: var(--hover);
 }
 
+/* Pinned to the top so the title's and menubar's baselines match Docs. */
 .doc-head {
-  @apply flex flex-col min-w-0;
-  padding-top: 6px;
+  @apply flex flex-col min-w-0 self-start;
+  padding-top: 10px;
 }
 
 .doc-title-row {
@@ -84,7 +85,7 @@
 .doc-menus {
   @apply flex items-center;
   height: 28px;
-  margin-left: -1px;
+  margin: -5px 0 0 -1px;
 }
 
 .menu-label {
@@ -98,7 +99,7 @@
 }
 
 .menu-label:hover,
-.menu-label[data-popup-open] {
+.menu-label[aria-expanded='true'] {
   background: var(--hover);
 }
 
@@ -168,7 +169,7 @@ button.header-action:disabled {
 
 .share-button:hover,
 .share-caret:hover,
-.share-caret[data-popup-open] {
+.share-caret[aria-expanded='true'] {
   background: #b3d7ef;
 }
 
@@ -187,7 +188,7 @@ button.header-action:disabled {
 .toolbar {
   @apply flex items-center overflow-hidden;
   height: 40px;
-  padding: 0 8px;
+  padding: 0 8px 0 11px;
   border-radius: 28px;
   background: var(--pill);
   font-size: 14px;
@@ -197,7 +198,7 @@ button.header-action:disabled {
   flex: 0 0 auto;
   width: 1px;
   height: 20px;
-  margin: 0 4px;
+  margin: 0 5px;
   background: #c7c7c7;
 }
 
@@ -215,8 +216,13 @@ button.header-action:disabled {
 }
 
 .toolbar-icon:hover,
-.toolbar-icon[data-popup-open] {
+.toolbar-icon[aria-expanded='true'] {
   background: var(--hover);
+}
+
+/* Docs sets the menu search a little apart from undo. */
+.toolbar-icon.tb-search {
+  margin-right: 4px;
 }
 
 .toolbar-icon.with-caret {
@@ -253,12 +259,12 @@ button.header-action:disabled {
 }
 
 .chip:hover,
-.chip[data-popup-open] {
+.chip[aria-expanded='true'] {
   background: var(--hover);
 }
 
 /* An open dropdown's ▾ flips to ▴, as in Docs. */
-.chip[data-popup-open] > svg:last-child {
+.chip[aria-expanded='true'] > svg:last-child {
   transform: rotate(180deg);
 }
 
@@ -266,16 +272,20 @@ button.header-action:disabled {
   @apply flex-1 overflow-hidden text-ellipsis text-left;
 }
 
+/* Widths and insets put each label and ▾ where Docs draws them (editor-content.png). */
 .chip-zoom {
-  width: 64px;
+  width: 72px;
+  padding-left: 8px;
 }
 
 .chip-style {
-  width: 120px;
+  width: 113px;
+  padding-left: 8px;
 }
 
 .chip-font {
-  width: 95px;
+  width: 91px;
+  padding-left: 10px;
 }
 
 .chip-mode {

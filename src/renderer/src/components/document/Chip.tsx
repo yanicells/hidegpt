@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { cn } from '../ui/cn'
 import { MIcon } from '../ui/MaterialIcon'
 import { Menu, MenuPopup, MenuTrigger } from '../ui/menu'
+import { Tip } from '../ui/tooltip'
 
 /**
  * A toolbar dropdown ("Normal text ▾", "Arial ▾", "11", "✎ ▾"). The trigger
@@ -16,7 +17,7 @@ export function Chip({
   className,
   menuClass,
   testId,
-  title,
+  tip,
   align = 'start',
   children,
 }: {
@@ -27,17 +28,20 @@ export function Chip({
   /** Popup class; its width lives with the rest of that menu's CSS. */
   menuClass?: string
   testId: string
-  title?: string
+  /** The hover label (Docs' "Styles", "Font"). */
+  tip?: string
   align?: 'start' | 'end'
   children: ReactNode
 }) {
   return (
     <Menu modal={false}>
-      <MenuTrigger className={cn('chip', className)} data-testid={testId} title={title}>
-        {icon}
-        {label !== undefined ? <span className="chip-label">{label}</span> : null}
-        {chevron ? <MIcon name="arrow_drop_down" /> : null}
-      </MenuTrigger>
+      <Tip label={tip}>
+        <MenuTrigger className={cn('chip', className)} data-testid={testId}>
+          {icon}
+          {label !== undefined ? <span className="chip-label">{label}</span> : null}
+          {chevron ? <MIcon name="arrow_drop_down" /> : null}
+        </MenuTrigger>
+      </Tip>
       <MenuPopup align={align} className={cn('popover', menuClass)}>
         {children}
       </MenuPopup>

@@ -321,8 +321,10 @@ describe('toolbar dropdowns', () => {
     await user.click(screen.getByTestId('chip-model'))
     // Slots show style names; the real name is only the row's tooltip.
     expect(await screen.findByTestId('pick-alpha')).toHaveTextContent('Normal text')
-    expect(screen.getByTestId('pick-alpha')).toHaveAttribute('title', 'AlphaGuide')
     expect(screen.queryByText('AlphaGuide')).toBeNull()
+    await user.hover(screen.getByTestId('pick-alpha'))
+    expect(await screen.findByText('AlphaGuide', {}, { timeout: 2000 })).toHaveClass('tooltip')
+    await user.unhover(screen.getByTestId('pick-alpha'))
     await user.click(screen.getByTestId('pick-options'))
     expect(await screen.findByTestId('pick-reset-styles')).toHaveTextContent('Reset styles')
     expect(screen.queryByText('BetaHelper')).toBeNull()
