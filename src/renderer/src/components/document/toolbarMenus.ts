@@ -84,6 +84,16 @@ export function sizeForTier(tier: string | null | undefined, tiers: string[]): n
   return index < 0 ? 11 : FONT_SIZES[FONT_SIZES.indexOf(12) + index]
 }
 
+/**
+ * A size row's id: "default" for 11, the tier for the one size that stands
+ * for it, and `size-<n>` for the sizes that only repeat the top tier.
+ */
+export function sizeRowId(size: number, tiers: string[]): string {
+  if (size === 11) return 'default'
+  const tier = tierForSize(size, tiers)
+  return tier && sizeForTier(tier, tiers) === size ? tier : `size-${size}`
+}
+
 export const EDIT_MODES = [
   { label: 'Editing', icon: 'edit', description: 'Edit document directly' },
   { label: 'Suggesting', icon: 'rate_review', description: 'Edits become suggestions' },

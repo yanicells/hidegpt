@@ -3,8 +3,9 @@ import { useState } from 'react'
 import { accountLabel, avatarLetter, PROVIDERS, providerLabel } from '../../../../codex/labels'
 import type { Provider, Snapshot } from '../../../../codex/types'
 import { dispatch } from '../../session-bridge'
-import { MIcon } from '../ui/MaterialIcon'
+import { MIcon, type MaterialIconName } from '../ui/MaterialIcon'
 import { Popover, PopoverClose, PopoverPopup, PopoverTrigger } from '../ui/popover'
+import { Tip } from '../ui/tooltip'
 
 const LIBRARY_COLORS: Record<Provider, string> = { codex: '#0b8043', opencode: '#e8710a', claude: '#c5221f' }
 
@@ -19,6 +20,8 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
   const [error, setError] = useState<string | null>(null)
   const label = accountLabel(snap.account)
   const name = snap.account ? label.split('@')[0] : null
+  // Only a real address may show on hover; other labels would name the provider.
+  const email = label.includes('@') ? label : null
 
   const switchTo = async (next: Provider) => {
     if (next === snap.provider || pending) return
@@ -36,14 +39,11 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        className="avatar"
-        data-testid="menu-account"
-        aria-label={`Google Account: ${label}`}
-        title={`Google Account\n${label}`}
-      >
-        <span>{avatarLetter(snap.account)}</span>
-      </PopoverTrigger>
+      <Tip label={email ? `Google Account\n${email}` : 'Google Account'}>
+        <PopoverTrigger className="avatar" data-testid="menu-account" aria-label={`Google Account: ${label}`}>
+          <span>{avatarLetter(snap.account)}</span>
+        </PopoverTrigger>
+      </Tip>
       <PopoverPopup className="account-panel" data-testid="panel-account" aria-label="Google Account">
           <div className="account-card">
             <span className="account-email">{snap.account ? label : 'Not signed in'}</span>
@@ -67,15 +67,7 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
                 </span>
                 <span className="account-row-text">
                   {providerLabel(provider)}
-                  <small>
-                    {pending === provider
-                      ? 'Switching…'
-                      : snap.provider === provider
-                        ? snap.account
-                          ? label
-                          : 'Signed in'
-                        : 'Switch account'}
-                  </small>
+                  <small>{pending === provider ? 'Switching…' : accountLine(provider, snap)}</small>
                 </span>
                 {snap.provider === provider ? (
                   <span className="row-icon ml-auto">
@@ -84,21 +76,30 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
                 ) : null}
               </button>
             ))}
-            {snap.provider === 'codex' ? (
-              <button
-                type="button"
-                className="account-row"
-                data-testid={snap.account ? 'action-logout' : 'action-login'}
-                onClick={() => {
-                  dispatch({ op: snap.account ? 'logout' : 'login' })
+            {/* Only Codex signs in from here; the others reuse their CLI's login, so the row is costume. */}
+            <AccountAction
+              testId={snap.provider === 'codex' && !snap.account ? 'action-login' : undefined}
+              icon="person_add"
+              label="Add another account"
+              run={
+                snap.provider === 'codex' && !snap.account
+                  ? () => {
+                      dispatch({ op: 'login' })
+                      setOpen(false)
+                    }
+                  : undefined
+              }
+            />
+            {snap.provider === 'codex' && snap.account ? (
+              <AccountAction
+                testId="action-logout"
+                icon="logout"
+                label="Sign out"
+                run={() => {
+                  dispatch({ op: 'logout' })
                   setOpen(false)
                 }}
-              >
-                <span className="row-icon">
-                  <MIcon name={snap.account ? 'logout' : 'person_add'} />
-                </span>
-                <span className="account-row-text">{snap.account ? 'Sign out' : 'Add another account'}</span>
-              </button>
+              />
             ) : null}
           </div>
           {error ? (
@@ -114,6 +115,37 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
       </PopoverPopup>
       {pending ? <div className="top-progress" role="progressbar" aria-label="Loading" /> : null}
     </Popover>
+  )
+}
+
+/** An account row's grey second line: the signed-in address, else an address-shaped handle for the library. */
+function accountLine(provider: Provider, snap: Snapshot): string {
+  if (provider === snap.provider && snap.account) {
+    const label = accountLabel(snap.account)
+    if (label.includes('@')) return label
+  }
+  return `${provider}@this-mac`
+}
+
+/** A Google account-switcher action row ("Add another account", "Sign out"). */
+function AccountAction({
+  testId,
+  icon,
+  label,
+  run,
+}: {
+  testId?: string
+  icon: MaterialIconName
+  label: string
+  run?: () => void
+}) {
+  return (
+    <button type="button" className="account-row" data-testid={testId} onClick={run}>
+      <span className="row-icon">
+        <MIcon name={icon} />
+      </span>
+      <span className="account-row-text">{label}</span>
+    </button>
   )
 }
 
