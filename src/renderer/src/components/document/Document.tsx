@@ -128,7 +128,11 @@ export function Document({
 /** One block on the page. Unchanged blocks keep their identity, so a delta skips every other row. */
 const BlockRow = memo(function BlockRow({ block, turnStart, streaming }: { block: Block; turnStart: boolean; streaming: boolean }) {
   return (
-    <div className={`doc-block${turnStart ? ' turn-start' : ''}`} data-turn={block.kind === 'user' ? block.id : undefined}>
+    <div
+      className={`doc-block${turnStart ? ' turn-start' : ''}`}
+      data-turn={block.kind === 'user' ? block.id : undefined}
+      data-streaming={streaming || undefined}
+    >
       <BlockView block={block} streaming={streaming} />
     </div>
   )
