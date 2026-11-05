@@ -9,20 +9,19 @@ const NEAR_END = '0px 0px 120px 0px'
  * browser has laid out new text, and an IntersectionObserver on `end` tracks
  * whether you are near the bottom. A document opens at the top and follows
  * only once you scroll to its end or ask a question, so a resize or a late
- * image never pulls it down. Returns `release`, for jumps that move the page
- * on purpose.
+ * image never pulls it down. Mount one per document (keyed by thread), so
+ * this state starts fresh. Returns `release`, for jumps that move the page on
+ * purpose.
  */
 export function useFollowBottom({
   scrollRef,
   contentRef,
   endRef,
-  threadId,
   askedId,
 }: {
   scrollRef: RefObject<HTMLElement | null>
   contentRef: RefObject<HTMLElement | null>
   endRef: RefObject<HTMLElement | null>
-  threadId: string
   /** The newest block's id when it is your question, else null. */
   askedId: string | null
 }): { release: () => void } {
@@ -31,21 +30,16 @@ export function useFollowBottom({
   const engaged = useRef(false)
   // The end marker's last reported state.
   const nearEnd = useRef(false)
-  const seen = useRef({ threadId, askedId })
+  const seenAsked = useRef(askedId)
 
   // Layout effects, so the flag is set before the browser lays out and the observers run.
   useLayoutEffect(() => {
-    const before = seen.current
-    seen.current = { threadId, askedId }
-    if (before.threadId !== threadId) {
-      follow.current = false
-      engaged.current = false
-      if (scrollRef.current) scrollRef.current.scrollTop = 0
-    } else if (askedId !== null && askedId !== before.askedId) {
+    if (askedId !== null && askedId !== seenAsked.current) {
       follow.current = true
       engaged.current = true
     }
-  }, [threadId, askedId, scrollRef])
+    seenAsked.current = askedId
+  }, [askedId])
 
   useLayoutEffect(() => {
     const root = scrollRef.current

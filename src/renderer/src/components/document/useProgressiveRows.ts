@@ -10,23 +10,21 @@ const ROWS_PER_STEP = 12
  * at once and adds the rest a step per task, so a long document never blocks
  * input while it opens (snapshot updates render synchronously, and a
  * transition would starve while an answer streams). Once every row is on the
- * page, later rows ("Load earlier", new turns) render at once.
+ * page, later rows ("Load earlier", new turns) render at once. The document
+ * mounts once per thread, so each opens progressively.
  */
-export function useProgressiveRows(threadId: string, count: number): number {
-  const [state, setState] = useState({ threadId, limit: FIRST_ROWS, done: false })
-  // A different document opens progressively again.
-  const current = state.threadId === threadId ? state : { threadId, limit: FIRST_ROWS, done: false }
-  if (current !== state) setState(current)
-  const done = current.done || current.limit >= count
+export function useProgressiveRows(count: number): number {
+  const [state, setState] = useState({ limit: FIRST_ROWS, done: false })
+  const done = state.done || state.limit >= count
 
   useEffect(() => {
     if (done) {
-      if (!current.done) setState((previous) => ({ ...previous, done: true }))
+      if (!state.done) setState((previous) => ({ ...previous, done: true }))
       return
     }
     const step = setTimeout(() => setState((previous) => ({ ...previous, limit: previous.limit + ROWS_PER_STEP })), 0)
     return () => clearTimeout(step)
-  }, [done, current.done, current.limit])
+  }, [done, state.done, state.limit])
 
-  return done ? count : current.limit
+  return done ? count : state.limit
 }

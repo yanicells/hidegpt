@@ -32,7 +32,7 @@ export function Document({
   const waiting = snap.streaming && streamingAgentId === null
   const questions = blocks.filter((block) => block.kind === 'user')
   const newest = blocks[blocks.length - 1]
-  const rows = useProgressiveRows(threadId, visibleBlocks.length)
+  const rows = useProgressiveRows(visibleBlocks.length)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const paperRef = useRef<HTMLElement>(null)
@@ -41,7 +41,6 @@ export function Document({
     scrollRef,
     contentRef: paperRef,
     endRef,
-    threadId,
     askedId: newest?.kind === 'user' ? newest.id : null,
   })
 
