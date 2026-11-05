@@ -51,18 +51,18 @@
   color: transparent;
 }
 
-/* Docs' floating spark pill at the bottom of the page; stops a streaming answer. */
+/* Docs' floating spark pill, centred under the page; stops a streaming answer. */
 .spark-wrap {
-  @apply sticky flex justify-center pointer-events-none;
+  @apply sticky flex pointer-events-none;
   bottom: 0;
   left: 0;
-  padding-bottom: 20px;
+  padding: 0 0 20px calc(var(--page-left) + var(--page-w) / 2 - 46px);
   margin-top: -64px;
 }
 
 .spark-pill {
   @apply inline-flex items-center justify-center pointer-events-auto;
-  width: 84px;
+  width: 92px;
   height: 20px;
   border-radius: 10px;
   background: #e9eef6;

@@ -10,6 +10,8 @@
   margin-right: var(--rail-width);
   --page-w: calc(var(--paper-width) * var(--page-zoom, 1));
   --tabs-w: 280px;
+  /* The page's left edge in the window: centred, but clear of the ruler, the panel and a 5px gap. */
+  --page-left: max(calc(21px + var(--tabs-w)), calc((100vw - var(--rail-width) - var(--page-w)) / 2));
 }
 
 /* Docs draws its own always-visible thin scrollbars over the canvas. */
@@ -39,15 +41,15 @@
   min-width: max-content;
 }
 
-.doc-layout:has(> .tabs.collapsed) {
+.workspace:has(.tabs.collapsed) {
   --tabs-w: 64px;
 }
 
 .paper-col {
   @apply flex flex-col items-start;
   flex: 1 0 auto;
-  /* Left edge of the page relative to the window, minus the ruler and panel already to its left. */
-  padding-left: max(5px, calc((100vw - var(--rail-width) - var(--page-w)) / 2 - 16px - var(--tabs-w)));
+  /* The ruler and panel already sit to the page's left. */
+  padding-left: calc(var(--page-left) - 16px - var(--tabs-w));
   padding-right: 24px;
 }
 
