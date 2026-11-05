@@ -4,7 +4,7 @@ import { formatListDate } from '../../../../codex/labels'
 import type { Snapshot } from '../../../../codex/types'
 import { Dialog, DialogClose, DialogPopup, DialogTitle } from '../ui/dialog'
 import { MIcon } from '../ui/MaterialIcon'
-import type { Folder } from './LocationMenu'
+import type { Folder } from './projects'
 
 const PICKER_TABS = ['Recent', 'My Drive', 'Shared with me', 'Starred'] as const
 type PickerTab = (typeof PICKER_TABS)[number]
@@ -140,7 +140,7 @@ export function FolderPicker({
               {shown.map((folder) => (
                 <li key={folder.id}>
                   <button type="button" className="picker-row" data-testid={`picker-${folder.id}`} onClick={() => onOpen(folder.id)}>
-                    <MIcon name="folder" size={24} />
+                    <MIcon name="folder_fill" size={24} />
                     <span className="picker-name">{folder.name}</span>
                     <span className="picker-owner">me</span>
                     <span className="picker-date">{formatListDate(folder.updatedAt) || '—'}</span>

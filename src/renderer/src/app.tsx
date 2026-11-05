@@ -26,7 +26,7 @@ export function App() {
   const activeThread = snap.threads.find((thread) => snap.route.kind === 'doc' && thread.id === snap.route.threadId)
   const activeProjectId = activeThread
     ? (threadProjectId(snap, activeThread) ?? undefined)
-    : projectId === 'all' || projectId === 'loose'
+    : projectId === 'all'
       ? undefined
       : projectId
   const onNew = () => void createDocument(snap, activeProjectId)

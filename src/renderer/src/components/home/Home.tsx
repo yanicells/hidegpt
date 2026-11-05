@@ -7,15 +7,15 @@ import { DocCard } from './DocCard'
 import { FolderPicker } from './FolderPicker'
 import { groupByRecency } from './grouping'
 import { ListView } from './ListView'
-import { LocationMenu } from './LocationMenu'
+import { OwnerMenu, type Owner } from './OwnerMenu'
 import { projectFolders, threadProjectId } from './projects'
 import { TemplateCard } from './TemplateCard'
 import type { HomeView } from './useHomeView'
 
 /**
  * Docs home: template band plus recent documents. Projects are Drive folders:
- * pick one from "Owned by anyone ▾" or the folder icon, and "Blank document"
- * creates inside it.
+ * pick one from the folder icon's file picker and the section takes its name;
+ * "Blank document" then creates inside it. "Owned by anyone" goes back to all.
  */
 export function Home({
   snap,
@@ -34,13 +34,15 @@ export function Home({
 }) {
   const [sort, setSort] = useState('recent')
   const [picker, setPicker] = useState(false)
+  const [owner, setOwner] = useState<Owner>('anyone')
   const folders = projectFolders(snap)
+  const folder = folders.find((item) => item.id === projectId)
   const query = snap.search.trim().toLowerCase()
   const threads = snap.threads
     .filter(
       (thread) =>
-        (projectId === 'all' ||
-          (projectId === 'loose' ? !threadProjectId(snap, thread) : threadProjectId(snap, thread) === projectId)) &&
+        owner !== 'others' &&
+        (projectId === 'all' || threadProjectId(snap, thread) === projectId) &&
         (!query || `${thread.name ?? ''} ${thread.preview}`.toLowerCase().includes(query)),
     )
     .sort((a, b) =>
@@ -51,7 +53,7 @@ export function Home({
   const sections =
     view === 'list' && sort === 'recent' ? groupByRecency(threads) : [{ key: 'docs', title: '', threads }]
   // Like Docs' list view, the first recency group titles the whole section.
-  const groupedTitle = view === 'list' && !query
+  const groupedTitle = view === 'list' && !query && !folder
   const loading = snap.status === 'connecting' && !snap.threads.length
   return (
     <div className="home">
@@ -82,10 +84,18 @@ export function Home({
       <main className="recent">
         <div className="recent-inner">
           <div className={`recent-head${view === 'list' ? ' as-list' : ''}`}>
-            <span className="section-title">
-              {query ? 'Search results' : groupedTitle && sections[0]?.title ? sections[0].title : 'Recent documents'}
+            <span className="section-title" data-testid="recent-title">
+              {query
+                ? 'Search results'
+                : (folder?.name ?? (groupedTitle && sections[0]?.title ? sections[0].title : 'Recent documents'))}
             </span>
-            <LocationMenu folders={folders} value={projectId} onChange={onProject} />
+            <OwnerMenu
+              value={owner}
+              onChange={(next) => {
+                setOwner(next)
+                onProject('all')
+              }}
+            />
             {view === 'list' ? <span className="list-col-label">Last opened by me</span> : <span />}
             <div className="recent-controls">
               {view === 'grid' ? (

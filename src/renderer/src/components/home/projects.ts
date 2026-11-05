@@ -16,6 +16,9 @@ export function threadProjectId(snap: Snapshot, thread: Snapshot['threads'][numb
   return match?.id ?? null
 }
 
+/** A project shown as a Drive folder. */
+export type Folder = ReturnType<typeof projectFolders>[number]
+
 /** Projects as Drive folders; a folder was last modified when its newest loaded document was. */
 export function projectFolders(snap: Snapshot) {
   const folders = new Map(
