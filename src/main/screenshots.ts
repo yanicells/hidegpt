@@ -66,10 +66,13 @@ export const captureScreenshots = (win: BrowserWindow, manager: ProviderSessionM
         }
         check()
       })`)
+      // The composer exists before the new page has painted.
+      yield* pause(200)
       yield* shoot('new-document-ready')
     }
 
-    const first = Option.fromNullishOr((yield* manager.snapshot).threads[0])
+    // The document from before the walk: a just-created one would be empty.
+    const first = Option.fromNullishOr(snapshot.threads[0])
     yield* Option.match(first, {
       onNone: () => manager.dispatch({ op: 'newDocument' }),
       onSome: (doc) => manager.dispatch({ op: 'openThread', threadId: doc.id }),

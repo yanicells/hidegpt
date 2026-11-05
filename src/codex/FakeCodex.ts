@@ -268,7 +268,14 @@ export const makeFakeCodex = (options: FakeCodexOptions = {}): FakeCodex => {
     'thread/resume': (params) => Effect.sync(() => resumed(params.threadId)),
     'thread/start': (params) =>
       Effect.sync(() => {
-        const thread = { ...stubThread(`thr_new_${threads.length}`, '', null, params.projectId ?? null), cwd: params.cwd ?? '/tmp' }
+        const now = Math.floor(Date.now() / 1000)
+        const thread = {
+          ...stubThread(`thr_new_${threads.length}`, '', null, params.projectId ?? null),
+          cwd: params.cwd ?? '/tmp',
+          createdAt: now,
+          updatedAt: now,
+          recencyAt: now,
+        }
         threads.unshift(thread)
         return { ...SESSION, thread, model: params.model ?? 'gpt-5.6-sol', cwd: thread.cwd }
       }),

@@ -178,15 +178,31 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-// Quitting closes every scope: provider processes get SIGTERM (then SIGKILL) before Electron exits.
-let disposed = false
-app.on('will-quit', (event) => {
-  if (disposed) return
+// Adapted from T3 Code (apps/desktop/src/app/DesktopLifecycle.ts) at commit 8a14762c.
+// Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+/** A shutdown that takes longer than this exits anyway; the ledger reaps leftovers next start. */
+const SHUTDOWN_DEADLINE_MS = 5_000
+let quitPhase: 'running' | 'waiting' | 'allowed' = 'running'
+
+// Quitting closes every scope first, so provider processes get SIGTERM (then SIGKILL)
+// before Electron exits: the first before-quit is cancelled, shutdown runs, then the
+// app quits for real. (Cancelling will-quit instead leaves macOS unable to quit again.)
+app.on('before-quit', (event) => {
+  if (quitPhase === 'allowed') return
   event.preventDefault()
-  disposed = true
+  if (quitPhase === 'waiting') return
+  quitPhase = 'waiting'
+  const stalled = setTimeout(() => {
+    console.error('Docs did not shut down in time; exiting without it.')
+    app.exit(0)
+  }, SHUTDOWN_DEADLINE_MS)
   void runtime
     .runPromise(Fiber.interrupt(main))
     .then(() => runtime.dispose())
     .catch((error: unknown) => console.error(error))
-    .finally(() => app.quit())
+    .finally(() => {
+      clearTimeout(stalled)
+      quitPhase = 'allowed'
+      app.quit()
+    })
 })
