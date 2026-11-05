@@ -2,7 +2,7 @@ import { memo } from 'react'
 import type { Block } from '../../../../shared/model'
 import { ChevronIcon } from '../ui/Icons'
 import { imageSrc } from '../ui/imageSrc'
-import { AgentMarkdown } from '../ui/Markdown'
+import { useMarkdown } from '../ui/loadMarkdown'
 import { Approval } from './Approval'
 import { SkillChip } from './SmartChips'
 
@@ -29,14 +29,7 @@ export const BlockView = memo(
         </>
       )
     }
-    if (block.kind === 'agent') {
-      return (
-        <div className={streaming ? 'streaming' : undefined}>
-          <AgentMarkdown text={block.text} />
-          {streaming ? <span className="caret" /> : null}
-        </div>
-      )
-    }
+    if (block.kind === 'agent') return <AgentBlock text={block.text} streaming={streaming} />
     if (block.kind === 'callout') {
       return (
         <details className="callout">
@@ -63,3 +56,20 @@ export const BlockView = memo(
     return false
   },
 )
+
+function AgentBlock({ text, streaming }: { text: string; streaming: boolean }) {
+  const markdown = useMarkdown()
+  return (
+    <div className={streaming ? 'streaming' : undefined}>
+      {markdown ? (
+        <markdown.AgentMarkdown text={text} streaming={streaming} />
+      ) : (
+        // The renderer loads after the first paint; until then the text shows as written.
+        <div className="doc-body" style={{ whiteSpace: 'pre-wrap' }}>
+          {text}
+        </div>
+      )}
+      {streaming ? <span className="caret" /> : null}
+    </div>
+  )
+}
