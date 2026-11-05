@@ -11,7 +11,6 @@ import * as Schema from 'effect/Schema'
 
 import { Command, type CommandResult, type MenuAction } from '../shared/contracts'
 import type { ProviderId } from '../shared/model'
-import { codexDefaultCwd } from '../codex/CodexAdapter'
 import { userMessage } from '../provider/errors'
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import * as Demo from './demo'
@@ -47,7 +46,8 @@ app.setName('Docs')
 
 const demo = process.env.HIDEGPT_FAKE === '1'
 const home = () => process.env.HOME ?? process.env.USERPROFILE ?? process.cwd()
-const defaultCwd = (id: ProviderId) => (id === 'codex' ? codexDefaultCwd() : home())
+// Codex files a new document without a folder under its own threads directory.
+const defaultCwd = (id: ProviderId) => (id === 'codex' ? `${home()}/.codex/threads` : home())
 
 const MainLayer = managerLayer({
   defaultCwd,

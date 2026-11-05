@@ -21,6 +21,17 @@ type Loaders = { readonly [K in ProviderId]: () => Promise<ProviderAdapter> }
 const fromLoaders = (loaders: Loaders) =>
   ProviderRegistry.of({ adapter: (id) => Effect.promise(loaders[id]) })
 
+/** Adapters that load on first use (demo mode); each loader runs once, so a reconnect keeps its library. */
+export const layerLoaders = (loaders: Loaders) => {
+  const loaded = new Map<ProviderId, Promise<ProviderAdapter>>()
+  const once = (id: ProviderId) => () => {
+    let adapter = loaded.get(id)
+    if (!adapter) loaded.set(id, (adapter = loaders[id]()))
+    return adapter
+  }
+  return Layer.succeed(ProviderRegistry, fromLoaders({ codex: once('codex'), opencode: once('opencode'), claude: once('claude') }))
+}
+
 /** The real providers, each spawned under the shared process supervisor. */
 export const layer = Layer.effect(
   ProviderRegistry,

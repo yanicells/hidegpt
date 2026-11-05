@@ -74,8 +74,6 @@ const PAGE = 30
 const DOC_PAGE = 50
 const MAX_DOC_PAGES = 20
 
-export const codexDefaultCwd = () => `${process.env.HOME ?? process.env.USERPROFILE ?? ''}/.codex/threads`
-
 export function formatCodexError(message: string): string {
   if (/active writer|thread-store conflict/i.test(message)) {
     return 'This document is open in ChatGPT or another window. Close it there, then open it here.'

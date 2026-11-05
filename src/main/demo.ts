@@ -1,21 +1,23 @@
-import * as ClaudeAdapter from '../claude/ClaudeAdapter'
-import { makeDemoClaude } from '../claude/demo'
-import * as CodexAdapter from '../codex/CodexAdapter'
-import { makeDemoCodex } from '../codex/demo'
-import * as OpenCodeAdapter from '../opencode/OpenCodeAdapter'
-import { makeDemoOpenCode } from '../opencode/demo'
-import { layerAdapters } from './ProviderRegistry'
+import { layerLoaders } from './ProviderRegistry'
 
 /**
  * `HIDEGPT_FAKE=1`: every library runs its real adapter against an
  * in-process fake backend, so the app works (and screenshots run) with no
- * provider installed and no model usage.
+ * provider installed and no model usage. Like the real adapters, each fake
+ * loads only when its library first connects.
  */
-export const demoCodex = makeDemoCodex()
-const demoClaude = makeDemoClaude()
-
-export const layer = layerAdapters({
-  codex: CodexAdapter.make(demoCodex.connect),
-  opencode: OpenCodeAdapter.make(makeDemoOpenCode().connect),
-  claude: ClaudeAdapter.make(() => Promise.resolve(demoClaude.sdk)),
+export const layer = layerLoaders({
+  codex: async () => {
+    const [{ make }, { makeDemoCodex }] = await Promise.all([import('../codex/CodexAdapter'), import('../codex/demo')])
+    return make(makeDemoCodex().connect)
+  },
+  opencode: async () => {
+    const [{ make }, { makeDemoOpenCode }] = await Promise.all([import('../opencode/OpenCodeAdapter'), import('../opencode/demo')])
+    return make(makeDemoOpenCode().connect)
+  },
+  claude: async () => {
+    const [{ make }, { makeDemoClaude }] = await Promise.all([import('../claude/ClaudeAdapter'), import('../claude/demo')])
+    const demo = makeDemoClaude()
+    return make(() => Promise.resolve(demo.sdk))
+  },
 })
