@@ -9,23 +9,38 @@ import { Tip } from '../ui/tooltip'
 
 type ApprovalBlock = Extract<Block, { kind: 'approval' }>
 
-/** Requests whose body is the thing being approved (a command, path or message), so it's quoted on the card. */
-const QUOTED_BODY = new Set([
+/**
+ * Docs' suggestion verbs by request: running something is an addition, a
+ * file change a replacement, a permission a format change.
+ */
+const VERBS: Record<string, 'Add' | 'Replace' | 'Format'> = {
+  execCommandApproval: 'Add',
+  'item/commandExecution/requestApproval': 'Add',
+  'claude/canUseTool': 'Add',
+  'mcpServer/elicitation/request': 'Add',
+  applyPatchApproval: 'Replace',
+  'item/fileChange/requestApproval': 'Replace',
+  'item/permissions/requestApproval': 'Format',
+  'opencode/permission': 'Format',
+}
+
+/** Requests that ask questions: a comment whose questions are the reply fields. */
+const QUESTIONS = new Set(['item/tool/requestUserInput', 'opencode/question'])
+
+/** Requests whose body is the thing itself (a command, path or message), so the card quotes it. */
+const QUOTES_BODY = new Set([
   'execCommandApproval',
   'item/commandExecution/requestApproval',
   'claude/canUseTool',
   'mcpServer/elicitation/request',
 ])
 
-/** Requests that ask questions; the questions render as reply fields. */
-const QUESTIONS = new Set(['item/tool/requestUserInput', 'opencode/question'])
-
 /**
  * A pending approval as Docs' suggestion card: author and time, ✓ and ✗,
- * then the change itself ("Run command? “npm test”"). Accepted or rejected
- * suggestions leave the page, as they do in Docs. Any explanation the
- * provider sends waits in a delayed hover on the action, so nothing on the
- * page reads as an assistant talking.
+ * then the change in Docs' words ("Add: “npm test”"). The request as the
+ * provider phrased it ("Run command?") waits in a delayed hover, the way
+ * model names do, so nothing on the page reads as an assistant talking.
+ * Accepted or rejected suggestions leave the page, as they do in Docs.
  */
 export function Approval({ block }: { block: ApprovalBlock }) {
   // Pending approvals pause the turn, so this re-renders only when the account or card changes.
@@ -35,9 +50,10 @@ export function Approval({ block }: { block: ApprovalBlock }) {
 
   const fields = formFields(block)
   const questions = inputQuestions(block)
-  const asks = QUESTIONS.has(block.method)
-  const quoted = QUOTED_BODY.has(block.method) && block.body ? block.body : null
-  const note = !asks && !quoted && block.body ? block.body : undefined
+  const verb = VERBS[block.method] ?? 'Add'
+  const request = block.title.replace(/\?$/, '')
+  const quoted = QUOTES_BODY.has(block.method) && block.body ? block.body : request
+  const real = [block.title, quoted === block.body ? '' : block.body].filter(Boolean).join('\n')
   const setDraft = (key: string, value: string) => dispatch({ op: 'setApprovalDraft', blockId: block.id, key, value })
   const resolve = (accept: boolean) => dispatch({ op: 'resolveApproval', blockId: block.id, accept })
 
@@ -72,12 +88,15 @@ export function Approval({ block }: { block: ApprovalBlock }) {
           </button>
         </Tip>
       </div>
-      <p className="suggestion-text">
-        <Tip label={note} delay={1200}>
-          <span className="suggestion-verb">{asks ? 'Reply needed' : block.title}</span>
+      {!QUESTIONS.has(block.method) ? (
+        <Tip label={real} side="left" delay={1200}>
+          <p className="suggestion-text">
+            <span className="suggestion-verb">{verb}:</span> “{quoted}”
+          </p>
         </Tip>
-        {quoted ? <> “{quoted}”</> : null}
-      </p>
+      ) : questions.length ? null : (
+        <p className="suggestion-text">{block.body}</p>
+      )}
       {fields.map((field) => (
         <label key={field.key} className="field">
           <span>{field.label}</span>

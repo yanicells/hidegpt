@@ -3,7 +3,8 @@
 /*
  * A comment card in the page's right margin, 256px wide like Docs'. Wide
  * windows hang it fully beside the page; narrower ones let it overlap the
- * page edge, as Docs' active card does. It keeps its own lines in the page.
+ * page edge, as Docs' active card does, on lines of its own. Pagination
+ * skips it (pages.ts).
  */
 .suggestion {
   width: 256px;
@@ -15,9 +16,12 @@
   font-family: var(--font-ui);
 }
 
+/* With room beside the page the card leaves the page entirely, level with where it was asked. */
 @media (min-width: 1480px) {
   .suggestion {
-    margin-right: calc(-1 * var(--paper-margin) - 24px - 256px);
+    @apply absolute;
+    left: calc(100% + 24px);
+    margin: 0;
   }
 }
 

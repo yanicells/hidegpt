@@ -20,21 +20,30 @@
   min-height: 1lh;
 }
 
-/* The insertion caret: a thin black bar, like Docs' own cursor. */
-.caret {
+/*
+ * The cursor while an answer streams in: Docs' black bar, solid as it is
+ * while typing, at the end of the last line. A pseudo-element puts it inside
+ * that line; the caret span after the text stands in before there is a line.
+ */
+.caret,
+.streaming .doc-body > :is(p, h2, h3, h4, h5, h6, pre, blockquote):last-child::after,
+.streaming .doc-body > :is(ul, ol):last-child > li:last-child::after {
+  content: '';
   display: inline-block;
   width: 2px;
   height: 1.15em;
   margin-left: 1px;
   background: #000;
   vertical-align: text-bottom;
-  animation: blink 1.06s step-end infinite;
 }
 
-@keyframes blink {
-  50% {
-    opacity: 0;
-  }
+.streaming:has(.doc-body > :is(p, h2, h3, h4, h5, h6, pre, blockquote, ul, ol):last-child) > .caret {
+  display: none;
+}
+
+/* The page's own "Type @ to insert" waits until the answer is in. */
+.paper:has(.streaming) .composer::placeholder {
+  color: transparent;
 }
 
 /* Docs' floating spark pill at the bottom of the page; stops a streaming answer. */
