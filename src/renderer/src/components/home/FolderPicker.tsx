@@ -27,6 +27,7 @@ export function FolderPicker({
   const [error, setError] = useState('')
   const [tab, setTab] = useState<PickerTab>('My Drive')
   const [query, setQuery] = useState('')
+  const [selected, setSelected] = useState<string | null>(null)
   // Projects are the only "files" here: shared and starred stay empty, like a fresh Drive.
   const needle = query.trim().toLowerCase()
   const matching = folders.filter((folder) => !needle || folder.name.toLowerCase().includes(needle))
@@ -135,7 +136,15 @@ export function FolderPicker({
             <ul className="picker-list" aria-label="Folders">
               {shown.map((folder) => (
                 <li key={folder.id}>
-                  <button type="button" className="picker-row" data-testid={`picker-${folder.id}`} onClick={() => onOpen(folder.id)}>
+                  {/* Like Google Picker: a click selects, a double-click (or Select) opens. */}
+                  <button
+                    type="button"
+                    className="picker-row"
+                    data-testid={`picker-${folder.id}`}
+                    aria-pressed={selected === folder.id}
+                    onClick={() => setSelected(folder.id)}
+                    onDoubleClick={() => onOpen(folder.id)}
+                  >
                     <MIcon name="folder_fill" size={24} />
                     <span className="picker-name">{folder.name}</span>
                     <span className="picker-owner">me</span>
@@ -149,6 +158,16 @@ export function FolderPicker({
               <button type="button" className="outlined-button" data-testid="new-folder" onClick={() => setCreating(true)}>
                 <MIcon name="add" />
                 New folder
+              </button>
+              <DialogClose className="text-button">Cancel</DialogClose>
+              <button
+                type="button"
+                className="filled-button"
+                data-testid="picker-select"
+                disabled={!selected || !shown.some((folder) => folder.id === selected)}
+                onClick={() => selected && onOpen(selected)}
+              >
+                Select
               </button>
             </div>
           </>

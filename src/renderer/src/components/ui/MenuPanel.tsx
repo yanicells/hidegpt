@@ -41,6 +41,12 @@ export type Item = {
 }
 
 /**
+ * Docs shows no tooltips on menu rows, so a costume row's real name waits for
+ * a deliberate hover and opens on the left, clear of any cascade.
+ */
+const ROW_TIP = { side: 'left', delay: 1200 } as const
+
+/**
  * A Docs menu popup filled from `Item` rows. Use inside `<Menu>` next to its
  * `<MenuTrigger>`; `children` render above the rows (search fields, cards).
  */
@@ -87,7 +93,7 @@ function Row({ item, itemPrefix }: { item: Item; itemPrefix: string }) {
     const { run } = item
     return (
       <MenuSub>
-        <Tip label={item.tip} side="right">
+        <Tip label={item.tip} {...ROW_TIP}>
           <MenuSubTrigger
             className={item.className}
             data-testid={testId}
@@ -120,7 +126,7 @@ function Row({ item, itemPrefix }: { item: Item; itemPrefix: string }) {
     onClick: item.run,
   }
   return (
-    <Tip label={item.tip} side="right">
+    <Tip label={item.tip} {...ROW_TIP}>
       {item.checked === undefined ? (
         <MenuItem {...common}>{body}</MenuItem>
       ) : (

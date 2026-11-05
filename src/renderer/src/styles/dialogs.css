@@ -151,6 +151,10 @@
   outline: none;
 }
 
+.picker-row[aria-pressed='true'] {
+  background: #c2e7ff;
+}
+
 .picker-row svg {
   color: var(--text-2);
 }
@@ -194,10 +198,22 @@
   color: var(--text-2);
 }
 
+/* New folder on the left; Cancel and Select (filled, off until a row is picked) on the right. */
 .picker-foot {
-  @apply flex;
+  @apply flex items-center;
+  gap: 8px;
   padding: 12px 24px 20px;
   border-top: 1px solid var(--hairline);
+}
+
+.picker-foot .outlined-button {
+  margin-right: auto;
+}
+
+.picker-foot .filled-button:disabled {
+  background: rgba(31, 31, 31, 0.12);
+  color: rgba(31, 31, 31, 0.38);
+  box-shadow: none;
 }
 
 /* Drive's Share dialog: 512px, radius 8, 24px padding, people and access rows. */

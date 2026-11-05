@@ -21,16 +21,19 @@ export const TooltipProvider = TooltipPrimitive.Provider
 export function Tip({
   label,
   side = 'bottom',
+  delay,
   children,
 }: {
   label?: string
   side?: TooltipPrimitive.Positioner.Props['side']
+  /** Hover time before it shows; defaults to the provider's shared delay. */
+  delay?: number
   children: ReactElement
 }) {
   if (!label) return children
   return (
     <TooltipPrimitive.Root>
-      <TooltipPrimitive.Trigger render={children} />
+      <TooltipPrimitive.Trigger delay={delay} render={children} />
       <TooltipPrimitive.Portal>
         <TooltipPrimitive.Positioner
           className="tooltip-positioner"

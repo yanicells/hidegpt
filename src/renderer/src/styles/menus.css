@@ -183,18 +183,20 @@
   background: #e0e0e0;
 }
 
+/* Docs' style tick is a light grey, unlike other menus' checks. */
 .style-menu .menu-icon {
   margin-right: 8px;
+  color: #757575;
 }
 
 .style-menu .menu-arrow {
   margin: 0 0 0 8px;
 }
 
-/* The current style's ▸ is near-black and a size up; the rest stay grey. */
+/* The current style's ▸ is near-black and a touch larger; the rest stay grey. */
 .style-menu .menu-item[data-checked] .menu-arrow {
   color: #202124;
-  transform: scale(1.2);
+  transform: scale(1.1);
 }
 
 .style-menu .style-normal .menu-text {
