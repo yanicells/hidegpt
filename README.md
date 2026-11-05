@@ -19,17 +19,17 @@ reuse your existing logins, and the window is a Docs costume over them:
 Switch libraries using **Codex / OpenCode / Claude** on the home page. Each library has its own documents and projects. The **Editing** toolbar menu and **Tools** menu also switch providers. Cloud ChatGPT Chat / Cloud Work are out of documented scope.
 
 ```bash
-bun install
-bun run dev
+pnpm install
+pnpm dev
 ```
 
 | Script | What it does |
 |---|---|
-| `bun run dev` | Electron app with Vite HMR |
-| `bun run test` | Session protocol tests plus renderer UI tests |
-| `bun run typecheck` | `tsc --noEmit` |
-| `bun run protocol` | Regenerate app-server TypeScript types from the installed CLI |
-| `bun run screenshot` | Home grid/list, project, creation dialog, and desktop/narrow editor PNGs using fictional content |
+| `pnpm dev` | Electron app with Vite HMR |
+| `pnpm test` | Session protocol tests plus renderer UI tests |
+| `pnpm typecheck` | `tsc --noEmit` |
+| `pnpm protocol` | Regenerate app-server TypeScript types from the installed CLI |
+| `pnpm screenshot` | Home grid/list, project, creation dialog, and desktop/narrow editor PNGs using fictional content |
 
 Choose **Blank document** or a template to name a document and select its location.
 Projects are browsable folders, including empty projects. Opening a project remembers
