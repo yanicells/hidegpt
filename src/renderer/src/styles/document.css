@@ -193,6 +193,19 @@
   [data-page-break] {
     margin-top: var(--page-break) !important;
   }
+
+  /*
+   * A paragraph broken between lines: an empty full-width float whose shape
+   * starts at the first line that didn't fit, so only the lines from there on
+   * flow below it, onto the next page.
+   */
+  [data-page-split]::before {
+    content: '';
+    float: left;
+    width: 100%;
+    height: var(--split-end);
+    shape-outside: inset(var(--split-start) 0 0 0);
+  }
 }
 
 .page-sheet {
