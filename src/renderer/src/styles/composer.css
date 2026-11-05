@@ -42,7 +42,7 @@
 }
 
 /* A pending suggestion is waiting on you, not writing, so no cursor runs on after it. */
-.doc-block:has(> .suggestion) + .pending {
+.doc-block:has(> .suggestion-row) + .pending {
   display: none;
 }
 

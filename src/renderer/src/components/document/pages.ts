@@ -9,12 +9,11 @@ const MARGIN = 96
 /**
  * What paginates: questions, images, callouts, each top-level paragraph,
  * heading, table or code block of an answer, each top-level list item, and
- * the composer. Answer wrappers are skipped in favour of their contents, and
- * suggestion cards sit in the margin, outside the pages.
+ * the composer. Answer wrappers are skipped in favour of their contents.
  */
 const UNITS = [
   '.paper > :not(.doc-block, .page-sheets)',
-  '.doc-block > :not(:has(> .doc-body), .suggestion)',
+  '.doc-block > :not(:has(> .doc-body))',
   '.doc-body > :not(ul, ol)',
   '.doc-body > :is(ul, ol) > li',
 ].join(', ')
@@ -86,10 +85,6 @@ function paginate(paper: HTMLElement): number {
     const rect = el.getBoundingClientRect()
     return { el, top: toPage(rect.top), height: rect.height / scale }
   })
-  // Narrow windows keep suggestion cards in the flow; their space sits between units.
-  const cardBottoms = Array.from(paper.querySelectorAll<HTMLElement>('.suggestion'))
-    .filter((el) => getComputedStyle(el).position !== 'absolute')
-    .map((el) => toPage(el.getBoundingClientRect().bottom))
 
   const breaks: PageBreak[] = []
   let shift = 0
@@ -117,11 +112,7 @@ function paginate(paper: HTMLElement): number {
         const leadIndex = keep ? index - 1 : index
         const lead = units[leadIndex]
         const above = units[leadIndex - 1]
-        const aboveBottom = Math.max(
-          above ? above.top + above.height : MARGIN,
-          ...cardBottoms.filter((bottom) => bottom <= lead.top),
-        )
-        const gap = lead.top - aboveBottom
+        const gap = lead.top - (above ? above.top + above.height : MARGIN)
         const push = nextTop - (lead.top + shift)
         breaks.push({ kind: 'push', el: lead.el, margin: gap + push })
         shift += push
