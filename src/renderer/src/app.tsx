@@ -9,11 +9,12 @@ import { threadProjectId } from './components/home/ProjectFolders'
 import { Home } from './components/home/Home'
 import { HomeHeader } from './components/home/HomeHeader'
 import { useHomeView } from './components/home/useHomeView'
-import { platform, useMenuAction, useSnapshot } from './session-bridge'
+import { platform, useMenuAction, useShellSnapshot } from './session-bridge'
 import type { MenuAction } from '../../shared/api'
 
 export function App() {
-  const snap = useSnapshot()
+  // Streamed text re-renders only the document, which reads its blocks itself.
+  const snap = useShellSnapshot()
   const [outputOnly, setOutputOnly] = useState(() => localStorage.getItem('hidegpt-output-only') === 'true')
   const toggleOutputOnly = () =>
     setOutputOnly((current) => {

@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 
 import type { Block, Snapshot } from '../../../../shared/model'
-import { dispatch } from '../../session-bridge'
+import { currentSnapshot, dispatch } from '../../session-bridge'
 import { MIcon } from '../ui/MaterialIcon'
 import { MenuPanel, useDismiss } from '../ui/MenuPanel'
 
@@ -61,7 +61,8 @@ export function DocActions({ snap }: { snap: Snapshot }) {
               {
                 id: 'copy',
                 label: 'Copy document',
-                run: () => void navigator.clipboard?.writeText(documentText(snap.blocks)),
+                // The latest blocks: the shell's snapshot skips streamed text.
+                run: () => void navigator.clipboard?.writeText(documentText(currentSnapshot().blocks)),
               },
               { id: 'print', label: 'Print', run: () => window.print() },
             ]}
