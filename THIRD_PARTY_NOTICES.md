@@ -10,7 +10,20 @@ or adapted file carries a header naming its source.
   protocol, replay harness, errors, stdio helpers, mock peer, and schema
   generator for `codex app-server`), and patterns adapted throughout
   `src/provider/` and `src/main/` (provider adapters, session manager,
-  process supervision, replay tests).
+  process supervision, replay tests). Smaller adaptations, each marked in
+  place:
+  - `src/opencode/OpenCodeAdapter.ts`: message ids in OpenCode's format
+    (`makeMessageIds`, from `packages/provider-opencode/src/server/adapter.ts`)
+    and reading the server's "listening" line (`parseServerUrl`, from
+    `packages/provider-opencode/src/server/OpenCodeRuntime.ts`).
+  - `src/opencode/mapping.ts`: `readableProviderError`, from
+    `packages/provider-opencode/src/server/providerErrorMessage.ts`.
+  - `src/claude/ClaudeAdapter.ts`: the streaming-input query per document, the
+    capabilities probe that sends no prompt, and approvals as one Deferred per
+    request, from `apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts`
+    and `apps/server/src/provider/ClaudeProvider.ts`.
+  - `src/claude/mapping.ts`: `isSignedIn` and `resultError`, from the same two
+    files.
 - License: MIT
 
 ```

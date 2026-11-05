@@ -8,8 +8,9 @@ reuse your existing logins, and the window is a Docs costume over them:
 
 - **Codex**: spawns `codex app-server` (JSON-RPC over stdio, no `jsonrpc`
   field) and shares `~/.codex` with the Codex CLI and ChatGPT desktop app.
-- **OpenCode**: spawns `opencode serve` on 127.0.0.1 (REST + SSE) and uses
-  your existing `opencode auth` credentials.
+- **OpenCode**: spawns `opencode serve` on 127.0.0.1 (REST + SSE, behind a
+  random per-launch password) and uses your existing `opencode auth`
+  credentials.
 - **Claude**: uses the Claude Agent SDK, which runs Anthropic's unmodified
   Claude Code binary with your own Claude login. Sign in once with `claude`
   in a terminal; Docs never reads or stores Claude credentials. For personal,
@@ -26,9 +27,9 @@ pnpm dev
 | Script | What it does |
 |---|---|
 | `pnpm dev` | Electron app with Vite HMR |
-| `pnpm test` | Session protocol tests plus renderer UI tests |
+| `pnpm test` | Provider adapter, session manager, and renderer UI tests |
 | `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm protocol` | Regenerate app-server TypeScript types from the installed CLI |
+| `pnpm protocol` | Regenerate the Codex app-server schemas from the installed CLI |
 | `pnpm screenshot` | Home grid/list, project, creation dialog, and desktop/narrow editor PNGs using fictional content |
 
 Choose **Blank document** or a template to name a document and select its location.
@@ -50,26 +51,34 @@ This preference persists across launches. Answers and approval requests remain v
 reasoning is always excluded, including OpenCode streaming deltas.
 
 Opening a document shows immediate, cancellable feedback. Recent turns load first;
-**Load earlier** retrieves the rest while preserving the reading position. Streaming
-updates are batched at 32 ms, completed answers are memoized, and independent
-catalog requests run in parallel. OpenCode reconnects dropped event streams and
-reloads the active document and its running status.
+**Load earlier** retrieves the rest while preserving the reading position. A document
+keeps answering when you go back to Home or open another one, and its approvals wait
+for you there. Streaming text crosses to the window as deltas in 32 ms frames.
+A provider that crashes restarts with backoff and the document on screen reloads; every
+request has a deadline, so nothing stays on "Working…". See
+[docs/architecture.md](docs/architecture.md) for how this is built.
 
 ## Provider compatibility
 
-Checked on 6 September 2026 against Codex CLI **0.153.0** and OpenCode **1.18.27**.
-Codex types are regenerated from the installed CLI. Project creation and explicit
-thread project assignment use the generated `project/create` and `thread/start`
-schemas. Projects use the current recency sort and paginated catalog.
+Checked on 5 November 2026 against Codex CLI **0.166.0**, OpenCode **1.18.34**
+(through `@opencode-ai/sdk` 1.19), and Claude Code **2.1.318** (through
+`@anthropic-ai/claude-agent-sdk` 0.3.283). No check sent a prompt to a model.
 
-OpenCode requests were checked against its locally served `/doc` OpenAPI schema:
-project names/worktrees, session creation with `directory`, session rename,
-status, `/global/event` envelopes, and `/experimental/session` for the cross-project catalog.
-Read-only live checks confirmed the global OpenCode catalog and folder matching for older Codex threads without explicit project IDs. Account subscriptions and generation were
-not exercised by the fake-session tests.
+- **Codex**: the vendored client's schemas are regenerated from the installed CLI
+  (`pnpm protocol`). Project creation and thread project assignment use the
+  generated `project/create` and `thread/start` schemas.
+- **OpenCode**: requests go through the official SDK client and were checked
+  against the locally served `/doc` OpenAPI schema: `/experimental/session` for
+  the cross-project catalog (cursor paging), session create/rename/status,
+  `prompt_async` with a client `messageID`, permission and question replies, and
+  `/global/event` envelopes and heartbeats.
+- **Claude**: the SDK's `sdk.d.ts` is the contract: `listSessions`,
+  `getSessionMessages`, `renameSession`, streaming-input `query()`, and
+  `initializationResult()` for models, commands, and login status.
 
 References: [Codex App Server](https://learn.chatgpt.com/docs/app-server),
-[OpenCode Server](https://opencode.ai/docs/server/).
+[OpenCode Server](https://opencode.ai/docs/server/),
+[Claude Agent SDK](https://docs.claude.com/en/docs/agent-sdk/overview).
 
 Styling uses Tailwind CSS 4 through its [Vite plugin](https://tailwindcss.com/docs/installation/using-vite).
 Shared area selectors use `@apply`; new controls use utilities directly. Specialized
@@ -81,5 +90,6 @@ paper, ruler, Markdown, and Electron window styles remain in the area stylesheet
 HideGPT's architecture and the source of reused code. The Effect client for
 `codex app-server` in `src/vendor/effect-codex-app-server/` is vendored from
 T3 Code, and the provider adapters, session manager, process supervision, and
-replay tests follow its patterns. T3 Code is MIT licensed, Copyright (c) 2026
+replay tests follow its patterns, as do smaller pieces of the OpenCode and Claude
+adapters (each marked in place). T3 Code is MIT licensed, Copyright (c) 2026
 T3 Tools Inc.; the full notice is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
