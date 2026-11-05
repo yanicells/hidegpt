@@ -91,5 +91,7 @@ HideGPT's architecture and the source of reused code. The Effect client for
 `codex app-server` in `src/vendor/effect-codex-app-server/` is vendored from
 T3 Code, and the provider adapters, session manager, process supervision, and
 replay tests follow its patterns, as do smaller pieces of the OpenCode and Claude
-adapters (each marked in place). T3 Code is MIT licensed, Copyright (c) 2026
+adapters (each marked in place). In the window, the cached Markdown renderer and
+streaming block splitter come from T3 Code's web app, and the store's selectors
+follow its thread-detail state. T3 Code is MIT licensed, Copyright (c) 2026
 T3 Tools Inc.; the full notice is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

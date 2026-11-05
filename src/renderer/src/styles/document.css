@@ -243,6 +243,29 @@
 
 .doc-block {
   margin-bottom: 10pt;
+  /* Off-screen blocks skip style, layout and paint, so a streamed delta costs
+     the same at 300 turns as at 3. `auto` remembers each block's real height
+     once it has been on screen. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 480px;
+}
+.doc-block[data-turn] {
+  contain-intrinsic-size: auto 48px;
+}
+/* The streamed block is always on screen, so skipping never applies, and
+   containment there cost about 10% more raster work per delta in traces. */
+.doc-block[data-streaming] {
+  content-visibility: visible;
+}
+/* Containment keeps a child's margins inside its block, where they used to
+   collapse into the block's own 10pt. No child margin is larger, so dropping
+   the outer ones keeps the old spacing. A turn's padding already kept its
+   first child's top margin inside. */
+.doc-block:not(.turn-start) > :first-child {
+  margin-top: 0;
+}
+.doc-block > :last-child {
+  margin-bottom: 0;
 }
 
 .streaming .doc-body > :last-child {

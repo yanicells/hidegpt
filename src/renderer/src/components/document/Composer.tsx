@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 
 import type { Skill } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
@@ -38,7 +38,7 @@ export function startSmartChip(): void {
  * The document's last paragraph. Enter sends; "@" opens the skill menu;
  * pasted, dropped, or inserted images attach to the next question.
  */
-export function Composer({
+export const Composer = memo(function Composer({
   threadId,
   streaming,
   skills,
@@ -221,4 +221,4 @@ export function Composer({
       />
     </div>
   )
-}
+})
