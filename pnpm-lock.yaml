@@ -14,6 +14,9 @@ importers:
       '@effect/platform-node':
         specifier: 4.1.2
         version: 4.1.2(effect@4.1.2)(redis@6.3.1)
+      '@opencode-ai/sdk':
+        specifier: ^1.19.5
+        version: 1.19.5
       effect:
         specifier: 4.1.2
         version: 4.1.2
@@ -685,6 +688,9 @@ packages:
     cpu: [x64]
     os: [linux]
     libc: [glibc]
+
+  '@opencode-ai/sdk@1.19.5':
+    resolution: {integrity: sha512-+bqu8gHiwmq96T9q5G34uLNHWCInIMsrE3hytCNHj1cVaxjY0AGJyNCT1rkeeZwgPU7A5TMTNwN+0XxCO2vqDg==}
 
   '@redis/bloom@6.3.1':
     resolution: {integrity: sha512-dpF9j2yJDoPzSCaZn0MSB3xzmnXQVJeTSAWJcQVcgbmluwhpFeemmII0cF1t+WYfoVS+shEFq79+MmUItgzJLg==}
@@ -2902,6 +2908,10 @@ snapshots:
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
+
+  '@opencode-ai/sdk@1.19.5':
+    dependencies:
+      cross-spawn: 7.0.6
 
   '@redis/bloom@6.3.1(@redis/client@6.3.1)':
     dependencies:
