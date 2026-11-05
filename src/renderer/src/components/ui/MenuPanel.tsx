@@ -36,8 +36,6 @@ export type Item = {
   arrow?: boolean
   /** A small blue pill after the label, like Docs' "New". */
   badge?: string
-  /** Run without closing the menu (e.g. paging inside a popover). */
-  keepOpen?: boolean
   className?: string
   style?: CSSProperties
 }
@@ -101,7 +99,7 @@ function Row({ item, itemPrefix }: { item: Item; itemPrefix: string }) {
     'data-testid': testId,
     disabled: item.disabled,
     title: item.title,
-    closeOnClick: !item.keepOpen,
+    closeOnClick: true,
     onClick: item.run,
   }
   return item.checked === undefined ? (

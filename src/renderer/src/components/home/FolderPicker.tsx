@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { formatListDate } from '../../../../codex/labels'
 import type { Snapshot } from '../../../../codex/types'
 import { Dialog, DialogClose, DialogPopup, DialogTitle } from '../ui/dialog'
 import { MIcon } from '../ui/MaterialIcon'
@@ -32,10 +33,13 @@ export function FolderPicker({
   const [query, setQuery] = useState('')
   // Projects are the only "files" here: shared and starred stay empty, like a fresh Drive.
   const needle = query.trim().toLowerCase()
+  const matching = folders.filter((folder) => !needle || folder.name.toLowerCase().includes(needle))
   const shown =
-    tab === 'Recent' || tab === 'My Drive'
-      ? folders.filter((folder) => !needle || folder.name.toLowerCase().includes(needle))
-      : []
+    tab === 'My Drive'
+      ? matching
+      : tab === 'Recent'
+        ? matching.filter((folder) => folder.updatedAt).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+        : []
 
   const choose = async () => {
     try {
@@ -141,15 +145,19 @@ export function FolderPicker({
                 </button>
               ))}
             </div>
+            <div className="picker-cols" aria-hidden="true">
+              <span className="picker-name">Name</span>
+              <span className="picker-owner">Owner</span>
+              <span className="picker-date">Last modified</span>
+            </div>
             <ul className="picker-list" aria-label="Folders">
               {shown.map((folder) => (
                 <li key={folder.id}>
                   <button type="button" className="picker-row" data-testid={`picker-${folder.id}`} onClick={() => onOpen(folder.id)}>
                     <MIcon name="folder" size={24} />
                     <span className="picker-name">{folder.name}</span>
-                    <span className="picker-meta">
-                      {folder.count} {folder.count === 1 ? 'file' : 'files'}
-                    </span>
+                    <span className="picker-owner">me</span>
+                    <span className="picker-date">{formatListDate(folder.updatedAt) || '—'}</span>
                   </button>
                 </li>
               ))}

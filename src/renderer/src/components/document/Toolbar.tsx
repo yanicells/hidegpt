@@ -10,6 +10,7 @@ import {
   EDIT_MODES,
   effortFonts,
   FONT_SIZES,
+  fontRows,
   sizeForTier,
   STYLE_SLOTS,
   styleName,
@@ -77,14 +78,14 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
             itemPrefix="pick"
             items={[
               { id: 'more-fonts', label: 'More fonts', icon: 'text_format' },
-              ...efforts.map((item, index) => ({
-                id: item.effort,
-                label: item.font,
-                title: capitalize(item.effort),
+              ...fontRows(efforts).map(({ font, effort }, index) => ({
+                id: effort ?? `font-${font.toLowerCase().replace(/\W+/g, '-')}`,
+                label: font,
+                title: effort ? capitalize(effort) : undefined,
                 divider: index === 0,
-                checked: item.effort === snap.effort,
-                style: { fontFamily: item.font },
-                run: () => dispatch({ op: 'setEffort', effort: item.effort }),
+                checked: effort === undefined ? undefined : effort === snap.effort,
+                style: { fontFamily: `'${font}', Arial, sans-serif` },
+                run: effort ? () => dispatch({ op: 'setEffort', effort }) : undefined,
               })),
             ]}
           />

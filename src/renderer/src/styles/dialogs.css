@@ -187,7 +187,28 @@
   font-weight: 500;
 }
 
-.picker-meta {
+/* Drive's list columns: Name | Owner | Last modified. */
+.picker-cols {
+  @apply flex items-center;
+  gap: 18px;
+  height: 40px;
+  padding: 0 24px 0 66px;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.picker-owner {
+  width: 120px;
+}
+
+.picker-date {
+  width: 120px;
+}
+
+.picker-row .picker-owner,
+.picker-row .picker-date {
   font-family: var(--font-text);
   font-size: 13px;
   color: var(--text-2);

@@ -94,7 +94,7 @@ export function Home({
                 </button>
               ) : (
                 <button className="icon-btn" aria-label="Grid view" title="Grid view" onClick={() => onView('grid')}>
-                  <MIcon name="grid_view" size={24} />
+                  <MIcon name="view_module" size={24} />
                 </button>
               )}
               <button

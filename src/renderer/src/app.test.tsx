@@ -561,8 +561,7 @@ describe('library and reading preferences', () => {
     const outside = { ...stubThread('outside', 'Outside', 'Outside'), cwd: '/tmp/coursework', projectId: null }
     mount({ projects: [projectFixture], threads: [legacy, outside] })
     await userEvent.click(screen.getByTestId('open-picker'))
-    expect(await screen.findByTestId('picker-course')).toHaveTextContent('1 file')
-    await userEvent.click(screen.getByTestId('picker-course'))
+    await userEvent.click(await screen.findByTestId('picker-course'))
     expect(screen.getByTestId('thread-legacy')).toBeInTheDocument()
     expect(screen.queryByTestId('thread-outside')).toBeNull()
   })

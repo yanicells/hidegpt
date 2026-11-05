@@ -177,6 +177,11 @@ export async function captureScreenshots(win: BrowserWindow, session: Screenshot
     })`)
   // Menus close on a click in empty canvas at the window's left edge.
   const dismiss = () => clickAt({ x: 6, y: 520 })
+  // Park the pointer there so a button that swapped in under it doesn't show hover.
+  const rest = async () => {
+    win.webContents.sendInputEvent({ type: 'mouseMove', x: 6, y: 520 })
+    await pause(150)
+  }
   const hover = async (testId: string) => {
     const { x, y } = await centre(testId)
     win.webContents.sendInputEvent({ type: 'mouseMove', x, y })
@@ -208,6 +213,7 @@ export async function captureScreenshots(win: BrowserWindow, session: Screenshot
   await shot('account-menu')
   await dismiss()
   await clickAt(await js(`(() => { const r = document.querySelector('[aria-label="List view"]').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } })()`))
+  await rest()
   await shot('home-list')
   await js(`document.querySelector('[aria-label="Grid view"]').click()`)
 

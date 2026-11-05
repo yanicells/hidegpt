@@ -16,7 +16,7 @@ export function threadProjectId(snap: Snapshot, thread: Snapshot['threads'][numb
   return match?.id ?? null
 }
 
-/** Projects as Drive folders, with how many of the loaded documents each holds. */
+/** Projects as Drive folders; a folder was last modified when its newest loaded document was. */
 export function projectFolders(snap: Snapshot) {
   const folders = new Map(
     snap.projects.map((project) => [
@@ -25,7 +25,7 @@ export function projectFolders(snap: Snapshot) {
         id: project.id,
         name: project.name,
         cwd: project.roots[0]?.path,
-        count: 0,
+        updatedAt: null as number | null,
       },
     ]),
   )
@@ -34,10 +34,11 @@ export function projectFolders(snap: Snapshot) {
     if (!id) continue
     let folder = folders.get(id)
     if (!folder) {
-      folder = { id, name: thread.cwd.split('/').filter(Boolean).pop() || 'Project', cwd: thread.cwd, count: 0 }
+      folder = { id, name: thread.cwd.split('/').filter(Boolean).pop() || 'Project', cwd: thread.cwd, updatedAt: null }
       folders.set(id, folder)
     }
-    folder.count++
+    const touched = thread.recencyAt ?? thread.updatedAt ?? null
+    if (touched && (!folder.updatedAt || touched > folder.updatedAt)) folder.updatedAt = touched
     folder.cwd ||= thread.cwd
   }
   return [...folders.values()]

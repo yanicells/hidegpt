@@ -104,7 +104,13 @@
 .menu-arrow {
   @apply grid place-items-center;
   margin: 0 -8px 0 24px;
-  color: var(--text-2);
+  color: #747775;
+}
+
+/* Docs' cascade triangle is smaller and lighter than a full 20px icon. */
+.menu-arrow svg {
+  width: 18px;
+  height: 18px;
 }
 
 /* Toolbar dropdowns share the menu look with fixed widths. */

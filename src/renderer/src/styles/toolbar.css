@@ -257,6 +257,11 @@ button.header-action:disabled {
   background: var(--hover);
 }
 
+/* An open dropdown's ▾ flips to ▴, as in Docs. */
+.chip[data-popup-open] > svg:last-child {
+  transform: rotate(180deg);
+}
+
 .chip-label {
   @apply flex-1 overflow-hidden text-ellipsis text-left;
 }

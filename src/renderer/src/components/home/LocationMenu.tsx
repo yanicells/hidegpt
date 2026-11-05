@@ -2,7 +2,7 @@ import { MIcon } from '../ui/MaterialIcon'
 import { Menu, MenuTrigger } from '../ui/menu'
 import { MenuPanel, type Item } from '../ui/MenuPanel'
 
-export type Folder = { id: string; name: string; count: number }
+export type Folder = { id: string; name: string; updatedAt: number | null }
 
 /**
  * Docs' "Owned by anyone ▾" filter. Projects show up as Drive folders under a

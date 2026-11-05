@@ -38,6 +38,21 @@ export function effortFonts(efforts: string[]): { effort: string; font: string }
     .sort((a, b) => a.font.localeCompare(b.font))
 }
 
+/** Docs' default font list; names without an effort behind them are costume rows. */
+const DOCS_FONTS = [
+  'Amatic SC', 'Arial', 'Calibri', 'Cambria', 'Caveat', 'Comfortaa', 'Comic Sans MS', 'Courier New',
+  'EB Garamond', 'Georgia', 'Impact', 'Lexend', 'Lobster', 'Lora', 'Merriweather', 'Montserrat',
+  'Nunito', 'Open Sans', 'Oswald', 'Pacifico', 'Playfair Display', 'Roboto', 'Roboto Mono', 'Spectral',
+  'Times New Roman', 'Trebuchet MS', 'Verdana',
+]
+
+/** Every row of the font menu, in Docs' order: effort fonts are live, the rest are costume. */
+export function fontRows(efforts: { effort: string; font: string }[]): { font: string; effort?: string }[] {
+  const live = new Map(efforts.map((item) => [item.font, item.effort]))
+  const names = [...new Set([...DOCS_FONTS, ...live.keys()])].sort((a, b) => a.localeCompare(b))
+  return names.map((font) => ({ font, effort: live.get(font) }))
+}
+
 export const FONT_SIZES = [8, 9, 10, 11, 12, 14, 18, 24, 30, 36, 48, 60, 72, 96]
 
 /** 11 is the default tier; each further tier takes the next size up. */
