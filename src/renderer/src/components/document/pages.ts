@@ -86,6 +86,10 @@ function paginate(paper: HTMLElement): number {
     const rect = el.getBoundingClientRect()
     return { el, top: toPage(rect.top), height: rect.height / scale }
   })
+  // Narrow windows keep suggestion cards in the flow; their space sits between units.
+  const cardBottoms = Array.from(paper.querySelectorAll<HTMLElement>('.suggestion'))
+    .filter((el) => getComputedStyle(el).position !== 'absolute')
+    .map((el) => toPage(el.getBoundingClientRect().bottom))
 
   const breaks: PageBreak[] = []
   let shift = 0
@@ -113,7 +117,11 @@ function paginate(paper: HTMLElement): number {
         const leadIndex = keep ? index - 1 : index
         const lead = units[leadIndex]
         const above = units[leadIndex - 1]
-        const gap = lead.top - (above ? above.top + above.height : MARGIN)
+        const aboveBottom = Math.max(
+          above ? above.top + above.height : MARGIN,
+          ...cardBottoms.filter((bottom) => bottom <= lead.top),
+        )
+        const gap = lead.top - aboveBottom
         const push = nextTop - (lead.top + shift)
         breaks.push({ kind: 'push', el: lead.el, margin: gap + push })
         shift += push
