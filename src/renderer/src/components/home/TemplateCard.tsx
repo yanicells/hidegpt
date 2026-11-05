@@ -53,6 +53,7 @@ export function PageSketch({ sketch }: { sketch: Template['sketch'] }) {
   const preview = PREVIEWS[sketch]
   return (
     <div className={`template-page template-page-${sketch}`} aria-hidden="true">
+      {sketch === 'report' || sketch === 'guide' ? <i className="template-hero" /> : null}
       <strong>{preview.title}</strong>
       <small>{preview.subtitle}</small>
       {preview.sections.map((heading) => (

@@ -2,7 +2,8 @@ import { memo } from 'react'
 
 import { formatOpened, previewLines, threadTitle } from '../../../../codex/labels'
 import { dispatch } from '../../session-bridge'
-import { DocFileIcon, MIcon } from '../ui/MaterialIcon'
+import { DocFileIcon } from '../ui/Icons'
+import { MIcon } from '../ui/MaterialIcon'
 import type { Thread } from './grouping'
 
 /** Memoized: thread objects keep their identity across snapshot patches. */
@@ -29,7 +30,7 @@ export const DocCard = memo(function DocCard({ thread }: { thread: Thread }) {
           <DocFileIcon size={20} />
           <span className="card-date">Opened {formatOpened(thread.recencyAt ?? thread.updatedAt)}</span>
           <span className="card-more" aria-hidden="true">
-            <MIcon name="more" />
+            <MIcon name="more_vert" />
           </span>
         </span>
       </div>
