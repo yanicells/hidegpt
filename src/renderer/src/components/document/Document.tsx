@@ -116,7 +116,7 @@ export function Document({
           </article>
         </div>
       </div>
-      {/* Docs' floating spark pill; while an answer streams it stops it. */}
+      {/* Docs' floating spark pill; while an answer streams it pulses, and a click stops it. */}
       <div className="spark-wrap">
         {snap.streaming ? (
           <button
@@ -127,7 +127,7 @@ export function Document({
             title="Stop"
             onClick={() => dispatch({ op: 'interrupt' })}
           >
-            <span className="stop-square" aria-hidden="true" />
+            <SparkIcon size={16} />
           </button>
         ) : (
           <span className="spark-pill" aria-hidden="true">

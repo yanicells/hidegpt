@@ -62,26 +62,6 @@
   padding: 0 15px;
 }
 
-.folder-path {
-  @apply flex items-center w-full text-left;
-  gap: 12px;
-  margin-top: 12px;
-  padding: 8px 4px;
-  border-radius: 4px;
-  font-family: var(--font-text);
-  font-size: 13px;
-  color: var(--text-2);
-}
-
-.folder-path:hover {
-  background: var(--hover);
-}
-
-.folder-path span {
-  overflow-wrap: anywhere;
-  @apply min-w-0;
-}
-
 .field-help {
   margin: 8px 0 0;
   font-family: var(--font-text);

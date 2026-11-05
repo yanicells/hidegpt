@@ -43,7 +43,7 @@ OpenCode, without inheriting the last document's project. Templates place a star
 in the composer; they never send it automatically.
 
 The toolbar keeps the Docs appearance. The style menu (**Normal text**, **Title**,
-**Heading 1**…) selects the model; **Options** at its bottom searches the full list.
+**Heading 1**…) selects the model; hover a style to see which model it is.
 The font (**Arial**) selects effort, the size (**11**) selects speed, and
 **Editing / Suggesting / Viewing** selects the collaboration mode. Available choices
 come from the provider.

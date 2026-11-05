@@ -218,39 +218,37 @@
 }
 
 /*
- * Answer headings step down one Docs level from the question (Heading 1):
- * # → Heading 2, ## → Heading 3, ### → Heading 4, #### → Heading 5, deeper → Heading 6.
+ * The question is the only Heading 1, so answer headings start at Heading 2.
+ * Models open sections with `#`, `##` or `###` depending on habit, so all three
+ * are Heading 2 (16pt black, like Docs' section headings); `####` is Heading 3,
+ * `#####` Heading 4 and `######` Heading 5.
  */
 .doc-body :is(h1, h2, h3, h4, h5, h6) {
   font-weight: 400;
   line-height: 1.2;
 }
 
-.doc-body h1 {
+.doc-body :is(h1, h2, h3) {
   margin: 18pt 0 6pt;
   font-size: 16pt;
 }
 
-.doc-body h2 {
+.doc-body h4 {
   margin: 16pt 0 4pt;
   font-size: 14pt;
   color: #434343;
 }
 
-.doc-body h3 {
+.doc-body h5 {
   margin: 14pt 0 4pt;
   font-size: 12pt;
   color: #666;
 }
 
-.doc-body :is(h4, h5, h6) {
+.doc-body h6 {
   margin: 12pt 0 4pt;
   font-size: 11pt;
   color: #666;
-}
-
-.doc-body :is(h5, h6) {
-  font-style: italic;
 }
 
 .doc-body a {

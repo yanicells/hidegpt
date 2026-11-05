@@ -108,9 +108,10 @@
 }
 
 .template {
-  flex: 0 0 auto;
   width: 144px;
-  @apply flex flex-col;
+  /* Clips the cards in the strip's zero-height overflow rows entirely. */
+  min-height: 0;
+  @apply flex flex-col overflow-hidden;
 }
 
 .template-card {
@@ -369,6 +370,11 @@
 .recency-label {
   margin: 28px 16px 12px;
   color: var(--text);
+}
+
+/* List view leaves more air under a group label before its first row. */
+.recency-label:has(+ .list) {
+  margin-bottom: 23px;
 }
 
 /* "Owned by anyone ▾": plain text with a caret, no box. */

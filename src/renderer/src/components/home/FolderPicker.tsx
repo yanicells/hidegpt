@@ -26,7 +26,6 @@ export function FolderPicker({
 }) {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
-  const [path, setPath] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [tab, setTab] = useState<PickerTab>('My Drive')
@@ -41,22 +40,13 @@ export function FolderPicker({
         ? matching.filter((folder) => folder.updatedAt).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
         : []
 
-  const choose = async () => {
-    try {
-      const picked = await window.hidegpt.pickDirectory()
-      if (picked) {
-        setPath(picked)
-        if (!name) setName(picked.split('/').pop() ?? '')
-      }
-    } catch (cause) {
-      setError(String(cause))
-    }
-  }
-
+  // Drive's dialog asks only for a name; Create then asks the system where the folder lives.
   const create = async () => {
     setBusy(true)
     setError('')
     try {
+      const path = await window.hidegpt.pickDirectory()
+      if (!path) return
       await window.hidegpt.dispatch({ op: 'createProject', name: name.trim(), cwd: path })
       const project = window.hidegpt.getSnapshot().projects.find((item) => item.roots.some((root) => root.path === path))
       if (!project) throw new Error('The folder could not be found. Refresh and try again.')
@@ -94,10 +84,6 @@ export function FolderPicker({
                 disabled={busy}
               />
             </label>
-            <button type="button" className="folder-path" onClick={() => void choose()} disabled={busy}>
-              <MIcon name="folder_open" />
-              <span>{path || 'Choose a location on this computer…'}</span>
-            </button>
             {snap.provider === 'opencode' ? <p className="field-help">Folders must be Git repositories.</p> : null}
             {error ? (
               <p className="dialog-error" role="alert">
@@ -108,7 +94,7 @@ export function FolderPicker({
               <button type="button" className="text-button" disabled={busy} onClick={() => setCreating(false)}>
                 Cancel
               </button>
-              <button type="submit" className="text-button" disabled={busy || !name.trim() || !path}>
+              <button type="submit" className="text-button" disabled={busy || !name.trim()}>
                 {busy ? 'Creating…' : 'Create'}
               </button>
             </div>
