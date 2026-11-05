@@ -80,7 +80,9 @@
 
 .gallery-inner,
 .recent-inner {
-  width: min(1144px, calc(100% - 64px));
+  /* Docs sizes the column to a whole number of recent cards (208 + 20 gap) and centres it. */
+  --home-room: min(1144px, calc(100% - 64px));
+  width: calc(round(down, var(--home-room) + 20px, 228px) - 20px);
   margin: 0 auto;
 }
 
@@ -172,7 +174,6 @@
 .doc-grid {
   @apply grid;
   grid-template-columns: repeat(auto-fill, 208px);
-  justify-content: space-between;
   gap: 22px 20px;
 }
 
@@ -517,7 +518,7 @@
 
   .gallery-inner,
   .recent-inner {
-    width: calc(100% - 40px);
+    --home-room: calc(100% - 40px);
   }
 
   .recent-head {
