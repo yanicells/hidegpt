@@ -1,106 +1,138 @@
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
+import { Fragment, type CSSProperties, type ReactNode } from 'react'
 
-export type Item = { id: string; label: string; run: () => void; disabled?: boolean; checked?: boolean }
+import { MIcon, type MaterialIconName } from './MaterialIcon'
+import {
+  MenuCheckboxItem,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuShortcut,
+  MenuSub,
+  MenuSubPopup,
+  MenuSubTrigger,
+} from './menu'
 
-export type MenuId =
-  | 'file'
-  | 'edit'
-  | 'view'
-  | 'insert'
-  | 'format'
-  | 'tools'
-  | 'extensions'
-  | 'help'
-  | 'account'
-  | 'model'
-  | 'effort'
-  | 'serviceTier'
-  | 'mode'
-  | 'provider'
-  | null
+/**
+ * One Docs menu row. `icon` is the 20px leading glyph, `shortcut` the grey
+ * right-hand hint, `submenu` turns the row into a ▸ cascade, and `divider`
+ * draws the hairline separator above the row.
+ */
+export type Item = {
+  id: string
+  label: string
+  run?: () => void
+  disabled?: boolean
+  checked?: boolean
+  icon?: MaterialIconName
+  shortcut?: string
+  submenu?: Item[]
+  divider?: boolean
+  /** Extra text for the tooltip, e.g. what a costume label really selects. */
+  title?: string
+  /** Grey second line under the label (Docs' editing-mode menu). */
+  description?: string
+  /** Draw the ▸ without a cascade (style menu rows). */
+  arrow?: boolean
+  /** Run without closing the menu (e.g. paging inside a popover). */
+  keepOpen?: boolean
+  className?: string
+  style?: CSSProperties
+}
 
+/**
+ * A Docs menu popup filled from `Item` rows. Use inside `<Menu>` next to its
+ * `<MenuTrigger>`; `children` render above the rows (search fields, cards).
+ */
 export function MenuPanel({
   items,
-  onClose,
   testId,
-  align = 'start',
   itemPrefix = 'action',
+  className,
+  align = 'start',
+  style,
   children,
 }: {
   items: Item[]
-  onClose: () => void
   testId?: string
-  align?: 'start' | 'end'
   itemPrefix?: string
+  className?: string
+  align?: 'start' | 'center' | 'end'
+  style?: CSSProperties
   children?: ReactNode
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    ref.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')?.focus()
-  }, [])
-
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') return
-    const buttons = Array.from(
-      ref.current?.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)') ?? [],
-    )
-    if (buttons.length === 0) return
-    event.preventDefault()
-    const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
-    const next =
-      event.key === 'Home'
-        ? 0
-        : event.key === 'End'
-          ? buttons.length - 1
-          : (current + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length
-    buttons[next]?.focus()
-  }
-
   return (
-    <div
-      ref={ref}
-      className={`menu-panel align-${align}`}
-      role="menu"
-      data-testid={testId}
-      onKeyDown={onKeyDown}
-    >
+    <MenuPopup align={align} className={className} data-testid={testId} style={style}>
       {children}
-      {items.map((item) => (
-        <button
-          type="button"
-          key={item.id}
-          className={`menu-item${item.checked ? ' checked' : ''}`}
-          role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
-          aria-checked={item.checked}
-          data-testid={`${itemPrefix}-${item.id}`}
-          disabled={item.disabled}
-          onClick={() => {
-            item.run()
-            onClose()
-          }}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
+      <MenuRows items={items} itemPrefix={itemPrefix} />
+    </MenuPopup>
   )
 }
 
-export function useDismiss(active: boolean, onClose: () => void, ref: { current: HTMLElement | null }) {
-  useEffect(() => {
-    if (!active) return
-    const onPointer = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) onClose()
-    }
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    document.addEventListener('mousedown', onPointer)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onPointer)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [active, onClose, ref])
+/** The rows alone, for popups that swap their contents (the style menu's Options page). */
+export function MenuRows({ items, itemPrefix = 'action' }: { items: Item[]; itemPrefix?: string }) {
+  return items.map((item, index) => (
+    <Fragment key={item.id}>
+      {item.divider && index > 0 ? <MenuSeparator /> : null}
+      <Row item={item} itemPrefix={itemPrefix} />
+    </Fragment>
+  ))
+}
+
+function Row({ item, itemPrefix }: { item: Item; itemPrefix: string }) {
+  const testId = `${itemPrefix}-${item.id}`
+  const body = <RowBody item={item} />
+  if (item.submenu) {
+    return (
+      <MenuSub>
+        <MenuSubTrigger className={item.className} data-testid={testId} disabled={item.disabled} title={item.title}>
+          {body}
+        </MenuSubTrigger>
+        <MenuSubPopup>
+          <MenuRows items={item.submenu} itemPrefix={itemPrefix} />
+        </MenuSubPopup>
+      </MenuSub>
+    )
+  }
+  const common = {
+    className: item.className,
+    'data-testid': testId,
+    disabled: item.disabled,
+    title: item.title,
+    closeOnClick: !item.keepOpen,
+    onClick: item.run,
+  }
+  return item.checked === undefined ? (
+    <MenuItem {...common}>
+      {body}
+      {item.arrow ? <Arrow /> : null}
+    </MenuItem>
+  ) : (
+    <MenuCheckboxItem {...common} checked={item.checked}>
+      {body}
+      {item.arrow ? <Arrow /> : null}
+    </MenuCheckboxItem>
+  )
+}
+
+function RowBody({ item }: { item: Item }) {
+  return (
+    <>
+      <span className="menu-icon" aria-hidden="true">
+        {item.checked ? <MIcon name="check" /> : item.icon ? <MIcon name={item.icon} /> : null}
+      </span>
+      <span className="menu-text" style={item.style}>
+        {item.label}
+        {item.description ? <span className="menu-desc">{item.description}</span> : null}
+      </span>
+      {item.shortcut ? <MenuShortcut>{item.shortcut}</MenuShortcut> : null}
+    </>
+  )
+}
+
+function Arrow() {
+  return (
+    <span className="menu-arrow" aria-hidden="true">
+      <MIcon name="arrow_right" />
+    </span>
+  )
 }

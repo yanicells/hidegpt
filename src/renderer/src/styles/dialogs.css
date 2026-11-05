@@ -1,0 +1,182 @@
+/* Drive dialogs: "Open a file" picker and "New folder". */
+.drive-dialog {
+  max-height: calc(100vh - 48px);
+  @apply overflow-auto border-0;
+  padding: 24px;
+  border-radius: 28px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow:
+    0 4px 8px 3px rgba(60, 64, 67, 0.15),
+    0 1px 3px rgba(60, 64, 67, 0.3);
+}
+
+/* Base UI dialog layers (components/ui/dialog.tsx). */
+.dialog-backdrop {
+  @apply fixed inset-0;
+  z-index: 140;
+  background: rgba(32, 33, 36, 0.6);
+}
+
+.dialog-viewport {
+  @apply fixed inset-0 grid place-items-center;
+  z-index: 141;
+  padding: 24px;
+}
+
+.drive-dialog {
+  outline: none;
+}
+
+.drive-dialog.small {
+  width: min(380px, calc(100vw - 40px));
+}
+
+.drive-dialog.picker {
+  width: min(720px, calc(100vw - 40px));
+  padding: 0;
+  border-radius: 8px;
+}
+
+.drive-dialog h2 {
+  margin: 0 0 16px;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 32px;
+}
+
+.outlined-field input {
+  @apply w-full;
+  height: 56px;
+  padding: 0 16px;
+  border: 1px solid #747775;
+  border-radius: 4px;
+  font-size: 16px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.outlined-field input:focus {
+  outline: none;
+  border: 2px solid var(--blue);
+  padding: 0 15px;
+}
+
+.folder-path {
+  @apply flex items-center w-full text-left;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 8px 4px;
+  border-radius: 4px;
+  font-family: var(--font-text);
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.folder-path:hover {
+  background: var(--hover);
+}
+
+.folder-path span {
+  overflow-wrap: anywhere;
+  @apply min-w-0;
+}
+
+.field-help {
+  margin: 8px 0 0;
+  font-family: var(--font-text);
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.dialog-error {
+  margin: 12px 0 0;
+  font-family: var(--font-text);
+  font-size: 13px;
+  color: var(--red);
+}
+
+.dialog-actions {
+  @apply flex items-center justify-end;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.picker-head {
+  @apply flex items-center justify-between;
+  padding: 16px 16px 0 24px;
+}
+
+.picker-head h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.picker-tabs {
+  @apply flex;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.picker-tabs span {
+  padding: 14px 4px 11px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.picker-tabs .active {
+  color: var(--blue);
+  border-bottom: 3px solid var(--blue);
+}
+
+.picker-list {
+  @apply list-none m-0;
+  min-height: 240px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.picker-row {
+  @apply flex items-center w-full text-left;
+  gap: 18px;
+  height: 48px;
+  padding: 0 24px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.picker-row:hover,
+.picker-row:focus-visible {
+  background: var(--hover-soft);
+  outline: none;
+}
+
+.picker-row svg {
+  color: var(--text-2);
+}
+
+.picker-name {
+  @apply flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap;
+  font-weight: 500;
+}
+
+.picker-meta {
+  font-family: var(--font-text);
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.picker-empty {
+  padding: 48px 24px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.picker-foot {
+  @apply flex;
+  padding: 12px 24px 20px;
+  border-top: 1px solid var(--hairline);
+}
