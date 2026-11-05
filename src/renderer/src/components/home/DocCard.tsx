@@ -1,6 +1,6 @@
 import { memo } from 'react'
 
-import { formatOpened, previewLines, threadTitle } from '../../../../codex/labels'
+import { formatListDate, previewLines, threadTitle } from '../../../../codex/labels'
 import { dispatch } from '../../session-bridge'
 import { DocFileIcon } from '../ui/Icons'
 import { MIcon } from '../ui/MaterialIcon'
@@ -28,7 +28,8 @@ export const DocCard = memo(function DocCard({ thread }: { thread: Thread }) {
         <span className="card-title">{title}</span>
         <span className="card-meta">
           <DocFileIcon size={20} />
-          <span className="card-date">Opened {formatOpened(thread.recencyAt ?? thread.updatedAt)}</span>
+          {/* Docs' cards give the year even for this year ("Opened Nov 4, 2026"), like the list view. */}
+          <span className="card-date">Opened {formatListDate(thread.recencyAt ?? thread.updatedAt)}</span>
           <span className="card-more" aria-hidden="true">
             <MIcon name="more_vert" />
           </span>

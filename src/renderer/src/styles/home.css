@@ -303,7 +303,8 @@
 }
 
 .recent-head.as-list {
-  margin-bottom: 4px;
+  /* First group label to first row centre: 64px, as in Docs. */
+  margin-bottom: 15px;
   padding-left: 16px;
 }
 
