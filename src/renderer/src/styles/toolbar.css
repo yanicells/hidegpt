@@ -451,11 +451,6 @@ button.header-action:disabled {
     display: none !important;
   }
 
-  /* The printer breaks pages itself; drop the on-screen pushes. */
-  [data-page-break] {
-    padding-top: 0 !important;
-  }
-
   html,
   body,
   #root,

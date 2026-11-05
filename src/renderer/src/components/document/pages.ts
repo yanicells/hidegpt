@@ -2,7 +2,7 @@ import { useLayoutEffect, useState, type RefObject } from 'react'
 
 /** US Letter at 96dpi, Docs' 16px grey gap between sheets, and the 1in margins. */
 export const PAGE_HEIGHT = 1056
-export const PAGE_GAP = 16
+const PAGE_GAP = 16
 export const PAGE_PITCH = PAGE_HEIGHT + PAGE_GAP
 const MARGIN = 96
 
@@ -21,8 +21,7 @@ const UNITS = [
 
 /**
  * Paginates the print layout: pushes each unit that would cross a page's
- * bottom margin onto the next page (a top padding, so margins stay put) and
- * returns how many sheets to draw. Text edits (streaming included) and
+ * bottom margin onto the next page and returns how many sheets to draw. Text edits (streaming included) and
  * resizes are coalesced into at most one pass per frame.
  */
 export function usePages(paperRef: RefObject<HTMLElement | null>): number {
@@ -39,7 +38,7 @@ export function usePages(paperRef: RefObject<HTMLElement | null>): number {
       if (!frame) frame = requestAnimationFrame(update)
     }
     update()
-    // Our own padding writes are attribute changes, so they don't retrigger this.
+    // Our own break writes are attribute changes, so they don't retrigger this.
     const mutations = new MutationObserver(schedule)
     mutations.observe(paper, { childList: true, subtree: true, characterData: true })
     const resizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule)
@@ -54,15 +53,18 @@ export function usePages(paperRef: RefObject<HTMLElement | null>): number {
   return pages
 }
 
-type PageBreak = { el: HTMLElement; push: number }
+type PageBreak = { el: HTMLElement; margin: number }
 
 /**
  * One layout read, then all writes: units are measured once with the old
- * breaks cleared, and each push shifts everything after it by the same amount.
+ * breaks cleared, and each push shifts everything after it by the same
+ * amount. A push is a top margin (`--page-break`, see document.css) so boxes
+ * like code blocks don't grow; it adds to the gap the unit already had,
+ * which also outweighs any margin it would collapse with.
  */
 function paginate(paper: HTMLElement): number {
   for (const el of Array.from(paper.querySelectorAll<HTMLElement>('[data-page-break]'))) {
-    el.style.paddingTop = ''
+    el.style.removeProperty('--page-break')
     delete el.dataset.pageBreak
   }
   const box = paper.getBoundingClientRect()
@@ -91,18 +93,20 @@ function paginate(paper: HTMLElement): number {
         /^H[1-6]$/.test(previous.el.tagName) &&
         breaks.at(-1)?.el !== previous.el &&
         Math.floor((previous.top + shift) / PAGE_PITCH) === page
-      const lead = keep ? previous : unit
+      const leadIndex = keep ? index - 1 : index
+      const lead = units[leadIndex]
+      const above = units[leadIndex - 1]
+      const gap = lead.top - (above ? above.top + above.height : MARGIN)
       const push = (page + 1) * PAGE_PITCH + MARGIN - (lead.top + shift)
-      breaks.push({ el: lead.el, push })
+      breaks.push({ el: lead.el, margin: gap + push })
       shift += push
     }
     bottom = Math.max(bottom, unit.top + shift + unit.height)
   })
 
-  const paddings = breaks.map(({ el }) => parseFloat(getComputedStyle(el).paddingTop))
-  breaks.forEach(({ el, push }, index) => {
-    el.style.paddingTop = `${paddings[index] + push}px`
+  for (const { el, margin } of breaks) {
+    el.style.setProperty('--page-break', `${margin}px`)
     el.dataset.pageBreak = ''
-  })
+  }
   return Math.floor(bottom / PAGE_PITCH) + 1
 }
