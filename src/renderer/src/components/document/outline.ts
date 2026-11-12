@@ -64,3 +64,28 @@ function plain(text: string): string {
     .replace(/[*_`~]/g, '')
     .trim()
 }
+
+/** The element an entry jumps to: its block, or the block's nth rendered h1–h3. */
+export function outlineTarget(root: ParentNode, entry: OutlineEntry): Element | null {
+  const block = root.querySelector(`[data-block="${entry.blockId}"]`)
+  if (!block || entry.heading === undefined) return block
+  return block.querySelectorAll('h1, h2, h3')[entry.heading] ?? block
+}
+
+/**
+ * The entry whose section holds `line`: the last one whose heading starts at
+ * or above it, or the first while the line is above every heading. `tops` are
+ * the headings' tops in entry order, `undefined` for one not on the page yet.
+ */
+export function sectionAt(
+  entries: ReadonlyArray<OutlineEntry>,
+  tops: ReadonlyArray<number | undefined>,
+  line: number,
+): OutlineEntry | undefined {
+  let found: OutlineEntry | undefined
+  entries.forEach((entry, index) => {
+    const top = tops[index]
+    if (top !== undefined && top <= line) found = entry
+  })
+  return found ?? entries[0]
+}
