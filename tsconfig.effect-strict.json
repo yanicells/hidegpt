@@ -125,6 +125,8 @@
               "**/testing/**/*",
               "**/fixtures/**/*",
               "**/integration/**/*",
+              // Kept verbatim from T3 Code, where it names a package of its own. HideGPT has
+              // no such path, so it matches nothing here and changes no diagnostics.
               "packages/provider-testing/**/*"
             ],
             "options": {

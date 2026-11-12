@@ -22,8 +22,8 @@ env:
   ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
 
 jobs:
-  check:
-    name: Check
+  static:
+    name: Static checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -86,3 +86,19 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+  # One required status for branch protection, as T3 Code's final Check job: it passes
+  # only when every job above passed.
+  check:
+    name: Check
+    needs: [static, test]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e 'all(.[]; .result == "success")' > /dev/null

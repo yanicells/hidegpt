@@ -130,9 +130,11 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     from `knip.jsonc`; `tsconfig.effect.json` (trimmed) and
     `tsconfig.effect-strict.json` (whole) from `tsconfig.effect.json`, run
     with `effect-tsgo tsrs` as in `apps/server/package.json`; `.github/workflows/ci.yml` from
-    `.github/workflows/ci.yml`; and `lint-staged.config.js` with
+    `.github/workflows/ci.yml`; `lint-staged.config.js` with
     `.githooks/pre-commit` from the `staged` block of `vite.config.ts` and
-    `.vite-hooks/pre-commit`.
+    `.vite-hooks/pre-commit`; and `.vscode/settings.json`,
+    `.vscode/extensions.json` and the `.vscode/tsdk/tsgo` language-server shim
+    from `.vscode/`.
   - `src/main/logging/` (commit 5c6f2f12): the rotating file sink, from
     `packages/shared/src/logging.ts` (`makeAsyncRotatingFileSink`); the main
     NDJSON logger, after `apps/server/src/serverLogger.ts` and

@@ -28,6 +28,12 @@ pnpm dev
 the staged files. It does this by setting `core.hooksPath`, which replaces any hooks path
 you had set, in the Git config that every worktree of this repository shares.
 
+In VS Code, install the recommended extensions (oxc and TypeScript Native Preview) to see
+the Effect diagnostics as you type and format on save: `.vscode/settings.json` points the
+TypeScript 7 language server at `.vscode/tsdk/tsgo`, which runs `effect-tsgo`'s binary from
+`node_modules`. The `typescript` (5.x) devDependency now serves editors without that
+extension only; no script runs `tsc`.
+
 | Script | What it does |
 | --- | --- |
 | `pnpm dev` | Electron app with Vite HMR |
@@ -157,6 +163,7 @@ replay tests follow its patterns, as do smaller pieces of the OpenCode and Claud
 adapters (each marked in place). In the window, the cached Markdown renderer and
 streaming block splitter come from T3 Code's web app, and the store's selectors
 follow its thread-detail state. The tooling follows T3 Code too: the oxlint rules,
-Effect diagnostics, knip config, CI workflow, and pre-commit checks are adapted from its setup.
+Effect diagnostics, knip config, CI workflow, pre-commit checks, and VS Code setup are adapted
+from its setup.
 T3 Code is MIT licensed, Copyright (c) 2026
 T3 Tools Inc.; the full notice is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
