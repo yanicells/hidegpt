@@ -9,6 +9,14 @@ describe('classify', () => {
     [{ message: 'nope', httpStatus: 401 }, 'auth', false],
     [{ message: 'Not logged in' }, 'auth', false],
     [{ message: 'Please sign in again' }, 'auth', false],
+    [
+      {
+        message:
+          'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired."}}',
+      },
+      'auth',
+      false,
+    ],
     [{ message: 'Error while assigning input' }, 'unknown', null],
     [{ message: 'design input rejected' }, 'unknown', null],
     [{ message: 'read ECONNRESET' }, 'transport_error', true],
