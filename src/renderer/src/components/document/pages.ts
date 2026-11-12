@@ -69,7 +69,7 @@ type PageBreak =
  * gap the unit already had, so it outweighs any margin it collapses with. A
  * split is an invisible float whose shape covers only the band between the
  * last line that fits and the next page's top margin (`--split-*`), so the
- * paragraph's own DOM, which React owns, is never touched. See document.css.
+ * paragraph's own DOM, which React owns, is never touched. See page.css.
  */
 function paginate(paper: HTMLElement): number {
   for (const el of Array.from(paper.querySelectorAll<HTMLElement>('[data-page-break], [data-page-split]'))) {
