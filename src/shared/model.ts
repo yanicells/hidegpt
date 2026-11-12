@@ -35,6 +35,11 @@ export const CAPABILITIES: Record<ProviderId, Capabilities> = {
   claude: { login: false, connectTools: false, createProjects: false, gitProjects: false },
 }
 
+/** The image types Docs can store; main answers any other as unreadable. */
+export const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
+export type ImageMime = (typeof IMAGE_MIME_TYPES)[number]
+export const isImageMime = (type: string): type is ImageMime => (IMAGE_MIME_TYPES as ReadonlyArray<string>).includes(type)
+
 export const HOME: Route = { kind: 'home' }
 export const NO_BLOCKS: ReadonlyArray<Block> = []
 

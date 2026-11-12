@@ -13,7 +13,6 @@ import {
   type Command,
   type CommandResult,
   IpcEvents,
-  IpcInvoke,
   IpcSnapshotNow,
   type MenuAction,
   type SaveImageResult,
@@ -22,7 +21,7 @@ import type { ProviderId } from '../shared/model'
 import { describeFailure, logDefects, reportDefect } from '../provider/DefectReport'
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import * as Demo from './demo'
-import { handle, handleSync } from './ipc'
+import { makeIpc, type SenderGuard } from './ipc'
 import * as Logging from './logging/Logger'
 import * as ProviderEventLog from './logging/ProviderEventLog'
 import { hydratePath, killLoginShellProbe } from './loginShellPath'
@@ -156,26 +155,27 @@ const program = Effect.gen(function* () {
       }),
   })
 
-  yield* handle(ipcMain, IpcInvoke.dispatch, run)
-  yield* handle(ipcMain, IpcInvoke.pickDirectory, () =>
-    Effect.promise(async () => {
-      const win = getWindow()
-      if (!win) return null
-      const picked = await dialog.showOpenDialog(win, {
-        title: 'Choose project folder',
-        properties: ['openDirectory', 'createDirectory'],
-      })
-      return picked.canceled ? null : (picked.filePaths[0] ?? null)
-    }),
-  )
-  yield* handle(ipcMain, IpcInvoke.saveImage, ({ bytes, mime }) =>
-    Effect.tryPromise(() => saveImage(bytes, mime)).pipe(
-      Effect.map((path): SaveImageResult => ({ ok: true, path })),
-      Effect.catchCause((cause) =>
-        Effect.map(describeFailure(cause), (error): SaveImageResult => ({ ok: false, error })),
+  const ipc = makeIpc(ipcMain, fromAppWindow)
+  yield* ipc.handleAll({
+    dispatch: run,
+    pickDirectory: () =>
+      Effect.promise(async () => {
+        const win = getWindow()
+        if (!win) return null
+        const picked = await dialog.showOpenDialog(win, {
+          title: 'Choose project folder',
+          properties: ['openDirectory', 'createDirectory'],
+        })
+        return picked.canceled ? null : (picked.filePaths[0] ?? null)
+      }),
+    saveImage: ({ bytes, mime }) =>
+      Effect.tryPromise(() => saveImage(bytes, mime)).pipe(
+        Effect.map((path): SaveImageResult => ({ ok: true, path })),
+        Effect.catchCause((cause) =>
+          Effect.map(describeFailure(cause), (error): SaveImageResult => ({ ok: false, error })),
+        ),
       ),
-    ),
-  )
+  })
 
   /** Runs `part` outside any fiber's error handling: a throw is reported under its name and goes no further. */
   const reportingThrows = (part: string, run: () => void) => {
@@ -196,7 +196,7 @@ const program = Effect.gen(function* () {
   // A defect is reported inside `run`, which then starts over.
   yield* Effect.forkScoped(publisher.run)
   // The preload asks synchronously before the first paint, so this must exist before any window.
-  yield* handleSync(ipcMain, IpcSnapshotNow, publisher.delivered)
+  yield* ipc.handleSync(IpcSnapshotNow, publisher.delivered)
 
   // Local images load only if the window was handed them: the open document's, or pasted ones.
   registerDocsProtocol((ref) => documentHasImage(publisher.delivered()?.snapshot ?? null, ref))
@@ -233,6 +233,14 @@ const program = Effect.gen(function* () {
   }
   return yield* Effect.never
 }).pipe(Effect.scoped)
+
+// Adapted from T3 Code (apps/desktop/src/ipc/DesktopIpc.ts, layer) at commit 5c6f2f12.
+// Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+/** Only the app window's own page may call main: not another webContents, not a frame inside it. */
+const fromAppWindow: SenderGuard = (event) => {
+  const win = getWindow()
+  return win !== null && win.webContents.id === event.sender.id && win.webContents.mainFrame === event.senderFrame
+}
 
 // A second instance quits here, before ready: no runtime, no program, nothing to shut down.
 if (!primary) app.quit()

@@ -93,8 +93,9 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     streamed text, after `packages/client-runtime/src/state/threadDetail.ts`
     (commit 8a14762c).
   - `src/shared/channels.ts`, the IPC tables in `src/shared/contracts.ts`,
-    `src/main/ipc.ts` (with its test) and `src/preload/index.ts`: channel
-    names, typed invoke and sync channels, and the preload bridge, from
+    `src/main/ipc.ts` (with its test), the sender guard in `src/main/app.ts`
+    and `src/preload/index.ts`: channel names, typed invoke and sync channels
+    with result encoding and the trusted-sender check, and the preload bridge, from
     `apps/desktop/src/ipc/channels.ts`, `apps/desktop/src/ipc/DesktopIpc.ts`,
     `packages/contracts/src/ipc.ts` and `apps/desktop/src/preload.ts` (commit
     5c6f2f12).
