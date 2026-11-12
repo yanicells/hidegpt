@@ -309,8 +309,9 @@ describe('ProviderSessionManager', () => {
     }).pipe(Effect.provide(layer))
   })
 
-  it.effect('a library that fails to load shows why, the others keep working, and it loads on the next try', () =>
-    Effect.gen(function* () {
+  it.effect('a library that fails to load says so and logs why, the others keep working, and it loads on the next try', () => {
+    const { logged, layer } = captureErrorLogs()
+    return Effect.gen(function* () {
       const peer = makeFakeCodex()
       let claudeLoads = 0
       const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
@@ -337,7 +338,8 @@ describe('ProviderSessionManager', () => {
       yield* manager.dispatch({ op: 'setProvider', provider: 'claude' })
       const seen = yield* Fiber.join(shown)
       const failed = seen[seen.length - 1]!
-      expect(failed.error).toBe('Docs could not load Claude: Cannot find module ./ClaudeAdapter')
+      expect(failed.error).toBe('Docs could not load Claude. Docs saved a report.')
+      expect(logged).toEqual([{ cause: expect.stringContaining('Cannot find module ./ClaudeAdapter'), annotations: { provider: 'claude', reportId: expect.any(String) } }])
       // Not retried, so shown once, as an error: never first as a reconnect.
       expect(seen.filter((snapshot) => snapshot.error === failed.error && snapshot.status !== 'error')).toEqual([])
       yield* manager.dispatch({ op: 'setProvider', provider: 'codex' })
@@ -345,6 +347,6 @@ describe('ProviderSessionManager', () => {
       yield* manager.dispatch({ op: 'setProvider', provider: 'claude' })
       expect(yield* until(manager, (snapshot) => snapshot.provider === 'claude' && snapshot.status === 'ready')).toMatchObject({ error: null })
       expect(claudeLoads).toBe(2)
-    }),
-  )
+    }).pipe(Effect.provide(layer))
+  })
 })

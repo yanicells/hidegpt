@@ -133,12 +133,3 @@ export function bannerMessage(error: unknown): string {
   if (isExpectedError(error) && error.message) return error.message
   return typeof error === 'string' && error ? error : DEFECT_MESSAGE
 }
-
-/**
- * Readable detail from any error, for an adapter composing its own tagged
- * error ("Docs could not load …: <detail>"). The banner uses `bannerMessage`.
- */
-export function userMessage(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message
-  return typeof error === 'string' && error ? error : 'Something went wrong.'
-}

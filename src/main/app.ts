@@ -12,10 +12,10 @@ import * as Schema from 'effect/Schema'
 
 import { Command, type CommandResult, type MenuAction } from '../shared/contracts'
 import type { ProviderId } from '../shared/model'
+import { describeFailure } from '../provider/DefectReport'
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import * as Demo from './demo'
 import { handle } from './ipc'
-import { describeFailure } from './logging/DefectReport'
 import * as Logging from './logging/Logger'
 import * as ProviderEventLog from './logging/ProviderEventLog'
 import { makeMenu } from './menu'
@@ -113,7 +113,11 @@ const program = Effect.gen(function* () {
   const updateMenu = makeMenu({
     dispatch: dispatchFromMenu,
     send: sendMenu,
-    reportProblem: () => void shell.openPath(logsDirectory),
+    // openPath resolves to an error message when it fails (say, the folder is gone); show Docs' own folder then.
+    reportProblem: () =>
+      void shell.openPath(logsDirectory).then((failed) => {
+        if (failed) shell.showItemInFolder(app.getPath('userData'))
+      }),
   })
 
   yield* handle(ipcMain, {

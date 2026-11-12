@@ -24,9 +24,9 @@ import {
   ProviderDefectError,
   ProviderNotReadyError,
 } from '../provider/errors'
+import { describeFailure, errorLogFields, logDefects, reportDefect } from '../provider/DefectReport'
 import type { AdapterEvent, CatalogPart, OpenedThread, ProviderSession } from '../provider/ProviderAdapter'
 import { isThreadEvent } from '../provider/ProviderAdapter'
-import { describeFailure, reportDefect } from './logging/DefectReport'
 import { ProviderEventLog } from './logging/ProviderEventLog'
 import { ProviderRegistry } from './ProviderRegistry'
 import * as S from './session/state'
@@ -106,9 +106,9 @@ export const make = (options: ManagerOptions) =>
   Effect.gen(function* () {
     const registry = yield* ProviderRegistry
     const eventLog = yield* ProviderEventLog
-    /** The layer's scope: background work started by commands outlives the command. */
+    /** The layer's scope: background work started by commands outlives the command. Nobody awaits it, so its defects are logged here. */
     const scope = yield* Scope.Scope
-    const background = <E>(effect: Effect.Effect<void, E>) => Effect.asVoid(Effect.forkIn(Effect.ignore(effect), scope))
+    const background = <E>(effect: Effect.Effect<void, E>) => Effect.asVoid(Effect.forkIn(Effect.ignore(logDefects(effect)), scope))
     const idleMs = Duration.toMillis(Duration.fromInputUnsafe(options.idleRelease ?? IDLE_RELEASE))
     const state = yield* SubscriptionRef.make(S.initialState('codex', options.defaultCwd))
     /** Live sessions by provider; set while a connection is up. */
@@ -186,7 +186,9 @@ export const make = (options: ManagerOptions) =>
           const startedAt = yield* now
           yield* updateLibrary(id, (lib) => ({ ...lib, status: 'ready', error: null }))
           yield* Effect.logDebug('Connected')
-          yield* Effect.forkScoped(Effect.all([refreshCatalog(id), reloadDisplayed(id, session)], { concurrency: 'unbounded', discard: true }))
+          yield* Effect.forkScoped(
+            logDefects(Effect.all([refreshCatalog(id), reloadDisplayed(id, session)], { concurrency: 'unbounded', discard: true })),
+          )
           return yield* session.awaitExit.pipe(
             Effect.raceFirst(Fiber.join(pump)),
             // A session that ran a while ends "successfully", so the restart count starts over.
@@ -205,8 +207,8 @@ export const make = (options: ManagerOptions) =>
         // and is shown once, by the catch below.
         Effect.tapError((error) =>
           endsConnection(error)
-            ? Effect.logWarning('Connection lost', error.message).pipe(
-                Effect.annotateLogs({ error: error._tag }),
+            ? Effect.logWarning('Connection lost').pipe(
+                Effect.annotateLogs(errorLogFields(error)),
                 Effect.andThen(update((current) => S.connectionLost(current, id, error.message))),
               )
             : Effect.void,
@@ -306,10 +308,11 @@ export const make = (options: ManagerOptions) =>
         `${id}:${part}`,
         Effect.sleep(INVALIDATE_DEBOUNCE).pipe(
           Effect.andThen(
+            // Nobody joins these refreshes, so their defects are logged here.
             Effect.gen(function* () {
-              if (part === 'docs') yield* refreshing(id, 'docs', refreshDocs(id))
-              else if (part === 'skills') yield* refreshing(id, 'skills', refreshSkills(id, skillsCwd(yield* read, id), true))
-              else yield* refreshing(id, 'all', refreshCatalog(id))
+              if (part === 'docs') yield* refreshing(id, 'docs', logDefects(refreshDocs(id)))
+              else if (part === 'skills') yield* refreshing(id, 'skills', logDefects(refreshSkills(id, skillsCwd(yield* read, id), true)))
+              else yield* refreshing(id, 'all', logDefects(refreshCatalog(id)))
             }),
           ),
         ),
@@ -362,7 +365,7 @@ export const make = (options: ManagerOptions) =>
       const idle = S.idleRuntimes(yield* read, yield* now, idleMs, MAX_IDLE_RUNTIMES)
       yield* Effect.forEach(idle, release, { discard: true })
     })
-    yield* Effect.forkScoped(Effect.repeat(sweep, Schedule.spaced(SWEEP_EVERY)))
+    yield* Effect.forkScoped(Effect.repeat(logDefects(sweep), Schedule.spaced(SWEEP_EVERY)))
 
     // ---- commands -------------------------------------------------------------------
 
