@@ -57,6 +57,8 @@ const MainLayer = managerLayer({
   Layer.provideMerge(NodeServices.layer),
 )
 const runtime = ManagedRuntime.make(MainLayer)
+/** Where a quit is: `waiting` while scopes close and providers stop, then `allowed` for the real quit. */
+let quitPhase: 'running' | 'waiting' | 'allowed' = 'running'
 
 const decodeFailed: CommandResult = { ok: false, error: 'Docs could not read that request.' }
 
@@ -141,13 +143,11 @@ const program = Effect.gen(function* () {
     event.returnValue = publisher.delivered()
   })
 
-  const open = () =>
-    createWindow({
-      onDidFinishLoad: () => runtime.runFork(Effect.map(manager.snapshot, publisher.resync)),
-    })
+  const open = () => createWindow({ onDidFinishLoad: publisher.resync })
   const win = open()
+  // While a quit waits on shutdown, activation opens nothing (T3 Code's DesktopLifecycle).
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) open()
+    if (quitPhase === 'running' && BrowserWindow.getAllWindows().length === 0) open()
   })
 
   yield* manager.start('codex')
@@ -181,7 +181,6 @@ app.on('window-all-closed', () => {
 // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 /** A shutdown that takes longer than this exits anyway; the ledger reaps leftovers next start. */
 const SHUTDOWN_DEADLINE_MS = 5_000
-let quitPhase: 'running' | 'waiting' | 'allowed' = 'running'
 
 // Quitting closes every scope first, so provider processes get SIGTERM (then SIGKILL)
 // before Electron exits: the first before-quit is cancelled, shutdown runs, then the

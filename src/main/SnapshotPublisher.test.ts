@@ -64,9 +64,35 @@ describe('SnapshotPublisher', () => {
       const publisher = makeSnapshotPublisher(SubscriptionRef.changes(yield* SubscriptionRef.make(snapshot)), (patch) => sent.push(patch))
       yield* Effect.forkScoped(publisher.run)
       yield* settle
-      publisher.resync(snapshot)
+      publisher.resync()
       expect(sent).toHaveLength(2)
       expect(Object.keys(sent[1].fields)).toContain('blocks')
+    }),
+  )
+
+  it.effect('resync during a frame sends the waiting text, and the frame then sends nothing older', () =>
+    Effect.gen(function* () {
+      const start: Snapshot = {
+        ...emptySnapshot(),
+        status: 'ready',
+        route: { kind: 'doc', threadId: 't' },
+        streaming: true,
+        blocks: [{ kind: 'agent', id: 'a', text: 'one ' }],
+      }
+      const state = yield* SubscriptionRef.make(start)
+      const sent: Array<{ patch: SnapshotPatch; snapshot: Snapshot }> = []
+      const publisher = makeSnapshotPublisher(SubscriptionRef.changes(state), (patch, snapshot) => sent.push({ patch, snapshot }))
+      yield* Effect.forkScoped(publisher.run)
+      yield* settle
+      for (const text of ['one two ', 'one two three ']) {
+        yield* SubscriptionRef.update(state, (s) => ({ ...s, blocks: [{ kind: 'agent' as const, id: 'a', text }] }))
+        yield* settle
+      }
+      publisher.resync()
+      expect(sent.at(-1)?.snapshot.blocks).toEqual([{ kind: 'agent', id: 'a', text: 'one two three ' }])
+      yield* TestClock.adjust('32 millis')
+      yield* settle
+      expect(sent.at(-1)?.snapshot.blocks).toEqual([{ kind: 'agent', id: 'a', text: 'one two three ' }])
     }),
   )
 })

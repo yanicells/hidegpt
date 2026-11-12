@@ -19,8 +19,12 @@ export const STREAM_FRAME = Duration.millis(32)
 export interface SnapshotPublisher {
   /** Runs until the snapshot stream ends (or the fiber is interrupted). */
   readonly run: Effect.Effect<void>
-  /** The window reloaded: its next patch must carry the whole snapshot. */
-  readonly resync: (snapshot: Snapshot) => void
+  /**
+   * The window reloaded: sends it the whole of the newest snapshot this
+   * publisher has seen. It never reads state itself, so a snapshot still on
+   * its way through the stream cannot be overtaken and then revert the page.
+   */
+  readonly resync: () => void
   /** What the window last got (null before the first patch); later patches apply on top of it. */
   readonly delivered: () => Snapshot | null
 }
@@ -57,9 +61,10 @@ export function makeSnapshotPublisher(
         })
       }),
     ),
-    resync: (snapshot) => {
+    resync: () => {
+      const latest = pending ?? delivered
       delivered = null
-      deliver(snapshot)
+      if (latest) deliver(latest)
     },
     delivered: () => delivered,
   }
