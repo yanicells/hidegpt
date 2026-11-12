@@ -3,7 +3,7 @@
 // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 import { homedir } from 'node:os'
 
-import type { Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import type { CanUseTool, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 
 import { REPLAY_HOME, type ReplayEntry, type ReplayTranscript, TurnRefusedError } from '../provider/replayFixture'
 import type { ClaudeSdk } from './ClaudeAdapter'
@@ -16,14 +16,25 @@ import type { ClaudeSdk } from './ClaudeAdapter'
  * back to the real adapter and fails on any call the recording did not make.
  *
  * Frames: outbound `{ call, query?, args? }` (a call), `{ query, prompt }` (a
- * prompt Docs fed a query); inbound `{ call, query?, result }` or
- * `{ call, query?, error }` (its answer), `{ query, message }` (a streamed message).
+ * prompt Docs fed a query), `{ query, permissionResult }` (Docs' answer to a
+ * permission request); inbound `{ call, query?, result }` or
+ * `{ call, query?, error }` (its answer), `{ query, message }` (a streamed
+ * message), `{ query, permission }` (Claude Code asking `canUseTool`).
  */
 
 type CallFrame = { readonly call: string; readonly query?: number; readonly args?: ReadonlyArray<unknown> }
+/** The `canUseTool` arguments a recording keeps; the signal is the replay's own. */
+type PermissionRequest = {
+  readonly tool: string
+  readonly input: Record<string, unknown>
+  readonly toolUseID: string
+  readonly suggestions?: Parameters<CanUseTool>[2]['suggestions']
+  readonly title?: string
+}
 type InboundFrame =
   | { readonly call: string; readonly query?: number; readonly result?: unknown; readonly error?: string }
   | { readonly query: number; readonly message: SDKMessage }
+  | { readonly query: number; readonly permission: PermissionRequest }
 
 type ApplyFlagSettings = Query['applyFlagSettings']
 
@@ -65,6 +76,24 @@ export function recordingSdk(sdk: ClaudeSdk, entries: ReplayEntry[], allowTurns:
       const query = ++queries
       outbound('query', { call: 'query', query, args: [options] })
       if (typeof prompt === 'string' && !allowTurns) throw new TurnRefusedError('send a prompt to Claude')
+      // Adapted from T3's recorded canUseTool: the request goes in as Claude Code asked it,
+      // and Docs' answer goes out once the person has decided.
+      const canUseTool = options?.canUseTool
+      const recordedCanUseTool: CanUseTool | undefined =
+        canUseTool &&
+        (async (tool, input, asked) => {
+          const permission: PermissionRequest = {
+            tool,
+            input,
+            toolUseID: asked.toolUseID,
+            ...(asked.suggestions === undefined ? {} : { suggestions: asked.suggestions }),
+            ...(asked.title === undefined ? {} : { title: asked.title }),
+          }
+          inbound('permission', { query, permission })
+          const permissionResult = await canUseTool(tool, input, asked)
+          outbound('permissionResult', { query, permissionResult })
+          return permissionResult
+        })
       // The guard sits between Docs and Claude Code: a refused prompt is never passed on.
       // It closes the query instead, and the query's messages end with the refusal.
       let refused: TurnRefusedError | null = null
@@ -83,7 +112,10 @@ export function recordingSdk(sdk: ClaudeSdk, entries: ReplayEntry[], allowTurns:
                 yield message
               }
             })()
-      const started = sdk.query({ prompt: guarded, ...(options ? { options } : {}) })
+      const started = sdk.query({
+        prompt: guarded,
+        ...(options ? { options: { ...options, ...(recordedCanUseTool ? { canUseTool: recordedCanUseTool } : {}) } } : {}),
+      })
       real = started
       const messages = (async function* () {
         for await (const message of started) {
@@ -232,6 +264,8 @@ export function replaySdk(transcript: ReplayTranscript, paths: ReadonlyArray<rea
   const bindings: Bindings = { ids: new Map(), taken: new Set(), known: new Set() }
   const pending = new Map<string, Array<{ resolve: (value: unknown) => void; reject: (error: Error) => void }>>()
   const inboxes = new Map<number, Inbox>()
+  /** Each query's `canUseTool` and the signal that withdraws its requests when the query closes. */
+  const permissions = new Map<number, { readonly ask: CanUseTool | undefined; readonly abort: AbortController }>()
   let cursor = 0
   let queries = 0
   let failure: string | null = null
@@ -262,11 +296,31 @@ export function replaySdk(transcript: ReplayTranscript, paths: ReadonlyArray<rea
         inboxes.get(frame.query)?.push(frame.message)
         continue
       }
+      if ('permission' in frame) {
+        askPermission(frame.query, frame.permission)
+        continue
+      }
       const waiter = pending.get(keyOf(frame))?.shift()
       if (!waiter) return fail(`Recorded answer to ${keyOf(frame)} at entry ${cursor - 1} has no call waiting for it.`)
       if (frame.error !== undefined) waiter.reject(new Error(frame.error))
       else waiter.resolve(frame.result)
     }
+  }
+
+  /**
+   * Asks Docs' own `canUseTool` what Claude Code asked in the recording. Its
+   * answer must match the recorded one, so a wrong decision fails the replay.
+   */
+  const askPermission = (query: number, permission: PermissionRequest) => {
+    const saved = permissions.get(query)
+    if (!saved?.ask) return fail(`Recorded a permission request for ${permission.toolUseID}, but Docs gave query ${query} no canUseTool.`)
+    const { tool, input, ...asked } = permission
+    saved
+      .ask(tool, input, { ...asked, signal: saved.abort.signal, requestId: permission.toolUseID })
+      .then((permissionResult) => {
+        if (expect({ query, permissionResult })) pump()
+      })
+      .catch((error: unknown) => fail(`canUseTool failed for ${permission.toolUseID}: ${errorText(error)}`))
   }
 
   /** Matches what Docs sent against the next recorded outbound frame. */
@@ -305,14 +359,17 @@ export function replaySdk(transcript: ReplayTranscript, paths: ReadonlyArray<rea
       const query = ++queries
       const inbox = new Inbox()
       inboxes.set(query, inbox)
-      if (!expect({ call: 'query', query, args: [options] })) inbox.end()
+      const abort = new AbortController()
+      permissions.set(query, { ask: options?.canUseTool, abort })
+      if (expect({ call: 'query', query, args: [options] })) pump()
+      else inbox.end()
       if (typeof prompt !== 'string') {
-        void (async () => {
+        ;(async () => {
           for await (const message of prompt as AsyncIterable<SDKUserMessage>) {
             if (!expect({ query, prompt: message })) return
             pump()
           }
-        })()
+        })().catch((error: unknown) => fail(`Docs' prompt stream for query ${query} failed: ${errorText(error)}`))
       }
       const ask = <A>(name: string, args: ReadonlyArray<unknown> = []) => call<A>({ call: name, query, args })
       const methods = {
@@ -323,6 +380,7 @@ export function replaySdk(transcript: ReplayTranscript, paths: ReadonlyArray<rea
         interrupt: () => ask('interrupt'),
         close: () => {
           if (expect({ call: 'close', query })) pump()
+          abort.abort()
           inbox.end()
         },
       }
