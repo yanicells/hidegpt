@@ -1,6 +1,11 @@
 // Adapted from T3 Code (scripts/build-desktop-artifact.ts, `createBuildConfig`) at commit 5c6f2f12.
 // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+import { createRequire } from 'node:module'
+
 import type { Configuration } from 'electron-builder'
+
+import { PACKAGED_BINARY_NAME } from '../src/claude/executable.ts'
+import { afterPack } from './after-pack.ts'
 
 type Env = Readonly<Record<string, string | undefined>>
 
@@ -22,12 +27,40 @@ export const wantsNotarizing = (env: Env): boolean =>
     has(env, 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID') ||
     has(env, 'APPLE_KEYCHAIN', 'APPLE_KEYCHAIN_PROFILE'))
 
-/** The SDK's entry bundles its own dependencies, so it and its platform binary are all Claude needs. */
+/**
+ * The SDK's entry bundles its own dependencies, so it and its platform package
+ * are all Claude needs. The package's binary is left out of the archive: it
+ * ships renamed in Resources instead (see `claudeBinary`).
+ */
 const CLAUDE_FILES = [
   'node_modules/@anthropic-ai/claude-agent-sdk/**/*',
   'node_modules/@anthropic-ai/claude-agent-sdk-*/**/*',
+  '!node_modules/@anthropic-ai/claude-agent-sdk-*/claude',
 ]
-const CLAUDE_BINARY = 'node_modules/@anthropic-ai/claude-agent-sdk-*/**/*'
+
+/**
+ * The Claude Code binary for this Mac's architecture, which is the one pnpm
+ * installed. The platform package is the SDK's own dependency and isn't
+ * hoisted, so it's resolved from the SDK's folder, as the SDK resolves it.
+ */
+export function claudeBinary(arch: string = process.arch): string {
+  const require = createRequire(import.meta.url)
+  const sdk = require.resolve('@anthropic-ai/claude-agent-sdk')
+  return createRequire(sdk).resolve(`@anthropic-ai/claude-agent-sdk-darwin-${arch}/claude`)
+}
+
+/**
+ * Permission prompts Electron's Info.plist declares. Docs refuses every one of
+ * them (src/main/window.ts), so they only advertise a camera and microphone it
+ * never asks for. electron-builder deletes keys set to null.
+ */
+const UNUSED_PERMISSIONS = {
+  NSAudioCaptureUsageDescription: null,
+  NSBluetoothAlwaysUsageDescription: null,
+  NSBluetoothPeripheralUsageDescription: null,
+  NSCameraUsageDescription: null,
+  NSMicrophoneUsageDescription: null,
+}
 
 /** Everything electron-builder reads to sign or notarize. */
 export const SIGNING_VARS = [
@@ -67,8 +100,9 @@ export function builderEnv(env: Env): Record<string, string> {
  *
  * - Main bundles everything it runs except the Claude SDK, so a shared build,
  *   which has no Claude code (see electron.vite.config.ts), carries no
- *   `node_modules` at all. A personal build carries only the SDK, and unpacks
- *   its platform binary so it can be spawned.
+ *   `node_modules` at all. A personal build carries only the SDK, and ships
+ *   its platform binary as `Contents/Resources/Docs Helper`, outside the
+ *   archive so it can be spawned and under a name that says nothing.
  * - Signing and notarizing happen only when their env vars are set. Otherwise
  *   the app is ad-hoc signed, which an Apple silicon Mac needs to open it at
  *   all, and the hardened runtime stays off, since it refuses an ad-hoc signed
@@ -76,7 +110,7 @@ export function builderEnv(env: Env): Record<string, string> {
  *
  * Every name a person can see (app, bundle id, menu bar, installer) is "Docs".
  */
-export function builderConfig(env: Env): Configuration {
+export function builderConfig(env: Env, claude: () => string = claudeBinary): Configuration {
   const personal = isPersonal(env)
   const signed = wantsSigning(env)
   return {
@@ -90,11 +124,12 @@ export function builderConfig(env: Env): Configuration {
     // list (electron-builder merges objects key by key, so only null clears it).
     extraMetadata: { name: 'docs', productName: 'Docs', ...(personal ? {} : { dependencies: null }) },
     files: ['out/**/*', 'package.json', '!node_modules/**/*', ...(personal ? CLAUDE_FILES : [])],
-    asarUnpack: personal ? [CLAUDE_BINARY] : [],
+    ...(personal ? { extraResources: [{ from: claude(), to: PACKAGED_BINARY_NAME }] } : {}),
     electronLanguages: ['en'],
     // Nothing native to rebuild, and nothing is published.
     npmRebuild: false,
     publish: null,
+    afterPack,
     mac: {
       target: ['dmg', 'zip'],
       icon: 'icon.icns',
@@ -105,6 +140,7 @@ export function builderConfig(env: Env): Configuration {
       entitlements: 'build/entitlements.mac.plist',
       entitlementsInherit: 'build/entitlements.mac.plist',
       notarize: wantsNotarizing(env),
+      extendInfo: UNUSED_PERMISSIONS,
     },
     dmg: { title: 'Docs ${version}' },
   }

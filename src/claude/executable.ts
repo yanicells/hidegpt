@@ -1,27 +1,23 @@
-import { createRequire } from 'node:module'
-import { sep } from 'node:path'
-
-const archived = `app.asar${sep}`
-const unpacked = `app.asar.unpacked${sep}`
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 
 /**
- * Where a packaged app keeps the Claude Code binary. The SDK finds the binary in
- * its platform package, but inside a packaged app that path points into
- * `app.asar`, which can't be spawned; electron-builder unpacks the package next
- * to it (`asarUnpack`), so the path is rewritten to there. Returns undefined
- * when running from source, where the SDK's own lookup works.
+ * The Claude Code binary's file name in a packaged personal build. The build
+ * copies it out of the SDK's package into `Contents/Resources/` under this
+ * name (scripts/builder-config.ts), so no file in the bundle has a vendor name.
+ */
+export const PACKAGED_BINARY_NAME = 'Docs Helper'
+
+/**
+ * Where a packaged personal build keeps the Claude Code binary. Returns
+ * undefined when it isn't there (running from source), which leaves the SDK
+ * its own lookup of its platform package.
  */
 export function packagedClaudeExecutable(
-  resolve: (id: string) => string = createRequire(import.meta.url).resolve,
-  platform: string = process.platform,
-  arch: string = process.arch,
+  resourcesPath: string | undefined = process.resourcesPath,
+  exists: (path: string) => boolean = existsSync,
 ): string | undefined {
-  try {
-    const path = resolve(
-      `@anthropic-ai/claude-agent-sdk-${platform}-${arch}/claude${platform === 'win32' ? '.exe' : ''}`,
-    )
-    return path.includes(archived) ? path.replace(archived, unpacked) : undefined
-  } catch {
-    return undefined
-  }
+  if (!resourcesPath) return undefined
+  const path = join(resourcesPath, PACKAGED_BINARY_NAME)
+  return exists(path) ? path : undefined
 }

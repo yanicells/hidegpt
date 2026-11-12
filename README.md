@@ -93,7 +93,8 @@ HIDEGPT_PERSONAL=1 pnpm dist   # dist/personal/Docs-<version>-<arch>-personal.dm
 
 A personal build goes to its own folder with `-personal` in its name, so it
 can't be mistaken for the shared one. It ships only the Claude SDK, with its
-binary unpacked next to `app.asar` so it can be spawned.
+binary copied out of the archive to `Contents/Resources/Docs Helper`, so it can
+be spawned and no file in the bundle carries a vendor name.
 
 Running from source (`pnpm dev`, `pnpm start`, `pnpm screenshot`, tests) always
 includes Claude.

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { PACKAGED_BINARY_NAME } from '../src/claude/executable.ts'
 import { builderConfig, builderEnv } from './builder-config.ts'
 
 const NOTARY = { APPLE_API_KEY: '/keys/AuthKey.p8', APPLE_API_KEY_ID: 'KEYID', APPLE_API_ISSUER: 'issuer' }
@@ -31,15 +32,28 @@ describe('builderConfig', () => {
   it('ships no node_modules and no dependency list in a shared build', () => {
     const config = builderConfig({ HIDEGPT_PERSONAL: '0' })
     expect(config.files).toEqual(['out/**/*', 'package.json', '!node_modules/**/*'])
-    expect(config.asarUnpack).toEqual([])
+    expect(config).not.toHaveProperty('extraResources')
     expect(config.extraMetadata).toMatchObject({ dependencies: null })
   })
 
-  it('ships only the Claude SDK, its binary unpacked, in a personal build', () => {
-    const config = builderConfig({ HIDEGPT_PERSONAL: '1' })
+  it('ships only the Claude SDK in a personal build, its binary renamed in Resources', () => {
+    const binary = '/store/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude'
+    const config = builderConfig({ HIDEGPT_PERSONAL: '1' }, () => binary)
     expect(config.files).toContain('node_modules/@anthropic-ai/claude-agent-sdk/**/*')
-    expect(config.asarUnpack).toEqual(['node_modules/@anthropic-ai/claude-agent-sdk-*/**/*'])
+    expect(config.files).toContain('!node_modules/@anthropic-ai/claude-agent-sdk-*/claude')
+    // The name the Claude adapter looks for (src/claude/executable.ts).
+    expect(config.extraResources).toEqual([{ from: binary, to: PACKAGED_BINARY_NAME }])
     expect(config.extraMetadata).not.toHaveProperty('dependencies')
+  })
+
+  it('drops the camera, microphone and Bluetooth prompts Electron declares', () => {
+    expect(builderConfig({}).mac?.extendInfo).toEqual({
+      NSAudioCaptureUsageDescription: null,
+      NSBluetoothAlwaysUsageDescription: null,
+      NSBluetoothPeripheralUsageDescription: null,
+      NSCameraUsageDescription: null,
+      NSMicrophoneUsageDescription: null,
+    })
   })
 
   it('names everything a person sees "Docs"', () => {
@@ -52,7 +66,7 @@ describe('builderConfig', () => {
 describe('personal builds', () => {
   it('get their own folder and name, so a shared build is never mistaken for one', () => {
     const shared = builderConfig({})
-    const personal = builderConfig({ HIDEGPT_PERSONAL: '1' })
+    const personal = builderConfig({ HIDEGPT_PERSONAL: '1' }, () => '/claude')
     expect(shared).toMatchObject({ artifactName: 'Docs-${version}-${arch}.${ext}', directories: { output: 'dist' } })
     expect(personal).toMatchObject({
       artifactName: 'Docs-${version}-${arch}-personal.${ext}',
