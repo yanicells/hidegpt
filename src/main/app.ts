@@ -154,7 +154,9 @@ const program = Effect.gen(function* () {
 
   yield* manager.start('codex')
   const shots = process.env.HIDEGPT_SCREENSHOT
-  if (shots) {
+  // The walk drives the demo library; against real providers it would open real documents.
+  if (shots && !demo) console.error('HIDEGPT_SCREENSHOT needs HIDEGPT_FAKE=1; skipping screenshots.')
+  if (shots && demo) {
     // A failed step still quits, with the reason on stderr, so a run never hangs.
     yield* captureScreenshots(win, manager, shots).pipe(
       Effect.catchCause((cause) =>
