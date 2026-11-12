@@ -22,8 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      # Typecheck, lint, knip and the unit tests never launch Electron, so skip its
-      # ~100 MB download in postinstall.
+      # No step launches Electron, so skip its ~100 MB download in postinstall.
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
     steps:
       - name: Checkout
@@ -36,12 +35,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # effect-tsgo: the TypeScript check plus the Effect language service diagnostics
+      # (tsconfig.effect.json), as T3 Code's server typecheck runs it.
       - name: Typecheck
         run: pnpm typecheck
 
