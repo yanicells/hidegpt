@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { leaks, type RecordingMachine, scrub, thisMachine, turnsAllowed } from './replayFixture'
+import { leaks, type RecordingMachine, scrub, turnsAllowed } from './replayFixture'
 
 const MACHINE: RecordingMachine = {
   home: '/Users/ada',
@@ -64,13 +64,27 @@ describe('replay fixtures', () => {
   })
 
   it('an empty home or a short name never counts as a leak', () => {
-    expect(leaks('{"a":"to be or not"}', { home: '', people: ['', 'to'], hosts: [''] })).toEqual([])
+    expect(leaks('{"a":"to be or not"}', { home: '', people: ['', 'to'], hosts: [''], scratch: [] })).toEqual([])
     expect(scrub('/x/y', { home: '', people: [''], hosts: [''], scratch: [] })).toBe('/x/y')
   })
 
-  it.each(FIXTURES.map((path) => [path.slice(SRC.length), path]))('%s has no emails, home paths, names or tokens of this machine', (_name, path) => {
+  it('a name that is a placeholder word is not treated as personal', () => {
+    const machine: RecordingMachine = {
+      home: '',
+      people: ['user', 'Replay', 'Example'],
+      hosts: ['host'],
+      scratch: [['/private/var/folders/x1/abc/T/w', '/tmp/replay-workspace']],
+    }
+    const text = '{"email":"replay-user@example.com","cwd":"/tmp/replay-workspace","host":"replay-host","key":"<redacted>"}'
+    expect(leaks(text, machine)).toEqual([])
+    expect(scrub(text, machine)).toBe(text)
+  })
+
+  // Names are per machine (a CI runner is called "runner"), so the recorders check those;
+  // this checks what no fixture may hold on any machine.
+  it.each(FIXTURES.map((path) => [path.slice(SRC.length), path]))('%s has no emails, home or temp paths, or tokens', (_name, path) => {
     const text = readFileSync(path, 'utf8')
-    expect(leaks(text, thisMachine())).toEqual([])
+    expect(leaks(text, { home: '', people: [], hosts: [], scratch: [] })).toEqual([])
   })
 
   it('turns are refused unless a person sets HIDEGPT_RECORD_TURNS=1', () => {
