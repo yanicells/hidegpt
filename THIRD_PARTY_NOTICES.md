@@ -35,8 +35,9 @@ or adapted file carries a header naming its source.
     `apps/desktop/src/app/DesktopLifecycle.ts`.
   - `src/provider/ProcessSupervisor.ts` and `src/provider/ProcessLedger.ts`:
     Claude Code spawned in its own process group with stderr drained
-    (`spawnClaudeProcessGroup`, from
-    `apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts`), the
+    (`spawnClaudeProcessGroup`) and pid plus start time from `ps`
+    (`parseClaudeProcessTable`), from
+    `apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts`; the
     atomic ledger write (`packages/shared/src/atomicWrite.ts`), and one app per
     profile in `src/main/app.ts` (`apps/desktop/src/app/DesktopClerk.ts`), at
     commit 5c6f2f12.
