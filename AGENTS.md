@@ -98,10 +98,12 @@ plain React.
   `ProviderTimeoutError`); retries and reconnects are `Schedule`s.
 - Failures are the tagged errors in `src/provider/errors.ts`; their
   `message` is the Docs-style sentence the banner shows. A defect never
-  shows its raw text: it goes through `describeFailure`, which logs it.
+  shows its raw text: it goes through `describeFailure` or `reportDefect`
+  (`src/provider/DefectReport.ts`), which log it.
 - Diagnostics go through `Effect.log*` (written to `userData/logs`), not
-  `console`. Never log prompt or answer text, titles, sign-in links, or
-  credentials (`docs/architecture.md` §1).
+  `console`. Never log prompt or answer text, titles, sign-in links,
+  credentials, or a provider's error text; log `errorLogFields` instead
+  (`docs/architecture.md` §1).
 - Commands are decoded with their schema at the IPC boundary.
 - Tests use `@effect/vitest` and `TestClock`, against fakes that replace only
   the process boundary (`FakeCodex`, `FakeOpenCode`, `FakeClaude`).

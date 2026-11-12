@@ -59,7 +59,8 @@ or adapted file carries a header naming its source.
     `observability/Observability.ts`; the provider event log with its batching
     writer and skipped text deltas, after
     `apps/server/src/provider/EventNdjsonLogger.ts`; and logging only defects,
-    from `apps/server/src/observability/DefectReporter.ts`.
+    from `apps/server/src/observability/DefectReporter.ts`, now in
+    `src/provider/DefectReport.ts`.
 - License: MIT
 
 ```
