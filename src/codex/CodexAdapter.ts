@@ -57,7 +57,7 @@ type Account = Result<'account/read'>['account']
 type UserInput = Params<'turn/start'>['input'][number]
 
 /** Opens a connected client in the caller's scope: the real process, or a fake peer in tests and demo mode. */
-export type Connect = Effect.Effect<Client, BinaryMissingError, Scope.Scope>
+export type Connect = Effect.Effect<Client, BinaryMissingError | ProviderRequestError, Scope.Scope>
 
 /** Seconds each request may take. Resume replays a whole thread, so it gets the longest. */
 const DEADLINES: Partial<Record<Method, number>> = {

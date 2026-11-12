@@ -14,7 +14,8 @@ import { ChildProcess, ChildProcessSpawner } from 'effect/process'
 
 import type { ProviderId } from '../shared/model'
 import { appendStderrTail, stderrExcerpt } from '../vendor/effect-codex-app-server/_internal/stdio'
-import { BinaryMissingError, ProcessExitedError } from './errors'
+import { BinaryMissingError, ProcessExitedError, ProviderRequestError } from './errors'
+import { providerLabel } from '../shared/labels'
 
 /**
  * Starts provider processes. Effect's Node spawner already gives each child
@@ -51,7 +52,7 @@ export class ProcessSupervisor extends Context.Service<
     readonly spawn: (
       options: SpawnOptions,
       tailStderr?: boolean,
-    ) => Effect.Effect<SupervisedProcess, BinaryMissingError, Scope.Scope>
+    ) => Effect.Effect<SupervisedProcess, BinaryMissingError | ProviderRequestError, Scope.Scope>
     /** Kills servers a previous, crashed run left behind. */
     readonly reapOrphans: Effect.Effect<number>
   }
@@ -72,10 +73,15 @@ const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledge
         forceKillAfter: FORCE_KILL_AFTER,
       })
       const handle = yield* spawner.spawn(command).pipe(
+        // Only a missing command means "not installed"; anything else (no permission, a bad cwd) says what failed.
         Effect.mapError((error) =>
           isNotFound(error)
             ? new BinaryMissingError({ provider: options.provider, command: options.command })
-            : new BinaryMissingError({ provider: options.provider, command: `${options.command} (${error.message})` }),
+            : new ProviderRequestError({
+                provider: options.provider,
+                operation: 'spawn',
+                detail: `Docs could not start ${providerLabel(options.provider)}: ${error.message}`,
+              }),
         ),
       )
       const signature = `${basename(options.command)} ${options.args[0] ?? ''}`.trim()
