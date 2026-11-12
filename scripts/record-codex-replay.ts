@@ -8,8 +8,8 @@
  *   pnpm record:codex library            # no prompt; any agent may run it
  *   HIDEGPT_RECORD_TURNS=1 pnpm record:codex turn   # a person only: sends 2 prompts
  *
- * Without HIDEGPT_RECORD_TURNS=1 the recorder only lets the no-prompt methods
- * below reach Codex, so it cannot start a turn even by mistake.
+ * Without HIDEGPT_RECORD_TURNS=1 only `NO_PROMPT_METHODS` (src/codex/replay.ts)
+ * can reach Codex, so the recorder cannot start a turn even by mistake.
  */
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir, userInfo } from 'node:os'
@@ -23,6 +23,7 @@ import * as Stream from 'effect/Stream'
 import { ChildProcess, ChildProcessSpawner } from 'effect/process'
 
 import * as CodexAdapter from '../src/codex/CodexAdapter.ts'
+import { recordingOptions } from '../src/codex/replay.ts'
 import type { AdapterEvent, ProviderSession, TurnSettings } from '../src/provider/ProviderAdapter.ts'
 import {
   encodeTranscript,
@@ -34,22 +35,6 @@ import {
   turnsAllowed,
 } from '../src/provider/replayFixture.ts'
 import * as CodexClient from '../src/vendor/effect-codex-app-server/client.ts'
-
-/** Everything the no-prompt scenario sends. None of it reaches a model. */
-const NO_PROMPT_METHODS = new Set([
-  'initialize',
-  'initialized',
-  'account/read',
-  'model/list',
-  'project/list',
-  'collaborationMode/list',
-  'mcpServerStatus/list',
-  'thread/list',
-  'thread/start',
-  'thread/resume',
-  'thread/turns/list',
-  'thread/unsubscribe',
-])
 
 const SETTINGS: TurnSettings = { model: null, effort: null, serviceTier: null, mode: null }
 /** Fixed and harmless; the fixture's metadata keeps them so the replay test sends the same ones. */
@@ -94,7 +79,7 @@ const SCENARIOS: Record<string, Scenario> = {
   },
 }
 
-/** The adapter's `Connect`, over `codex app-server` with every decoded frame recorded. */
+/** The adapter's `Connect`, over `codex app-server` with every decoded frame recorded (and turns refused). */
 const recordingConnect = (
   spawner: ChildProcessSpawner.ChildProcessSpawner['Service'],
   env: Record<string, string>,
@@ -106,31 +91,7 @@ const recordingConnect = (
     const handle = yield* spawner.spawn(
       ChildProcess.make(env.CODEX_BIN || 'codex', ['app-server'], { cwd, env, extendEnv: false }),
     ).pipe(Effect.orDie)
-    const requests = new Map<string, string>()
-    const options: CodexClient.CodexAppServerClientOptions = {
-      logIncoming: true,
-      logOutgoing: true,
-      // Runs before a frame is written, so dying here keeps it off the wire.
-      logger: (event) =>
-        Effect.suspend(() => {
-          if (event.stage !== 'decoded' || typeof event.payload !== 'object' || event.payload === null) return Effect.void
-          const frame = event.payload as { method?: unknown; id?: unknown }
-          const method = typeof frame.method === 'string' ? frame.method : undefined
-          if (event.direction === 'outgoing' && method && !allowTurns && !NO_PROMPT_METHODS.has(method)) {
-            return Effect.die(new TurnRefusedError(`send ${method}`))
-          }
-          const id = frame.id === undefined ? undefined : String(frame.id)
-          if (method && id) requests.set(`${event.direction}:${id}`, method)
-          const label = method ?? (id ? requests.get(`${event.direction === 'incoming' ? 'outgoing' : 'incoming'}:${id}`) : undefined)
-          entries.push({
-            type: event.direction === 'outgoing' ? 'expect_outbound' : 'emit_inbound',
-            ...(label ? { label } : {}),
-            frame: event.payload,
-          })
-          return Effect.void
-        }),
-    }
-    const context = yield* Layer.build(CodexClient.layerChildProcess(handle, options))
+    const context = yield* Layer.build(CodexClient.layerChildProcess(handle, recordingOptions(entries, allowTurns)))
     return Context.get(context, CodexClient.CodexAppServerClient)
   })
 

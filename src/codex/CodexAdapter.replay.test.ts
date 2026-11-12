@@ -9,10 +9,11 @@ import * as Schema from 'effect/Schema'
 import * as Stream from 'effect/Stream'
 
 import type { AdapterEvent, TurnSettings } from '../provider/ProviderAdapter'
-import { readTranscript } from '../provider/replayFixture'
+import { readTranscript, type ReplayEntry } from '../provider/replayFixture'
 import * as CodexClient from '../vendor/effect-codex-app-server/client.ts'
 import * as CodexReplay from '../vendor/effect-codex-app-server/replay.ts'
 import * as CodexAdapter from './CodexAdapter'
+import { recordingOptions } from './replay'
 
 /**
  * The real adapter against frames recorded from the real `codex app-server`
@@ -95,6 +96,21 @@ describe('CodexAdapter replay', () => {
 
       yield* session.releaseThread(created.threadId)
       expect(yield* finished).toEqual({ failure: null, unused: 0 })
+    }),
+  )
+
+  it.effect('without the turn gate, the recorder dies before turn/start is written, and records the rest', () =>
+    Effect.gen(function* () {
+      const entries: ReplayEntry[] = []
+      const log = recordingOptions(entries, false).logger!
+      yield* log({ direction: 'outgoing', stage: 'decoded', payload: { id: 1, method: 'thread/list', params: {} } })
+      yield* log({ direction: 'incoming', stage: 'decoded', payload: { id: 1, result: { data: [] } } })
+      const refused = yield* Effect.exit(log({ direction: 'outgoing', stage: 'decoded', payload: { id: 2, method: 'turn/start', params: {} } }))
+      expect(refused._tag).toBe('Failure')
+      expect(entries.map((entry) => [entry.type, 'label' in entry ? entry.label : null])).toEqual([
+        ['expect_outbound', 'thread/list'],
+        ['emit_inbound', 'thread/list'],
+      ])
     }),
   )
 })
