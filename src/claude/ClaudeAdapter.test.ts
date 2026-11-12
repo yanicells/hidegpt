@@ -328,14 +328,27 @@ describe('ClaudeAdapter', () => {
         description: 'Claude will have access to the web',
         decisionReason: 'Claude Code asks before searching',
       }
-      fake.queries[0]!.askTool('WebSearch', { query: 'week 3 readings' }, 'toolu_w', { ...prompt, displayName: 'Search the web' })
-      fake.queries[0]!.askTool('mcp__claude_ai_Notion__notion-search', { query: 'notes' }, 'toolu_m', { ...prompt, displayName: 'Claude: search Notion' })
+      fake.queries[0]!.askTool('WebSearch', { query: 'week 3 readings' }, 'toolu_w', {
+        ...prompt,
+        displayName: 'Search the web',
+      })
+      fake.queries[0]!.askTool('mcp__claude_ai_Notion__notion-search', { query: 'notes' }, 'toolu_m', {
+        ...prompt,
+        displayName: 'Claude: search Notion',
+      })
       fake.queries[0]!.askTool('mcp__x__claude_search', { query: 'syllabus' }, 'toolu_c', prompt)
       // A Task card shows its short description, and a long input is clipped.
-      fake.queries[0]!.askTool('Task', { description: 'Summarize week 3', prompt: 'Read every file. '.repeat(40) }, 'toolu_t', prompt)
+      fake.queries[0]!.askTool(
+        'Task',
+        { description: 'Summarize week 3', prompt: 'Read every file. '.repeat(40) },
+        'toolu_t',
+        prompt,
+      )
       fake.queries[0]!.askTool('Bash', { command: 'x'.repeat(500) }, 'toolu_b', prompt)
       yield* until(() => events.filter((event) => event.type === 'block').length === 5)
-      const cards = events.flatMap((event) => (event.type === 'block' && event.block.kind === 'approval' ? [event.block] : []))
+      const cards = events.flatMap((event) =>
+        event.type === 'block' && event.block.kind === 'approval' ? [event.block] : [],
+      )
       expect(cards.map((card) => [card.title, card.body])).toEqual([
         ['Allow Search the web?', 'week 3 readings'],
         ['Allow notion-search?', 'notes'],

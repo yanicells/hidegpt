@@ -353,7 +353,17 @@ export function resultError(message: SDKResultMessage): string | undefined {
 
 // The input field that best shows what a tool will touch, first match wins. A Task's
 // short `description` comes before its `prompt`, which is the whole subagent brief.
-const PREVIEW_KEYS = ['command', 'file_path', 'notebook_path', 'path', 'url', 'query', 'pattern', 'description', 'prompt'] as const
+const PREVIEW_KEYS = [
+  'command',
+  'file_path',
+  'notebook_path',
+  'path',
+  'url',
+  'query',
+  'pattern',
+  'description',
+  'prompt',
+] as const
 /** A card shows a glimpse of the input, not all of it. */
 const PREVIEW_MAX = 200
 
