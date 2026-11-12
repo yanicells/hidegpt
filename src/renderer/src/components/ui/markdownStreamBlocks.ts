@@ -2,6 +2,7 @@
 // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 
 // Definitions, footnotes, raw HTML, container directives and display math can tie blocks together.
+// Checked outside code fences only, where `<div>` or a regex like `[^a-z]` is just code.
 const DOCUMENT_WIDE_SYNTAX = /^ {0,3}(?:\[[^\]\n]+\]:|<[A-Za-z!?/]|:::|\$\$)|\[\^/m
 const FENCE_PATTERN = /^ {0,3}(`{3,}|~{3,})/
 // After a blank line these still continue the previous block: a list item or indented content.
@@ -14,7 +15,7 @@ const CONTINUATION_PATTERN = /^(?:[ \t]|(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$))/
  * spans blocks.
  */
 export function splitMarkdownBlocks(text: string): string[] | null {
-  if (text.includes('\r') || DOCUMENT_WIDE_SYNTAX.test(text)) return null
+  if (text.includes('\r')) return null
   const blocks: string[] = []
   let blockStart = 0
   let lineStart = 0
@@ -24,14 +25,19 @@ export function splitMarkdownBlocks(text: string): string[] | null {
   for (const line of text.split('\n')) {
     const opener = FENCE_PATTERN.exec(line)?.[1]
     if (fence !== null) {
-      // A line left of an indented fence may end the list item holding it, which isn't tracked.
-      if (/\S/.test(line.slice(0, fenceIndent))) break
+      // A line left of an indented fence may end the list item holding it, which isn't tracked;
+      // the rest stays one block, so it must not use document-wide syntax either.
+      if (/\S/.test(line.slice(0, fenceIndent))) {
+        if (DOCUMENT_WIDE_SYNTAX.test(text.slice(lineStart))) return null
+        break
+      }
       if (opener && opener[0] === fence[0] && opener.length >= fence.length && line.trim() === opener) {
         fence = null
       }
     } else if (line.trim() === '') {
       afterBlankLine = true
     } else {
+      if (DOCUMENT_WIDE_SYNTAX.test(line)) return null
       if (afterBlankLine && lineStart > blockStart && !CONTINUATION_PATTERN.test(line)) {
         blocks.push(text.slice(blockStart, lineStart))
         blockStart = lineStart

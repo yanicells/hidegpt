@@ -24,6 +24,7 @@ describe('splitMarkdownBlocks', () => {
     'para\n\n    indented code\n\nnext',
     'Setext\n===\n\nnext\n---\n\n- [ ] task\n- [x] done',
     '- a\n\n  ```\n  x\n\n```\n\nb',
+    'HTML:\n\n```html\n<div class="note">\n\n</div>\n```\n\nA regex:\n\n```\n[^a-z]+\n[ref]: not a definition\n```\n\nend',
   ])('renders each block as the whole text renders it, at every streamed prefix: %j', (text) => {
     for (let end = 0; end <= text.length; end++) {
       const source = text.slice(0, end)
@@ -37,7 +38,18 @@ describe('splitMarkdownBlocks', () => {
     expect(splitMarkdownBlocks('a\n\n```\nb\n\nc\n```\n\n- d\n\n- e\n\nf')).toEqual(['a\n\n', '```\nb\n\nc\n```\n\n- d\n\n- e\n\n', 'f'])
   })
 
-  it.each(['[ref]\n\n[ref]: /later', 'a[^x]\n\n[^x]: note', '<details>\n\nbody\n\n</details>', 'a\r\n\r\nb'])(
+  it('splits around code that only looks like document-wide syntax', () => {
+    expect(splitMarkdownBlocks('a\n\n```\n<div>\n\n[^x]\n```\n\nb')).toEqual(['a\n\n', '```\n<div>\n\n[^x]\n```\n\n', 'b'])
+  })
+
+  it.each([
+    '[ref]\n\n[ref]: /later',
+    'a[^x]\n\n[^x]: note',
+    '<details>\n\nbody\n\n</details>',
+    'a\r\n\r\nb',
+    '```\n<div>\n```\n\na[^x]\n\n[^x]: note',
+    '- a\n\n  ```\n  x\nb[^x]\n\n[^x]: note',
+  ])(
     'keeps text with document-wide syntax whole: %j',
     (text) => {
       expect(splitMarkdownBlocks(text)).toBeNull()

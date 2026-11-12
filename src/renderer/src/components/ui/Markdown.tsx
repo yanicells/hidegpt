@@ -21,11 +21,13 @@ const render = createMarkdownRenderer({ remarkPlugins: [remarkGfm], components, 
 export const AgentMarkdown = memo(function AgentMarkdown({ text, streaming }: { text: string; streaming: boolean }) {
   const deferredText = useDeferredValue(text)
   const blocks = splitMarkdownBlocks(deferredText) ?? [deferredText]
+  // A render that still shows an older prefix may end mid-block; only the current text is cached.
+  const current = deferredText === text
   return (
     <div className="doc-body">
       {blocks.map((block, index) => (
         // Streamed blocks only change at the end, so the index is a stable key.
-        <MarkdownBlock key={index} text={block} cache={!streaming || index < blocks.length - 1} />
+        <MarkdownBlock key={index} text={block} cache={current && (!streaming || index < blocks.length - 1)} />
       ))}
     </div>
   )
