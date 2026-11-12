@@ -1,36 +1,41 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-import type { Snapshot } from '../codex/types'
-import { emptySnapshot } from '../codex/types'
-import type { Command, MenuAction } from '../shared/api'
-import { applySnapshotPatch, type SnapshotPatch } from '../shared/snapshot-patch'
+import type { Command, CommandResult, HideGptApi, MenuAction, SnapshotPatch } from '../shared/api'
+import { emptySnapshot, type Snapshot } from '../shared/model'
+import { applySnapshotPatch } from '../shared/snapshot-patch'
 
-// The preload keeps an assembled copy only for getSnapshot(); live updates
-// cross the context bridge as small patches that the renderer applies itself.
-let snapshot: Snapshot = emptySnapshot()
+// The preload keeps an assembled copy for getSnapshot(); live updates cross
+// the context bridge as small patches that the renderer applies itself. The
+// copy starts as what main last published, so the first paint is the real
+// library, and main sends a whole-snapshot patch once the page loads.
+let snapshot: Snapshot = (ipcRenderer.sendSync('snapshot-now') as Snapshot | null) ?? emptySnapshot()
 
 ipcRenderer.on('snapshot', (_event, patch: SnapshotPatch) => {
   snapshot = applySnapshotPatch(snapshot, patch)
 })
 
-contextBridge.exposeInMainWorld('hidegpt', {
+const subscribe =
+  <T>(channel: string) =>
+  (handler: (value: T) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, value: T) => handler(value)
+    ipcRenderer.on(channel, listener)
+    return () => {
+      ipcRenderer.off(channel, listener)
+    }
+  }
+
+const api: HideGptApi = {
   getSnapshot: () => snapshot,
-  onSnapshot: (handler: (patch: SnapshotPatch) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, patch: SnapshotPatch) => handler(patch)
-    ipcRenderer.on('snapshot', listener)
-    return () => {
-      ipcRenderer.off('snapshot', listener)
-    }
-  },
-  onMenu: (handler: (action: MenuAction) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, action: MenuAction) => handler(action)
-    ipcRenderer.on('menu', listener)
-    return () => {
-      ipcRenderer.off('menu', listener)
-    }
-  },
-  dispatch: (command: Command) => ipcRenderer.invoke('command', command),
+  onSnapshot: subscribe<SnapshotPatch>('snapshot'),
+  onMenu: subscribe<MenuAction>('menu'),
+  dispatch: (command: Command) => ipcRenderer.invoke('command', command) as Promise<CommandResult>,
   pickDirectory: () => ipcRenderer.invoke('pick-directory'),
-  saveImage: (bytes: Uint8Array, mime: string) => ipcRenderer.invoke('save-image', bytes, mime),
+  saveImage: async (bytes: Uint8Array, mime: string) => {
+    const result = (await ipcRenderer.invoke('save-image', [bytes, mime])) as { ok: true; path: string } | { ok: false; error: string }
+    if (!result.ok) throw new Error(result.error)
+    return result.path
+  },
   platform: process.platform,
-})
+}
+
+contextBridge.exposeInMainWorld('hidegpt', api)

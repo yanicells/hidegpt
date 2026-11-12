@@ -1,8 +1,8 @@
 import { memo } from 'react'
-import type { Block } from '../../../../codex/blocks'
-import { ChevronIcon } from '../ui/Icons'
+import type { Block } from '../../../../shared/model'
 import { imageSrc } from '../ui/imageSrc'
-import { AgentMarkdown } from '../ui/Markdown'
+import { useMarkdown } from '../ui/loadMarkdown'
+import { MIcon } from '../ui/MaterialIcon'
 import { Approval } from './Approval'
 import { SkillChip } from './SmartChips'
 
@@ -21,27 +21,21 @@ export const BlockView = memo(
             </div>
           ) : null}
           {block.text || block.skills?.length ? (
-            <p className="doc-question">
+            // Each question is the turn's Heading 1, as Docs would title a section.
+            <h1 className="doc-question">
               {block.skills?.map((name) => <SkillChip key={name} name={name} />)}
               {block.text}
-            </p>
+            </h1>
           ) : null}
         </>
       )
     }
-    if (block.kind === 'agent') {
-      return (
-        <div className={streaming ? 'streaming' : undefined}>
-          <AgentMarkdown text={block.text} />
-          {streaming ? <span className="caret" /> : null}
-        </div>
-      )
-    }
+    if (block.kind === 'agent') return <AgentBlock text={block.text} streaming={streaming} />
     if (block.kind === 'callout') {
       return (
         <details className="callout">
           <summary>
-            <ChevronIcon />
+            <MIcon name="arrow_right" className="callout-arrow" />
             {block.title}
           </summary>
           {block.body ? <pre>{block.body}</pre> : null}
@@ -63,3 +57,20 @@ export const BlockView = memo(
     return false
   },
 )
+
+function AgentBlock({ text, streaming }: { text: string; streaming: boolean }) {
+  const markdown = useMarkdown()
+  return (
+    <div className={streaming ? 'streaming' : undefined}>
+      {markdown ? (
+        <markdown.AgentMarkdown text={text} streaming={streaming} />
+      ) : (
+        // The renderer loads after the first paint; until then the text shows as written.
+        <div className="doc-body" style={{ whiteSpace: 'pre-wrap' }}>
+          {text}
+        </div>
+      )}
+      {streaming ? <span className="caret" /> : null}
+    </div>
+  )
+}

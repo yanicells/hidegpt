@@ -1,130 +1,139 @@
-import type { Model } from '../generated/codex/v2/Model'
-import type { Project } from '../generated/codex/v2/Project'
-import type { Thread } from '../generated/codex/v2/Thread'
-
 import { readFileSync } from 'node:fs'
 import { basename, dirname, extname } from 'node:path'
 
-import type { Block, PendingApproval, UserBlock } from '../codex/blocks'
 import type {
-  OpenMessage,
-  OpenMessagePart,
-  OpenPromptPart,
-  OpenSkill,
-  OpenProviderModel,
-  OpenSession,
-  PermissionAsked,
-  QuestionAsked,
-} from './client'
+  Agent,
+  FilePartInput,
+  GlobalSession,
+  Message,
+  Part,
+  PermissionRequest,
+  Project,
+  Provider,
+  QuestionRequest,
+  TextPartInput,
+  ToolPart,
+} from '@opencode-ai/sdk/v2/client'
 
-export function splitModelId(id: string): { providerID: string; modelID: string } {
+import type { ApprovalBlock, Block, CalloutBlock, DocSummary, ModelOption, ModeOption, ProjectSummary, UserBlock } from '../shared/model'
+
+/**
+ * Pure mapping from OpenCode's SDK types to HideGPT's domain model: messages
+ * to blocks, sessions to documents, providers to models, pending requests to
+ * approval blocks. No I/O except reading an attached image or skill file.
+ */
+
+export type MessageWithParts = { readonly info: Message; readonly parts: ReadonlyArray<Part> }
+
+/** `providerID/modelID`, the id the toolbar shows and sends back. */
+export const modelKey = (providerID: string, modelID: string) => `${providerID}/${modelID}`
+
+export function splitModelKey(id: string): { providerID: string; modelID: string } | null {
   const slash = id.indexOf('/')
-  if (slash === -1) return { providerID: '', modelID: id }
+  if (slash <= 0 || slash === id.length - 1) return null
   return { providerID: id.slice(0, slash), modelID: id.slice(slash + 1) }
 }
 
-export function preferredDefault(defaults: Record<string, string>, available: string[]): string | null {
-  const exact = Object.entries(defaults).find(([provider, model]) => available.includes(`${provider}/${model}`))
-  return exact ? `${exact[0]}/${exact[1]}` : null
+export function toModels(providers: ReadonlyArray<Provider>, defaults: Readonly<Record<string, string>>): ModelOption[] {
+  const models: ModelOption[] = []
+  for (const provider of providers) {
+    for (const [id, model] of Object.entries(provider.models)) {
+      models.push({
+        id: modelKey(provider.id, id),
+        label: model.name || id,
+        efforts: [],
+        defaultEffort: null,
+        serviceTiers: [],
+        isDefault: false,
+      })
+    }
+  }
+  const preferred = Object.entries(defaults)
+    .map(([provider, model]) => modelKey(provider, model))
+    .find((key) => models.some((model) => model.id === key))
+  return models.map((model) => (model.id === preferred ? { ...model, isDefault: true } : model))
 }
 
-export function messageText(message: OpenMessage, separator: string): string {
-  return message.parts
-    .filter((part) => part.type === 'text' && !part.synthetic)
-    .map((part) => part.text ?? '')
+/** Primary agents the person can pick; subagents and the read-only planner stay hidden. */
+export function toModes(agents: ReadonlyArray<Agent>): ModeOption[] {
+  return agents
+    .filter((agent) => agent.mode !== 'subagent' && agent.name.toLowerCase() !== 'plan')
+    .map((agent) => ({ id: agent.name, label: agent.name }))
+}
+
+export const defaultMode = (modes: ReadonlyArray<ModeOption>): string | null =>
+  modes.find((mode) => mode.id === 'build')?.id ?? modes[0]?.id ?? null
+
+/**
+ * Projects carry no display name of their own, only a hash id and a worktree
+ * path, so folders are named after their directory. The `global` project
+ * (worktree `/`) is skipped so its sessions list as loose documents.
+ */
+export function toProjects(projects: ReadonlyArray<Project>): ProjectSummary[] {
+  return projects.flatMap((project) => {
+    const folder = project.worktree.replace(/\/+$/, '').split('/').pop()
+    if (project.id === 'global' || !folder) return []
+    return [{ id: project.id, name: project.name || folder, roots: [{ path: project.worktree }] }]
+  })
+}
+
+export function toDoc(session: GlobalSession): DocSummary {
+  const updated = session.time.updated || session.time.created
+  return {
+    id: session.id,
+    name: session.title || null,
+    preview: session.title || 'Untitled document',
+    updatedAt: Math.floor(updated / 1000),
+    cwd: session.directory,
+    projectId: session.projectID === 'global' ? null : session.projectID || null,
+  }
+}
+
+const visibleText = (part: Part): part is Extract<Part, { type: 'text' }> =>
+  part.type === 'text' && !part.synthetic && !part.ignored
+
+export function messageText(parts: ReadonlyArray<Part>, separator: string): string {
+  return parts
+    .filter(visibleText)
+    .map((part) => part.text)
     .filter(Boolean)
     .join(separator)
 }
 
+/** Agent text is its visible text parts joined like paragraphs; reasoning never shows. */
+export const joinAgentText = (texts: Iterable<string>) => [...texts].filter(Boolean).join('\n\n')
+
 const SKILL_TAG = /^<skill_content name="([^"]+)">/
-const IMAGE_TYPES: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-}
 
-/**
- * A hidden prompt part carrying a skill's instructions, mirroring how Codex
- * injects skills. Synthetic parts never render, but the name is read back so
- * the page can still show which skill a question used.
- */
-export function skillPart(skill: OpenSkill): OpenPromptPart {
-  const base = skill.location.startsWith('/') ? `Base directory for this skill: ${dirname(skill.location)}\n\n` : ''
-  return {
-    type: 'text',
-    synthetic: true,
-    text: `<skill_content name="${skill.name}">\nThe user attached the "${skill.name}" skill to this message. Follow it.\n\n${base}${skill.content}\n</skill_content>`,
+export function userBlock(id: string, parts: ReadonlyArray<Part>): UserBlock | null {
+  const images: string[] = []
+  const skills: string[] = []
+  for (const part of parts) {
+    if (part.type === 'file' && part.mime.startsWith('image/')) images.push(part.url)
+    const skill = part.type === 'text' && part.synthetic ? SKILL_TAG.exec(part.text)?.[1] : undefined
+    if (skill) skills.push(skill)
   }
+  const text = messageText(parts, '\n')
+  if (!text && !images.length && !skills.length) return null
+  return { kind: 'user', id, text, ...(images.length ? { images } : {}), ...(skills.length ? { skills } : {}) }
 }
 
-/** Inlines a saved image as a data URL so the server needs no file access. */
-export function imagePart(path: string): OpenPromptPart {
-  const mime = IMAGE_TYPES[extname(path).toLowerCase()] ?? 'image/png'
-  return {
-    type: 'file',
-    mime,
-    filename: basename(path),
-    url: `data:${mime};base64,${readFileSync(path).toString('base64')}`,
-  }
-}
-
-export function userBlock(message: OpenMessage): UserBlock | null {
-  const block: UserBlock = { kind: 'user', id: message.info.id, text: messageText(message, '\n') }
-  for (const part of message.parts) {
-    if (part.type === 'file' && part.url && part.mime?.startsWith('image/')) (block.images ??= []).push(part.url)
-    const skill = part.type === 'text' && part.synthetic ? SKILL_TAG.exec(part.text ?? '')?.[1] : undefined
-    if (skill) (block.skills ??= []).push(skill)
-  }
-  return block.text || block.images || block.skills ? block : null
-}
-
-export function toolCallout(part: OpenMessagePart): Block {
+export function toolCallout(part: ToolPart): CalloutBlock {
   const state = part.state
-  const status = state?.status ?? ''
-  const output = typeof state?.output === 'string' ? state.output : ''
-  const body = output ? output.slice(0, 2000) : status
-  return {
-    kind: 'callout',
-    id: part.id,
-    title: part.tool ? `Ran ${part.tool}` : 'Tool',
-    body,
-  }
+  const body =
+    state.status === 'completed' ? state.output.slice(0, 2000) : state.status === 'error' ? state.error : state.status
+  return { kind: 'callout', id: part.id, title: `Ran ${part.tool}`, body }
 }
 
-export function joinParts(parts: Map<string, string>): string {
-  return [...parts.values()].join('\n\n')
-}
-
-export function applyStreamText(blocks: Block[], messageId: string, text: string): Block[] {
-  const index = blocks.findIndex((block) => block.id === messageId)
-  if (index === -1) return [...blocks, { kind: 'agent', id: messageId, text }]
-  const current = blocks[index]
-  if (current.kind !== 'agent') return blocks
-  if (current.text === text) return blocks
-  const next = blocks.slice()
-  next[index] = { ...current, text }
-  return next
-}
-
-export function upsertCallout(blocks: Block[], callout: Block): Block[] {
-  const index = blocks.findIndex((block) => block.id === callout.id)
-  if (index === -1) return [...blocks, callout]
-  const next = blocks.slice()
-  next[index] = callout
-  return next
-}
-
-export function blocksFromMessages(messages: OpenMessage[]): Block[] {
+export function blocksFromMessages(messages: ReadonlyArray<MessageWithParts>): Block[] {
   const blocks: Block[] = []
   for (const message of messages) {
     if (message.info.role === 'user') {
-      const block = userBlock(message)
+      const block = userBlock(message.info.id, message.parts)
       if (block) blocks.push(block)
       continue
     }
-    const text = messageText(message, '\n\n')
+    const text = messageText(message.parts, '\n\n')
     if (text) blocks.push({ kind: 'agent', id: message.info.id, text })
     for (const part of message.parts) {
       if (part.type === 'tool') blocks.push(toolCallout(part))
@@ -133,122 +142,96 @@ export function blocksFromMessages(messages: OpenMessage[]): Block[] {
   return blocks
 }
 
-export function sessionTitle(title: string | undefined, messages: OpenMessage[]): string {
+export function sessionTitle(title: string | undefined, messages: ReadonlyArray<MessageWithParts>): string {
   if (title?.trim()) return title.trim()
   const firstUser = messages.find((message) => message.info.role === 'user')
-  const text = firstUser ? messageText(firstUser, '\n') : ''
+  const text = firstUser ? messageText(firstUser.parts, '\n') : ''
   return text.split('\n')[0]?.trim() || 'Untitled document'
 }
 
-export function permissionApproval(request: PermissionAsked, sessionId: string | null): PendingApproval {
-  const patterns = request.patterns?.length ? `: ${request.patterns.join(', ')}` : ''
+export const permissionBlockId = (requestId: string) => `approval-${requestId}`
+
+export function permissionBlock(request: PermissionRequest): ApprovalBlock {
+  const patterns = request.patterns.length ? `: ${request.patterns.join(', ')}` : ''
   return {
     kind: 'approval',
-    id: `approval-${request.id}`,
-    requestId: request.id,
-    method: 'opencode/permission',
+    id: permissionBlockId(request.id),
+    suggestion: 'format',
     title: `Allow ${request.permission}${patterns}?`,
     body: 'The assistant is asking for extra access.',
+    fields: [],
+    questions: [],
     resolved: null,
-    extra: { requestId: request.id, sessionId },
-    drafts: {},
   }
 }
 
-export function questionApproval(request: QuestionAsked, sessionId: string | null): PendingApproval {
-  const questions = request.questions.map((question, index) => ({
-    id: `q${index}`,
-    header: question.header,
-    question: question.question,
-    isOther: question.options.length === 0,
-    isSecret: false,
-    options: question.options.map((option) => ({ label: option.label, description: option.description })),
-  }))
+export const questionId = (index: number) => `q${index}`
+
+export function questionBlock(request: QuestionRequest): ApprovalBlock {
   return {
     kind: 'approval',
-    id: `approval-${request.id}`,
-    requestId: request.id,
-    method: 'opencode/question',
+    id: permissionBlockId(request.id),
+    suggestion: 'question',
     title: 'The assistant needs input',
     body:
       request.questions
         .map((question) => question.question)
         .filter(Boolean)
         .join('\n') || 'Continue?',
+    fields: [],
+    questions: request.questions.map((question, index) => ({
+      id: questionId(index),
+      question: question.question || question.header,
+      options: question.options.map((option) => option.label),
+      allowText: question.options.length === 0 || question.custom !== false,
+    })),
     resolved: null,
-    extra: { requestId: request.id, sessionId, questions },
-    drafts: {},
   }
 }
 
-export function toCodexThread(session: OpenSession): Thread {
-  const at = Math.floor((session.time.updated || session.time.created || Date.now()) / 1000)
-  const created = Math.floor((session.time.created || Date.now()) / 1000)
+/**
+ * A hidden prompt part carrying a skill's instructions, mirroring how Codex
+ * injects skills. Synthetic parts never render, but the name is read back so
+ * the page can still show which skill a question used.
+ */
+export function skillPart(skill: { name: string; location: string; content: string }): TextPartInput {
+  const base = skill.location.startsWith('/') ? `Base directory for this skill: ${dirname(skill.location)}\n\n` : ''
   return {
-    id: session.id,
-    extra: null,
-    sessionId: session.id,
-    forkedFromId: null,
-    parentThreadId: null,
-    preview: session.title || 'Untitled document',
-    ephemeral: false,
-    section: null,
-    sectionEnteredAt: null,
-    projectId: session.projectID === 'global' ? null : session.projectID || null,
-    historyMode: 'legacy',
-    modelProvider: 'openai',
-    model: null,
-    reasoningEffort: null,
-    createdAt: created,
-    updatedAt: at,
-    recencyAt: at,
-    status: { type: 'notLoaded' },
-    path: null,
-    cwd: session.directory,
-    cliVersion: '0',
-    source: 'vscode',
-    canAcceptDirectInput: true,
-    threadSource: null,
-    agentNickname: null,
-    agentRole: null,
-    gitInfo: null,
-    name: session.title || null,
-    turns: [],
+    type: 'text',
+    synthetic: true,
+    text: `<skill_content name="${skill.name}">\nThe user attached the "${skill.name}" skill to this message. Follow it.\n\n${base}${skill.content}\n</skill_content>`,
   }
 }
 
-export function toCodexModel(model: OpenProviderModel, index: number): Model {
-  return {
-    id: `${model.providerID}/${model.id}`,
-    model: `${model.providerID}/${model.id}`,
-    upgrade: null,
-    upgradeInfo: null,
-    availabilityNux: null,
-    displayName: model.name,
-    description: '',
-    modelSpecialty: null,
-    hidden: false,
-    supportedReasoningEfforts: [],
-    defaultReasoningEffort: 'medium',
-    inputModalities: [],
-    supportsPersonality: true,
-    multiAgentVersion: null,
-    additionalSpeedTiers: [],
-    serviceTiers: [],
-    defaultServiceTier: null,
-    isDefault: index === 0,
-  }
+const IMAGE_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
 }
 
-export function toCodexProject(project: { id: string; name: string; worktree?: string }): Project {
-  return {
-    id: project.id,
-    name: project.name,
-    roots: project.worktree ? [{ path: project.worktree }] : [],
-    metadata: {},
-    position: 0,
-    recencyAt: null,
-    createdAt: 0,
-    updatedAt: 0,
-  }
+/** Inlines a saved image as a data URL so the server needs no file access. */
+export function imagePart(path: string): FilePartInput {
+  const mime = IMAGE_TYPES[extname(path).toLowerCase()] ?? 'image/png'
+  return { type: 'file', mime, filename: basename(path), url: `data:${mime};base64,${readFileSync(path).toString('base64')}` }
+}
+
+/**
+ * The model provider's error as one sentence (OpenCode stores `<none>` when it
+ * could not read the provider's body).
+ * Adapted from T3 Code (packages/provider-opencode/src/server/providerErrorMessage.ts) at commit 8a14762c.
+ * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+ */
+export function readableProviderError(error: { name: string; data?: unknown } | undefined): string {
+  if (!error) return 'The assistant ran into an error.'
+  const data = (error.data ?? {}) as { message?: unknown; statusCode?: unknown; responseBody?: unknown }
+  const message = typeof data.message === 'string' ? data.message.trim() : ''
+  if (message && message.toLowerCase() !== '<none>') return message
+  const status = typeof data.statusCode === 'number' ? data.statusCode : undefined
+  const body = typeof data.responseBody === 'string' ? data.responseBody : undefined
+  const title = body?.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.replace(/\s+/g, ' ').trim()
+  if (title) return status !== undefined ? `${title} (HTTP ${status}).` : title
+  if (status !== undefined) return `The model provider failed the request (HTTP ${status}).`
+  return message ? 'The model provider failed the request and did not include an error message.' : error.name
 }

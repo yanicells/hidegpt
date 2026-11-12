@@ -1,63 +1,68 @@
 import { app, Menu } from 'electron'
-import type { BrowserWindow } from 'electron'
 
-import { displayServerName, needsReconnect, PROVIDERS, providerLabel } from '../codex/labels'
-import type { Snapshot } from '../codex/types'
-import type { Command, MenuAction } from '../shared/api'
+import type { Command, MenuAction, Snapshot } from '../shared/contracts'
+import { accountLabel, displayServerName, libraryName, PROVIDERS, toolsNeedingConnect } from '../shared/labels'
 
-type MenuDeps = {
-  getSnapshot: () => Snapshot
-  dispatch: (command: Command) => void | Promise<void>
-  getWindow: () => BrowserWindow | null
+/**
+ * The application menu, rebuilt only when something it shows changes. Menu
+ * commands go through the same `dispatch` as the window's; renderer-only
+ * actions (rename, view mode) are sent to the window as `MenuAction`s.
+ */
+export type MenuHandlers = {
+  readonly dispatch: (command: Command) => void
+  readonly send: (action: MenuAction) => void
 }
 
-let deps: MenuDeps = {
-  getSnapshot: () => {
-    throw new Error('menu not initialized')
-  },
-  dispatch: () => {},
-  getWindow: () => null,
-}
+const signature = (snap: Snapshot) =>
+  [
+    snap.provider,
+    snap.capabilities.login,
+    snap.account ? `${snap.account.kind}:${snap.account.label}` : 'none',
+    toolsNeedingConnect(snap.mcpServers)
+      .map((server) => server.name)
+      .join(','),
+    snap.route.kind,
+  ].join('|')
 
-/** Wire snapshot/dispatch collaborators instead of importing sessions. */
-export function initMenu(next: MenuDeps): void {
-  deps = next
-}
-
-export function sendMenu(action: MenuAction): void {
-  deps.getWindow()?.webContents.send('menu', action)
-}
-
-function signatureFor(snap: Snapshot): string {
-  const account = !snap.account
-    ? 'none'
-    : snap.account.type === 'chatgpt'
-      ? `chatgpt:${snap.account.email ?? ''}`
-      : snap.account.type
-  const mcp = snap.mcpServers.map((server) => `${server.name}:${server.authStatus}:${server.runtimeStatus}`).join(',')
-  const route = snap.route.kind === 'doc' ? `doc:${snap.route.threadId}` : 'home'
-  return `${snap.provider}|${account}|${mcp}|${route}`
-}
-
-let menuSignature = ''
-
-export function updateMenuForSnapshot(snap: Snapshot): void {
-  const signature = signatureFor(snap)
-  if (signature !== menuSignature) {
-    menuSignature = signature
-    rebuildMenu()
+export function makeMenu(handlers: MenuHandlers): (snap: Snapshot) => void {
+  let shown = ''
+  return (snap) => {
+    const next = signature(snap)
+    if (next === shown) return
+    shown = next
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template(snap, handlers)))
   }
 }
 
-export function rebuildMenu(): void {
-  const snap = deps.getSnapshot()
-  const isMac = process.platform === 'darwin'
-  const connectItems = snap.mcpServers.filter(needsReconnect).map((server) => ({
-    label: `Connect ${displayServerName(server.name)}`,
-    click: () => void deps.dispatch({ op: 'connectMcp', name: server.name }),
-  }))
+/** Google's wording: the account, then switching between the person's accounts (libraries). */
+function accountItems(snap: Snapshot, { dispatch }: MenuHandlers): Electron.MenuItemConstructorOptions[] {
+  // Libraries that don't sign in from Docs reuse their CLI's login, so they only show the account.
+  const signIn: Electron.MenuItemConstructorOptions[] = !snap.capabilities.login
+    ? []
+    : snap.account
+      ? [{ label: 'Sign out', click: () => dispatch({ op: 'logout' }) }]
+      : [{ label: 'Sign in', click: () => dispatch({ op: 'login' }) }]
+  return [
+    { label: snap.account ? accountLabel(snap.account) : 'Not signed in', enabled: false },
+    ...signIn,
+    { type: 'separator' },
+    ...PROVIDERS.map((provider) => ({
+      label: libraryName(provider),
+      type: 'checkbox' as const,
+      checked: snap.provider === provider,
+      click: () => dispatch({ op: 'setProvider', provider }),
+    })),
+  ]
+}
 
-  const template: Electron.MenuItemConstructorOptions[] = [
+function template(snap: Snapshot, handlers: MenuHandlers): Electron.MenuItemConstructorOptions[] {
+  const { dispatch, send } = handlers
+  const isMac = process.platform === 'darwin'
+  const connectItems = toolsNeedingConnect(snap.mcpServers).map((server) => ({
+    label: `Connect ${displayServerName(server.name)}`,
+    click: () => dispatch({ op: 'connectMcp', name: server.name }),
+  }))
+  return [
     ...(isMac
       ? [
           {
@@ -77,27 +82,15 @@ export function rebuildMenu(): void {
     {
       label: 'File',
       submenu: [
-        {
-          label: 'New document',
-          accelerator: 'CmdOrCtrl+N',
-          click: () => sendMenu('newDocument'),
-        },
-        {
-          label: 'Open home',
-          accelerator: 'CmdOrCtrl+Shift+O',
-          click: () => void deps.dispatch({ op: 'goHome' }),
-        },
-        {
-          label: 'Open folder…',
-          accelerator: 'CmdOrCtrl+O',
-          click: () => void deps.dispatch({ op: 'openFolder' }),
-        },
+        { label: 'New document', accelerator: 'CmdOrCtrl+N', click: () => send('newDocument') },
+        { label: 'Open home', accelerator: 'CmdOrCtrl+Shift+O', click: () => dispatch({ op: 'goHome' }) },
+        { label: 'Open folder…', accelerator: 'CmdOrCtrl+O', click: () => dispatch({ op: 'openFolder' }) },
         { type: 'separator' },
         {
           label: 'Rename…',
           accelerator: 'CmdOrCtrl+Shift+R',
           enabled: snap.route.kind === 'doc',
-          click: () => sendMenu('rename'),
+          click: () => send('rename'),
         },
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' },
@@ -118,8 +111,8 @@ export function rebuildMenu(): void {
           label: 'Find…',
           accelerator: 'CmdOrCtrl+F',
           click: () => {
-            if (deps.getSnapshot().route.kind !== 'home') void deps.dispatch({ op: 'goHome' })
-            sendMenu('focusSearch')
+            if (snap.route.kind !== 'home') dispatch({ op: 'goHome' })
+            send('focusSearch')
           },
         },
       ],
@@ -127,43 +120,24 @@ export function rebuildMenu(): void {
     {
       label: 'View',
       submenu: [
-        { label: 'Grid view', click: () => sendMenu('grid') },
-        { label: 'List view', click: () => sendMenu('list') },
+        { label: 'Grid view', click: () => send('grid') },
+        { label: 'List view', click: () => send('list') },
         { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },
         { role: 'zoomOut' },
         { type: 'separator' },
         { role: 'togglefullscreen' },
-        ...(app.isPackaged
-          ? []
-          : [{ type: 'separator' as const }, { role: 'reload' as const }, { role: 'toggleDevTools' as const }]),
+        ...(app.isPackaged ? [] : [{ type: 'separator' as const }, { role: 'reload' as const }, { role: 'toggleDevTools' as const }]),
       ],
     },
     {
       label: 'Tools',
       submenu: [
-        ...PROVIDERS.map((provider) => ({
-          label: `Use ${providerLabel(provider)}`,
-          type: 'checkbox' as const,
-          checked: snap.provider === provider,
-          click: () => void deps.dispatch({ op: 'setProvider', provider }),
-        })),
-        { type: 'separator' },
-        {
-          label: 'Refresh',
-          click: () => void deps.dispatch({ op: 'refresh' }),
-        },
+        { label: 'Refresh', click: () => dispatch({ op: 'refresh' }) },
         ...connectItems,
       ],
     },
-    {
-      label: 'Account',
-      submenu: snap.account
-        ? [{ label: 'Log out', click: () => void deps.dispatch({ op: 'logout' }) }]
-        : [{ label: 'Log in with ChatGPT', click: () => void deps.dispatch({ op: 'login' }) }],
-    },
+    { label: 'Account', submenu: accountItems(snap, handlers) },
   ]
-
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }

@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 
-import type { Snapshot } from '../../../../codex/types'
+import type { Snapshot } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
-import { ProviderSwitch } from './ProviderSwitch'
 import { AccountMenu } from '../layout/AccountMenu'
-import { DocsIcon, SearchIcon } from '../ui/Icons'
+import { DocsIcon } from '../ui/Icons'
 import { MIcon } from '../ui/MaterialIcon'
 
 export function HomeHeader({ snap }: { snap: Snapshot }) {
@@ -30,7 +29,7 @@ export function HomeHeader({ snap }: { snap: Snapshot }) {
         <span className="brand-name">Docs</span>
       </div>
       <label className="search">
-        <SearchIcon />
+        <MIcon name="search" size={24} />
         <input
           data-testid="home-search"
           type="search"
@@ -58,7 +57,6 @@ export function HomeHeader({ snap }: { snap: Snapshot }) {
         />
       </label>
       <div className="header-end">
-        <ProviderSwitch provider={snap.provider} />
         <span className="header-icon" aria-hidden="true">
           <MIcon name="apps" size={24} />
         </span>
