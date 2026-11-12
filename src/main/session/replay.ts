@@ -12,7 +12,8 @@ import { adopt, applyThreadEvent, initialState, keyOf, type State, type ThreadRu
  * the source and the reducer is the projection.
  *
  * Where it differs from the page:
- * - Text comes back as placeholders of the right length.
+ * - Text comes back as placeholders of the logged length; text streamed after
+ *   an item's first delta is not counted.
  * - What main does without an event is not in the log: the optimistic echo,
  *   "Stopping", the stop deadline, how the person answered a question, and
  *   what a document opened with, its items and the turn already running
