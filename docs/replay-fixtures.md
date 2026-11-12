@@ -63,11 +63,14 @@ and Claude logins. Agents must never run them.
 
 1. Sign in to both CLIs in a terminal (`codex login`; `claude`, then `/login`).
 2. Record. `HIDEGPT_RECORD_NAMES` is optional: comma-separated names the
-   recorder can't know (your full name, a company, a project), scrubbed and
-   checked like your account name.
+   recorder can't know, scrubbed and checked like your account name. The
+   recorder already knows your account name, the parts of your git name and
+   the machine's names, each as a whole word. Add what it can't guess: your
+   full name, nicknames and short forms (a short "Yan" is not matched by
+   "yanicells"), a school, a company, a project.
    ```bash
    export HIDEGPT_RECORD_TURNS=1
-   export HIDEGPT_RECORD_NAMES="Your Full Name,Your Company"   # optional
+   export HIDEGPT_RECORD_NAMES="Your Full Name,Nickname,Your School"   # optional
    pnpm record:codex turn
    pnpm record:codex stop
    pnpm record:codex approval
@@ -78,8 +81,9 @@ and Claude logins. Agents must never run them.
    ```
    - Each run takes up to a few minutes and ends with `Wrote N ... to
      src/<provider>/fixtures/<scenario>.ndjson`.
-   - The recorder answers approvals itself. The Codex `approval` run starts
-     Codex with `-c approval_policy="on-request" -c sandbox_mode="read-only"`,
+   - The recorder answers approvals itself, every request in a turn the same
+     way: the first turn's are accepted, the second's denied. The Codex
+     `approval` run starts Codex with `-c approval_policy="on-request" -c sandbox_mode="read-only"`,
      so it asks before writing whatever your config says.
    - Claude Code asks before writing a file unless your settings already
      allow it. If the `approval` run fails with "ended without asking for
@@ -93,13 +97,24 @@ and Claude logins. Agents must never run them.
    that no email, home or temp path, or token is left in any file. Names
    differ per machine, so the recorder checks those before it writes.
 4. Read `git diff` before committing. The recorder scrubs emails, paths,
-   usernames, the hostname, `HIDEGPT_RECORD_NAMES` and tokens. It also blanks
-   Claude's list of your MCP servers, skills, plugins and agents, and Codex's
-   MCP server names and startup errors and disabled plugin ids. The model's
-   answers stay as recorded. A name that is also a word of a placeholder
-   (`replay`, `user`, `host`, `example`, `home`, `tmp`, `workspace`, `codex`)
-   is not scrubbed or checked, since it would match the placeholders
-   themselves. If your account or git name is one of those, look for it
+   usernames, the hostname, `HIDEGPT_RECORD_NAMES` and tokens. Before that, it
+   drops your configuration (`withoutPersonalDetails` in each provider's
+   `replay.ts`):
+   - Claude: `system/init` is rebuilt from an allow-list (model, version,
+     permission mode, cwd, ids), with its tool, MCP server, command, skill,
+     plugin and agent lists empty, so plugin errors and memory paths are
+     gone. `commands_changed` loses its commands, any other `system` message
+     keeps only its type, subtype and ids, and `rate_limit_event` keeps only
+     the limit's status. Probe answers keep Claude Code's built-in commands
+     only.
+   - Codex: MCP server names and startup errors, disabled plugin ids, and the
+     ChatGPT plan (`planType` becomes `"unknown"`).
+
+   The model's answers and tool inputs stay as recorded, so read those. A name
+   that is also a word of a placeholder is not scrubbed or checked, since it
+   would match the placeholders themselves: `replay`, `user`, `host`,
+   `example`, `com`, `redacted`, `home`, `tmp`, `workspace`, and `codex` in
+   Codex recordings. If your account or git name is one of those, look for it
    yourself.
 5. Each run leaves one document in that provider's history, so archive or
    delete it there if you like. The `tea.txt` it writes is in a temporary
