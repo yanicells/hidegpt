@@ -53,6 +53,7 @@ function banned(word: string): string | null {
  * also checked by its case parts ("OpenAI", "ChatGPTPlus"), so "said" and "maintain" pass
  * but "OpenCode" and "useMcp" do not. A capital run before lower case is checked whole
  * too ("AIsearch", "myGPTs"), while an all-caps word stays one word ("AIRTABLE", "GMAIL").
+ * Within a run, hits keep their order and repeats ("myGPTsAgent" is "gpt", "agent").
  * A plural "s" counts too ("agents", "models"). The text is NFKC-normalized and stripped of
  * invisible format characters first, so fullwidth letters and soft hyphens hide nothing.
  */
@@ -61,11 +62,11 @@ export function stealthViolations(text: string): string[] {
   return Array.from(visible.matchAll(/\p{L}+/gu), ([run]) => {
     const whole = banned(run)
     if (whole) return [whole]
-    const parts = Array.from(run.matchAll(CASE_PARTS), ([part]) => banned(part)).filter((word) => word !== null)
-    const capitals = Array.from(run.matchAll(CAPITAL_RUNS), ([part]) => banned(part)).filter(
-      (word): word is string => word !== null && !parts.includes(word),
-    )
-    return [...parts, ...capitals]
+    return [...run.matchAll(CASE_PARTS), ...run.matchAll(CAPITAL_RUNS)]
+      .map((match) => ({ at: match.index, word: banned(match[0]) }))
+      .filter((hit): hit is { at: number; word: string } => hit.word !== null)
+      .sort((a, b) => a.at - b.at)
+      .map((hit) => hit.word)
   }).flat()
 }
 

@@ -22,6 +22,9 @@ describe('stealth gate', () => {
     expect(stealthViolations('AIsearch')).toEqual(['ai'])
     expect(stealthViolations('myGPTs')).toEqual(['gpt'])
     expect(stealthViolations('AIs')).toEqual(['ai'])
+    // In order of appearance, repeats kept.
+    expect(stealthViolations('myGPTsAgent')).toEqual(['gpt', 'agent'])
+    expect(stealthViolations('AIsearchAI')).toEqual(['ai', 'ai'])
     for (const text of ['GMAIL SEND EMAIL', 'AIRTABLE', 'MAINTAINERS', 'BOTANICAL', 'DETAILS']) {
       expect(isStealthy(text), text).toBe(true)
     }
