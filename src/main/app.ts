@@ -83,7 +83,13 @@ const MainLayer = managerLayer({
   openExternal: (url) => Effect.sync(() => openExternal(url)),
 }).pipe(
   Layer.provideMerge(demo ? Demo.layer : ProviderRegistry.layerAfter(pathReady)),
-  Layer.provideMerge(ProcessSupervisor.layer(demo ? null : join(app.getPath('userData'), 'provider-processes.json'))),
+  Layer.provideMerge(
+    ProcessSupervisor.layer(
+      demo ? null : join(app.getPath('userData'), 'provider-processes.json'),
+      // Provider CLIs start from clones named `Docs Helper` kept here (src/provider/helperBinary.ts).
+      demo ? null : join(app.getPath('userData'), 'helpers'),
+    ),
+  ),
   Layer.provideMerge(ProviderEventLog.layer(join(logsDirectory, 'providers'))),
   Layer.provideMerge(Logging.layer({ directory: logsDirectory, console: !app.isPackaged })),
   Layer.provideMerge(NodeServices.layer),

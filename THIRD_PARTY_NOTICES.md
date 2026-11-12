@@ -158,6 +158,10 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     PATH, and not blocking launch on it, from `packages/shared/src/shell.ts`,
     `apps/server/src/os-jank.ts` and
     `apps/desktop/src/shell/DesktopShellEnvironment.ts` (commit 5c6f2f12).
+  - `src/provider/helperBinary.ts`: finding a command on PATH (an explicit path
+    taken as is, entries unquoted and de-duplicated, a regular file with the
+    execute bit), from `packages/shared/src/shell.ts`
+    `resolveCommandPathForPlatform` and `canExecuteFile` (commit 5c6f2f12).
 - License: MIT
 
 ```

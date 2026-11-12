@@ -15,6 +15,7 @@ import type { ProviderId } from '../shared/model'
 import { appendStderrTail, stderrExcerpt } from '../vendor/effect-codex-app-server/_internal/stdio'
 import { logDefects } from './DefectReport'
 import { BinaryMissingError, ProcessExitedError, ProviderRequestError } from './errors'
+import { discardHelper, resolveHelper } from './helperBinary'
 import { providerLabel } from '../shared/labels'
 import * as ProcessLedger from './ProcessLedger'
 
@@ -60,7 +61,7 @@ export type CallbackSpawnOptions = {
   readonly command: string
   readonly args: ReadonlyArray<string>
   readonly cwd?: string | undefined
-  /** Passed to the child exactly as given: never merged, read or logged. */
+  /** Passed to the child as given (`resolveHelper` reads only PATH, and adds only a known launcher's variables); never logged. */
   readonly env: Record<string, string | undefined>
   readonly signal?: AbortSignal | undefined
   readonly onStderr?: (text: string) => void
@@ -133,15 +134,32 @@ const logLedgerFailure = (effect: Effect.Effect<void>) =>
 const make = (
   spawner: ChildProcessSpawner.ChildProcessSpawner['Service'],
   ledger: ProcessLedger.ProcessLedger['Service'],
+  helpersDirectory: string | null,
 ) =>
   ProcessSupervisor.of({
     spawn: Effect.fn('ProcessSupervisor.spawn')(function* (options, tailStderr = false) {
-      const command = ChildProcess.make(options.command, [...options.args], {
-        ...(options.cwd ? { cwd: options.cwd } : {}),
-        ...(options.env ? { env: options.env, extendEnv: true } : {}),
-        forceKillAfter: FORCE_KILL_AFTER,
-      })
-      const handle = yield* spawner.spawn(command).pipe(
+      const start = (command: string, env: SpawnOptions['env']) =>
+        spawner
+          .spawn(
+            ChildProcess.make(command, [...options.args], {
+              ...(options.cwd ? { cwd: options.cwd } : {}),
+              ...(env ? { env, extendEnv: true } : {}),
+              forceKillAfter: FORCE_KILL_AFTER,
+            }),
+          )
+          .pipe(Effect.map((handle) => ({ handle, command })))
+      // Started as `Docs Helper` where it can be (helperBinary.ts). A clone that won't start (gone
+      // since, refused by a security tool) is dropped, and the original starts as it always did.
+      const helper = yield* Effect.sync(() => resolveHelper(options.command, options.env, helpersDirectory))
+      const { handle, command } = yield* start(helper.command, helper.env).pipe(
+        Effect.catch((error) =>
+          helper.command === options.command
+            ? Effect.fail(error)
+            : Effect.logDebug('helper did not start; starting the original', { reason: error.reason._tag }).pipe(
+                Effect.andThen(Effect.sync(() => discardHelper(helper.command, helpersDirectory))),
+                Effect.andThen(start(options.command, options.env)),
+              ),
+        ),
         // Only a missing command means "not installed"; anything else (no permission, a bad cwd) says what failed.
         Effect.mapError((error) =>
           isNotFound(error)
@@ -156,7 +174,8 @@ const make = (
       // Released before the spawner's own kill, so this stops the server: its tree is read while
       // it still runs, its group is stopped, then whatever left the group (a `setsid` daemon).
       // The read is capped, so a slow `ps` never delays the kill past quit's deadline.
-      yield* Effect.acquireRelease(ledger.record(handle.pid, options.command, options.args[0] ?? ''), () =>
+      // The path actually started, so reaping matches it.
+      yield* Effect.acquireRelease(ledger.record(handle.pid, command, options.args[0] ?? ''), () =>
         treeReadBeforeKill(ledger).pipe(
           Effect.andThen(Effect.ignore(handle.kill({ forceKillAfter: FORCE_KILL_AFTER }))),
           Effect.andThen(ledger.stop(handle.pid)),
@@ -233,18 +252,31 @@ const make = (
       // services (its logger), so a ledger failure reaches the log.
       const runFork = Effect.runForkWith(yield* Effect.context<never>())
       return (options: CallbackSpawnOptions) => {
-        const child = spawnChild(options.command, [...options.args], {
-          cwd: options.cwd,
-          env: options.env,
-          signal: options.signal,
-          stdio: ['pipe', 'pipe', 'pipe'],
-          detached: true,
-        })
-        // Always drained, so a chatty CLI never blocks on a full stderr pipe.
-        child.stderr.setEncoding('utf8').on('data', (text: string) => options.onStderr?.(text))
-        // A failed spawn or an aborted `signal` emits "error"; the caller learns of it from the
-        // exit (or listens itself), and an unheard "error" would crash main.
-        child.on('error', () => {})
+        const start = (command: string, env: CallbackSpawnOptions['env'] | undefined) => {
+          const child = spawnChild(command, [...options.args], {
+            cwd: options.cwd,
+            env,
+            signal: options.signal,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            detached: true,
+          })
+          // Always drained, so a chatty CLI never blocks on a full stderr pipe.
+          child.stderr.setEncoding('utf8').on('data', (text: string) => options.onStderr?.(text))
+          // A failed spawn or an aborted `signal` emits "error"; the caller learns of it from the
+          // exit (or listens itself), and an unheard "error" would crash main.
+          child.on('error', () => {})
+          return child
+        }
+        // As in `spawn`: from a `Docs Helper` clone where it can be, else the original.
+        const helper = resolveHelper(options.command, options.env, helpersDirectory)
+        let command = helper.command
+        let child = start(command, helper.env)
+        if (child.pid === undefined && command !== options.command) {
+          runFork(Effect.logDebug('helper did not start; starting the original'))
+          discardHelper(command, helpersDirectory)
+          command = options.command
+          child = start(command, options.env)
+        }
         const pid = child.pid
         // A spawn that fails has no pid and emits only "error", which the SDK reports.
         if (pid === undefined) return child
@@ -254,7 +286,7 @@ const make = (
         }
         // The full command path, so another app's copy of the same CLI never matches.
         // Defects are logged here, so a failed record never stops `stopTree` from running.
-        const recorded = runFork(logLedgerFailure(ledger.record(pid, options.command, options.args[0] ?? '')))
+        const recorded = runFork(logLedgerFailure(ledger.record(pid, command, options.args[0] ?? '')))
         running.set(child, { pid, recorded })
         child.once('exit', () => {
           running.delete(child)
@@ -270,12 +302,15 @@ const make = (
     reapOrphans: ledger.reap,
   })
 
-/** The supervisor over Effect's Node spawner; `ledgerPath` null disables the ledger (tests). */
-export const layer = (ledgerPath: string | null) =>
+/**
+ * The supervisor over Effect's Node spawner. `ledgerPath` null disables the ledger, and
+ * `helpersDirectory` null starts each CLI under its own name (tests, demo mode).
+ */
+export const layer = (ledgerPath: string | null, helpersDirectory: string | null = null) =>
   Layer.effect(
     ProcessSupervisor,
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-      return make(spawner, yield* ProcessLedger.ProcessLedger)
+      return make(spawner, yield* ProcessLedger.ProcessLedger, helpersDirectory)
     }),
   ).pipe(Layer.provide(ProcessLedger.layer(ledgerPath)))
