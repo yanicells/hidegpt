@@ -7,7 +7,7 @@ const BLOCK = '.doc-block'
 const HOME = ['.doc-home', '.tabs-back']
 const call = (name, args) => `${name}(${JSON.stringify(args)})`
 
-/** The phases in order. `--profile` and `--trace` take one of these names. */
+/** The phases in order. `profile --phase` takes these names. */
 export const PHASES = [
   'cold',
   'home_list',
@@ -134,9 +134,14 @@ export async function scenario(app, { docs, around = (_phase, run) => run() }) {
     for (const deadline = Date.now() + 30000; ; await sleep(50)) {
       cold = await bench('cold()')
       if (cold.allCards) break
+      // A Home that mounts only the cards in view never shows them all: the library is up
+      // once the provider has served its last page and cards have painted.
+      const listed = app.listedAt()
+      if (cold.firstCard && listed && Date.now() - listed > 1000) break
       if (cold.error || Date.now() > deadline) throw new Error(`cold start: the library never appeared (${cold.error ?? 'timeout'})`)
     }
     await sleep(1500)
+    cold = await bench('cold()')
     const { stats, used, perf } = await app.counters()
     const since = (t) => (t ? t - app.t0 : null)
     // The renderer's main thread since the page started: where its start-up time went.
@@ -152,7 +157,9 @@ export async function scenario(app, { docs, around = (_phase, run) => run() }) {
     set('cold.dom_ready_ms', since(stats.marks.domReady))
     set('cold.fcp_ms', since(cold['first-contentful-paint'] ?? cold['first-paint']))
     set('cold.first_card_ms', since(cold.firstCard))
-    set('cold.all_cards_ms', since(cold.allCards))
+    if (cold.allCards) set('cold.all_cards_ms', since(cold.allCards))
+    // The provider finished listing the library: start-up up to here is the main process and the provider.
+    if (app.listedAt()) set('cold.listed_ms', since(app.listedAt()))
     // Cumulative since each process started, read 1.5 s after the library painted.
     for (const [short, pid] of [['r', app.pids.renderer], ['m', app.pids.main], ['g', app.pids.gpu]]) {
       if (!used[pid]) continue

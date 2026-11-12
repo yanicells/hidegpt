@@ -152,7 +152,12 @@ if (command === 'profile') {
         await app.page.send('Profiler.setSamplingInterval', { interval: 250 })
         await app.page.send('Profiler.start')
         await app.page.send('Page.reload', { ignoreCache: true })
-        for (let i = 0; i < 400 && !(await app.bench('cold()').catch(() => null))?.allCards; i += 1) await sleep(50)
+        // Every card, or (a Home that mounts only the cards in view) a while after the first ones.
+        for (let i = 0; i < 400; i += 1) {
+          const cold = await app.bench('cold()').catch(() => null)
+          if (cold?.allCards || (cold?.firstCard && Date.now() - cold.firstCard > 750)) break
+          await sleep(50)
+        }
         const { profile } = await app.page.send('Profiler.stop')
         writeFileSync(fileOf(phase, 'renderer'), JSON.stringify(profile))
         return result

@@ -27,7 +27,7 @@ git) unless `--out <dir>` says otherwise.
 
 | Phase | Action | Felt as |
 | --- | --- | --- |
-| `cold` | start the app, wait for 500 documents on Home | launch time |
+| `cold` | start the app, wait for the library on Home | launch time |
 | `home_list`, `home_grid` | switch Home between list and grid | Home responsiveness |
 | `open` | open a 300-turn document (its newest 30 turns load) | open time |
 | `type_idle` | 30 keys, one per 100 ms | typing latency |
@@ -69,6 +69,12 @@ and retires fewer instructions (`stream300.r_ginstr` ranged 77 to 110 over five 
 runs, with `frames` 417 to 614). Phases with a fixed amount of work (`cold`, `open`,
 `load_all`, every `m_ginstr`) stay within 1 to 2%. Read a per-frame phase next to its
 `frames`, or compare on a quiet machine.
+
+Launch has three marks, all from the process starting: `cold.listed_ms` (the provider
+served the last page of the library; everything before it is the main process and the
+provider), `cold.first_card_ms` (the first documents painted) and `cold.all_cards_ms`
+(every document is on the page). A Home that mounts only the cards in view never reaches
+the third, so it is reported only when it happens.
 
 Latency definitions:
 

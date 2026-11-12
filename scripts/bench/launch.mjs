@@ -67,6 +67,8 @@ export async function launch(repo, options) {
   const codexEvents = []
   const codexWaiters = []
   const requests = {}
+  /** When the fake first served the last page of the library (epoch ms). */
+  let listedAt = null
   const hello = { main: Promise.withResolvers(), codex: Promise.withResolvers() }
   const server = createServer((socket) => {
     let role = null
@@ -86,6 +88,8 @@ export async function launch(repo, options) {
         else waiter?.resolve(message.result)
       } else if (message.event === 'request') {
         requests[message.method] = (requests[message.method] ?? 0) + 1
+      } else if (message.event === 'listed') {
+        listedAt ??= message.at
       } else {
         const waiter = codexWaiters.shift()
         if (waiter) waiter(message)
@@ -238,6 +242,7 @@ export async function launch(repo, options) {
     measure,
     counters,
     requests,
+    listedAt: () => listedAt,
     footprints: async () => {
       const used = await usage.read([pids.main, pids.renderer, pids.gpu].filter(Boolean))
       return { main: used[pids.main]?.footprint_mb, renderer: used[pids.renderer]?.footprint_mb, gpu: used[pids.gpu]?.footprint_mb }

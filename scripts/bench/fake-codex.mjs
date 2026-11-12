@@ -216,6 +216,8 @@ const handlers = {
     const data = search ? threads.filter((thread) => thread.name.toLowerCase().includes(search)) : threads
     const start = Number(params?.cursor ?? 0)
     const end = start + (params?.limit ?? 50)
+    // The last page of the library: what the bench waits on when Home mounts only the cards in view.
+    if (!search && end >= data.length) tell({ event: 'listed', at: Date.now() })
     return { data: data.slice(start, end), nextCursor: end < data.length ? String(end) : null, backwardsCursor: null }
   },
   'thread/resume': (params) => {

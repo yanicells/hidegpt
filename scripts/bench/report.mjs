@@ -19,7 +19,9 @@ export function tier(name) {
 /** The numbers a person feels, plus the counters that explain them. */
 export const HEADLINE = [
   'cold.fcp_ms',
+  'cold.first_card_ms',
   'cold.all_cards_ms',
+  'cold.listed_ms',
   'cold.m_ginstr',
   'cold.r_ginstr',
   'cold.lag_max_ms',
