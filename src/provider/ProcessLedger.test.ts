@@ -363,7 +363,8 @@ describe('ProcessLedger', () => {
   it.effect('still reaps the members of an entry whose own start time is unknown', () =>
     Effect.gen(function* () {
       const path = freshPath()
-      const member = sleeper()
+      const child = launch('/bin/sleep', ['30'])
+      const member = child.pid ?? 0
       const at = yield* startOf(member)
       writeFileSync(
         path,
@@ -373,7 +374,8 @@ describe('ProcessLedger', () => {
       )
       // An unknown start time says nothing about the boot, so the entry is not dropped for it.
       expect(yield* reap(path, { bootTime: at - 1_000 })).toBe(1)
-      for (let i = 0; i < 50 && alive(member); i += 1) yield* Effect.sleep('20 millis')
+      // Wait on the exit itself: this test runs on the TestClock, where a polling sleep never ends.
+      yield* exited(child)
       expect(alive(member)).toBe(false)
     }),
   )
