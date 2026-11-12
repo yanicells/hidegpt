@@ -17,7 +17,7 @@
     "knip": "knip --no-config-hints",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
-    "check": "pnpm typecheck && pnpm lint && pnpm knip && pnpm test && pnpm build",
+    "check": "pnpm typecheck && pnpm lint && pnpm fmt:check && pnpm knip && pnpm test && pnpm build",
     "protocol": "node src/vendor/effect-codex-app-server/scripts/generate.ts",
     "postinstall": "node node_modules/electron/install.js"
   },

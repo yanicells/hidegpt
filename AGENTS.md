@@ -164,7 +164,8 @@ pnpm test         # vitest: session/protocol + renderer UI tests
 pnpm typecheck    # effect-tsgo: tsc + Effect diagnostics (unrun Effects, bare yield)
 pnpm lint         # oxlint (T3 Code's rules + floating promises)
 pnpm knip         # unused files, exports, dependencies
-pnpm check        # typecheck + lint + knip + test + build, as CI runs it
+pnpm fmt          # oxfmt; pnpm fmt:check verifies it
+pnpm check        # typecheck + lint + fmt:check + knip + test + build, as CI runs it
 pnpm protocol     # regenerate the vendored Codex schemas from the installed CLI
 pnpm screenshot   # PNGs of home + document with a fake session
 ```

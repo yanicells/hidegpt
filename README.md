@@ -24,8 +24,8 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm install` also points Git at `.githooks/`, so each commit runs oxlint on the
-staged files. It does this by setting `core.hooksPath`, which replaces any hooks path
+`pnpm install` also points Git at `.githooks/`, so each commit formats and lints
+the staged files. It does this by setting `core.hooksPath`, which replaces any hooks path
 you had set, in the Git config that every worktree of this repository shares.
 
 | Script                         | What it does                                                                                     |
@@ -36,8 +36,8 @@ you had set, in the Git config that every worktree of this repository shares.
 | `pnpm typecheck:effect-strict` | T3 Code's full Effect rule set; not yet clean, so not gating                                     |
 | `pnpm lint`                    | oxlint with T3 Code's rules, plus floating promises                                              |
 | `pnpm knip`                    | Unused files, exports, and dependencies                                                          |
-| `pnpm check`                   | Typecheck, lint, knip, tests, and build: what CI runs                                            |
-| `pnpm fmt`                     | oxfmt (not yet applied repo-wide)                                                                |
+| `pnpm check`                   | Typecheck, lint, format check, knip, tests, and build: what CI runs                              |
+| `pnpm fmt`                     | Format with oxfmt; `pnpm fmt:check` verifies it in CI                                            |
 | `pnpm protocol`                | Regenerate the Codex app-server schemas from the installed CLI                                   |
 | `pnpm screenshot`              | Home grid/list, project, creation dialog, and desktop/narrow editor PNGs using fictional content |
 
