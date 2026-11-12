@@ -45,6 +45,12 @@ or adapted file carries a header naming its source.
     the error text, from `apps/web/src/components/chat/ThreadErrorBanner.tsx`.
   - `src/renderer/src/session-bridge.ts`: selector subscriptions that skip
     streamed text, after `packages/client-runtime/src/state/threadDetail.ts`.
+  - `src/shared/channels.ts`, the IPC tables in `src/shared/contracts.ts`,
+    `src/main/ipc.ts` (with its test) and `src/preload/index.ts`: channel
+    names, typed invoke and sync channels, and the preload bridge, from
+    `apps/desktop/src/ipc/channels.ts`, `apps/desktop/src/ipc/DesktopIpc.ts`,
+    `packages/contracts/src/ipc.ts` and `apps/desktop/src/preload.ts` (commit
+    5c6f2f12).
   - `src/renderer/src/components/ui/markdownRenderer.ts` and
     `markdownStreamBlocks.ts`, with their tests: the cached Markdown renderer and
     the streaming block splitter, from `apps/web/src/components/chat/`.

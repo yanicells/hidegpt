@@ -26,7 +26,7 @@ Main and the providers are written in [Effect](https://effect.website) 4, follow
 | `ProviderRegistry` (`src/main/ProviderRegistry.ts`) | A service that loads adapters with a dynamic `import()` on first use. `layerAdapters` swaps in fakes for tests and demo mode. |
 | `ProviderSessionManager` (`src/main/ProviderSessionManager.ts`) | A service that owns all UI state in a `Ref`. Its pure transitions are in `src/main/session/state.ts`. |
 | `SnapshotPublisher` (`src/main/SnapshotPublisher.ts`) | Turns state changes into IPC patches. |
-| IPC (`src/main/ipc.ts`) | Each invoke channel has a payload `Schema`, decoded before its handler runs. |
+| IPC (`src/main/ipc.ts`) | Registers each channel from its row in the `Ipc*` tables in `contracts.ts`; a payload is decoded before its handler runs. |
 
 The conventions:
 
@@ -41,7 +41,7 @@ The conventions:
   - Each `message` is already the Docs-style sentence the banner shows.
   - `endsConnection` decides which errors trigger a restart.
 - **Startup stays cheap.** `src/main/index.ts` names the app, turns on Node's compile cache (`userData/compile-cache`), then imports `app.ts`, as T3 Code's desktop `boot.ts` does. Main bundles its dependencies (Effect, the OpenCode SDK) like T3's desktop build; only `electron` and the Claude SDK, which starts the CLI inside its package, stay external. Each adapter is its own chunk, loaded when its library first connects.
-- **Contracts are schemas.** `src/shared/contracts.ts` defines `Snapshot`, `Block`, `Command`, `CommandResult`, and `SnapshotPatch` as `effect/Schema`. Main decodes every command at the IPC boundary. The renderer imports only the derived types, through `src/shared/model.ts`.
+- **Contracts are schemas.** `src/shared/contracts.ts` defines `Snapshot`, `Block`, `Command`, `CommandResult`, and `SnapshotPatch` as `effect/Schema`, plus the IPC tables: `IpcInvoke` (each renderer request's payload, result, and the answer when the payload does not decode), `IpcEvents` (main's pushes) and `IpcSnapshotNow`. Main decodes every payload at the IPC boundary. `HideGptApi` (`src/shared/api.ts`) is derived from the tables, and the plain channel names live in `src/shared/channels.ts` so the preload loads no Effect. The renderer imports only the derived types, through `src/shared/model.ts`.
 
 ## 2. Provider-neutral model (`src/shared/`)
 
@@ -146,14 +146,15 @@ Main sends `snapshot` patches on one channel:
 
 ```ts
 type SnapshotPatch = {
-  fields: Partial<Snapshot>   // changed top-level fields, by reference
+  fields: Partial<Omit<Snapshot, 'blocks'>>   // changed top-level fields, by reference
   blocks?: { length: number; set?: [index, Block][]; append?: [index, text][] }
 }
 ```
 
 - While streaming, `diffSnapshot` sees that a block only grew (same id and kind, new text starts with the old text). It then sends `append: [[i, delta]]` instead of the whole block, so IPC is proportional to the new text, not to the size of the answer.
 - Token bursts are coalesced into 32 ms frames. Navigation, new blocks, and turn ends go out right away.
-- The preload starts from what main last published (one `sendSync` before the first paint) and keeps an assembled copy, so `getSnapshot()` is the real library at startup. Main also sends a whole-snapshot patch once the page loads. The renderer store applies the same patches.
+- The first patch, and the one main sends once the page loads, carries every field plus all blocks as `set`.
+- The preload only relays. It starts from what main last published (one `sendSync` before the first paint) and applies the patches that land before the page reads it, so `getSnapshot()` is the real library at startup. That first read hands the snapshot over: the preload drops its copy and stops listening, and the renderer store subscribes in the same task, so each patch is applied once.
 
 ## 7. Renderer (`src/renderer/`)
 
