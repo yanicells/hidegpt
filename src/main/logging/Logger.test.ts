@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -24,6 +24,18 @@ describe('makeRotatingFileSink', () => {
       expect(readFileSync(filePath, 'utf8')).toBe('dddddd\n')
       expect(readFileSync(`${filePath}.1`, 'utf8')).toBe('cccccc\n')
       expect(readFileSync(`${filePath}.2`, 'utf8')).toBe('bbbbbb\n')
+    }).pipe(Effect.provide(NodeServices.layer)),
+  )
+
+  it.effect('makes the folder again when it is deleted while Docs runs', () =>
+    Effect.gen(function* () {
+      const dir = join(tempDir(), 'logs')
+      const filePath = join(dir, 'main.ndjson')
+      const sink = yield* makeRotatingFileSink({ filePath, maxBytes: 100, maxFiles: 2 })
+      yield* sink.write('before\n')
+      rmSync(dir, { recursive: true })
+      yield* sink.write('after\n')
+      expect(readFileSync(filePath, 'utf8')).toBe('after\n')
     }).pipe(Effect.provide(NodeServices.layer)),
   )
 

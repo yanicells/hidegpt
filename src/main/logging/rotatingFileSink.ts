@@ -68,6 +68,7 @@ export const makeRotatingFileSink = Effect.fnUntraced(function* (options: Rotati
     if (yield* fs.exists(options.filePath)) yield* fs.rename(options.filePath, `${options.filePath}.1`)
     currentSize = 0
   }).pipe(Effect.mapError(failure('rotate')))
+  const append = (buffer: Uint8Array) => fs.writeFile(options.filePath, buffer, { flag: 'a' })
   const write = (chunk: string) =>
     semaphore
       .withPermits(1)(
@@ -75,7 +76,18 @@ export const makeRotatingFileSink = Effect.fnUntraced(function* (options: Rotati
           const buffer = Buffer.from(chunk)
           if (buffer.length === 0) return
           if (currentSize > 0 && currentSize + buffer.length > maxBytes) yield* rotate
-          yield* fs.writeFile(options.filePath, buffer, { flag: 'a' }).pipe(Effect.mapError(failure('write')))
+          yield* append(buffer).pipe(
+            // The folder was deleted while Docs ran: make it again, once, and start a fresh file.
+            Effect.catch((error) =>
+              error.reason._tag === 'NotFound'
+                ? fs.makeDirectory(directory, { recursive: true }).pipe(
+                    Effect.andThen(append(buffer)),
+                    Effect.tap(() => Effect.sync(() => void (currentSize = 0))),
+                  )
+                : Effect.fail(error),
+            ),
+            Effect.mapError(failure('write')),
+          )
           currentSize += buffer.length
         }).pipe(
           // After a failed write the size on disk is the truth.
