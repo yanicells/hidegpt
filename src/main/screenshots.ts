@@ -15,7 +15,9 @@ type Point = { x: number; y: number }
 export const SCREENSHOT_SIZE = { width: 1280, height: 840 } as const
 
 /**
- * `HIDEGPT_SCREENSHOT=<dir>` (with `HIDEGPT_FAKE=1`): walks Home and its
+ * `HIDEGPT_SCREENSHOT=<dir>` (with `HIDEGPT_FAKE=1`): with `HIDEGPT_PHASE` set,
+ * runs that fidelity phase in a hidden window (`src/main/fidelity/harness.ts`,
+ * loaded only then; `pnpm fidelity:shots`). Otherwise walks Home and its
  * menus, the folder picker, a new document, a document (across a page break,
  * streaming, and with a pending suggestion), every toolbar and header menu,
  * the narrow layouts, and the library switch, saving a PNG of each plus the
@@ -29,6 +31,11 @@ export const captureScreenshots = (
   dir: string,
 ) =>
   Effect.gen(function* () {
+    const phase = process.env.HIDEGPT_PHASE
+    if (phase) {
+      const { runPhase } = yield* Effect.promise(() => import('./fidelity/harness'))
+      return yield* runPhase(phase, win, manager, stage, dir)
+    }
     mkdirSync(dir, { recursive: true })
     const js = <A = unknown>(script: string) =>
       Effect.promise(() => win.webContents.executeJavaScript(script) as Promise<A>)
