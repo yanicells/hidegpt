@@ -18,6 +18,21 @@ describe('stealth gate', () => {
     expect(stealthViolations('Using mcp__github__create_issue')).toEqual(['mcp'])
   })
 
+  it('reads a capital run before lower case as its own word, but keeps all-caps words whole', () => {
+    expect(stealthViolations('AIsearch')).toEqual(['ai'])
+    expect(stealthViolations('myGPTs')).toEqual(['gpt'])
+    expect(stealthViolations('AIs')).toEqual(['ai'])
+    for (const text of ['GMAIL SEND EMAIL', 'AIRTABLE', 'MAINTAINERS', 'BOTANICAL', 'DETAILS']) {
+      expect(isStealthy(text), text).toBe(true)
+    }
+  })
+
+  it('sees through fullwidth letters and invisible format characters', () => {
+    expect(stealthViolations('\uFF23laude')).toEqual(['claude'])
+    expect(stealthViolations('Clau\u00ADde Code')).toEqual(['claude'])
+    expect(stealthViolations('Op\u200DenAI')).toEqual(['openai'])
+  })
+
   it('bans developer words a document editor would not say', () => {
     expect(stealthViolations('HideGPT CLI · SDK subagents via a provider')).toEqual([
       'hidegpt',

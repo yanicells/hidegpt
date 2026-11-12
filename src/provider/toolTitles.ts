@@ -1,5 +1,5 @@
 import { connectedAppTitle, toolRequestTitle, toolTitle as kindTitle } from '../main/session/present'
-import { BANNED_WORDS, PROSE_WORDS } from '../shared/stealth'
+import { isStealthy } from '../shared/stealth'
 import type { ToolKind, ToolStatus } from './events'
 
 /**
@@ -9,38 +9,6 @@ import type { ToolKind, ToolStatus } from './events'
  * before `present.ts` puts them in a sentence.
  */
 
-// The stealth gate's lists. Its own case split reads "AIsearch" as "A" + "Isearch"; the boundary
-// rule below also ends a word after a capital, so a name part is held to the stricter test.
-const BANNED = [...BANNED_WORDS, ...PROSE_WORDS]
-
-const isLetter = (char: string | undefined) => char !== undefined && /\p{L}/u.test(char)
-const isUpper = (char: string | undefined) => char !== undefined && /\p{Lu}/u.test(char)
-const isLower = (char: string | undefined) => char !== undefined && /\p{Ll}/u.test(char)
-
-// A word can start after a non-letter, at a lower-to-upper step ("myGpt"), or inside
-// a capital run ("ChatGPTPlus"), and end before a non-letter or digit ("gpt5"), at a
-// lower-to-upper step, or after a capital ("AIsearch", "GPT4o").
-const startsWord = (text: string, at: number) =>
-  !isLetter(text[at - 1]) ||
-  (isLower(text[at - 1]) && isUpper(text[at])) ||
-  (isUpper(text[at - 1]) && isUpper(text[at]))
-const endsWord = (text: string, at: number) =>
-  !isLetter(text[at]) || isUpper(text[at - 1]) || (isLower(text[at - 1]) && isUpper(text[at]))
-
-/** Whether a name part carries a banned word at a word, case or digit boundary (plurals too). */
-function mentionsBanned(part: string): boolean {
-  const lower = part.toLowerCase()
-  for (let at = 0; at < part.length; at++) {
-    if (!startsWord(part, at)) continue
-    for (const word of BANNED) {
-      if (!lower.startsWith(word, at)) continue
-      const end = at + word.length
-      if (endsWord(part, end) || (lower[end] === 's' && endsWord(part, end + 1))) return true
-    }
-  }
-  return false
-}
-
 /**
  * A server or tool name without its banned parts, or '' when nothing is left. A part
  * (split at spaces, `_`, `.`, `:` and `-`) that carries a banned word anywhere is
@@ -49,7 +17,7 @@ function mentionsBanned(part: string): boolean {
 const neutralPart = (name: string) =>
   name
     .split(/[\s_.:-]+/)
-    .filter((part) => part && !mentionsBanned(part))
+    .filter((part) => part && isStealthy(part))
     .join(' ')
 
 /**
@@ -61,9 +29,10 @@ function appAndTool(name: string): { readonly app: string; readonly tool: string
   return { app: neutralPart(match?.[1] ?? ''), tool: neutralPart(match?.[2] ?? '') }
 }
 
-/** A tool row's title by kind and status. A connected-app tool needs its raw `name`. */
+/** A tool row's title by kind and status. A running or finished connected-app tool needs its raw `name`. */
 export function toolTitle(kind: ToolKind, status: ToolStatus, name = ''): string {
-  if (kind !== 'mcp_tool') return kindTitle(kind, status)
+  // A failed connected-app call reads like any failed step: Docs' sentence, no names.
+  if (kind !== 'mcp_tool' || status === 'failed') return kindTitle(kind, status)
   const { app, tool } = appAndTool(name)
   return connectedAppTitle(app, tool)
 }
