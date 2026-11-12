@@ -15,8 +15,6 @@
   --blue-tint: rgba(11, 87, 208, 0.08);
   --docs-blue: #4285f4;
   --ruler-tick: #9aa0a6;
-  /* Ruler ticks over the page margins; --ruler-tick colours the rest. */
-  --ruler-tick-margin: #747775;
   --green: #188038;
   --red: #b3261e;
   --red-soft: #fce8e6;
@@ -46,4 +44,7 @@
   --paper-margin: 96px;
   --rail-width: 56px;
   --scrollbar-w: 14px;
+  /* UI-02, for UI-06: ruler ticks over the page margins and over the content zone. */
+  --ruler-tick-margin: #747775;
+  --ruler-tick-content: #c4c7c5;
 }
