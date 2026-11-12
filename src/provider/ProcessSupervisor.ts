@@ -3,6 +3,7 @@ import { spawn as spawnChild, type ChildProcessWithoutNullStreams } from 'node:c
 import * as Context from 'effect/Context'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
+import * as Exit from 'effect/Exit'
 import * as Fiber from 'effect/Fiber'
 import * as Layer from 'effect/Layer'
 import * as PlatformError from 'effect/PlatformError'
@@ -154,17 +155,23 @@ const make = (
       // The read is capped, so a slow `ps` never delays the kill past quit's deadline.
       yield* Effect.acquireRelease(ledger.record(handle.pid, options.command, options.args[0] ?? ''), () =>
         treeReadBeforeKill(ledger).pipe(
-          // A server that already exited cannot be signalled, so the kill's PlatformError is no defect
-          // (as `signalGroup`). Anything else it does is reported, and the ledger is still updated.
           Effect.andThen(
-            observed(
-              handle
-                .kill({ forceKillAfter: FORCE_KILL_AFTER })
-                .pipe(Effect.catchTag('PlatformError', () => Effect.void)),
-              { name: 'supervisor.kill' },
+            Effect.exit(
+              handle.kill({ forceKillAfter: FORCE_KILL_AFTER }).pipe(
+                // A server that already exited cannot be signalled (as `signalGroup`): no defect.
+                // One still running that could not be killed (EPERM) is.
+                Effect.catchTag('PlatformError', (error) =>
+                  Effect.flatMap(handle.isRunning, (running) => (running ? Effect.fail(error) : Effect.void)),
+                ),
+              ),
             ),
           ),
-          Effect.andThen(ledger.stop(handle.pid)),
+          // A kill that failed or died is reported and its record kept, so the next launch reaps the server.
+          Effect.flatMap((exit) =>
+            Exit.isSuccess(exit)
+              ? ledger.stop(handle.pid)
+              : observed(Effect.failCause(exit.cause), { name: 'supervisor.kill' }),
+          ),
         ),
       )
 

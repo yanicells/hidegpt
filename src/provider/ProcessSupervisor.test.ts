@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn as spawnChild } from 'node:child_process'
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,6 +7,10 @@ import * as NodeServices from '@effect/platform-node/NodeServices'
 import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
+import * as PlatformError from 'effect/PlatformError'
+import { ChildProcessSpawner } from 'effect/process'
+import * as Sink from 'effect/Sink'
+import * as Stream from 'effect/Stream'
 
 import { captureReports } from './observed.testkit'
 import { ProcessSupervisor, layer } from './ProcessSupervisor'
@@ -130,6 +134,47 @@ describe('ProcessSupervisor', () => {
     ).pipe(
       Effect.provide(logs),
       Effect.map(() => expect(reported()).toEqual([])),
+    )
+  })
+
+  it.live('reports a kill that fails on a server still running, and keeps its record for the next launch', () => {
+    const { layer: logs, reported } = captureReports()
+    const ledgerPath = join(dir, 'failed-kill-ledger.json')
+    // A real process, so the ledger can read its start time; this test stops it.
+    const server = spawnChild('/bin/sleep', ['30'])
+    const pid = server.pid ?? 0
+    daemons.push(pid)
+    const denied = PlatformError.systemError({ _tag: 'PermissionDenied', module: 'ChildProcess', method: 'kill' })
+    const spawner = ChildProcessSpawner.make(() =>
+      Effect.succeed(
+        ChildProcessSpawner.makeHandle({
+          pid: ChildProcessSpawner.ProcessId(pid),
+          exitCode: Effect.never,
+          isRunning: Effect.succeed(true),
+          kill: () => Effect.fail(denied),
+          stdin: Sink.drain,
+          stdout: Stream.empty,
+          stderr: Stream.empty,
+          all: Stream.empty,
+          getInputFd: () => Sink.drain,
+          getOutputFd: () => Stream.empty,
+          unref: Effect.succeed(Effect.void),
+        }),
+      ),
+    )
+    return Effect.gen(function* () {
+      const supervisor = yield* ProcessSupervisor
+      yield* Effect.scoped(supervisor.spawn({ provider: 'codex', command: '/bin/sleep', args: ['30'] }))
+      expect(reported().map(({ where }) => where)).toEqual(['supervisor.kill'])
+      expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))[pid]).toMatchObject({ command: '/bin/sleep' })
+    }).pipe(
+      Effect.provide(
+        layer(ledgerPath).pipe(
+          Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner)),
+          Layer.provideMerge(NodeServices.layer),
+        ),
+      ),
+      Effect.provide(logs),
     )
   })
 
