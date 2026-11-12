@@ -37,9 +37,13 @@ The conventions:
   - OpenCode's event stream re-subscribes with its own exponential schedule.
 - **Background work is a fiber.** Navigation runs in a `FiberHandle`, and refreshes and debounced invalidations run in `FiberMap`s keyed by purpose. Starting a newer one interrupts the older one, so a slow open can never starve a later one.
 - **Errors are tagged** (`src/provider/errors.ts`, `Schema.TaggedError`):
-  - `ProviderTimeoutError`, `ProcessExitedError` (with the stderr line), `BinaryMissingError`, `NotLoggedInError`, `ProviderRequestError`, `ProviderNotReadyError`, `CommandRejectedError`.
+  - `ProviderTimeoutError`, `ProcessExitedError` (with the stderr line), `BinaryMissingError`, `NotLoggedInError`, `ProviderRequestError`, `ProviderNotReadyError`, `ProviderDefectError`, `CommandRejectedError`.
   - Each `message` is already the Docs-style sentence the banner shows.
   - `endsConnection` decides which errors trigger a restart.
+  - Anything else is a defect. Its raw text never reaches the page: `describeFailure` (`src/main/logging/DefectReport.ts`) logs the full cause under a report id and the banner says "Something went wrong. Docs saved a report."
+- **Logs are NDJSON files in `userData/logs`** (`src/main/logging/`, adapted from T3 Code's rotating sink and provider event logger). Help → Report a problem… opens the folder.
+  - `main.ndjson`: every `Effect.log*` in main as one JSON line (10 MB, five rotated files), annotated with `provider` and `command` where they apply. Debug lines keep the connection timeline.
+  - `providers/<library>.ndjson`: one line per adapter event (5 MB, three rotated files), from `onEvent`. Only the type, thread and block ids, and error or notice sentences are kept: never prompt or answer text (`text` deltas are skipped), titles, or sign-in links. `describeEvent` is the allowlist; extend it, never log an event whole.
 - **Startup stays cheap.** `src/main/index.ts` names the app, turns on Node's compile cache (`userData/compile-cache`), then imports `app.ts`, as T3 Code's desktop `boot.ts` does. Main bundles its dependencies (Effect, the OpenCode SDK) like T3's desktop build; only `electron` and the Claude SDK, which starts the CLI inside its package, stay external. Each adapter is its own chunk, loaded when its library first connects.
 - **Contracts are schemas.** `src/shared/contracts.ts` defines `Snapshot`, `Block`, `Command`, `CommandResult`, and `SnapshotPatch` as `effect/Schema`. Main decodes every command at the IPC boundary. The renderer imports only the derived types, through `src/shared/model.ts`.
 
