@@ -105,12 +105,20 @@ and Claude logins. Agents must never run them.
      plugin and agent lists empty, so plugin errors and memory paths are
      gone. `commands_changed` loses its commands, any other `system` message
      keeps only its type, subtype and ids, and `rate_limit_event` keeps only
-     the limit's status. Probe answers keep Claude Code's built-in commands
-     only.
-   - Codex: MCP server names and startup errors, disabled plugin ids, and the
-     ChatGPT plan (`planType` becomes `"unknown"`).
+     the limit's status. Probe answers keep Claude Code's built-in commands,
+     the model list and the login source (`tokenSource`, `apiProvider`,
+     `apiKeySource`); agents, the account's email, organization and plan, and
+     output styles are dropped. `init.output_style` stays, so a custom style
+     name would show (T3 Code keeps it too).
+   - Codex: MCP server names and startup errors, disabled plugin ids, the
+     ChatGPT plan (`planType` becomes `"unknown"`), and the lists in answers
+     and notifications about MCP servers, skills, plugins and apps
+     (`mcpServerStatus/list`, `skills/*`, `plugin/*`, `app/*`), which are
+     emptied.
 
-   The model's answers and tool inputs stay as recorded, so read those. A name
+   The model's answers, tool inputs and a failed turn's `result.errors` stay
+   as recorded, so read those: an error can name an organization, school or
+   plan. If one does, add it to `HIDEGPT_RECORD_NAMES` and record again. A name
    that is also a word of a placeholder is not scrubbed or checked, since it
    would match the placeholders themselves: `replay`, `user`, `host`,
    `example`, `com`, `redacted`, `home`, `tmp`, `workspace`, and `codex` in

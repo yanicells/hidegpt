@@ -9,7 +9,7 @@ const MACHINE: RecordingMachine = {
   home: '/Users/ada',
   people: ['ada', 'Ada', 'Lovelace'],
   hosts: ['adas-mbp.local', 'adas-mbp', "Ada's MacBook Pro"],
-  scratch: [['/private/var/folders/x1/abc/T/hidegpt-replay-workspace-1', '/tmp/replay-workspace']],
+  scratch: [['/private/var/folders/x1/abc/T/docs-replay-workspace-1', '/tmp/replay-workspace']],
 }
 
 const SRC = new URL('..', import.meta.url).pathname
@@ -24,7 +24,7 @@ describe('replay fixtures', () => {
   it('scrub replaces machine identity, emails and secrets, and keeps everything else', () => {
     const frame = {
       account: { email: 'ada.lovelace@school.edu', planType: 'plus' },
-      cwd: '/private/var/folders/x1/abc/T/hidegpt-replay-workspace-1/notes',
+      cwd: '/private/var/folders/x1/abc/T/docs-replay-workspace-1/notes',
       path: '/Users/ada/.codex/skills/a/SKILL.md',
       other: '/Users/someone/project',
       serverName: 'adas-mbp.local',

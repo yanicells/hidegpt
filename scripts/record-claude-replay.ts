@@ -67,8 +67,8 @@ async function main() {
   const allowTurns = turnsAllowed()
   if (sendsTurns && !allowTurns) throw new TurnRefusedError(`record the "${name}" scenario`)
 
-  const workspace = realpathSync(mkdtempSync(join(tmpdir(), 'hidegpt-replay-workspace-')))
-  const emptyHome = realpathSync(mkdtempSync(join(tmpdir(), 'hidegpt-replay-claude-')))
+  const workspace = realpathSync(mkdtempSync(join(tmpdir(), 'docs-replay-workspace-')))
+  const emptyHome = realpathSync(mkdtempSync(join(tmpdir(), 'docs-replay-claude-')))
   const machine = thisMachine([
     [workspace, '/tmp/replay-workspace'],
     // The replay maps its own home folder to the same placeholder.
