@@ -5,12 +5,14 @@ projects below. Each copied or adapted file carries a header naming its source.
 
 ## T3 Code
 
-- Source: https://github.com/pingdotgg/t3code (commit 8a14762c)
+Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
+
+- Source: https://github.com/pingdotgg/t3code (commits 8a14762c and 5c6f2f12)
 - What: `src/vendor/effect-codex-app-server/` (the Effect client, JSON-RPC
   protocol, replay harness, errors, stdio helpers, mock peer, and schema
-  generator for `codex app-server`), and patterns adapted throughout
+  generator for `codex app-server`; commit 8a14762c), and patterns adapted throughout
   `src/provider/` and `src/main/` (provider adapters, session manager,
-  process supervision, replay tests). Smaller adaptations, each marked in
+  process supervision, replay tests; commit 8a14762c). Smaller adaptations, each marked in
   place:
   - `src/vendor/effect-codex-app-server/*.test.ts` and `_internal/*.test.ts`:
     the package's own tests, plus the newer `_internal/stdio.ts` that keeps a
@@ -31,22 +33,22 @@ projects below. Each copied or adapted file carries a header naming its source.
     here so a repeated busy status starts no new turn, both from
     `packages/provider-opencode/src/server/adapter.ts`; and reading the
     server's "listening" line (`parseServerUrl`, from
-    `packages/provider-opencode/src/server/OpenCodeRuntime.ts`).
+    `packages/provider-opencode/src/server/OpenCodeRuntime.ts`) (commit 8a14762c).
   - `src/opencode/mapping.ts`: `readableProviderError`, from
-    `packages/provider-opencode/src/server/providerErrorMessage.ts`.
+    `packages/provider-opencode/src/server/providerErrorMessage.ts` (commit 8a14762c).
   - `src/claude/ClaudeAdapter.ts`: the streaming-input query per document, the
     capabilities probe that sends no prompt, and approvals as one Deferred per
     request, from `apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts`
-    and `apps/server/src/provider/ClaudeProvider.ts`.
+    and `apps/server/src/provider/ClaudeProvider.ts` (commit 8a14762c).
   - `src/claude/mapping.ts`: `isSignedIn` and `resultError`, from the same two
-    files.
+    files (commit 8a14762c).
   - `src/main/index.ts`: booting through a small entry that turns on Node's
     compile cache before the app loads, from `apps/desktop/src/boot.ts` and
-    `apps/desktop/src/compileCache.ts`.
+    `apps/desktop/src/compileCache.ts` (commit 8a14762c).
   - `src/main/app.ts`: quitting after shutdown (cancel the first
     `before-quit`, close every scope, then quit; exit if shutdown stalls; open
     no window on activation meanwhile), from
-    `apps/desktop/src/app/DesktopLifecycle.ts`.
+    `apps/desktop/src/app/DesktopLifecycle.ts` (commit 8a14762c).
   - `src/provider/ProcessSupervisor.ts` and `src/provider/ProcessLedger.ts`:
     Claude Code spawned in its own process group with stderr drained
     (`spawnClaudeProcessGroup`) and pid plus start time from `ps`
@@ -68,15 +70,17 @@ projects below. Each copied or adapted file carries a header naming its source.
   - `src/main/ProviderSessionManager.ts` and `src/opencode/OpenCodeAdapter.ts`:
     handling a defect in a long-lived fiber with `Effect.catchCause` and
     re-interrupting on interruption, from
-    `packages/provider-opencode/src/server/adapter.ts`.
+    `packages/provider-opencode/src/server/adapter.ts` (commit 8a14762c).
   - `src/renderer/src/session-bridge.ts` and `components/document/Approval.tsx`:
     failed commands kept as a local error and replies tracked while they are
     on their way, from `apps/web/src/components/chat/usePendingThreadRequests.ts`
-    and `ComposerPendingApprovalActions.tsx`.
+    and `ComposerPendingApprovalActions.tsx` (commit 8a14762c).
   - `src/renderer/src/components/layout/Banners.tsx`: banner dismissal keyed by
-    the error text, from `apps/web/src/components/chat/ThreadErrorBanner.tsx`.
+    the error text, from `apps/web/src/components/chat/ThreadErrorBanner.tsx`
+    (commit 8a14762c).
   - `src/renderer/src/session-bridge.ts`: selector subscriptions that skip
-    streamed text, after `packages/client-runtime/src/state/threadDetail.ts`.
+    streamed text, after `packages/client-runtime/src/state/threadDetail.ts`
+    (commit 8a14762c).
   - `src/shared/channels.ts`, the IPC tables in `src/shared/contracts.ts`,
     `src/main/ipc.ts` (with its test) and `src/preload/index.ts`: channel
     names, typed invoke and sync channels, and the preload bridge, from
@@ -88,14 +92,16 @@ projects below. Each copied or adapted file carries a header naming its source.
     `apps/web/src/components/guest/guestStream.logic.ts` (commit 5c6f2f12).
   - `src/renderer/src/components/ui/markdownRenderer.ts` and
     `markdownStreamBlocks.ts`, with their tests: the cached Markdown renderer and
-    the streaming block splitter, from `apps/web/src/components/chat/`.
+    the streaming block splitter, from `apps/web/src/components/chat/` (commit
+    8a14762c).
   - `src/renderer/src/components/document/useFollowBottom.ts`: letting go of the
     bottom on upward input (wheel, up keys, a scrollbar press) unless a nested
     box scrolls, and on any other upward scroll (the upward-scroll detector),
     from `apps/web/src/components/chat/timelineViewport.ts` and
-    `timelineScrollTarget.ts`.
+    `timelineScrollTarget.ts` (commit 8a14762c).
   - `src/renderer/src/components/ui/`: these Base UI wrappers, adapted from
-    `apps/web/src/components/ui/` (each keeps a header pointing to its source):
+    `apps/web/src/components/ui/` at commit 8a14762c (each keeps a header
+    pointing to its source):
 
     | HideGPT file             | Adapted from             |
     | ------------------------ | ------------------------ |
