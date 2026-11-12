@@ -28,6 +28,9 @@ describe('makeRedactor', () => {
 
   it('removes addresses with non-ASCII letters', () => {
     expect(redact('from jösé@exämple.com and 用户@例子.中国')).toBe('from <email> and <email>')
+    // Combining marks: decomposed Latin (as macOS often returns it), Devanagari and Thai.
+    const marked = `${'josé@example.com'.normalize('NFD')} राम@उदाहरण.भारत สมชาย@ตัวอย่าง.ไทย`
+    expect(redact(marked)).toBe('<email> <email> <email>')
   })
 
   it('keeps ordinary text that only looks like a key', () => {
