@@ -361,6 +361,8 @@ export const make = (options: ManagerOptions) =>
               return yield* invalidate(id, event.part)
             case 'notice':
               return yield* setError(id, event.message)
+            case 'clearNotice':
+              return yield* updateLibrary(id, (lib) => (lib.error === event.message ? { ...lib, error: null } : lib))
             case 'loginUrl':
               yield* updateLibrary(id, (lib) => ({ ...lib, loginUrl: event.url }))
               if (event.url) yield* options.openExternal(event.url)

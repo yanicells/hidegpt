@@ -98,7 +98,7 @@ There is one interface with three implementations:
   - Documents: `openThread`, `createThread`, `loadOlder`, `rename`.
   - Turns: `send`, `interrupt`, `respond`.
   - Cleanup: `releaseThread`.
-  - Optional: `createProject`, `login`, `logout`, `connectTool`. Each is present exactly when its `Capabilities` flag is on (`CAPABILITY_METHODS` in `ProviderAdapter.ts`); `src/provider/capabilities.test.ts` checks all three adapters.
+  - Optional: `createProject`, `login`, `logout`, `connectTool`. Each is present exactly when its `Capabilities` flag is on (`src/provider/capabilities.test.ts` checks all three adapters).
 
 Adapters hold no UI state and know nothing about routes. Every thread event carries its `threadId`. That is what lets a turn keep streaming while the window shows something else.
 

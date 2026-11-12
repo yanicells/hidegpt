@@ -63,7 +63,9 @@ export function describeEvent(event: AdapterEvent): Record<string, unknown> | nu
       }
     case 'invalidate':
       return { type: event.type, part: event.part }
+    // Only that a banner came or went: its sentence is provider text.
     case 'notice':
+    case 'clearNotice':
       return { type: event.type }
     case 'loginUrl':
       return { type: event.type, pending: event.url !== null }
