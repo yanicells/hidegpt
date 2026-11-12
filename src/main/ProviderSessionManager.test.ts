@@ -52,6 +52,28 @@ const captureErrorLogs = () => {
 }
 
 const settle = Effect.yieldNow.pipe(Effect.repeat({ times: 30 }))
+
+/** A copy of `params` whose `key` throws when read: a Docs mapping bug, which the fake's schema-checked frames cannot produce. */
+const throwingOn = <T extends object>(params: T, key: string, message: string): T =>
+  Object.defineProperty({ ...params }, key, {
+    get: () => {
+      throw new Error(message)
+    },
+  })
+
+/** Codex over `peer`, where the first `method` message (a notification or a request) reaches Docs with a throwing `key`. */
+const brokenOnce = (peer: ReturnType<typeof makeFakeCodex>, method: string, key: string, message: string) => {
+  let broken = true
+  const poison = <T extends object>(name: string, params: T) =>
+    name === method && broken ? ((broken = false), throwingOn(params, key, message)) : params
+  return CodexAdapter.make(
+    Effect.map(peer.connect, (client): CodexAdapter.Client => ({
+      ...client,
+      handleServerNotification: (name, handler) => client.handleServerNotification(name, (params) => handler(poison(name, params))),
+      handleServerRequest: (name, handler) => client.handleServerRequest(name, (params) => handler(poison(name, params))),
+    })),
+  )
+}
 const countCalls = (peer: { calls: ReadonlyArray<{ method: string }> }, method: string) =>
   peer.calls.filter((call) => call.method === method).length
 
@@ -313,26 +335,8 @@ describe('ProviderSessionManager', () => {
     const { logged, layer } = captureErrorLogs()
     return Effect.gen(function* () {
       const peer = makeFakeCodex()
-      let broken = true
-      // A mapper bug: the first `turn/started` hands the adapter params that throw when read.
-      const connect = Effect.map(peer.connect, (client): CodexAdapter.Client => ({
-        ...client,
-        handleServerNotification: (method, handler) =>
-          client.handleServerNotification(method, (params) =>
-            method === 'turn/started' && broken
-              ? ((broken = false),
-                handler(
-                  Object.defineProperty({ ...params }, 'turn', {
-                    get: () => {
-                      throw new Error('mapper bug')
-                    },
-                  }),
-                ))
-              : handler(params),
-          ),
-      }))
       const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
-        Effect.provide(layerAdapters({ codex: CodexAdapter.make(connect) })),
+        Effect.provide(layerAdapters({ codex: brokenOnce(peer, 'turn/started', 'turn', 'mapper bug') })),
       )
       yield* manager.start('codex')
       yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
@@ -342,6 +346,30 @@ describe('ProviderSessionManager', () => {
       expect(lost).toMatchObject({ status: 'connecting', error: 'Something went wrong. Docs saved a report and is reconnecting.' })
       expect(logged).toEqual([
         { cause: expect.stringContaining('mapper bug'), annotations: { provider: 'codex', reportId: expect.stringMatching(/^[0-9a-f]{8}$/) } },
+      ])
+      yield* TestClock.adjust('1 second')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
+      expect(peer.connections()).toBe(2)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect('restarts Codex when an approval handler dies, instead of leaving the turn waiting', () => {
+    const { logged, layer } = captureErrorLogs()
+    return Effect.gen(function* () {
+      const peer = makeFakeCodex()
+      const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
+        Effect.provide(layerAdapters({ codex: brokenOnce(peer, 'item/commandExecution/requestApproval', 'command', 'approval bug') })),
+      )
+      yield* manager.start('codex')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* peer
+        .request('item/commandExecution/requestApproval', { threadId: 'thr_1', turnId: 'turn_1', itemId: 'cmd_1', command: 'ls', startedAtMs: 1 })
+        .pipe(Effect.forkScoped)
+      const lost = yield* until(manager, (snapshot) => snapshot.error !== null)
+      expect(lost).toMatchObject({ status: 'connecting', error: 'Something went wrong. Docs saved a report and is reconnecting.' })
+      expect(logged).toEqual([
+        { cause: expect.stringContaining('approval bug'), annotations: { provider: 'codex', reportId: expect.stringMatching(/^[0-9a-f]{8}$/) } },
       ])
       yield* TestClock.adjust('1 second')
       yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)

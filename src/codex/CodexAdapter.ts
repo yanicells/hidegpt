@@ -21,7 +21,7 @@ import {
   type ProviderError,
   ProviderTimeoutError,
 } from '../provider/errors'
-import { reportDefect } from '../provider/DefectReport'
+import { logDefects, reportDefect } from '../provider/DefectReport'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
 import type {
   AdapterEvent,
@@ -143,7 +143,7 @@ export function make(connect: Connect): ProviderAdapter {
       // Off-path calls (elicitation counters, token refresh) must never fail a handler.
       const scope = yield* Scope.Scope
       const background = <A>(effect: Effect.Effect<A, ProviderError>) =>
-        Effect.asVoid(Effect.forkIn(Effect.ignore(effect), scope))
+        Effect.asVoid(Effect.forkIn(logDefects(Effect.ignore(effect)), scope))
 
       /** Threads this connection resumed or started (server-side subscriptions). */
       const loaded = new Set<string>()
@@ -152,25 +152,53 @@ export function make(connect: Connect): ProviderAdapter {
       const approvals = new Map<string, PendingApproval>()
       let modes: ReadonlyArray<Mode> = []
 
-      // A notification handler that dies ends the session here, so the manager restarts it.
+      // The vendored dispatch handles a handler's failure but not its die: a notification
+      // reader would end silently, and a request would never be answered, leaving the turn
+      // hanging. A die is a Docs bug, so it is reported and ends the session here; the
+      // manager restarts it with a plain banner.
       const defect = yield* Deferred.make<never, ProviderError>()
-      yield* registerNotifications(client, emit, { loaded, activeTurns, defect })
+      const endOnDefect = (cause: Cause.Cause<unknown>) =>
+        reportDefect(cause).pipe(
+          Effect.flatMap((reportId) => Deferred.fail(defect, new ProviderDefectError({ provider: 'codex', reportId }))),
+          Effect.asVoid,
+        )
+      yield* registerNotifications(client, emit, { loaded, activeTurns, endOnDefect })
 
-      yield* client.handleServerRequest('currentTime/read', () =>
+      /**
+       * `client.handleServerRequest`, with a die reported and the session ended. The error
+       * reply is only for the types: the connection closes, and the restarted Codex starts over.
+       */
+      const handle = <M extends CodexRpc.ServerRequestMethod>(
+        method: M,
+        handler: (
+          params: CodexRpc.ServerRequestParamsByMethod[M],
+        ) => Effect.Effect<CodexRpc.ServerRequestResponsesByMethod[M], CodexError.CodexAppServerError>,
+      ) =>
+        client.handleServerRequest(method, (params) =>
+          Effect.suspend(() => handler(params)).pipe(
+            Effect.catchCauseIf(Cause.hasDies, (cause) =>
+              endOnDefect(cause).pipe(
+                Effect.andThen(Effect.fail(CodexError.CodexAppServerRequestError.internalError('Docs could not handle this request.'))),
+              ),
+            ),
+          ),
+        )
+
+      yield* handle('currentTime/read', () =>
         Effect.succeed({ currentTimeAt: Math.floor(Date.now() / 1000) }),
       )
-      yield* client.handleServerRequest('item/tool/call', () =>
+      yield* handle('item/tool/call', () =>
         Effect.succeed({
           contentItems: [{ type: 'inputText' as const, text: 'This Docs window does not host that tool.' }],
           success: false,
         }),
       )
-      yield* client.handleServerRequest('attestation/generate', () =>
+      yield* handle('attestation/generate', () =>
         Effect.fail(CodexError.CodexAppServerRequestError.internalError('attestation is not enabled')),
       )
       // Codex only asks for tokens a client supplied itself; Docs signs in through Codex's own
       // ChatGPT login, which Codex refreshes, so this should never come. If it does, sign in again.
-      yield* client.handleServerRequest('account/chatgptAuthTokens/refresh', () =>
+      yield* handle('account/chatgptAuthTokens/refresh', () =>
         Effect.gen(function* () {
           yield* emit({ type: 'notice', message: 'Sign in with ChatGPT to refresh this session.' })
           yield* emit({ type: 'invalidate', part: 'account' })
@@ -206,7 +234,7 @@ export function make(connect: Connect): ProviderAdapter {
             if (elicitation) yield* background(rpc('thread/decrement_elicitation', { threadId }))
             return spec.response(params, reply)
           })
-      const handleApproval = <M extends ApprovalMethod>(method: M) => client.handleServerRequest(method, awaitApproval(method))
+      const handleApproval = <M extends ApprovalMethod>(method: M) => handle(method, awaitApproval(method))
       yield* Effect.forEach(APPROVAL_METHODS, handleApproval, { discard: true })
 
       yield* rpc('initialize', {
@@ -466,15 +494,14 @@ function registerNotifications(
   {
     loaded,
     activeTurns,
-    defect,
+    endOnDefect,
   }: {
     readonly loaded: Set<string>
     readonly activeTurns: Map<string, string>
-    readonly defect: Deferred.Deferred<never, ProviderError>
+    readonly endOnDefect: (cause: Cause.Cause<unknown>) => Effect.Effect<void>
   },
 ) {
-  // The vendored dispatch ignores failures but not a die, which would end its reader
-  // silently and leave the page waiting. Report it and end the session instead.
+  // A die here would end the vendored reader silently and leave the page waiting.
   const on = <M extends CodexRpc.ServerNotificationMethod>(
     method: M,
     toEvents: (params: Notification<M>) => ReadonlyArray<AdapterEvent>,
@@ -483,11 +510,7 @@ function registerNotifications(
       Effect.suspend(() => Effect.forEach(toEvents(params), emit, { discard: true })).pipe(
         Effect.catchCauseIf(
           (cause) => !Cause.hasInterruptsOnly(cause),
-          (cause) =>
-            reportDefect(cause).pipe(
-              Effect.flatMap((reportId) => Deferred.fail(defect, new ProviderDefectError({ provider: 'codex', reportId }))),
-              Effect.asVoid,
-            ),
+          (cause) => endOnDefect(cause),
         ),
       ),
     )
