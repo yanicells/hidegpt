@@ -80,7 +80,6 @@ export function useBlocks(): ReadonlyArray<Block> {
   return useSnapshotSelector(blocksOf)
 }
 
-
 // The last command from the window that failed. Main answers window commands
 // with a result instead of putting it on the snapshot, so the bridge keeps it
 // for the banner. Adapted from T3 Code's local thread error

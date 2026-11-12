@@ -50,7 +50,8 @@ or adapted file carries a header naming its source.
     the streaming block splitter, from `apps/web/src/components/chat/`.
   - `src/renderer/src/components/document/useFollowBottom.ts`: letting go of the
     bottom on upward input (wheel, up keys, a scrollbar press) unless a nested
-    box scrolls, and on any other upward scroll (the upward-scroll detector), from `apps/web/src/components/chat/timelineViewport.ts` and
+    box scrolls, and on any other upward scroll (the upward-scroll detector),
+    from `apps/web/src/components/chat/timelineViewport.ts` and
     `timelineScrollTarget.ts`.
 - License: MIT
 
