@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -157,6 +157,14 @@ describe('docs home', () => {
 })
 
 describe('document page', () => {
+  it('offers older turns only once the document has finished opening', async () => {
+    const blocks = Array.from({ length: 30 }, (_, i) => ({ kind: 'user' as const, id: `u${i}`, text: `Question ${i}` }))
+    mount({ route: { kind: 'doc', threadId: 'thr_1' }, title: 'Photosynthesis', blocks, hasOlder: true })
+    // The first row anchors your place, so it must be on the page when the older turns arrive.
+    expect(screen.getByTestId('load-older')).toBeDisabled()
+    await waitFor(() => expect(screen.getByTestId('load-older')).toBeEnabled())
+  })
+
   it('renders questions at body scale with separators and an outline', () => {
     mount({
       route: { kind: 'doc', threadId: 'thr_1' },
