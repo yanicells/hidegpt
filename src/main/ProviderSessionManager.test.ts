@@ -694,6 +694,34 @@ describe('ProviderSessionManager: turns', () => {
     }),
   )
 
+  it.effect('a Stop that crosses the end of the answer is not an error', () =>
+    Effect.gen(function* () {
+      let peer: ReturnType<typeof makeFakeCodex> | null = null
+      const setUp = yield* setup({
+        reply: null,
+        handlers: {
+          // The answer ends on its own just before the stop lands, so Codex has nothing left to stop.
+          'turn/interrupt': (params) =>
+            Effect.suspend(() =>
+              peer
+                ? peer.notify('turn/completed', {
+                    threadId: params.threadId,
+                    turn: { id: params.turnId, items: [], status: 'completed' },
+                  })
+                : Effect.void,
+            ).pipe(Effect.andThen(Effect.fail(rpcFailure('no active turn to interrupt')))),
+        },
+      })
+      peer = setUp.peer
+      const { manager } = setUp
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' })
+      yield* running(manager)
+      yield* manager.dispatch({ op: 'interrupt', ...doc('thr_1') })
+      expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false, error: null })
+    }),
+  )
+
   it.effect('a stop the provider refuses shows why and leaves the answer running', () =>
     Effect.gen(function* () {
       const { manager } = yield* setup({
@@ -703,8 +731,11 @@ describe('ProviderSessionManager: turns', () => {
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
       yield* manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' })
       yield* running(manager)
-      const error = yield* Effect.flip(manager.dispatch({ op: 'interrupt', ...doc('thr_1') }))
-      expect(error.message).toBe('no such turn')
+      const stop = yield* Effect.forkChild(Effect.flip(manager.dispatch({ op: 'interrupt', ...doc('thr_1') })))
+      // Refused at once; the command fails once the grace for the turn's own end runs out.
+      yield* settle
+      yield* TestClock.adjust('1 second')
+      expect((yield* Fiber.join(stop)).message).toBe('no such turn')
       yield* TestClock.adjust('10 seconds')
       yield* settle
       expect(yield* manager.snapshot).toMatchObject({ streaming: true, stopping: false })

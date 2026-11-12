@@ -5,7 +5,9 @@ import * as Clock from 'effect/Clock'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 import * as FiberMap from 'effect/FiberMap'
+import * as Option from 'effect/Option'
 import type * as Scope from 'effect/Scope'
+import * as Stream from 'effect/Stream'
 import * as SubscriptionRef from 'effect/SubscriptionRef'
 
 import type { Command } from '../../shared/contracts'
@@ -36,6 +38,13 @@ import * as S from './state'
 
 /** How long an accepted stop waits for the provider to end the turn. */
 export const STOP_SETTLE = Duration.seconds(10)
+
+/**
+ * How long a refused stop waits for the turn's own end before it counts as an error. A provider
+ * whose answer just finished refuses the stop, and its terminal reaches the state a moment after
+ * the refusal.
+ */
+export const REFUSED_STOP_GRACE = Duration.seconds(1)
 
 /** A command's document: the fields every targeted command carries. */
 export type Target = { readonly provider: ProviderId; readonly threadId: string }
@@ -171,16 +180,31 @@ export const make = (options: TurnControllerOptions): Effect.Effect<TurnControll
           return [turn, S.updateRuntime(current, key, (item) => ({ ...item, turn: { ...turn, phase: 'stopping' } }))]
         })
         if (!stopping) return
-        yield* session.interrupt(threadId, stopping.id).pipe(
-          // Refused: the turn goes back to what it was, if nothing has moved it since.
+        const ended = SubscriptionRef.changes(state).pipe(
+          Stream.filter((current) => current.runtimes.get(key)?.turn?.id !== stopping.id),
+          Stream.runHead,
+          Effect.timeoutOrElse({ duration: REFUSED_STOP_GRACE, orElse: () => Effect.succeed(Option.none()) }),
+          Effect.map(Option.isSome),
+        )
+        const accepted = yield* session.interrupt(threadId, stopping.id).pipe(
+          Effect.as(true),
+          // Refused: the turn runs on, if nothing has moved it since. It shows as running even if the
+          // click came before the provider confirmed the start; that looks the same, and the start is
+          // idempotent on a running turn.
           undoOnFailure(() =>
             update((current) =>
               S.updateRuntime(current, key, (item) =>
-                item.turn?.id === stopping.id && item.turn.phase === 'stopping' ? { ...item, turn: stopping } : item,
+                item.turn?.id === stopping.id && item.turn.phase === 'stopping'
+                  ? { ...item, turn: { ...stopping, phase: 'running' } }
+                  : item,
               ),
             ),
           ),
+          // The answer ended on its own while the stop was on its way, so the provider had nothing
+          // left to stop: not an error. Typed failures only; a defect still travels.
+          Effect.catch((error) => Effect.flatMap(ended, (done) => (done ? Effect.succeed(false) : Effect.fail(error)))),
         )
+        if (!accepted) return
         // Nobody joins the deadline, so it reports its own failures.
         yield* FiberMap.run(
           deadlines,
@@ -192,24 +216,29 @@ export const make = (options: TurnControllerOptions): Effect.Effect<TurnControll
 
     const resolveApproval = (command: Extract<Command, { op: 'resolveApproval' }>) =>
       Effect.gen(function* () {
-        const runtime = yield* runtimeOf(state, command)
-        const request = runtime.items.find((item) => item.id === command.blockId)
-        if (!request || request.kind !== 'request' || request.status !== 'pending') return
-        const session = yield* options.ready(command.provider)
         const key = S.keyOf(command.provider, command.threadId)
-        /** Moves the request to `status`, unless `from` is given and it has moved on since (it expired). */
-        const mark = (status: RequestStatus, from?: RequestStatus) =>
-          update((current) =>
-            S.updateRuntime(current, key, (item) => {
-              const now = item.items.find((entry) => entry.id === command.blockId)
-              if (from && (now?.kind !== 'request' || now.status !== from)) return item
-              return { ...item, items: setRequestStatus(item.items, command.blockId, status) }
-            }),
-          )
-        yield* mark('sending')
+        const request = (yield* runtimeOf(state, command)).items.find((item) => item.id === command.blockId)
+        if (request?.kind !== 'request' || request.status !== 'pending') return
+        const session = yield* options.ready(command.provider)
+        /** Moves the request to `status`, unless it has moved on from `from` since (it expired). */
+        const mark = (status: RequestStatus, from: RequestStatus) =>
+          SubscriptionRef.modify(state, (current): readonly [boolean, S.State] => {
+            const runtime = current.runtimes.get(key)
+            const now = runtime?.items.find((entry) => entry.id === command.blockId)
+            if (now?.kind !== 'request' || now.status !== from) return [false, current]
+            return [
+              true,
+              S.updateRuntime(current, key, (item) => ({
+                ...item,
+                items: setRequestStatus(item.items, command.blockId, status),
+              })),
+            ]
+          })
+        // Claiming the request is one write, so two clicks in one tick send one reply.
+        if (!(yield* mark('sending', 'pending'))) return
         yield* session
           .respond(command.threadId, command.blockId, { accept: command.accept, answers: command.answers ?? {} })
-          .pipe(undoOnFailure(() => mark('pending', 'sending')))
+          .pipe(undoOnFailure(() => Effect.asVoid(mark('pending', 'sending'))))
         // A turn that ended while the reply was on its way already expired the request.
         yield* mark(command.accept ? 'accepted' : 'declined', 'sending')
       })
