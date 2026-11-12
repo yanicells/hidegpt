@@ -1,4 +1,4 @@
-import { memo, useCallback, useLayoutEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 
 import type { Block, Snapshot } from '../../../../shared/model'
 import { dispatch, useBlocks } from '../../session-bridge'
@@ -33,13 +33,15 @@ export function Document({
   const questions = blocks.filter((block) => block.kind === 'user')
   const newest = blocks[blocks.length - 1]
   const rows = useProgressiveRows(visibleBlocks.length)
+  // The composer waits for the last rows, so it never shows mid-document while a long one opens.
+  const allRows = rows >= visibleBlocks.length
 
   const scrollRef = useRef<HTMLDivElement>(null)
-  const paperRef = useRef<HTMLElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const { release } = useFollowBottom({
     scrollRef,
-    contentRef: paperRef,
+    contentRef,
     endRef,
     askedId: newest?.kind === 'user' ? newest.id : null,
   })
@@ -57,15 +59,33 @@ export function Document({
     }
   }, [snap.loadingOlder, blocks.length, release])
 
+  // Blocks scrolled past may only take their real height mid-jump, so a jump settles on its
+  // target when the smooth scroll ends, unless you take over first or it never moved.
+  const settling = useRef<AbortController | null>(null)
+  useEffect(() => () => settling.current?.abort(), [])
   const jumpTo = useCallback(
     (id: string) => {
       const root = scrollRef.current
       const target = root?.querySelector(`[data-turn="${id}"]`)
       if (!root || !target) return
       release()
+      settling.current?.abort()
+      const settle = new AbortController()
+      settling.current = settle
+      const { signal } = settle
       target.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
-      // Blocks scrolled past may only now take their real height; settle on the target.
-      root.addEventListener('scrollend', () => target.scrollIntoView?.({ block: 'start' }), { once: true })
+      root.addEventListener(
+        'scrollend',
+        () => {
+          settle.abort()
+          target.scrollIntoView?.({ block: 'start' })
+        },
+        { signal },
+      )
+      for (const type of ['wheel', 'pointerdown', 'keydown'] as const) {
+        window.addEventListener(type, () => settle.abort(), { signal, passive: true })
+      }
+      window.setTimeout(() => settle.abort(), JUMP_SETTLE_MS)
     },
     [release],
   )
@@ -76,7 +96,7 @@ export function Document({
         <Tabs onNew={onNew} questions={questions} onJump={jumpTo} />
         <div className="paper-col">
           <Ruler />
-          <article className="paper" ref={paperRef}>
+          <article className="paper">
             {snap.hasOlder ? (
               <button
                 type="button"
@@ -88,20 +108,23 @@ export function Document({
                 {snap.loadingOlder ? 'Loading…' : 'Load earlier'}
               </button>
             ) : null}
-            {visibleBlocks.slice(0, rows).map((block, index) => (
-              <BlockRow
-                key={block.id}
-                block={block}
-                turnStart={block.kind === 'user' && index > 0}
-                streaming={block.id === streamingAgentId}
-              />
-            ))}
-            {waiting ? (
-              <p className="doc-body pending" aria-live="polite" aria-label="Working">
-                <span className="caret" />
-              </p>
-            ) : null}
-            <Composer key={threadId} threadId={threadId} streaming={snap.streaming} skills={snap.skills} />
+            {/* What follow-bottom watches grow: unlike the paper, it has no minimum height. */}
+            <div ref={contentRef}>
+              {visibleBlocks.slice(0, rows).map((block, index) => (
+                <BlockRow
+                  key={block.id}
+                  block={block}
+                  turnStart={block.kind === 'user' && index > 0}
+                  streaming={block.id === streamingAgentId}
+                />
+              ))}
+              {allRows && waiting ? (
+                <p className="doc-body pending" aria-live="polite" aria-label="Working">
+                  <span className="caret" />
+                </p>
+              ) : null}
+              {allRows ? <Composer threadId={threadId} streaming={snap.streaming} skills={snap.skills} /> : null}
+            </div>
             <div ref={endRef} aria-hidden="true" />
           </article>
         </div>
@@ -124,6 +147,9 @@ export function Document({
     </div>
   )
 }
+
+/** How long a jump waits for its smooth scroll to end before giving up on settling. */
+const JUMP_SETTLE_MS = 3000
 
 /** One block on the page. Unchanged blocks keep their identity, so a delta skips every other row. */
 const BlockRow = memo(function BlockRow({ block, turnStart, streaming }: { block: Block; turnStart: boolean; streaming: boolean }) {
