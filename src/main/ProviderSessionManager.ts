@@ -424,9 +424,9 @@ export const make = (options: ManagerOptions) =>
         Effect.gen(function* () {
           const session = yield* ready(id)
           const current = yield* read
-          const fromDialog = request.projectId !== undefined || request.cwd !== undefined || request.title !== undefined
-          const cwd =
-            request.cwd ?? (fromDialog ? options.defaultCwd(id) : (S.displayedRuntime(current, id)?.cwd ?? current.libraries[id].cwd))
+          // The renderer picks the folder: the open document's folder or the one Home
+          // shows. No folder means the library's default place, like Docs' My Drive.
+          const cwd = request.cwd ?? options.defaultCwd(id)
           const opened = yield* session.createThread({
             cwd,
             projectId: request.projectId ?? null,
