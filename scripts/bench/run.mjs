@@ -12,7 +12,7 @@ import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { gzipSync } from 'node:zlib'
 
-import { launch } from './launch.mjs'
+import { launch, sleep } from './launch.mjs'
 import { summarizeProfile } from './profile.mjs'
 import { compareTable, HEADLINE, resultTable, summarize } from './report.mjs'
 import { PHASES, scenario } from './scenario.mjs'
@@ -79,7 +79,7 @@ let current = null
 process.on('SIGINT', () => void (current ? current.close().finally(() => process.exit(130)) : process.exit(130)))
 
 /** One launch and one full session. */
-async function session(name, { counts = false, around } = {}) {
+async function session(name, { counts = false, around, profileStartup = false } = {}) {
   const noise = { load_before: loadavg()[0], spin_ms: spin() }
   const app = await launch(repo, {
     workDir: work,
@@ -91,6 +91,7 @@ async function session(name, { counts = false, around } = {}) {
     react: counts,
     ipcBytes: counts,
     throttle,
+    profileStartup,
   })
   current = app
   try {
@@ -139,8 +140,23 @@ if (command === 'profile') {
   if (unknown.length) throw new Error(`unknown phase ${unknown.join(', ')}; phases are: ${PHASES.join(', ')}`)
   const fileOf = (phase, proc) => join(out, `${label}.${phase}.${proc}.cpuprofile`)
   await session('profile', {
+    profileStartup: phases.includes('cold'),
     around: (app) => async (phase, run) => {
       if (!phases.includes(phase)) return run()
+      if (phase === 'cold') {
+        // Main was profiled from its first line (hook.cjs). The page cannot be attached to
+        // that early, so its start-up is profiled on a reload: same modules, same first render.
+        const result = await run()
+        await app.main('profileStop', { file: fileOf(phase, 'main') })
+        await app.page.send('Profiler.enable')
+        await app.page.send('Profiler.setSamplingInterval', { interval: 250 })
+        await app.page.send('Profiler.start')
+        await app.page.send('Page.reload', { ignoreCache: true })
+        for (let i = 0; i < 400 && !(await app.bench('cold()').catch(() => null))?.allCards; i += 1) await sleep(50)
+        const { profile } = await app.page.send('Profiler.stop')
+        writeFileSync(fileOf(phase, 'renderer'), JSON.stringify(profile))
+        return result
+      }
       await app.page.send('Profiler.enable')
       await app.page.send('Profiler.setSamplingInterval', { interval: 250 })
       await app.page.send('Profiler.start')

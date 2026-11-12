@@ -137,8 +137,15 @@ export async function scenario(app, { docs, around = (_phase, run) => run() }) {
       if (cold.error || Date.now() > deadline) throw new Error(`cold start: the library never appeared (${cold.error ?? 'timeout'})`)
     }
     await sleep(1500)
-    const { stats, used } = await app.counters()
+    const { stats, used, perf } = await app.counters()
     const since = (t) => (t ? t - app.t0 : null)
+    // The renderer's main thread since the page started: where its start-up time went.
+    set('cold.script_ms', perf.ScriptDuration * 1000)
+    set('cold.layout_ms', perf.LayoutDuration * 1000)
+    set('cold.recalc_ms', perf.RecalcStyleDuration * 1000)
+    set('cold.task_ms', perf.TaskDuration * 1000)
+    set('cold.layouts', perf.LayoutCount)
+    set('cold.recalcs', perf.RecalcStyleCount)
     set('cold.process_ms', since(stats.marks.processStart))
     set('cold.app_ready_ms', since(stats.marks.ready))
     set('cold.window_ms', since(stats.marks.windowCreated))
@@ -157,6 +164,8 @@ export async function scenario(app, { docs, around = (_phase, run) => run() }) {
     if (stats.ipc.bytes) set('cold.ipc_kb', stats.ipc.bytes / 1024)
     set('cold.cards', await bench(`count(${JSON.stringify(CARD)})`))
     if (stats.blocked.length) set('cold.blocked_spawns', stats.blocked.length)
+    // Which programs the app tried to start (a name list, so it stays out of the tables).
+    if (stats.blocked.length) set('cold.blocked', stats.blocked.join(', '))
   })
   await memory('mem_home')
 

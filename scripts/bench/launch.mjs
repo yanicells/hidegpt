@@ -52,7 +52,7 @@ function startUsageReader() {
 
 /**
  * Launches `<repo>` (already built) against the fake Codex server.
- * `options`: userData, logFile, docs, turns, show, react, ipcBytes, throttle.
+ * `options`: workDir, userData, logFile, docs, turns, show, react, ipcBytes, throttle, profileStartup.
  */
 export async function launch(repo, options) {
   const workDir = options.workDir
@@ -115,6 +115,7 @@ export async function launch(repo, options) {
     BENCH_SHOW: options.show ? '1' : '0',
     BENCH_REACT: options.react ? '1' : '0',
     BENCH_IPC_BYTES: options.ipcBytes ? '1' : '0',
+    BENCH_PROFILE_STARTUP: options.profileStartup ? '1' : '0',
   }
   // The bench drives the real provider path; the in-process demo and screenshot modes must stay off.
   delete env.HIDEGPT_FAKE

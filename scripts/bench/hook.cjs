@@ -88,6 +88,17 @@ app.on('ready', () => {
 const delay = monitorEventLoopDelay({ resolution: 5 })
 delay.enable()
 let profiler = null
+/** Starts V8's sampling profiler in this process. Posts on an in-process session run at once. */
+function startProfiler() {
+  const { Session } = require('node:inspector')
+  profiler = new Session()
+  profiler.connect()
+  profiler.post('Profiler.enable')
+  profiler.post('Profiler.setSamplingInterval', { interval: 250 })
+  profiler.post('Profiler.start')
+}
+// Start-up is profiled from here, before any app module loads.
+if (env.BENCH_PROFILE_STARTUP === '1') startProfiler()
 
 const ops = {
   stats() {
@@ -123,13 +134,8 @@ const ops = {
   async traceStop({ file }) {
     return contentTracing.stopRecording(file)
   },
-  async profileStart() {
-    const { Session } = require('node:inspector')
-    profiler = new Session()
-    profiler.connect()
-    const post = (method) => new Promise((resolve, reject) => profiler.post(method, (error, result) => (error ? reject(error) : resolve(result))))
-    await post('Profiler.enable')
-    await post('Profiler.start')
+  profileStart() {
+    startProfiler()
     return true
   },
   async profileStop({ file }) {
