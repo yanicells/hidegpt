@@ -1,15 +1,14 @@
 import { readdirSync, readFileSync } from 'node:fs'
-import { homedir, userInfo } from 'node:os'
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { leaks, type RecordingMachine, scrub, turnsAllowed } from './replayFixture'
+import { leaks, type RecordingMachine, scrub, thisMachine, turnsAllowed } from './replayFixture'
 
 const MACHINE: RecordingMachine = {
   home: '/Users/ada',
-  username: 'ada',
-  hostname: 'adas-mbp.local',
+  people: ['ada', 'Ada', 'Lovelace'],
+  hosts: ['adas-mbp.local', 'adas-mbp', "Ada's MacBook Pro"],
   scratch: [['/private/var/folders/x1/abc/T/hidegpt-replay-workspace-1', '/tmp/replay-workspace']],
 }
 
@@ -29,7 +28,9 @@ describe('replay fixtures', () => {
       path: '/Users/ada/.codex/skills/a/SKILL.md',
       other: '/Users/someone/project',
       serverName: 'adas-mbp.local',
-      note: 'ada wrote this; adamant stays',
+      shortHost: 'ws://adas-mbp:4000',
+      computer: "Shared from Ada's MacBook Pro",
+      note: 'ADA wrote this, LOVELACE signed it; adamant stays',
       authorization: 'Bearer abc',
       accessToken: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln',
       refreshToken: false,
@@ -41,7 +42,9 @@ describe('replay fixtures', () => {
       path: '/home/replay-user/.codex/skills/a/SKILL.md',
       other: '/home/replay-user/project',
       serverName: 'replay-host',
-      note: 'replay-user wrote this; adamant stays',
+      shortHost: 'ws://replay-host:4000',
+      computer: 'Shared from replay-host',
+      note: 'replay-user wrote this, replay-user signed it; adamant stays',
       authorization: '<redacted>',
       accessToken: '<redacted>',
       refreshToken: false,
@@ -50,13 +53,24 @@ describe('replay fixtures', () => {
     expect(leaks(JSON.stringify(scrub(frame, MACHINE)), MACHINE)).toEqual([])
   })
 
-  it('leaks finds what scrubbing must remove', () => {
-    expect(leaks('{"email":"ada@school.edu","cwd":"/Users/bob/x"}', MACHINE)).toEqual(['ada@school.edu', '/Users/bob', 'ada'])
+  it('leaks finds what scrubbing must remove, in any case', () => {
+    expect(leaks('{"email":"ada@school.edu","cwd":"/Users/bob/x","by":"Lovelace","host":"ADAS-MBP"}', MACHINE)).toEqual([
+      'ada@school.edu',
+      '/Users/bob',
+      'ADAS-MBP',
+      'Lovelace',
+      'ada',
+    ])
   })
 
-  it.each(FIXTURES.map((path) => [path.slice(SRC.length), path]))('%s has no emails, home paths, usernames or tokens', (_name, path) => {
+  it('an empty home or a short name never counts as a leak', () => {
+    expect(leaks('{"a":"to be or not"}', { home: '', people: ['', 'to'], hosts: [''] })).toEqual([])
+    expect(scrub('/x/y', { home: '', people: [''], hosts: [''], scratch: [] })).toBe('/x/y')
+  })
+
+  it.each(FIXTURES.map((path) => [path.slice(SRC.length), path]))('%s has no emails, home paths, names or tokens of this machine', (_name, path) => {
     const text = readFileSync(path, 'utf8')
-    expect(leaks(text, { home: homedir(), username: userInfo().username })).toEqual([])
+    expect(leaks(text, thisMachine())).toEqual([])
   })
 
   it('turns are refused unless a person sets HIDEGPT_RECORD_TURNS=1', () => {
