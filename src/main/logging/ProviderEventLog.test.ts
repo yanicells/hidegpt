@@ -125,6 +125,11 @@ describe('ProviderEventLog', () => {
     expect(encodeEvent(extra)).toEqual({ type: 'thread.closed', threadId: 'thr_1' })
   })
 
+  it('skips an invalidate whose part is not a catalog part: its type is not checked at runtime', () => {
+    expect(encodeEvent({ type: 'invalidate', part: 'docs' })).toEqual({ type: 'invalidate', part: 'docs' })
+    expect(encodeEvent({ type: 'invalidate', part: SECRET } as unknown as AdapterEvent)).toBeNull()
+  })
+
   it('reads a line back as the same event, its text as placeholders of the same length', () => {
     for (const event of events) {
       const read = readLogLine(line(encodeEvent(event)))

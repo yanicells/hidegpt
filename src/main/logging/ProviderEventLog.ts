@@ -13,7 +13,7 @@ import * as Schema from 'effect/Schema'
 
 import { ThreadEvent } from '../../provider/events'
 import { foreverObserved, observed } from '../../provider/observed'
-import { isThreadEvent, type AdapterEvent } from '../../provider/ProviderAdapter'
+import { isThreadEvent, type AdapterEvent, type CatalogPart } from '../../provider/ProviderAdapter'
 import { libraryName } from '../../shared/labels'
 import { ProviderId } from '../../shared/contracts'
 import { makeRotatingFileSink, type RotatingFileSink } from './rotatingFileSink'
@@ -107,20 +107,35 @@ function lengthAsText(value: unknown, key: string | null = null): unknown {
   return value
 }
 
+/**
+ * Every catalog part, so `invalidate.part` is checked at runtime and not only
+ * by its type: anything else could be any text. A part missing here fails to compile.
+ */
+const CATALOG_PARTS: Readonly<Record<CatalogPart, true>> = {
+  docs: true,
+  account: true,
+  projects: true,
+  skills: true,
+  tools: true,
+}
+
 // Encoding through the schema drops any field the contract does not declare.
 const encodeThreadEvent = Schema.encodeUnknownOption(ThreadEvent)
 const decodeThreadEvent = Schema.decodeUnknownOption(ThreadEvent)
 
 /**
  * An event as it is written: encoded with the contract's schema, every text
- * value as its length. Null when the event does not match the contract.
+ * value as its length. Null when the event does not match the contract
+ * (`record` then logs its type and skips it).
  */
 export function encodeEvent(event: AdapterEvent): unknown {
   if (isThreadEvent(event))
     return Option.getOrNull(Option.map(encodeThreadEvent(event), (encoded) => textAsLength(encoded)))
   switch (event.type) {
     case 'invalidate':
-      return textAsLength({ type: event.type, part: event.part })
+      return typeof event.part === 'string' && Object.hasOwn(CATALOG_PARTS, event.part)
+        ? { type: event.type, part: event.part }
+        : null
     case 'notice':
       return textAsLength({ type: event.type, message: event.message })
     case 'loginUrl':
