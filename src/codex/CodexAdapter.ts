@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
 
 import * as Context from 'effect/Context'
 import * as Deferred from 'effect/Deferred'
@@ -164,11 +163,10 @@ export function make(connect: Connect): ProviderAdapter {
       yield* client.handleServerRequest('attestation/generate', () =>
         Effect.fail(CodexError.CodexAppServerRequestError.internalError('attestation is not enabled')),
       )
+      // Codex only asks for tokens a client supplied itself; Docs signs in through Codex's own
+      // ChatGPT login, which Codex refreshes, so this should never come. If it does, sign in again.
       yield* client.handleServerRequest('account/chatgptAuthTokens/refresh', () =>
         Effect.gen(function* () {
-          yield* Effect.ignore(rpc('account/read', { refreshToken: true }))
-          const tokens = readCodexAuthTokens()
-          if (tokens) return tokens
           yield* emit({ type: 'notice', message: 'Sign in with ChatGPT to refresh this session.' })
           yield* emit({ type: 'invalidate', part: 'account' })
           return yield* Effect.fail(
@@ -545,24 +543,6 @@ function registerNotifications(
     ],
     { discard: true },
   )
-}
-
-/** Answers Codex's token-refresh request from its own auth file (Codex's credentials, not Claude's). */
-export function readCodexAuthTokens(): CodexRpc.ServerRequestResponsesByMethod['account/chatgptAuthTokens/refresh'] | null {
-  const home = process.env.CODEX_HOME ?? `${process.env.HOME ?? ''}/.codex`
-  try {
-    const raw = JSON.parse(readFileSync(`${home}/auth.json`, 'utf8')) as {
-      tokens?: { access_token?: unknown; account_id?: unknown }
-    }
-    const accessToken = raw.tokens?.access_token
-    const chatgptAccountId = raw.tokens?.account_id
-    if (typeof accessToken === 'string' && typeof chatgptAccountId === 'string') {
-      return { accessToken, chatgptAccountId, chatgptPlanType: null }
-    }
-  } catch {
-    return null
-  }
-  return null
 }
 
 export function toDoc(thread: Thread): DocSummary {
