@@ -8,6 +8,8 @@ import type {
   SessionMessage,
   SlashCommand,
 } from '@anthropic-ai/claude-agent-sdk'
+import * as Option from 'effect/Option'
+import * as Schema from 'effect/Schema'
 
 import type { ApprovalBlock, Block, CalloutBlock, DocSummary, ModelOption, Skill, UserBlock } from '../shared/model'
 
@@ -18,18 +20,33 @@ import type { ApprovalBlock, Block, CalloutBlock, DocSummary, ModelOption, Skill
  * never reach the page.
  */
 
-/** Loose Messages API content block; transcripts and stream frames share it. */
-type ContentBlock = {
-  type: string
-  text?: string
-  id?: string
-  name?: string
-  input?: Record<string, unknown>
-  tool_use_id?: string
-  content?: unknown
-  source?: { type?: string; media_type?: string; data?: string }
-}
-type ApiMessage = { id?: string; content?: string | ContentBlock[] }
+/** The fields Docs reads from a Messages API content block; transcripts and stream frames share it. */
+const ContentBlock = Schema.Struct({
+  type: Schema.String,
+  text: Schema.optionalKey(Schema.String),
+  id: Schema.optionalKey(Schema.String),
+  name: Schema.optionalKey(Schema.String),
+  input: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
+  tool_use_id: Schema.optionalKey(Schema.String),
+  content: Schema.optionalKey(Schema.Unknown),
+  source: Schema.optionalKey(
+    Schema.Struct({
+      type: Schema.optionalKey(Schema.String),
+      media_type: Schema.optionalKey(Schema.String),
+      data: Schema.optionalKey(Schema.String),
+    }),
+  ),
+})
+type ContentBlock = typeof ContentBlock.Type
+const decodeBlock = Schema.decodeUnknownOption(ContentBlock)
+const ApiMessage = Schema.Struct({
+  id: Schema.optionalKey(Schema.String),
+  content: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.Unknown)])),
+})
+const decodeMessage = Schema.decodeUnknownOption(ApiMessage)
+
+/** Each well-formed block of `content`; one malformed block never hides the rest. */
+const blocksOf = (content: ReadonlyArray<unknown>): ContentBlock[] => content.flatMap((part) => Option.toArray(decodeBlock(part)))
 
 const COMMAND = /<command-name>\/?([^<]+)<\/command-name>/
 const COMMAND_ARGS = /<command-args>([\s\S]*?)<\/command-args>/
@@ -88,9 +105,9 @@ export function isSignedIn(account: AccountInfo | undefined): boolean {
 }
 
 function partsOf(message: unknown): ContentBlock[] {
-  const content = (message as ApiMessage | null)?.content
+  const content = Option.getOrUndefined(decodeMessage(message))?.content
   if (typeof content === 'string') return [{ type: 'text', text: content }]
-  return Array.isArray(content) ? content : []
+  return content ? blocksOf(content) : []
 }
 
 function toolTitle(name: string, done: boolean): string {
@@ -107,8 +124,8 @@ function toolBody(input: Record<string, unknown> | undefined): string {
 function resultText(content: unknown): string {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return ''
-  return content
-    .map((part: ContentBlock) => (part.type === 'text' ? (part.text ?? '') : ''))
+  return blocksOf(content)
+    .map((part) => (part.type === 'text' ? (part.text ?? '') : ''))
     .filter(Boolean)
     .join('\n')
 }
@@ -178,7 +195,7 @@ export function blocksFromSessionMessages(messages: ReadonlyArray<SessionMessage
       continue
     }
     if (message.type !== 'assistant') continue
-    const id = (message.message as ApiMessage).id ?? message.uuid
+    const id = Option.getOrUndefined(decodeMessage(message.message))?.id ?? message.uuid
     for (const part of parts) {
       if (part.type === 'tool_use' && part.id) put(toolCallout(part))
       if (part.type === 'text' && part.text) {
@@ -311,21 +328,23 @@ export function permissionBlock(id: string, tool: string, input: Record<string, 
 
 export type AskedQuestion = { readonly question: string; readonly header: string; readonly options: ReadonlyArray<{ readonly label: string }> }
 
+const AskedItem = Schema.Struct({ question: Schema.String, header: Schema.optionalKey(Schema.Unknown), options: Schema.optionalKey(Schema.Unknown) })
+const decodeAskedItem = Schema.decodeUnknownOption(AskedItem)
+const decodeOption = Schema.decodeUnknownOption(Schema.Struct({ label: Schema.String }))
+
 /** The questions of an `AskUserQuestion` call, or null when its input is not that shape. */
 export function askedQuestions(input: Record<string, unknown>): AskedQuestion[] | null {
   const questions = input.questions
   if (!Array.isArray(questions)) return null
-  return questions.flatMap((item: unknown) => {
-    const value = item as { question?: unknown; header?: unknown; options?: unknown }
-    if (typeof value.question !== 'string') return []
-    const options = Array.isArray(value.options)
-      ? value.options.flatMap((option: unknown) => {
-          const label = (option as { label?: unknown }).label
-          return typeof label === 'string' ? [{ label }] : []
-        })
-      : []
-    return [{ question: value.question, header: typeof value.header === 'string' ? value.header : '', options }]
-  })
+  return questions.flatMap((item: unknown) =>
+    Option.toArray(decodeAskedItem(item)).map((value) => ({
+      question: value.question,
+      header: typeof value.header === 'string' ? value.header : '',
+      options: Array.isArray(value.options)
+        ? value.options.flatMap((option: unknown) => Option.toArray(decodeOption(option)).map(({ label }) => ({ label })))
+        : [],
+    })),
+  )
 }
 
 export const questionId = (index: number) => `q${index}`
