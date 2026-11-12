@@ -30,15 +30,16 @@ export function App() {
     : projectId === 'all'
       ? undefined
       : projectId
-  const onNew = () => void createDocument(snap, activeProjectId)
-  // The menu listener stays registered once; it always calls the latest onNew.
-  const onNewRef = useRef(onNew)
-  onNewRef.current = onNew
+  // One stable callback that reads the latest snapshot, so the memoized Tabs panel
+  // and the menu listener never re-render or re-register when a new snapshot lands.
+  const latest = useRef({ snap, activeProjectId })
+  latest.current = { snap, activeProjectId }
+  const onNew = useCallback(() => void createDocument(latest.current.snap, latest.current.activeProjectId), [])
   const [view, setView] = useHomeView()
   const titleRef = useRef<HTMLInputElement>(null)
   const onMenu = useCallback(
     (action: MenuAction) => {
-      if (action === 'newDocument') onNewRef.current()
+      if (action === 'newDocument') onNew()
       if (action === 'rename') {
         titleRef.current?.focus()
         titleRef.current?.select()
@@ -49,7 +50,7 @@ export function App() {
         document.querySelector<HTMLInputElement>('[data-testid="home-search"]')?.focus()
       }
     },
-    [setView],
+    [onNew, setView],
   )
   useMenuAction(onMenu)
 
