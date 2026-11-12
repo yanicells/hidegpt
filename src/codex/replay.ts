@@ -58,3 +58,44 @@ export function recordingOptions(entries: ReplayEntry[], allowTurns: boolean): C
       }),
   }
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/** Empties every `disabledPluginIds`, at any depth. */
+const withoutPluginIds = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(withoutPluginIds)
+  if (!isRecord(value)) return value
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      key,
+      key === 'disabledPluginIds' && Array.isArray(entry) ? [] : withoutPluginIds(entry),
+    ]),
+  )
+}
+
+/**
+ * A recording made with the person's own Codex home names their MCP servers
+ * (with startup errors that can hold paths or URLs) and the plugins they turned
+ * off. Docs reads neither, so the fixture keeps the shape and drops the names,
+ * as the Claude recorder does for Claude's start-up lists.
+ */
+export function withoutPersonalLists(entry: ReplayEntry): ReplayEntry {
+  if (entry.type === 'runtime_exit') return entry
+  const frame = withoutPluginIds(entry.frame)
+  if (isRecord(frame) && frame.method === 'mcpServer/startupStatus/updated' && isRecord(frame.params)) {
+    const { error, ...params } = frame.params
+    return {
+      ...entry,
+      frame: {
+        ...frame,
+        params: {
+          ...params,
+          name: 'replay-mcp',
+          ...(error === undefined ? {} : { error: error === null ? null : '<redacted>' }),
+        },
+      },
+    }
+  }
+  return { ...entry, frame }
+}

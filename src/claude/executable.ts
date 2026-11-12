@@ -4,7 +4,8 @@ import { join } from 'node:path'
 /**
  * The Claude Code binary's file name in a packaged personal build. The build
  * copies it out of the SDK's package into `Contents/Resources/` under this
- * name (scripts/builder-config.ts), so no file in the bundle has a vendor name.
+ * name (scripts/builder-config.ts), so no file on disk has a vendor name. The
+ * SDK itself stays inside `app.asar`, which Finder doesn't open.
  */
 export const PACKAGED_BINARY_NAME = 'Docs Helper'
 

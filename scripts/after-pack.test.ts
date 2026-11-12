@@ -2,9 +2,10 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import type { AfterPackContext } from 'electron-builder'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { nameHelpers } from './after-pack.ts'
+import { afterPack, nameHelpers } from './after-pack.ts'
 
 describe('nameHelpers', () => {
   let dir: string | undefined
@@ -26,5 +27,17 @@ describe('nameHelpers', () => {
       [join(frameworks, 'Docs Helper (GPU).app', 'Contents', 'Info.plist'), 'Docs Helper (GPU)'],
       [join(frameworks, 'Docs Helper.app', 'Contents', 'Info.plist'), 'Docs Helper'],
     ])
+  })
+})
+
+describe('afterPack', () => {
+  it('leaves a build for another platform alone', async () => {
+    // A missing folder: reading its Frameworks would throw if the hook went ahead.
+    const context = {
+      electronPlatformName: 'linux',
+      appOutDir: join(tmpdir(), 'docs-after-pack-missing'),
+      packager: { appInfo: { productFilename: 'Docs' } },
+    } as unknown as AfterPackContext
+    await expect(afterPack(context)).resolves.toBeUndefined()
   })
 })

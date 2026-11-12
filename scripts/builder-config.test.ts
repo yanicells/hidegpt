@@ -1,7 +1,9 @@
+import { existsSync } from 'node:fs'
+
 import { describe, expect, it } from 'vitest'
 
 import { PACKAGED_BINARY_NAME } from '../src/claude/executable.ts'
-import { builderConfig, builderEnv } from './builder-config.ts'
+import { builderConfig, builderEnv, claudeBinary } from './builder-config.ts'
 
 const NOTARY = { APPLE_API_KEY: '/keys/AuthKey.p8', APPLE_API_KEY_ID: 'KEYID', APPLE_API_ISSUER: 'issuer' }
 
@@ -29,6 +31,13 @@ describe('builderConfig', () => {
     expect(builderConfig({ CSC_LINK: '', CSC_NAME: '  ' }).mac).toMatchObject({ identity: '-', hardenedRuntime: false })
   })
 
+  it('makes only a .dmg, with no update files, and no one-time-code popup over the composer', () => {
+    const config = builderConfig({})
+    expect(config.mac?.target).toEqual(['dmg'])
+    expect(config.dmg).toMatchObject({ writeUpdateInfo: false })
+    expect(config.mac?.extendInfo).toMatchObject({ NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac: true })
+  })
+
   it('ships no node_modules and no dependency list in a shared build', () => {
     const config = builderConfig({ HIDEGPT_PERSONAL: '0' })
     expect(config.files).toEqual(['out/**/*', 'package.json', '!node_modules/**/*'])
@@ -40,14 +49,23 @@ describe('builderConfig', () => {
     const binary = '/store/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude'
     const config = builderConfig({ HIDEGPT_PERSONAL: '1' }, () => binary)
     expect(config.files).toContain('node_modules/@anthropic-ai/claude-agent-sdk/**/*')
-    expect(config.files).toContain('!node_modules/@anthropic-ai/claude-agent-sdk-*/claude')
+    expect(config.files).toContain(
+      '!node_modules/@anthropic-ai/claude-agent-sdk/{bridge.mjs,browser-sdk.js,core*.mjs,*.d.ts}',
+    )
+    // The binary's exclusion must come after the platform package's include to win.
+    const files = config.files as ReadonlyArray<string>
+    expect(files.indexOf('!node_modules/@anthropic-ai/claude-agent-sdk-*/claude')).toBeGreaterThan(
+      files.indexOf('node_modules/@anthropic-ai/claude-agent-sdk-*/**/*'),
+    )
     // The name the Claude adapter looks for (src/claude/executable.ts).
     expect(config.extraResources).toEqual([{ from: binary, to: PACKAGED_BINARY_NAME }])
+    expect(config).not.toHaveProperty('asarUnpack')
     expect(config.extraMetadata).not.toHaveProperty('dependencies')
   })
 
   it('drops the camera, microphone and Bluetooth prompts Electron declares', () => {
-    expect(builderConfig({}).mac?.extendInfo).toEqual({
+    // electron-builder deletes Info.plist keys set to null.
+    expect(builderConfig({}).mac?.extendInfo).toMatchObject({
       NSAudioCaptureUsageDescription: null,
       NSBluetoothAlwaysUsageDescription: null,
       NSBluetoothPeripheralUsageDescription: null,
@@ -58,7 +76,10 @@ describe('builderConfig', () => {
 
   it('names everything a person sees "Docs"', () => {
     const config = builderConfig({})
-    expect(config).toMatchObject({ productName: 'Docs', extraMetadata: { name: 'docs', productName: 'Docs' } })
+    expect(config).toMatchObject({
+      productName: 'Docs',
+      extraMetadata: { name: 'docs', productName: 'Docs', engines: null, packageManager: null },
+    })
     expect(JSON.stringify(config)).not.toMatch(/gpt|claude-code|openai|\bai\b/i)
   })
 })
@@ -72,6 +93,15 @@ describe('personal builds', () => {
       artifactName: 'Docs-${version}-${arch}-personal.${ext}',
       directories: { output: 'dist/personal' },
     })
+  })
+})
+
+describe('claudeBinary', () => {
+  // pnpm installs the platform package only on a Mac, so elsewhere there's nothing to find.
+  it.runIf(process.platform === 'darwin')("finds this Mac's binary in the installed SDK's platform package", () => {
+    const binary = claudeBinary()
+    expect(binary).toMatch(new RegExp(`claude-agent-sdk-darwin-${process.arch}/claude$`))
+    expect(existsSync(binary)).toBe(true)
   })
 })
 

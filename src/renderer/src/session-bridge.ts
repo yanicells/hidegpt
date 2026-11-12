@@ -6,9 +6,14 @@ import { emptySnapshot, type Block, type Snapshot } from '../../shared/model'
 import { applyPatchOnce, type SequencedSnapshot } from '../../shared/snapshot-patch'
 
 let current: SequencedSnapshot = { snapshot: emptySnapshot(), seq: 0 }
-let snapshot: Snapshot = current.snapshot
 const listeners = new Set<() => void>()
 let detach: (() => void) | null = null
+
+function publish(next: SequencedSnapshot): void {
+  current = next
+  // A copy: a listener that subscribes another component must not run it this round.
+  for (const listener of Array.from(listeners)) listener()
+}
 
 /**
  * Takes the snapshot from the preload and applies every later patch here,
@@ -16,18 +21,23 @@ let detach: (() => void) | null = null
  * root, a test's fresh bridge) reads main again, which may already include
  * patches still on their way; `applyPatchOnce` skips those by `seq`, so no
  * streamed text lands twice.
+ *
+ * Electron delivers one webContents' IPC messages in the order main sent
+ * them, so patches arrive with `seq` counting up by one. A jump means one was
+ * lost; reading main again heals it, because main sent that patch before the
+ * one that showed the jump, so the read already includes both.
  */
 function connect(): void {
   if (detach || !window.hidegpt) return
-  current = window.hidegpt.getSnapshot()
-  snapshot = current.snapshot
-  detach = window.hidegpt.onSnapshot((patch) => {
+  const bridge = window.hidegpt
+  current = bridge.getSnapshot()
+  detach = bridge.onSnapshot((patch) => {
+    if (patch.seq > current.seq + 1) {
+      publish(bridge.getSnapshot())
+      return
+    }
     const next = applyPatchOnce(current, patch)
-    if (next === current) return
-    current = next
-    snapshot = next.snapshot
-    // A copy: a listener that subscribes another component must not run it this round.
-    for (const listener of Array.from(listeners)) listener()
+    if (next !== current) publish(next)
   })
 }
 
@@ -59,6 +69,7 @@ export function useSnapshotSelector<T>(
   const last = useRef<{ source: Snapshot; value: T } | null>(null)
   const getSelection = () => {
     const previous = last.current
+    const snapshot = current.snapshot
     if (previous?.source === snapshot) return previous.value
     const next = select(snapshot)
     const value = previous && isEqual(previous.value, next) ? previous.value : next
@@ -68,8 +79,8 @@ export function useSnapshotSelector<T>(
   return useSyncExternalStore(subscribe, getSelection, getSelection)
 }
 
-const whole = (current: Snapshot) => current
-const blocksOf = (current: Snapshot) => current.blocks
+const whole = (snap: Snapshot) => snap
+const blocksOf = (snap: Snapshot) => snap.blocks
 
 /** Everything on the snapshot apart from the open document's blocks. */
 function sameApartFromBlocks(a: Snapshot, b: Snapshot): boolean {

@@ -14,6 +14,10 @@ type Point = { x: number; y: number }
 /** The window size the shots are taken at, whatever the display's work area. */
 export const SCREENSHOT_SIZE = { width: 1280, height: 840 } as const
 
+/** A plain 24 px blue square, pasted into the composer by the walk. */
+const PASTED_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAIAAABvFaqvAAAAH0lEQVR42mNwav1CFcQwatCoQaMGjRo0atCoQQNvEAD/F+TuO4//gwAAAABJRU5ErkJggg=='
+
 /**
  * `HIDEGPT_SCREENSHOT=<dir>` (with `HIDEGPT_FAKE=1`): walks Home and its
  * menus, the folder picker, a new document, a document (across a page break,
@@ -134,6 +138,22 @@ export const captureScreenshots = (
       'The new document focusing its composer',
     )
     yield* shot('new-document-ready')
+
+    // A pasted picture goes through main's image IPC (and its sender check), then loads back
+    // through docs://, which serves only pasted images.
+    yield* js(`(() => {
+      const bytes = Uint8Array.from(atob(${JSON.stringify(PASTED_PNG)}), (char) => char.charCodeAt(0))
+      const data = new DataTransfer()
+      data.items.add(new File([bytes], 'square.png', { type: 'image/png' }))
+      document.querySelector('[data-testid="composer"]').dispatchEvent(
+        new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }),
+      )
+    })()`)
+    yield* waitUntil(
+      `document.querySelector('[data-testid="composer-images"] img')?.naturalWidth > 0`,
+      'The pasted image saving and loading',
+    )
+    yield* shot('composer-image')
 
     yield* Option.match(Option.fromNullishOr(before.threads[0]), {
       onNone: () => manager.dispatch({ op: 'newDocument' }),

@@ -28,12 +28,14 @@ export const wantsNotarizing = (env: Env): boolean =>
     has(env, 'APPLE_KEYCHAIN', 'APPLE_KEYCHAIN_PROFILE'))
 
 /**
- * The SDK's entry bundles its own dependencies, so it and its platform package
- * are all Claude needs. The package's binary is left out of the archive: it
- * ships renamed in Resources instead (see `claudeBinary`).
+ * The SDK's entry (`sdk.mjs`) bundles its own dependencies and imports no file beside
+ * it, so it and its platform package are all Claude needs. Its other entry points
+ * (bridge, browser, core) and type declarations are left out, and so is the
+ * platform binary: it ships renamed in Resources instead (see `claudeBinary`).
  */
 const CLAUDE_FILES = [
   'node_modules/@anthropic-ai/claude-agent-sdk/**/*',
+  '!node_modules/@anthropic-ai/claude-agent-sdk/{bridge.mjs,browser-sdk.js,core*.mjs,*.d.ts}',
   'node_modules/@anthropic-ai/claude-agent-sdk-*/**/*',
   '!node_modules/@anthropic-ai/claude-agent-sdk-*/claude',
 ]
@@ -42,6 +44,8 @@ const CLAUDE_FILES = [
  * The Claude Code binary for this Mac's architecture, which is the one pnpm
  * installed. The platform package is the SDK's own dependency and isn't
  * hoisted, so it's resolved from the SDK's folder, as the SDK resolves it.
+ * Cross-arch and universal builds aren't supported: pnpm installs only the
+ * build machine's binary.
  */
 export function claudeBinary(arch: string = process.arch): string {
   const require = createRequire(import.meta.url)
@@ -95,7 +99,7 @@ export function builderEnv(env: Env): Record<string, string> {
 }
 
 /**
- * The electron-builder config for a macOS `.dmg` and `.zip`. It's built in code, as
+ * The electron-builder config for a macOS `.dmg`. It's built in code, as
  * T3 Code builds its own, because two parts depend on the environment:
  *
  * - Main bundles everything it runs except the Claude SDK, so a shared build,
@@ -120,9 +124,15 @@ export function builderConfig(env: Env, claude: () => string = claudeBinary): Co
     // A personal build goes to its own folder with its own name, so it isn't handed out by mistake.
     artifactName: personal ? 'Docs-${version}-${arch}-personal.${ext}' : 'Docs-${version}-${arch}.${ext}',
     directories: { output: outputDir(env), buildResources: 'build' },
-    // The package.json inside the app: the Docs name, and in a shared build no dependency
-    // list (electron-builder merges objects key by key, so only null clears it).
-    extraMetadata: { name: 'docs', productName: 'Docs', ...(personal ? {} : { dependencies: null }) },
+    // The package.json inside the app: the Docs name, no dev tooling fields, and in a shared
+    // build no dependency list (electron-builder merges objects key by key, so only null clears them).
+    extraMetadata: {
+      name: 'docs',
+      productName: 'Docs',
+      engines: null,
+      packageManager: null,
+      ...(personal ? {} : { dependencies: null }),
+    },
     files: ['out/**/*', 'package.json', '!node_modules/**/*', ...(personal ? CLAUDE_FILES : [])],
     ...(personal ? { extraResources: [{ from: claude(), to: PACKAGED_BINARY_NAME }] } : {}),
     electronLanguages: ['en'],
@@ -131,7 +141,8 @@ export function builderConfig(env: Env, claude: () => string = claudeBinary): Co
     publish: null,
     afterPack,
     mac: {
-      target: ['dmg', 'zip'],
+      // Just the .dmg: nothing auto-updates, so no .zip or blockmaps.
+      target: ['dmg'],
       icon: 'icon.icns',
       category: 'public.app-category.productivity',
       // Unset means "use CSC_LINK or CSC_NAME"; "-" is an ad-hoc signature.
@@ -140,8 +151,12 @@ export function builderConfig(env: Env, claude: () => string = claudeBinary): Co
       entitlements: 'build/entitlements.mac.plist',
       entitlementsInherit: 'build/entitlements.mac.plist',
       notarize: wantsNotarizing(env),
-      extendInfo: UNUSED_PERMISSIONS,
+      extendInfo: {
+        // Stops macOS offering one-time codes from Messages over the composer (as T3 Code does).
+        NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac: true,
+        ...UNUSED_PERMISSIONS,
+      },
     },
-    dmg: { title: 'Docs ${version}' },
+    dmg: { title: 'Docs ${version}', writeUpdateInfo: false },
   }
 }

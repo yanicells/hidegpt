@@ -13,6 +13,7 @@ import { ChildProcess, ChildProcessSpawner } from 'effect/process'
 
 import type { ProviderId } from '../shared/model'
 import { appendStderrTail, stderrExcerpt } from '../vendor/effect-codex-app-server/_internal/stdio'
+import { logDefects } from './DefectReport'
 import { BinaryMissingError, ProcessExitedError, ProviderRequestError } from './errors'
 import { providerLabel } from '../shared/labels'
 import * as ProcessLedger from './ProcessLedger'
@@ -47,6 +48,12 @@ export interface SupervisedProcess {
 
 /** SIGTERM first; a server that ignores it gets SIGKILL after this long. */
 export const FORCE_KILL_AFTER = Duration.seconds(2)
+/**
+ * How long an exit waits for stderr to finish draining before it reads the
+ * tail. Node emits "exit" before the pipes deliver their last data; a child
+ * that keeps the pipe open must not hold the exit back.
+ */
+const STDERR_DRAIN = Duration.millis(250)
 
 /** What an SDK hands its spawn callback (Claude Code's `SpawnOptions`), plus where stderr goes. */
 export type CallbackSpawnOptions = {
@@ -109,6 +116,20 @@ const stopGroup = (child: ChildProcessWithoutNullStreams, pid: number) =>
     Effect.timeoutOrElse({ duration: FORCE_KILL_AFTER, orElse: () => Effect.sync(() => signalGroup(pid, 'SIGKILL')) }),
   )
 
+/**
+ * The tree read just before a kill, after `pending` (records still landing: an
+ * entry not yet in the ledger has no tree to read). Capped, so a hung `ps`
+ * cannot hold the kill back.
+ */
+const treeReadBeforeKill = (
+  ledger: ProcessLedger.ProcessLedger['Service'],
+  pending: Effect.Effect<unknown> = Effect.void,
+) => Effect.asVoid(Effect.timeoutOption(Effect.andThen(pending, ledger.track), '1 second'))
+
+/** Forked ledger work fails nowhere visible, so a failure or defect is logged instead of lost. */
+const logLedgerFailure = (effect: Effect.Effect<void>) =>
+  Effect.catchCause(effect, (cause) => Effect.logWarning('ledger', cause))
+
 const make = (
   spawner: ChildProcessSpawner.ChildProcessSpawner['Service'],
   ledger: ProcessLedger.ProcessLedger['Service'],
@@ -134,24 +155,29 @@ const make = (
       )
       // Released before the spawner's own kill, so this stops the server: its tree is read while
       // it still runs, its group is stopped, then whatever left the group (a `setsid` daemon).
+      // The read is capped, so a slow `ps` never delays the kill past quit's deadline.
       yield* Effect.acquireRelease(ledger.record(handle.pid, options.command, options.args[0] ?? ''), () =>
-        ledger.track.pipe(
+        treeReadBeforeKill(ledger).pipe(
           Effect.andThen(Effect.ignore(handle.kill({ forceKillAfter: FORCE_KILL_AFTER }))),
           Effect.andThen(ledger.stop(handle.pid)),
         ),
       )
 
       const tail = yield* Ref.make('')
-      if (tailStderr) {
-        yield* handle.stderr.pipe(
-          Stream.decodeText(),
-          Stream.runForEach((chunk) => Ref.update(tail, (current) => appendStderrTail(current, chunk))),
-          Effect.ignore,
-          Effect.forkScoped,
-        )
-      }
+      const draining = tailStderr
+        ? yield* handle.stderr.pipe(
+            Stream.decodeText(),
+            Stream.runForEach((chunk) => Ref.update(tail, (current) => appendStderrTail(current, chunk))),
+            Effect.ignore,
+            logDefects,
+            Effect.forkScoped,
+          )
+        : null
+      // Stderr is drained before the tail is read, as T3 Code's processRunner drains output
+      // before it reads the exit code; capped here, since a server's pipe may outlive it.
+      const drained = draining ? Effect.asVoid(Effect.timeoutOption(Fiber.await(draining), STDERR_DRAIN)) : Effect.void
       const exited = (code: number | null, signal: string | null) =>
-        Effect.flatMap(Ref.get(tail), (text) => {
+        Effect.flatMap(Effect.andThen(drained, Ref.get(tail)), (text) => {
           const stderr = stderrExcerpt(text)
           return Effect.fail(
             new ProcessExitedError({ provider: options.provider, code, signal, ...(stderr ? { stderr } : {}) }),
@@ -178,14 +204,19 @@ const make = (
       // Ledger stops forked by exits; a closing scope waits for them, so a quit never leaves a record.
       const stopping = new Set<Fiber.Fiber<void>>()
       const stopTree = (pid: number, recorded: Fiber.Fiber<void>) =>
-        Fiber.join(recorded).pipe(Effect.andThen(ledger.stop(pid)))
+        Fiber.join(recorded).pipe(Effect.andThen(ledger.stop(pid)), logLedgerFailure)
       let closed = false
-      // Trees are read while the CLIs still run, then each group is stopped, then what left it.
+      // Trees are read while the CLIs still run (capped, as in `spawn`), then each group is stopped, then what left it.
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
           closed = true
         }).pipe(
-          Effect.andThen(ledger.track),
+          // `record` is forked per spawn, so a scope that closes right after one waits for it here.
+          Effect.andThen(
+            Effect.suspend(() =>
+              treeReadBeforeKill(ledger, Fiber.awaitAll([...running.values()].map(({ recorded }) => recorded))),
+            ),
+          ),
           Effect.andThen(
             Effect.suspend(() =>
               Effect.forEach(
@@ -198,6 +229,9 @@ const make = (
           Effect.andThen(Effect.suspend(() => Fiber.awaitAll([...stopping]))),
         ),
       )
+      // The SDK spawns from its own callback, outside any fiber; forks there keep this layer's
+      // services (its logger), so a ledger failure reaches the log.
+      const runFork = Effect.runForkWith(yield* Effect.context<never>())
       return (options: CallbackSpawnOptions) => {
         const child = spawnChild(options.command, [...options.args], {
           cwd: options.cwd,
@@ -219,13 +253,14 @@ const make = (
           return child
         }
         // The full command path, so another app's copy of the same CLI never matches.
-        const recorded = Effect.runFork(ledger.record(pid, options.command, options.args[0] ?? ''))
+        // Defects are logged here, so a failed record never stops `stopTree` from running.
+        const recorded = runFork(logLedgerFailure(ledger.record(pid, options.command, options.args[0] ?? '')))
         running.set(child, { pid, recorded })
         child.once('exit', () => {
           running.delete(child)
           signalGroup(pid, 'SIGKILL')
           // As T3 Code's `tracker.stop`: members that left the group are stopped too.
-          const stop = Effect.runFork(stopTree(pid, recorded))
+          const stop = runFork(stopTree(pid, recorded))
           stopping.add(stop)
           stop.addObserver(() => stopping.delete(stop))
         })
