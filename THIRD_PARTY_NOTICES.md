@@ -26,6 +26,10 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     `apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.testkit.ts`;
     and the scrubbing in `src/provider/replayFixture.ts`, from
     `apps/server/scripts/codexReplayRecordingRecords.ts`.
+  - `src/codex/client.ts`: naming the client in `initialize` and setting
+    `CODEX_INTERNAL_ORIGINATOR_OVERRIDE` at spawn, from
+    `codexAppServerEnvironment` and `buildCodexInitializeParams` in
+    `apps/server/src/provider/CodexProvider.ts` (commit 5c6f2f12).
   - `src/provider/randomUuid.ts`: v4 UUIDs drawn from Effect's `Random`, from
     `packages/provider-core/src/server/randomUuid.ts` (commit 5c6f2f12).
   - `src/codex/mapping.ts`: turning Codex errors into Docs sentences and the
