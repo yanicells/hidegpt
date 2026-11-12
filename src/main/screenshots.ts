@@ -14,6 +14,9 @@ type Point = { x: number; y: number }
 /** The window size the shots are taken at, whatever the display's work area. */
 export const SCREENSHOT_SIZE = { width: 1280, height: 840 } as const
 
+/** How long the walk waits on the page for one step; past it the step fails and the run quits. */
+const PAGE_TIMEOUT = '15 seconds'
+
 /** A plain 24 px blue square, pasted into the composer by the walk. */
 const PASTED_PNG =
   'iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAIAAABvFaqvAAAAH0lEQVR42mNwav1CFcQwatCoQaMGjRo0atCoQQNvEAD/F+TuO4//gwAAAABJRU5ErkJggg=='
@@ -34,15 +37,26 @@ export const captureScreenshots = (
 ) =>
   Effect.gen(function* () {
     mkdirSync(dir, { recursive: true })
+    // A page that never answers (a hung or gone renderer) must fail the step, not hang the run.
+    const answered = <A>(what: string, ask: () => Promise<A>) =>
+      Effect.promise(ask).pipe(
+        Effect.timeoutOrElse({
+          duration: PAGE_TIMEOUT,
+          orElse: () => Effect.die(new Error(`The page did not answer in time: ${what}`)),
+        }),
+      )
     const js = <A = unknown>(script: string) =>
-      Effect.promise(() => win.webContents.executeJavaScript(script) as Promise<A>)
+      answered(
+        script.replace(/\s+/g, ' ').trim().slice(0, 80),
+        () => win.webContents.executeJavaScript(script) as Promise<A>,
+      )
     const pause = (ms = 150) => Effect.sleep(`${ms} millis`)
     const shot = (name: string) =>
       Effect.gen(function* () {
         yield* pause()
         win.webContents.invalidate()
         yield* js('new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))')
-        const image = yield* Effect.promise(() => win.capturePage())
+        const image = yield* answered(`capturing ${name}`, () => win.capturePage())
         writeFileSync(join(dir, `${name}.png`), image.toPNG())
       })
     const waitUntil = (condition: string, what: string) =>
