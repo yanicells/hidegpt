@@ -8,6 +8,7 @@ import * as Layer from 'effect/Layer'
 import * as Path from 'effect/Path'
 import * as Queue from 'effect/Queue'
 
+import { foreverObserved, observed } from '../../provider/observed'
 import type { AdapterEvent } from '../../provider/ProviderAdapter'
 import type { ProviderId } from '../../shared/model'
 import { makeRotatingFileSink, type RotatingFileSink } from './rotatingFileSink'
@@ -15,6 +16,8 @@ import { makeRotatingFileSink, type RotatingFileSink } from './rotatingFileSink'
 /** `logs/providers/<provider>.ndjson`: 5 MB, plus three rotated files each. */
 export const PROVIDER_LOG = { maxBytes: 5 * 1024 * 1024, maxFiles: 3 } as const
 const BATCH_WINDOW = '500 millis'
+/** Lines waiting for the writer. Past this the oldest go, and the next round logs how many. */
+export const MAX_QUEUED_LINES = 10_000
 
 /**
  * What a provider reported, one JSON line per event, so "the answer stopped"
@@ -101,27 +104,50 @@ export const make = (directory: string) =>
       Effect.forEach(
         new Set(lines.map((line) => line.provider)),
         (provider) =>
-          sinkFor(provider).pipe(
-            Effect.flatMap((sink) =>
-              sink.write(
-                lines
-                  .filter((line) => line.provider === provider)
-                  .map((line) => line.text)
-                  .join(''),
+          observed(
+            sinkFor(provider).pipe(
+              Effect.flatMap((sink) =>
+                sink.write(
+                  lines
+                    .filter((line) => line.provider === provider)
+                    .map((line) => line.text)
+                    .join(''),
+                ),
+              ),
+              // A log that cannot be written must never stop Docs. The operation, not the path: it names the home folder.
+              Effect.catchTag('RotatingFileSinkError', (error) =>
+                Effect.logWarning('Event log write failed').pipe(Effect.annotateLogs({ operation: error.operation })),
               ),
             ),
-            // A log that cannot be written must never stop Docs.
-            Effect.ignore,
+            // One provider's bad write must not cost the others theirs.
+            { name: 'eventLog.write' },
           ),
         { discard: true },
       )
 
-    const queue = yield* Queue.unbounded<Line>()
-    const writer = yield* Effect.uninterruptibleMask((restore) =>
-      restore(Queue.takeAll(queue)).pipe(Effect.flatMap(write)),
-    ).pipe(Effect.andThen(Effect.sleep(BATCH_WINDOW)), Effect.forever, Effect.forkScoped)
+    const queue = yield* Queue.sliding<Line>(MAX_QUEUED_LINES)
+    let dropped = 0
+    const reportDrops = Effect.suspend(() => {
+      if (dropped === 0) return Effect.void
+      const count = dropped
+      dropped = 0
+      return Effect.logWarning('Event log dropped its oldest lines').pipe(Effect.annotateLogs({ dropped: count }))
+    })
+    const writer = yield* foreverObserved(
+      Effect.uninterruptibleMask((restore) =>
+        restore(Queue.takeAll(queue)).pipe(Effect.flatMap(write), Effect.andThen(reportDrops)),
+      ).pipe(Effect.andThen(Effect.sleep(BATCH_WINDOW))),
+      { name: 'eventLog.writer' },
+    ).pipe(Effect.forkScoped)
     yield* Effect.addFinalizer(() =>
-      Fiber.interrupt(writer).pipe(Effect.andThen(Queue.clear(queue)), Effect.flatMap(write), Effect.ignore),
+      observed(
+        Fiber.interrupt(writer).pipe(
+          Effect.andThen(Queue.clear(queue)),
+          Effect.flatMap(write),
+          Effect.andThen(reportDrops),
+        ),
+        { name: 'eventLog.close' },
+      ),
     )
 
     return ProviderEventLog.of({
@@ -130,12 +156,14 @@ export const make = (directory: string) =>
         if (!fields) return Effect.void
         return Clock.currentTimeMillis.pipe(
           Effect.flatMap((at) =>
-            Queue.offer(queue, {
-              provider,
-              text: `${JSON.stringify({ timestamp: new Date(at).toISOString(), provider, ...fields })}\n`,
+            Effect.sync(() => {
+              if (Queue.sizeUnsafe(queue) >= MAX_QUEUED_LINES) dropped += 1
+              Queue.offerUnsafe(queue, {
+                provider,
+                text: `${JSON.stringify({ timestamp: new Date(at).toISOString(), provider, ...fields })}\n`,
+              })
             }),
           ),
-          Effect.asVoid,
         )
       },
     })
