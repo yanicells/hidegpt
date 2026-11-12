@@ -7,6 +7,7 @@ import * as Queue from 'effect/Queue'
 import * as Stream from 'effect/Stream'
 
 import { CAPABILITIES } from '../shared/model'
+import { ProviderRequestError, type ProviderError } from './errors'
 import type { ThreadEvent } from './events'
 import { fromLegacy, type LegacyAdapterEvent, type LegacyProviderSession } from './legacyEvents'
 import type { AdapterEvent } from './ProviderAdapter'
@@ -16,17 +17,18 @@ const INPUT = { text: 'Hi', images: [], skill: null, clientId: 'local-1' }
 const unused = Effect.die(new Error('not used in this test'))
 
 /**
- * A legacy session whose events the test pushes, and whose `send` waits on `sendGate`
- * when one is given (a provider slow to accept the turn).
+ * A legacy session whose events the test pushes. `send` replaces the one that accepts at
+ * once; failing `backendExit` is the backend dying.
  */
-const setup = (sendGate?: Deferred.Deferred<void>) =>
+const setup = (send: LegacyProviderSession['send'] = () => Effect.void) =>
   Effect.gen(function* () {
     const legacyEvents = yield* Queue.unbounded<LegacyAdapterEvent>()
+    const backendExit = yield* Deferred.make<never, ProviderError>()
     const interrupts: string[] = []
     const legacy = {
       events: Stream.fromQueue(legacyEvents),
-      awaitExit: Effect.never,
-      send: () => (sendGate ? Deferred.await(sendGate) : Effect.void),
+      awaitExit: Deferred.await(backendExit),
+      send,
       interrupt: (threadId: string) => Effect.sync(() => void interrupts.push(threadId)),
       loadCatalog: unused,
       listDocs: () => Stream.die('unused'),
@@ -55,7 +57,7 @@ const setup = (sendGate?: Deferred.Deferred<void>) =>
       seen.flatMap((event) =>
         event.type === 'turn.started' || event.type === 'turn.ended' ? [event as ThreadEvent] : [],
       )
-    return { session, push, seen, turnEvents, interrupts }
+    return { session, push, seen, turnEvents, interrupts, backendExit }
   })
 
 const approval = {
@@ -95,7 +97,7 @@ describe('fromLegacy', () => {
   it.effect('holds Stop pressed before the provider accepted the turn, then stops it', () =>
     Effect.gen(function* () {
       const gate = yield* Deferred.make<void>()
-      const { session, interrupts, turnEvents, push } = yield* setup(gate)
+      const { session, interrupts, turnEvents, push } = yield* setup(() => Deferred.await(gate))
       const sending = yield* Effect.forkChild(session.send('t', 'turn-1', INPUT, SETTINGS))
       yield* Effect.yieldNow
       const stopping = yield* Effect.forkChild(session.interrupt('t', 'turn-1'))
@@ -109,6 +111,86 @@ describe('fromLegacy', () => {
       // The provider reports a normal end; the person stopped it, so it was interrupted.
       yield* push({ type: 'turnEnded', threadId: 't' })
       expect(turnEvents().at(-1)).toMatchObject({ type: 'turn.ended', status: 'interrupted', failure: null })
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect('a Stop that crosses the turn’s natural end succeeds without stopping anything', () =>
+    Effect.gen(function* () {
+      const { session, push, interrupts } = yield* setup()
+      yield* session.send('t', 'turn-1', INPUT, SETTINGS)
+      yield* push({ type: 'turnEnded', threadId: 't' })
+      yield* session.interrupt('t', 'turn-1')
+      expect(interrupts).toEqual([])
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect('drops a late start or end from a stopped turn that the next send already closed', () =>
+    Effect.gen(function* () {
+      const { session, push, turnEvents } = yield* setup()
+      yield* session.send('t', 'turn-1', INPUT, SETTINGS)
+      yield* push({ type: 'turnStarted', threadId: 't', nativeTurnId: 'native-1' })
+      yield* session.interrupt('t', 'turn-1')
+      // The provider never confirmed the stop; the person sends again.
+      yield* session.send('t', 'turn-2', INPUT, SETTINGS)
+      yield* push(
+        { type: 'turnStarted', threadId: 't', nativeTurnId: 'native-1' },
+        { type: 'turnEnded', threadId: 't', nativeTurnId: 'native-1' },
+      )
+      expect(turnEvents().at(-1)).toEqual({ type: 'turn.started', threadId: 't', turnId: 'turn-2' })
+
+      yield* push(
+        { type: 'turnStarted', threadId: 't', nativeTurnId: 'native-2' },
+        { type: 'turnEnded', threadId: 't', nativeTurnId: 'native-2' },
+      )
+      expect(turnEvents().at(-1)).toMatchObject({ type: 'turn.ended', turnId: 'turn-2', status: 'completed' })
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect('a send the provider refused leaves the thread free for the next one', () =>
+    Effect.gen(function* () {
+      let calls = 0
+      const { session, push, turnEvents } = yield* setup(() =>
+        ++calls === 1
+          ? Effect.fail(new ProviderRequestError({ provider: 'codex', operation: 'send', detail: 'refused' }))
+          : Effect.void,
+      )
+      yield* Effect.flip(session.send('t', 'turn-1', INPUT, SETTINGS))
+      yield* session.send('t', 'turn-2', INPUT, SETTINGS)
+      yield* push()
+      expect(turnEvents()).toEqual([{ type: 'turn.started', threadId: 't', turnId: 'turn-2' }])
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect('a backend that dies ends the open turn as a lost connection', () =>
+    Effect.gen(function* () {
+      const { session, turnEvents, backendExit } = yield* setup()
+      yield* session.send('t', 'turn-1', INPUT, SETTINGS)
+      const exiting = yield* Effect.forkChild(Effect.flip(session.awaitExit))
+      yield* Deferred.fail(
+        backendExit,
+        new ProviderRequestError({ provider: 'codex', operation: 'connection', detail: 'socket closed' }),
+      )
+      yield* Fiber.join(exiting)
+      yield* Effect.yieldNow.pipe(Effect.repeat({ times: 5 }))
+      expect(turnEvents().at(-1)).toMatchObject({
+        type: 'turn.ended',
+        turnId: 'turn-1',
+        status: 'failed',
+        failure: { class: 'transport_error' },
+      })
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect('a turn’s end forgets its open approvals, so a late resolve re-sends nothing', () =>
+    Effect.gen(function* () {
+      const { session, push, seen } = yield* setup()
+      yield* session.send('t', 'turn-1', INPUT, SETTINGS)
+      yield* push(
+        { type: 'block', threadId: 't', block: approval },
+        { type: 'turnEnded', threadId: 't' },
+        { type: 'resolved', threadId: 't', blockId: 'ap_1', resolved: 'skipped' },
+      )
+      expect(seen.filter((event) => event.type === 'item.upserted')).toHaveLength(1)
     }).pipe(Effect.scoped),
   )
 

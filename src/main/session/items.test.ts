@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { AssistantItem, Item, RequestItem, UserItem } from '../../provider/events'
-import { appendDelta, expireRequests, upsertItem } from './items'
+import { appendDelta, clearRetrying, expireRequests, upsertItem } from './items'
 
 const user = (id: string, text: string): UserItem => ({ kind: 'user', id, text })
 const assistant = (id: string, text: string): AssistantItem => ({ kind: 'assistant', id, text, phase: 'final' })
@@ -36,6 +36,16 @@ describe('items', () => {
     expect(grown[0]).toBe(items[0])
     expect(appendDelta(items, 'a2', 'x')).toBe(items)
     expect(appendDelta(items, 'a2', 'x', assistant('a2', '')).at(-1)).toMatchObject({ id: 'a2', text: 'x' })
+  })
+
+  it('drops the current turn’s retrying notice, and returns the same list when there is none', () => {
+    const retrying: Item = { kind: 'notice', id: 'n1', notice: 'retrying', detail: null }
+    expect(clearRetrying([user('u1', 'Hi'), retrying, assistant('a1', 'Hel')]).map((item) => item.id)).toEqual([
+      'u1',
+      'a1',
+    ])
+    const clean: Item[] = [retrying, user('u2', 'Again'), assistant('a2', 'Hi')]
+    expect(clearRetrying(clean)).toBe(clean)
   })
 
   it('expires open requests on a turn’s end, and returns the same list when there are none', () => {

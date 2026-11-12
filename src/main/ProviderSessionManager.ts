@@ -47,7 +47,11 @@ import * as TurnController from './session/TurnController'
  * connections run in `FiberMap`s keyed by what they update, so a newer run
  * replaces the older one and nothing stale ever lands. Sending, stopping and
  * answering live in `session/TurnController`; commands for a document name
- * it, so they never land on another one.
+ * it, so they never land on another one. Turns carry an app id the controller
+ * allocates before sending, and the manager ignores an event for any turn but
+ * the open one. Which turn a provider's event belongs to is the adapter's call
+ * (its `TurnTracker`): Codex names its native turns, so its late events are
+ * dropped; Claude and OpenCode don't yet (ARCH-4b, ARCH-4c).
  */
 
 export type ManagerError = ProviderError | CommandRejectedError

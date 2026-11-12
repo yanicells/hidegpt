@@ -3,7 +3,7 @@ import { accountAddress } from '../../shared/labels'
 import type { AccountSummary, DocSummary, ProviderId, Route, Skill, Snapshot } from '../../shared/model'
 import type { Item, ThreadEvent, TurnId } from '../../provider/events'
 import { EMPTY_CATALOG, type Catalog, type OpenedThread, type TurnSettings } from '../../provider/ProviderAdapter'
-import { appendDelta, expireRequests, isOpenRequest, openRequests, upsertItem } from './items'
+import { appendDelta, clearRetrying, expireRequests, isOpenRequest, openRequests, upsertItem } from './items'
 import { presentFailure, presentItems } from './present'
 
 /**
@@ -206,7 +206,7 @@ export function applyThreadEvent(state: State, provider: ProviderId, event: Thre
       const next = updateRuntime(state, key, () => ({
         ...touched,
         turn: null,
-        items: expireRequests(runtime.items),
+        items: expireRequests(clearRetrying(runtime.items)),
         error: error && !shown ? error : touched.error,
       }))
       return error && shown ? updateLibrary(next, provider, (lib) => ({ ...lib, error })) : next
@@ -214,12 +214,16 @@ export function applyThreadEvent(state: State, provider: ProviderId, event: Thre
     case 'item.upserted':
       return updateRuntime(state, key, () => ({
         ...touched,
-        items: upsertItem(runtime.items, event.item, event.replaces),
+        items: upsertItem(
+          event.item.kind === 'notice' ? runtime.items : clearRetrying(runtime.items),
+          event.item,
+          event.replaces,
+        ),
       }))
     case 'item.delta':
       return updateRuntime(state, key, () => ({
         ...touched,
-        items: appendDelta(runtime.items, event.itemId, event.delta, event.create),
+        items: appendDelta(clearRetrying(runtime.items), event.itemId, event.delta, event.create),
       }))
     case 'thread.reset': {
       const ids = new Set(event.items.map((item) => item.id))
