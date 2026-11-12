@@ -17,6 +17,16 @@ or adapted file carries a header naming its source.
     launcher error ahead of an exit summary, from commit 5c6f2f12.
   - `src/provider/randomUuid.ts`: v4 UUIDs drawn from Effect's `Random`, from
     `packages/provider-core/src/server/randomUuid.ts` (commit 5c6f2f12).
+  - `src/codex/mapping.ts`: turning Codex errors into Docs sentences and the
+    usage-limit reset time (`codexErrorInfoCode`, `codexUsageLimitError` in
+    `apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts`;
+    `apps/server/src/provider/codexUsageLimits.ts`), MCP elicitation app names
+    and typed replies (`apps/server/src/provider/CodexMcpElicitation.ts`), and
+    MCP tool titles (`apps/server/src/provider/CodexToolPresentation.ts`), from
+    commit 5c6f2f12.
+  - `src/codex/CodexAdapter.ts`: subagent threads linked to their parent, with
+    their requests and Stop routed to the document that started them, from
+    `CodexAdapterV2.ts` (commit 5c6f2f12).
   - `src/opencode/OpenCodeAdapter.ts`: message ids in OpenCode's format
     (`makeMessageIds`) and a set of busy sessions like `busySessionIds`, used
     here so a repeated busy status starts no new turn, both from

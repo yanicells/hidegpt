@@ -153,6 +153,8 @@ export type AdapterEvent =
   | { readonly type: 'invalidate'; readonly part: CatalogPart }
   /** Non-blocking banner text (warnings, config problems). */
   | { readonly type: 'notice'; readonly message: string }
+  /** Takes down a `notice` that no longer applies, if the banner still shows it. */
+  | { readonly type: 'clearNotice'; readonly message: string }
   | { readonly type: 'loginUrl'; readonly url: string | null }
 
 export const isThreadEvent = (event: AdapterEvent): event is ThreadEvent => 'threadId' in event
