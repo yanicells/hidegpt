@@ -12,7 +12,7 @@ import * as Schema from 'effect/Schema'
 
 import { Command, type CommandResult, type MenuAction } from '../shared/contracts'
 import type { ProviderId } from '../shared/model'
-import { describeFailure } from '../provider/DefectReport'
+import { describeFailure, logDefects } from '../provider/DefectReport'
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import * as Demo from './demo'
 import { handle } from './ipc'
@@ -158,7 +158,7 @@ const program = Effect.gen(function* () {
     win?.webContents.send('snapshot', patch)
     updateMenu(snapshot)
   })
-  yield* Effect.forkScoped(publisher.run)
+  yield* Effect.forkScoped(logDefects(publisher.run))
   // The preload asks synchronously before the first paint, so this must exist before any window.
   ipcMain.on('snapshot-now', (event) => {
     event.returnValue = publisher.delivered()
