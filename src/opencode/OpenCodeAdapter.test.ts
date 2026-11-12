@@ -7,6 +7,8 @@ import * as Logger from 'effect/Logger'
 import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
+import { BinaryMissingError } from '../provider/errors'
+import type { ProcessSupervisor, SpawnOptions } from '../provider/ProcessSupervisor'
 import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
 import {
   agentMessage,
@@ -16,7 +18,7 @@ import {
   type FakeOpenCode,
   type FakeOpenCodeOptions,
 } from './FakeOpenCode'
-import { readableProviderError } from './mapping'
+import { readableProviderError, toDoc } from './mapping'
 import * as OpenCodeAdapter from './OpenCodeAdapter'
 
 const SETTINGS = { model: 'fake/model-a', effort: null, serviceTier: null, mode: 'build' }
@@ -68,7 +70,28 @@ const permission = (id: string, sessionID = SESSION) => ({
   always: [],
 })
 
+/** A supervisor that records what it was asked to spawn, then fails as if the binary were missing. */
+const recordingSupervisor = () => {
+  const spawned: SpawnOptions[] = []
+  const spawn = (options: SpawnOptions) => {
+    spawned.push(options)
+    return Effect.fail(new BinaryMissingError({ provider: options.provider, command: options.command }))
+  }
+  return { spawned, supervisor: { spawn } as unknown as ProcessSupervisor['Service'] }
+}
+
 describe('OpenCodeAdapter', () => {
+  it.effect('starts OpenCode with self-update off, beside its password', () =>
+    Effect.gen(function* () {
+      const { spawned, supervisor } = recordingSupervisor()
+      yield* Effect.flip(Effect.scoped(OpenCodeAdapter.spawnServer(supervisor)))
+      expect(spawned[0]?.env).toEqual({
+        OPENCODE_SERVER_PASSWORD: expect.any(String),
+        OPENCODE_DISABLE_AUTOUPDATE: '1',
+      })
+    }),
+  )
+
   it.effect('loads models, the default model and the primary agents', () =>
     Effect.gen(function* () {
       const { session } = yield* open()
@@ -320,6 +343,17 @@ describe('OpenCodeAdapter', () => {
       expect(parts[1]?.text).toContain('Go slowly.')
       const reopened = yield* session.openThread(SESSION)
       expect(reopened.blocks.at(-1)).toMatchObject({ kind: 'user', text: 'Explain', skills: ['tutor'] })
+    }),
+  )
+
+  it.effect('titles a document OpenCode has not named "Untitled document", not after its first message', () =>
+    Effect.gen(function* () {
+      const { session } = yield* open({ sessions: [stubSession(SESSION, '', '/tmp/course')] })
+      const opened = yield* session.openThread(SESSION)
+      expect(opened.title).toBe('Untitled document')
+      expect(opened.blocks[0]).toMatchObject({ kind: 'user', text: 'Summarise week 3' })
+      // Home's list gives it no name either.
+      expect(toDoc(stubSession(SESSION, '')).name).toBeNull()
     }),
   )
 

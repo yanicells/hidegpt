@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { docsFailure, elicitationFields, elicitationResponse } from './mapping.ts'
+import { stubThread } from './FakeCodex'
+import { docsFailure, elicitationFields, elicitationResponse, toDoc } from './mapping.ts'
 
 type Params = Parameters<typeof elicitationFields>[0]
 
@@ -53,5 +54,15 @@ describe('docsFailure', () => {
     expect(docsFailure({ ...error, codexErrorInfo: 'usageLimitExceeded' }, null)).toBe(
       'Limit reached. Try again later.',
     )
+  })
+})
+
+describe('toDoc', () => {
+  it('names a thread only by the name Codex gave it, never by its first prompt', () => {
+    expect(toDoc(stubThread('thr_1', 'Write a 500-word essay'))).toMatchObject({
+      name: null,
+      preview: 'Write a 500-word essay',
+    })
+    expect(toDoc(stubThread('thr_2', 'Write a 500-word essay', 'Essay')).name).toBe('Essay')
   })
 })

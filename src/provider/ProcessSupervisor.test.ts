@@ -12,7 +12,7 @@ import * as Layer from 'effect/Layer'
 import { DEFAULT_TIMING, ProcessSupervisor, layer, type SupervisorTiming } from './ProcessSupervisor'
 
 /** Real processes: the supervisor's job is the boundary with the OS, so nothing here is faked. */
-const dir = mkdtempSync(join(tmpdir(), 'hidegpt-supervisor-'))
+const dir = mkdtempSync(join(tmpdir(), 'docs-supervisor-'))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
 /**

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -426,7 +426,7 @@ describe('ClaudeAdapter', () => {
   )
 
   describe('under the process supervisor', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'hidegpt-claude-'))
+    const dir = mkdtempSync(join(tmpdir(), 'docs-claude-'))
     afterAll(() => rmSync(dir, { recursive: true, force: true }))
     const groupAlive = (pid: number) => {
       try {
@@ -448,6 +448,33 @@ describe('ClaudeAdapter', () => {
         for (let i = 0; i < 150 && !check(); i += 1) yield* Effect.sleep('20 millis')
         expect(check()).toBe(true)
       })
+
+    it.live('starts Claude Code with background updates off, keeping the environment the SDK built', () =>
+      Effect.gen(function* () {
+        const out = join(dir, 'env.txt')
+        // `sh` stands in for the CLI and writes down the two variables; no prompt reaches any model.
+        const fake = makeFakeClaude({
+          ...HISTORY,
+          reply: null,
+          process: {
+            command: '/bin/sh',
+            args: ['-c', `printf '%s %s' "$DISABLE_AUTOUPDATER" "$FROM_SDK" > ${out}`],
+            env: { PATH: process.env.PATH, FROM_SDK: 'kept' },
+          },
+        })
+        const supervisor = yield* ProcessSupervisor.ProcessSupervisor
+        const session = yield* ClaudeAdapter.make(() => Promise.resolve(fake.sdk), supervisor).openSession
+        yield* send(session, DOC, 'Summarise week 4')
+        yield* waitFor(() => existsSync(out) && readFileSync(out, 'utf8') === '1 kept')
+        // Not in the query's options, which recorders write down.
+        expect(fake.queries[0]?.options.env).toBeUndefined()
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          ProcessSupervisor.layer(join(dir, 'env-processes.json')).pipe(Layer.provideMerge(NodeServices.layer)),
+        ),
+      ),
+    )
 
     it.live(
       'spawns Claude Code through the supervisor: in the ledger while it runs, its group killed by the library’s scope',

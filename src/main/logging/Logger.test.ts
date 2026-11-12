@@ -3,16 +3,19 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import * as NodeServices from '@effect/platform-node/NodeServices'
-import { describe, expect, it } from '@effect/vitest'
+import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
 import * as TestConsole from 'effect/testing/TestConsole'
 
 import * as Logging from './Logger'
+import { MAX_CAUSE_BYTES } from './redact'
 import { makeRotatingFileSink } from './rotatingFileSink'
 
-const tempDir = () => mkdtempSync(join(tmpdir(), 'hidegpt-logs-'))
+const root = mkdtempSync(join(tmpdir(), 'docs-logs-'))
+afterAll(() => rmSync(root, { recursive: true, force: true }))
+const tempDir = () => mkdtempSync(join(root, 'case-'))
 
 describe('makeRotatingFileSink', () => {
   it.effect('rotates by size and keeps at most maxFiles backups', () =>
@@ -72,18 +75,28 @@ describe('Logger.layer', () => {
     }),
   )
 
-  it.effect('without a log folder, prints each line to the terminal once', () =>
+  it.effect('without a log folder, prints each line to the terminal once, redacted but not cut', () =>
     Effect.gen(function* () {
       // A folder inside a file cannot be made.
       const file = join(tempDir(), 'not-a-folder')
       writeFileSync(file, '')
-      yield* Effect.logWarning('Connection lost').pipe(
+      const identity = { home: '/Users/alice-k', username: 'alice-k' }
+      // Over the file's 2 KB cap, so a terminal cut would drop the tail marker.
+      const error = new Error(`open /Users/alice-k/x key sk-proj-0123456789abcdefghij ${'y'.repeat(3_000)} END`)
+      yield* Effect.logWarning('Connection lost', Cause.die(error)).pipe(
         Effect.provide(
-          Logging.layer({ directory: join(file, 'logs'), console: true }).pipe(Layer.provide(NodeServices.layer)),
+          Logging.layer({ directory: join(file, 'logs'), console: true, identity }).pipe(
+            Layer.provide(NodeServices.layer),
+          ),
         ),
       )
-      const printed = [...(yield* TestConsole.logLines), ...(yield* TestConsole.errorLines)].map(String)
-      expect(printed.filter((line) => line.includes('Connection lost'))).toHaveLength(1)
+      const printed = [...(yield* TestConsole.logLines), ...(yield* TestConsole.errorLines)]
+        .map((line) => (typeof line === 'string' ? line : JSON.stringify(line)))
+        .join('\n')
+      expect(printed.split('Connection lost')).toHaveLength(2)
+      expect(printed).toContain('open ~/x')
+      expect(printed).toContain(' END')
+      for (const secret of ['alice-k', 'sk-proj-0123456789abcdefghij']) expect(printed).not.toContain(secret)
     }),
   )
 
@@ -107,6 +120,52 @@ describe('Logger.layer', () => {
       expect(log).toContain('Bearer <redacted>')
       for (const secret of ['alice-k', 'tok-9f2e', 'abc.def-123', 'sk-proj-0123456789abcdefghij'])
         expect(log).not.toContain(secret)
+    }),
+  )
+
+  it.effect('writes a long defect cut to 2 KB, without the email or the home folder', () =>
+    Effect.gen(function* () {
+      const dir = tempDir()
+      const identity = { home: '/Users/alice-k', username: 'alice-k' }
+      const error = new Error(
+        `request for alice.k@example.com from /Users/alice-k/Documents failed: ${'x'.repeat(10 * 1024)} END`,
+      )
+      yield* Effect.logError('Unhandled defect', Cause.die(error)).pipe(
+        Effect.provide(
+          Logging.layer({ directory: dir, console: false, identity }).pipe(Layer.provide(NodeServices.layer)),
+        ),
+      )
+      const log = readFileSync(join(dir, 'main.ndjson'), 'utf8')
+      expect(Buffer.byteLength(log)).toBeLessThan(3 * 1024)
+      expect(JSON.parse(log).cause).toMatch(/^Error: request for <email> from ~\/Documents failed: x+\n… \(cut\)$/)
+      for (const secret of ['alice.k@example.com', '/Users/alice-k', 'END']) expect(log).not.toContain(secret)
+    }),
+  )
+
+  it.effect('cuts only after redacting: no part of a key or an address that crosses 2 KB is written', () =>
+    Effect.gen(function* () {
+      const dir = tempDir()
+      const secrets = 'sk-proj0123456789abcdefghij alice.k@example.com'
+      // Every padding from well before the cut to just after it, so the cut falls inside each secret.
+      const pads = Array.from({ length: 80 }, (_, i) => MAX_CAUSE_BYTES - 90 + i)
+      yield* Effect.forEach(pads, (pad) =>
+        Effect.logError('Unhandled defect', Cause.die(new Error(`${'x'.repeat(pad)} ${secrets}`))),
+      ).pipe(
+        Effect.provide(
+          Logging.layer({
+            directory: dir,
+            console: false,
+            identity: { home: '/Users/alice-k', username: 'alice-k' },
+          }).pipe(Layer.provide(NodeServices.layer)),
+        ),
+      )
+      const lines = readFileSync(join(dir, 'main.ndjson'), 'utf8').trim().split('\n')
+      expect(lines).toHaveLength(pads.length)
+      for (const line of lines) {
+        const cause: string = JSON.parse(line).cause
+        expect(Buffer.byteLength(cause)).toBeLessThanOrEqual(MAX_CAUSE_BYTES)
+        for (const fragment of ['sk-', 'alice.k', '@example', 'example.com']) expect(cause).not.toContain(fragment)
+      }
     }),
   )
 })

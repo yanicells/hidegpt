@@ -84,20 +84,28 @@ const COMMAND_ARGS = /<command-args>([\s\S]*?)<\/command-args>/
 // Text the CLI adds to a user turn that the person never typed.
 const INJECTED = /^(Base directory for this skill:|<system-reminder>|<local-command|Caveat: )/
 
+/**
+ * The session's name, when it has one: its custom title, which already holds a
+ * title Claude wrote (`aiTitle`) or one set with /rename. Never `summary`: the
+ * SDK fills it from the custom title, else the latest prompt, a compaction
+ * summary or the first prompt, so it is often what was asked. A document
+ * without a name reads "Untitled document" (Home still lists its first line,
+ * from `preview`).
+ */
+export const sessionName = (info: SDKSessionInfo): string | null => info.customTitle || null
+
 export function toDoc(info: SDKSessionInfo): DocSummary {
-  const title = info.customTitle || info.summary || info.firstPrompt || null
   return {
     id: info.sessionId,
-    name: title,
-    preview: info.firstPrompt || title || 'Untitled document',
+    name: sessionName(info),
+    preview: info.firstPrompt || info.summary || 'Untitled document',
     updatedAt: Math.floor(info.lastModified / 1000),
     cwd: info.cwd ?? '',
     projectId: null,
   }
 }
 
-export const sessionTitle = (info: SDKSessionInfo | undefined) =>
-  (info && (info.customTitle || info.summary || info.firstPrompt)) || 'Untitled document'
+export const sessionTitle = (info: SDKSessionInfo | undefined) => (info && sessionName(info)) || 'Untitled document'
 
 export function toModels(models: ReadonlyArray<ModelInfo>): ModelOption[] {
   return models.map((model) => {

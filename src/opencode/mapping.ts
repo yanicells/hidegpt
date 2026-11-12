@@ -157,12 +157,8 @@ export function blocksFromMessages(messages: ReadonlyArray<MessageWithParts>): B
   return blocks
 }
 
-export function sessionTitle(title: string | undefined, messages: ReadonlyArray<MessageWithParts>): string {
-  if (title?.trim()) return title.trim()
-  const firstUser = messages.find((message) => message.info.role === 'user')
-  const text = firstUser ? messageText(firstUser.parts, '\n') : ''
-  return text.split('\n')[0]?.trim() || 'Untitled document'
-}
+/** The session's title; never its first message, which reads as what was asked. */
+export const sessionTitle = (title: string | undefined): string => title?.trim() || 'Untitled document'
 
 export const permissionBlockId = (requestId: string) => `approval-${requestId}`
 

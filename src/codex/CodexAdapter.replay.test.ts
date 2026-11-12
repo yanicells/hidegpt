@@ -1,5 +1,7 @@
 import { existsSync } from 'node:fs'
 
+import { version } from '../../package.json'
+
 import { describe, expect, it } from '@effect/vitest'
 import * as Cause from 'effect/Cause'
 import * as Context from 'effect/Context'
@@ -48,13 +50,19 @@ const replay = (name: string, options: CodexClient.CodexAppServerClientOptions =
     return { session, events, transcript, driver, finished }
   })
 
+/** The recorded `initialize` request. */
+const initializeFrame = (transcript: CodexReplay.CodexAppServerReplayTranscript) =>
+  transcript.entries.flatMap((entry) =>
+    entry.type === 'expect_outbound' && entry.label === 'initialize' ? [entry.frame] : [],
+  )[0]
+
 const userTexts = (result: TurnResult) =>
   result.opened.blocks.flatMap((block) => (block.kind === 'user' ? [block.text] : []))
 
 /** Runs a scenario over a recording, as the recorder ran it against Codex. */
 const runScenario = <A>(name: string, scenario: ReplayScenario<A>) =>
   Effect.gen(function* () {
-    const { session, events, finished } = yield* replay(name)
+    const { session, events, transcript, finished } = yield* replay(name)
     const result = yield* scenario.run({
       session,
       events,
@@ -62,13 +70,16 @@ const runScenario = <A>(name: string, scenario: ReplayScenario<A>) =>
       wait: '5 seconds',
       afterCatalog: Effect.void,
     })
-    return { result, events, finished: yield* finished }
+    return { result, events, finished: yield* finished, initialize: initializeFrame(transcript) }
   })
 
 describe('CodexAdapter replay', () => {
   it.effect('library: signed-out catalog, empty list, and a new document Codex cannot resume yet', () =>
     Effect.gen(function* () {
-      const { result, finished } = yield* runScenario('library', library)
+      const { result, finished, initialize } = yield* runScenario('library', library)
+
+      // The replay client fails on a frame the recording does not hold, so this is also what was sent.
+      expect(initialize).toMatchObject({ params: { clientInfo: { name: 'docs-desktop', version } } })
 
       expect(result.catalog.account).toBeNull()
       expect(result.catalog.requiresAuth).toBe(true)

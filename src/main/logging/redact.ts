@@ -4,45 +4,13 @@
 import * as Cause from 'effect/Cause'
 import * as Logger from 'effect/Logger'
 
+import { CREDENTIALS, EMAIL, escapeRegExp, REDACTED, TOKEN, wholeWord } from '../../shared/redact'
+
 /** Who the log must not name: the home folder and the account name. */
 export interface Identity {
   readonly home: string
   readonly username: string
 }
-
-const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-/**
- * Credential shapes that can turn up in an error message or a stack. Like T3
- * Code's pattern, each is narrow, so ordinary text such as `code=ENOENT` or
- * "Basic setup" survives:
- * - in a URL query (`?` or `&` before the key), OAuth's `code` and `state` and
- *   signed-URL keys too;
- * - anywhere, only keys that always mean a secret;
- * - JSON fields of the same names;
- * - an Authorization header's value, and a long Bearer token;
- * - user:password in a URL, and well-known token formats.
- */
-const CREDENTIALS: ReadonlyArray<readonly [RegExp, string]> = [
-  [
-    /([?&])((?:access_|refresh_|id_)?token|api_?key|client_secret|secret|password|auth|code|state|ticket|signature|sig|wsTicket|dpop)=[^&#"'\s]*/gi,
-    '$1$2=<redacted>',
-  ],
-  [
-    /(^|["'\s,;{])((?:access_|refresh_|id_)?token|api_?key|client_secret|secret|password|passwd)=[^&#"'\s]*/gi,
-    '$1$2=<redacted>',
-  ],
-  [
-    /("(?:(?:access_|refresh_|id_)?token|api_?key|apiKey|client_secret|secret|password|authorization)"\s*:\s*)"[^"]*"/gi,
-    '$1"<redacted>"',
-  ],
-  [/(Authorization["']?\s*[:=]\s*["']?(?:Bearer|Basic)\s+)[A-Za-z0-9._~+/=-]+/gi, '$1<redacted>'],
-  [/\b(Bearer)\s+[A-Za-z0-9._~+/=-]{16,}/g, '$1 <redacted>'],
-  [/(:\/\/)[^/\s:@]+:[^/\s@]+@/g, '$1<redacted>@'],
-  [/\bsk-[A-Za-z0-9_-]{16,}/g, '<redacted>'],
-  [/\bgh[pousr]_[A-Za-z0-9]{20,}/g, '<redacted>'],
-  [/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '<redacted>'],
-]
 
 /**
  * Account names that are also common folder or file names. The home folder is
@@ -67,27 +35,55 @@ const PATH_WORDS = new Set([
   'node',
 ])
 
-/** Removes the home folder (as `~`), the account name, and credential-looking strings from `text`. */
+/**
+ * Removes the home folder (as `~`), emails, credential-looking strings and the
+ * account name from `text`.
+ */
 export function makeRedactor({ home, username }: Identity): (text: string) => string {
   // Only the whole folder: `/Users/alice` must not match inside `/Users/alicebob`.
-  const homePath = home.length > 1 ? new RegExp(`${escape(home)}(?=[/\\\\"'\\s:)]|$)`, 'g') : null
+  const homePath = home.length > 1 ? new RegExp(`${escapeRegExp(home)}(?=[/\\\\"'\\s:)]|$)`, 'g') : null
   // A very short name, or one that is also a common path word, would match ordinary text.
-  const name =
-    username.length >= 3 && !PATH_WORDS.has(username.toLowerCase())
-      ? new RegExp(`(?<![A-Za-z0-9])${escape(username)}(?![A-Za-z0-9])`, 'g')
-      : null
+  const name = username.length >= 3 && !PATH_WORDS.has(username.toLowerCase()) ? wholeWord(username, 'g') : null
   return (text) => {
     let out = homePath ? text.replace(homePath, '~') : text
-    if (name) out = out.replace(name, '<user>')
     for (const [pattern, replacement] of CREDENTIALS) out = out.replace(pattern, replacement)
+    out = out.replace(TOKEN, REDACTED).replace(EMAIL, '<email>')
+    // Last, so an address made of the name (`alice@example.com`) goes as a whole.
+    if (name) out = out.replace(name, '<user>')
     return out
   }
 }
 
+/** The most of a cause's text the log keeps. A defect's message can quote a whole request or response. */
+export const MAX_CAUSE_BYTES = 2048
+const CUT = '\n… (cut)'
+
+/** `text`, cut to at most `MAX_CAUSE_BYTES` of UTF-8, marked when cut. */
+export function capCause(text: string): string {
+  if (Buffer.byteLength(text) <= MAX_CAUSE_BYTES) return text
+  const head = Buffer.from(text)
+    .subarray(0, MAX_CAUSE_BYTES - Buffer.byteLength(CUT))
+    .toString('utf8')
+    // A character cut in half decodes as U+FFFD.
+    .replace(/\uFFFD$/, '')
+  return head + CUT
+}
+
+/**
+ * `redact`, then `capCause`, for the log file. Cutting first could leave the
+ * start of a secret that crosses the limit (an `sk-` key too short to match,
+ * an address without its `.com`) where `redact` no longer recognizes it. The
+ * terminal (`pnpm dev`) keeps whole stacks.
+ */
+export const redactThenCap =
+  (redact: (text: string) => string) =>
+  (text: string): string =>
+    capCause(redact(text))
+
 /**
  * The cause as `redact` leaves it. Like T3 Code's `redactCauseCredentials`, it
- * renders the cause (message and stack), and when anything was removed, logs
- * that text instead of the original.
+ * renders the cause (message and stack), and when anything was removed (or,
+ * with `redactThenCap`, cut), logs that text instead of the original.
  */
 export function redactCause(cause: Cause.Cause<unknown>, redact: (text: string) => string): Cause.Cause<unknown> {
   if (cause.reasons.length === 0 || Cause.hasInterruptsOnly(cause)) return cause
