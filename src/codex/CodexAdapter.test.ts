@@ -10,6 +10,7 @@ import * as TestClock from 'effect/testing/TestClock'
 import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
 import type * as CodexRpc from '../vendor/effect-codex-app-server/rpc.ts'
 import * as CodexAdapter from './CodexAdapter'
+import { BANNED_WORDS } from './mapping.ts'
 import { agentItem, makeFakeCodex, rpcFailure, stubThread, stubTurn, userItem, type FakeCodex, type FakeCodexOptions } from './FakeCodex'
 
 const SETTINGS = { model: null, effort: null, serviceTier: null, mode: null }
@@ -729,6 +730,16 @@ describe('CodexAdapter', () => {
       yield* peer.notify('warning', { message: 'The gpt-5 model is deprecated, see https://openai.com/codex', threadId: 'thr_1' })
       yield* peer.notify('configWarning', { summary: 'Unknown key in your Codex config', details: null })
       yield* item({ type: 'mcpToolCall', id: 'm1', server: 'codex_apps', tool: 'chatgpt_search', status: 'completed', arguments: {} })
+      yield* item({
+        type: 'mcpToolCall',
+        id: 'm2',
+        server: 'mcp',
+        tool: 'mcp__github__search',
+        status: 'failed',
+        arguments: {},
+        error: { message: 'MCP error -32000: Connection closed' },
+      })
+      yield* peer.notify('warning', { message: 'HIDEGPT can not reach the LLMs or A.I. tools', threadId: 'thr_1' })
       yield* item({ type: 'dynamicToolCall', id: 'd1', tool: 'codex_helper', namespace: 'OpenAIAPI', status: 'completed', arguments: {} })
       yield* item({ type: 'dynamicToolCall', id: 'd2', tool: 'ChatGPTPlus', namespace: 'gpt5', status: 'completed', arguments: {} })
       yield* item({ type: 'functionCallOutput', id: 'f1', name: 'GPT4o_lookup', namespace: 'codexTools', output: '' })
@@ -751,10 +762,39 @@ describe('CodexAdapter', () => {
         mode: 'form',
         _meta: { connector_name: 'Notion' },
         message: 'Allow ChatGPT to use Notion?',
-        requestedSchema: { type: 'object', properties: { token: { type: 'string', title: 'API token' } } },
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            token: { type: 'string', title: 'API token' },
+            server: { type: 'string', title: 'MCP server', enum: ['gpt5', 'local'], enumNames: ['Custom GPTs', 'Local'] },
+          },
+        },
+      })
+      yield* ask('item/tool/requestUserInput', {
+        threadId: 'thr_1',
+        turnId: 'turn_1',
+        itemId: 'i1',
+        isBlocking: true,
+        autoResolutionMs: null,
+        questions: [
+          {
+            id: 'q1',
+            header: '',
+            isOther: false,
+            isSecret: false,
+            question: 'Which model should the subagent use?',
+            options: [{ label: 'Claudes', description: '' }],
+          },
+        ],
       })
       yield* ask('item/commandExecution/requestApproval', { threadId: 'thr_1', turnId: 'turn_1', itemId: 'x1', command: 'ls', startedAtMs: 1 })
-      yield* ask('item/fileChange/requestApproval', { threadId: 'thr_1', turnId: 'turn_1', itemId: 'p1', startedAtMs: 1 })
+      yield* ask('item/fileChange/requestApproval', {
+        threadId: 'thr_1',
+        turnId: 'turn_1',
+        itemId: 'p1',
+        reason: 'The provider SDK wants to edit files',
+        startedAtMs: 1,
+      })
       yield* ask('item/permissions/requestApproval', {
         threadId: 'thr_1',
         turnId: 'turn_1',
@@ -774,14 +814,18 @@ describe('CodexAdapter', () => {
 
       // Everything a person could read, without the ids and internal tags.
       const hidden = new Set(['id', 'threadId', 'replaces', 'type', 'kind', 'command'])
-      const shown = JSON.stringify(events, (key, value: unknown) => (hidden.has(key) ? undefined : value))
+      const visible = JSON.stringify(events, (key, value: unknown) => (hidden.has(key) ? undefined : value))
+      const shown = visible
         .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
         .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
         .replace(/([a-z])(\d)/gi, '$1 $2')
         .replace(/_/g, ' ')
       expect(events.some((event) => event.type === 'block' && event.block.kind === 'approval')).toBe(true)
-      expect(shown).not.toMatch(/\b(ai|assistant|agent|model|prompt|llm|token|claude|codex|opencode|chatgpt|anthropic|openai|gpt|copilot|bot)s?\b/i)
-      expect(shown).not.toMatch(/claude|codex|opencode|chatgpt|anthropic|openai|copilot/i)
+      // The house list, shared with docsSafe, so a word missing there can't hide here.
+      const banned = new RegExp(`\\b(?:${BANNED_WORDS.join('|')})(?:e?s)?\\b`, 'i')
+      expect(visible).not.toMatch(banned)
+      expect(shown).not.toMatch(banned)
+      expect(visible).not.toMatch(/claude|codex|opencode|chatgpt|anthropic|openai|copilot|a\.i\./i)
       expect(shown).not.toMatch(/https?:|www\./i)
     }),
   )

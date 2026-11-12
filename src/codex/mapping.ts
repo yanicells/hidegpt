@@ -40,20 +40,36 @@ export type RateLimits = CodexRpc.ServerNotificationParamsByMethod['account/rate
 
 // ---- Docs wording -------------------------------------------------------------
 // Text that reaches the page or a banner must read like Docs: no product or AI words, no links.
-// These helpers are the only way provider text gets there; ARCH-5 moves them into `present.ts`.
+// `docsSafe` is the only way provider-written status, error, tool-name, approval and question
+// text gets there. Thread titles, commands, command output and the reply itself are the
+// document's content and are shown as written. ARCH-5 moves this into `present.ts`.
 
-const PROVIDER_WORDS =
-  /\b(ais?|assistants?|agents?|subagents?|models?|prompts?|llms?|tokens?|providers?|sdks?|clis?|claude|codex|opencode|chatgpt|anthropic|openai|gpts?|copilots?|bots?)\b/i
+/** Product names, also caught at the start of a run-together word (`OpenAIAPI`, `ChatGPTPlus`). */
+const PRODUCT_NAMES = ['hidegpt', 'chatgpt', 'claude', 'codex', 'opencode', 'anthropic', 'openai', 'copilot', 'gpt'] as const
+/** The house list: none of these, in any case or plural, may reach the page. */
+export const BANNED_WORDS = [
+  ...PRODUCT_NAMES,
+  ...['ai', 'assistant', 'agent', 'subagent', 'model', 'prompt', 'llm', 'token', 'bot', 'mcp', 'sdk', 'cli', 'provider'],
+] as const
+
+/** Any listed word on its own, singular or plural ("codexes", "LLMs"). */
+const BANNED = new RegExp(`\\b(?:${BANNED_WORDS.join('|')})(?:e?s)?\\b`, 'i')
+/** "A.I.", which the word list can't see. */
+const DOTTED_AI = /(?<![a-z])a\.i(?![a-z])/i
+const PRODUCT_NAME = new RegExp(`^(?:${PRODUCT_NAMES.join('|')})`, 'i')
 /**
- * A product name at the start of a word, ending the word or followed by a capital or digit:
- * catches `OpenAIAPI`, `ChatGPTPlus` and `gpt5`, but not "philanthropic" or "Claudette".
+ * A product name at the start of a word, ending it or followed by a capital or digit: catches
+ * `OpenAIAPI`, `ChatGPTPlus` and `gpt5`, not "Claudette". Plurals ("Claudes") are whole words
+ * and `BANNED` catches them.
  */
-const PRODUCT_NAME = /^(?:claude|codex|opencode|chatgpt|anthropic|openai|copilot|gpt)/i
 const startsWithProduct = (word: string) => {
   const name = PRODUCT_NAME.exec(word)?.[0]
   return name !== undefined && !/^[a-z]/.test(word.slice(name.length))
 }
-/** Splits identifiers into words: `get_AIResponse` reads "get AI Response", `model2` reads "model 2". */
+/**
+ * Splits identifiers into words, counting an upper-case run before a capitalized word as its own
+ * word: `get_AIResponse` reads "get AI Response", `model2` reads "model 2".
+ */
 const words = (text: string) =>
   text
     .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
@@ -64,13 +80,29 @@ const LINK = /\b(?:https?:\/\/|www\.)\S+/gi
 
 /** Provider text with links removed, or null when what is left would give the provider away. */
 export function docsSafe(text: string | null | undefined): string | null {
-  const cleaned = (text ?? '').replace(LINK, '').replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ').trim()
+  // NFKC folds look-alike letters (full-width, ligatures); format characters (zero-width joiners)
+  // could otherwise split a word so the list misses it.
+  const cleaned = (text ?? '')
+    .normalize('NFKC')
+    .replace(/\p{Cf}/gu, '')
+    .replace(LINK, '')
+    .replace(/\(\s*\)/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
   const split = words(cleaned)
-  // Banned words are checked in the raw text too: the acronym split turns "LLMs" into "LL Ms".
-  // Product names are checked in the split words too, for one run into an all-caps word (`xOPENAIAPI`).
-  const namesProduct = [...cleaned.split(/[^A-Za-z0-9]+/), ...split.split(/[^A-Za-z0-9]+/)].some(startsWithProduct)
-  return cleaned && !PROVIDER_WORDS.test(cleaned) && !PROVIDER_WORDS.test(split) && !namesProduct ? cleaned : null
+  // The raw text is checked too, because the acronym split turns "LLMs" into "LL Ms"; product
+  // names are checked in the split words too, for one run into an all-caps word (`xOPENAIAPI`).
+  const banned =
+    BANNED.test(cleaned) ||
+    BANNED.test(split) ||
+    DOTTED_AI.test(cleaned) ||
+    [...cleaned.split(/[^A-Za-z0-9]+/), ...split.split(/[^A-Za-z0-9]+/)].some(startsWithProduct)
+  return cleaned && !banned ? cleaned : null
 }
+
+/** The label Docs shows for a choice the provider named in its own words. */
+const choiceLabel = (label: string | null | undefined, value: string, index: number) =>
+  docsSafe(label) ?? docsSafe(value) ?? `Option ${index + 1}`
 
 /** Codex's request error text, reworded where Docs can say what to do. */
 export function formatCodexError(message: string): string {
@@ -257,7 +289,8 @@ export function itemToBlock(item: ThreadItem): Block | null {
         item.changes.map((change) => change.path).join('\n'),
       )
     case 'mcpToolCall':
-      return callout(item.id, mcpToolTitle(item), (item.error && docsSafe(item.error.message)) ?? STATUS[item.status])
+      // Tool error text never reaches the page (T3 does not show it either); the status says enough.
+      return callout(item.id, mcpToolTitle(item), STATUS[item.status])
     case 'dynamicToolCall': {
       const tool = docsSafe(item.tool) ?? 'Action'
       const namespace = docsSafe(item.namespace)
@@ -424,10 +457,13 @@ function implicitAnswer(id: string, field: ElicitationField): Json | undefined {
   return field.type === 'boolean' && persistence ? false : undefined
 }
 
-/** A field's name, followed by its choices when it has them: "Size (Small, Large)". */
+/**
+ * A field's name, followed by its choices when it has them: "Size (Small, Large)". A choice
+ * named in provider words shows as "Option 2", which the person can still type.
+ */
 function fieldLabel(id: string, field: ElicitationField): string {
   const name = docsSafe(field.title) ?? docsSafe(id) ?? 'Answer'
-  const choices = fieldOptions(field).flatMap((option) => docsSafe(option.label) ?? docsSafe(option.value) ?? [])
+  const choices = fieldOptions(field).map((option, index) => choiceLabel(option.label, option.value, index))
   return choices.length ? `${name} (${choices.join(', ')})` : name
 }
 
@@ -448,7 +484,9 @@ function typedAnswer(field: ElicitationField, text: string | undefined): Json | 
   const options = fieldOptions(field)
   if (options.length) {
     const lower = value.toLowerCase()
-    return options.find((option) => option.value.toLowerCase() === lower || option.label?.toLowerCase() === lower)?.value ?? field.default ?? undefined
+    const matches = (option: (typeof options)[number], index: number) =>
+      [option.value, option.label, choiceLabel(option.label, option.value, index)].some((name) => name?.toLowerCase() === lower)
+    return options.find(matches)?.value ?? field.default ?? undefined
   }
   if (field.type === 'boolean') return /^(true|yes|on|1)$/i.test(value) ? true : /^(false|no|off|0)$/i.test(value) ? false : undefined
   if (field.type === 'number' || field.type === 'integer') {
@@ -483,27 +521,27 @@ function elicitationBlock(id: string, params: ElicitationParams): ApprovalBlock 
 export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {
   'item/commandExecution/requestApproval': {
     threadId: (params) => params.threadId,
-    block: (id, params) => block(id, 'Run command?', params.command ?? params.reason ?? 'Command'),
+    block: (id, params) => block(id, 'Run command?', params.command ?? docsSafe(params.reason) ?? 'Command'),
     response: (_params, reply) => ({ decision: reply.accept ? 'accept' : 'decline' }),
   },
   execCommandApproval: {
     threadId: (params) => params.conversationId,
-    block: (id, params) => block(id, 'Run command?', params.command.join(' ') || params.reason || 'Command'),
+    block: (id, params) => block(id, 'Run command?', params.command.join(' ') || docsSafe(params.reason) || 'Command'),
     response: (_params, reply) => ({ decision: legacyDecision(reply) }),
   },
   'item/fileChange/requestApproval': {
     threadId: (params) => params.threadId,
-    block: (id, params) => block(id, 'Edit files?', params.reason ?? 'Some files will change.'),
+    block: (id, params) => block(id, 'Edit files?', docsSafe(params.reason) ?? 'Some files will change.'),
     response: (_params, reply) => ({ decision: reply.accept ? 'accept' : 'decline' }),
   },
   applyPatchApproval: {
     threadId: (params) => params.conversationId,
-    block: (id, params) => block(id, 'Edit files?', params.reason ?? 'Some files will change.'),
+    block: (id, params) => block(id, 'Edit files?', docsSafe(params.reason) ?? 'Some files will change.'),
     response: (_params, reply) => ({ decision: legacyDecision(reply) }),
   },
   'item/permissions/requestApproval': {
     threadId: (params) => params.threadId,
-    block: (id, params) => block(id, 'Allow more access?', params.reason ?? 'More access is needed to continue.'),
+    block: (id, params) => block(id, 'Allow more access?', docsSafe(params.reason) ?? 'More access is needed to continue.'),
     response: (params, reply) => ({
       permissions: reply.accept
         ? {
@@ -524,18 +562,21 @@ export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {
   'item/tool/requestUserInput': {
     threadId: (params) => params.threadId,
     block: (id, params) =>
-      block(id, 'Input needed', params.questions.map((q) => q.question).filter(Boolean).join('\n') || 'Continue?', {
-        questions: params.questions.map((question) => ({
+      block(id, 'Input needed', params.questions.map((q) => docsSafe(q.question)).filter(Boolean).join('\n') || 'Continue?', {
+        questions: params.questions.map((question, index) => ({
           id: question.id,
-          question: question.question,
-          options: question.options?.map((option) => option.label) ?? [],
+          question: docsSafe(question.question) ?? `Question ${index + 1}`,
+          options: question.options?.map((option, at) => choiceLabel(option.label, option.label, at)) ?? [],
           allowText: Boolean(question.isOther) || !question.options?.length,
         })),
       }),
     response: (params, reply) => ({
       answers: Object.fromEntries(
         params.questions.map((question) => {
-          const value = reply.accept ? (reply.answers[question.id] ?? '') : ''
+          const shown = reply.accept ? (reply.answers[question.id] ?? '') : ''
+          // A choice shown as "Option 2" goes back under the label Codex gave it.
+          const chosen = question.options?.find((option, at) => choiceLabel(option.label, option.label, at) === shown)
+          const value = chosen?.label ?? shown
           return [question.id, { answers: value ? [value] : [] }]
         }),
       ),
