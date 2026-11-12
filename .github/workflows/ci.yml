@@ -58,3 +58,7 @@ jobs:
       # Catches bundle-only breakage (bad imports, Vite config) that tsc misses.
       - name: Build
         run: pnpm build
+
+      # No banned word in the built renderer or preload (scripts/stealth-allow.json lists the exceptions).
+      - name: Stealth scan
+        run: pnpm stealth:scan

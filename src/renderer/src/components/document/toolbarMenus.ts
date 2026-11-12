@@ -123,4 +123,13 @@ export const EDIT_MODES = [
   { label: 'Viewing', icon: 'visibility', description: 'Read or print final document' },
 ] as const
 
+/**
+ * The pencil menu's name for the mode at `index`: the first three are Docs'
+ * own modes, any further ones read "Custom 1", "Custom 2"… The provider's
+ * mode name (an agent's name, say) is never shown, not even as a tooltip.
+ */
+export function modeLabel(index: number): string {
+  return EDIT_MODES[index]?.label ?? `Custom ${index - EDIT_MODES.length + 1}`
+}
+
 export const ZOOMS = [50, 75, 90, 100, 125, 150, 200]

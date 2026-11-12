@@ -1,0 +1,84 @@
+{
+  "bundle": [
+    {
+      "part": "renderer",
+      "literal": "claude codex opencode chatgpt anthropic openai gpt copilot hidegpt",
+      "count": 1,
+      "reason": "The stealth word list itself (src/shared/stealth.ts), which the renderer uses to strip vendor words from app and skill names."
+    },
+    {
+      "part": "renderer",
+      "literal": "codex",
+      "count": 3,
+      "reason": "Provider id in src/shared/labels.ts and model.ts (library order, library names, the default snapshot). Never shown."
+    },
+    {
+      "part": "renderer",
+      "literal": "opencode",
+      "count": 2,
+      "reason": "Provider id in src/shared/labels.ts (library order, library names). Never shown."
+    },
+    {
+      "part": "renderer",
+      "literal": "claude",
+      "count": 1,
+      "reason": "Provider id in src/shared/labels.ts (library order). Never shown."
+    },
+    {
+      "part": "renderer",
+      "literal": "hidegpt.zoom",
+      "count": 2,
+      "reason": "localStorage key for the zoom level. Renamed to docs.* by ARCH-7 (STL-7 item 6)."
+    },
+    {
+      "part": "renderer",
+      "literal": "hidegpt.homeView",
+      "count": 2,
+      "reason": "localStorage key for Home's grid/list view. Renamed to docs.* by ARCH-7 (STL-7 item 6)."
+    },
+    {
+      "part": "renderer",
+      "literal": "hidegpt-output-only",
+      "count": 2,
+      "reason": "localStorage key for the non-printing characters view. Renamed to docs.* by ARCH-7 (STL-7 item 6)."
+    },
+    {
+      "part": "renderer",
+      "literal": "): a different token (`",
+      "count": 1,
+      "reason": "Library text: a parser error from mdast-util-from-markdown (Markdown chunk). Thrown on a bug, never shown on the page."
+    },
+    {
+      "part": "renderer",
+      "literal": "Cannot close document, a token (`",
+      "count": 1,
+      "reason": "Library text: a parser error from mdast-util-from-markdown (Markdown chunk). Thrown on a bug, never shown on the page."
+    },
+    {
+      "part": "preload",
+      "literal": "hidegpt",
+      "count": 1,
+      "reason": "The window.hidegpt bridge name. Renamed to window.docs by ARCH-7 (STL-7 item 6)."
+    },
+    {
+      "part": "preload",
+      "literal": "codex",
+      "count": 1,
+      "reason": "Provider id: the default library in the preload's empty snapshot. Never shown."
+    }
+  ],
+  "packaged": [
+    {
+      "path": "app.asar:node_modules/@anthropic-ai/claude-agent-sdk",
+      "reason": "Personal build only: the Claude SDK, which main loads from the archive at run time (STL-5 keeps it there). Exactly this package; any other vendor-named path, including a sibling under @anthropic-ai, still fails."
+    },
+    {
+      "path": "app.asar:node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64",
+      "reason": "Personal build only: the Claude binary's platform package as the archive lists it. Before STL-5 (#54) it holds the binary; after it, only its LICENSE.md and package.json (the binary ships as Contents/Resources/Docs Helper). Delete this entry if STL-5 drops the package from the archive."
+    },
+    {
+      "path": "Contents/Resources/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64",
+      "reason": "Personal build only, temporary: the unpacked Claude binary. STL-5 (#54) ships it as Contents/Resources/Docs Helper; delete this entry once it lands."
+    }
+  ]
+}

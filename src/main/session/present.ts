@@ -9,6 +9,7 @@ import type {
   ToolKind,
   ToolStatus,
 } from '../../provider/events'
+import { displayServerName } from '../../shared/labels'
 import type { ApprovalBlock, Block, SuggestionKind } from '../../shared/model'
 import { isStealthy } from '../../shared/stealth'
 
@@ -24,46 +25,86 @@ import { isStealthy } from '../../shared/stealth'
  * block.
  */
 
+// Tool rows, requests and failures follow the stealth audit's tables (STL-2).
 const TOOL_TITLES: Record<ToolKind, Record<ToolStatus, string>> = {
   command: { running: 'Running a command', completed: 'Ran a command', failed: 'A command didn’t finish' },
-  file_change: { running: 'Editing files', completed: 'Edited files', failed: 'Couldn’t edit files' },
+  file_read: { running: 'Opening a file', completed: 'Opened a file', failed: 'Couldn’t open a file' },
+  file_change: { running: 'Editing a file', completed: 'Edited a file', failed: 'Couldn’t edit a file' },
   file_search: { running: 'Searching files', completed: 'Searched files', failed: 'Couldn’t search files' },
   web_search: { running: 'Looking something up', completed: 'Looked something up', failed: 'Couldn’t look that up' },
+  web_fetch: { running: 'Opening a link', completed: 'Opened a link', failed: 'Couldn’t open a link' },
   mcp_tool: {
     running: 'Using a connected app',
     completed: 'Used a connected app',
     failed: 'A connected app didn’t respond',
   },
-  subagent: { running: 'Working on a subtask', completed: 'Finished a subtask', failed: 'A subtask didn’t finish' },
-  compaction: { running: 'Compacting context', completed: 'Compacted context', failed: 'Couldn’t compact context' },
+  subagent: { running: 'Background task', completed: 'Background task', failed: 'A background task didn’t finish' },
+  compaction: {
+    running: 'Summarizing earlier content',
+    completed: 'Earlier content summarized',
+    failed: 'Couldn’t summarize earlier content',
+  },
   review: { running: 'Reviewing', completed: 'Reviewed', failed: 'The review didn’t finish' },
-  other: { running: 'Working on a step', completed: 'Finished a step', failed: 'A step didn’t finish' },
+  other: { running: 'Doing a step', completed: 'Did a step', failed: 'A step didn’t finish' },
 }
 
 /** Each request as a Docs suggestion: its verb (see `Approval.tsx`) and its card title. */
 const REQUESTS: Record<RequestKind, { readonly suggestion: SuggestionKind; readonly title: string }> = {
-  command: { suggestion: 'add', title: 'Run command?' },
-  file_change: { suggestion: 'replace', title: 'Apply file changes?' },
-  permissions: { suggestion: 'format', title: 'Grant extra access?' },
+  command: { suggestion: 'add', title: 'Suggested command' },
+  file_change: { suggestion: 'replace', title: 'Suggested edit' },
+  permissions: { suggestion: 'format', title: 'Access request' },
   tool_access: { suggestion: 'add', title: 'Allow this step?' },
-  user_input: { suggestion: 'question', title: 'Waiting for your response' },
+  user_input: { suggestion: 'question', title: 'Needs your reply' },
   form: { suggestion: 'add', title: 'Fill in these details?' },
+}
+
+/** What a card asks before a tool of this kind runs (Claude tools, OpenCode permissions). */
+const TOOL_REQUESTS: Record<ToolKind, string> = {
+  command: 'Run this command?',
+  file_read: 'Open this file?',
+  file_change: 'Edit this file?',
+  file_search: 'Open this file?',
+  web_search: 'Look this up online?',
+  web_fetch: 'Look this up online?',
+  mcp_tool: 'Allow this step?',
+  subagent: 'Allow this step?',
+  compaction: 'Allow this step?',
+  review: 'Allow this step?',
+  other: 'Allow this step?',
 }
 
 const NOTICE_TITLES: Record<NoticeKind, string> = {
   retrying: 'Trying again',
-  compacted: 'Compacted context',
+  compacted: 'Earlier content summarized',
   warning: 'Heads up',
 }
 
 const FAILURES: Record<FailureClass, string> = {
-  usage_limit: 'You’ve reached your usage limit. Try again later.',
-  auth: 'Docs needs you to sign in again.',
-  provider_error: 'Docs couldn’t finish that. Try again.',
-  transport_error: 'Docs lost its connection. Try again in a moment.',
+  usage_limit: 'You’ve reached this account’s limit. Try again later.',
+  auth: 'This account signs in outside Docs. Sign in, then use Tools → Refresh.',
+  provider_error: 'Docs couldn’t finish. Try again.',
+  transport_error: 'Docs lost its connection and is reconnecting.',
   validation_error: 'Docs couldn’t send that. Change it and try again.',
-  unknown: 'Something went wrong. Try again.',
+  unknown: 'Docs couldn’t finish. Try again.',
 }
+
+/**
+ * A tool row's title. Adapters that still title their own rows (the legacy
+ * contract) take it from here, so the wording lives in this file only.
+ */
+export const toolTitle = (kind: ToolKind, status: ToolStatus): string => TOOL_TITLES[kind][status]
+
+/**
+ * A connected app's tool row: "{app} · {tool}", or the app alone. Both names
+ * must already be neutral (`src/provider/toolTitles.ts`); an empty app reads
+ * "A connected app".
+ */
+export const connectedAppTitle = (app: string, tool: string): string =>
+  tool ? `${displayServerName(app)} · ${tool}` : displayServerName(app)
+
+/** The card question before a tool runs; a connected app is named when its neutral name is known. */
+export const toolRequestTitle = (kind: ToolKind, app = ''): string =>
+  kind === 'mcp_tool' && app ? `Use ${displayServerName(app)}?` : TOOL_REQUESTS[kind]
 
 /** A legacy adapter's own title, unless it would name a model or vendor on the page. */
 const titleOf = (item: ToolItem | RequestItem, typed: string): string =>
@@ -157,11 +198,20 @@ export function presentItems(items: ReadonlyArray<Item>): ReadonlyArray<Block> {
   return blocks
 }
 
-/** The banner sentence for a failed turn. The provider's own text (`detail`) never reaches the page. */
+/**
+ * The banner sentence for a failed turn, with its report id when it has one so
+ * the log line can be found from the screen. The provider's own text
+ * (`detail`) never reaches the page.
+ */
 export function presentFailure(failure: Failure): string {
+  const sentence = failureSentence(failure)
+  return failure.reportId ? `${sentence} (Report ${failure.reportId})` : sentence
+}
+
+function failureSentence(failure: Failure): string {
   if (failure.class === 'usage_limit' && failure.resetAt !== null) {
     const at = new Date(failure.resetAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })
-    return `You’ve reached your usage limit. Try again after ${at}.`
+    return `You’ve reached this account’s limit. Try again after ${at}.`
   }
   return FAILURES[failure.class]
 }

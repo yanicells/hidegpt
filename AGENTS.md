@@ -38,6 +38,10 @@ existing logins, and the UI is a Docs costume over it.
   Docs' own wording with the raw message behind "Details". Usage meters and connection banners do not belong
   in the page — surface them under Tools, if at all. Plan mode is not offered
   on either provider.
+  The banned words live in `src/shared/stealth.ts`; `src/main/session/stealthFilter.ts`
+  puts every snapshot into Docs wording before it leaves main. `pnpm test` checks the
+  renderer's visible strings, `pnpm stealth:scan` the built bundle (exceptions, with
+  reasons, in `scripts/stealth-allow.json`), and `pnpm dist` the packaged app.
 
 ## Providers (all three are just transports)
 

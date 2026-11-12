@@ -15,6 +15,8 @@
     // Run by .githooks/pre-commit, which knip does not read.
     "lint-staged",
   ],
+  // macOS's plist tool, which the packaged-app stealth scan runs.
+  "ignoreBinaries": ["plutil"],
   "ignoreIssues": {
     // Vendored from T3 Code and kept whole, so it stays easy to re-sync.
     "src/vendor/**": ["files", "exports"],

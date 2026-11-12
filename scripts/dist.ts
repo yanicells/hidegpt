@@ -16,6 +16,7 @@ import {
   wantsSigning,
 } from './builder-config.ts'
 import { assertNoClaude, packagedArchives } from './shared-build-guard.ts'
+import { assertStealthyApps } from './stealth-scan.ts'
 import { verifyPreloadBundle } from './verify-preload-bundle.ts'
 
 /**
@@ -71,4 +72,12 @@ if (!personal) {
     clearOutput(dir)
     throw error
   }
+}
+
+// No file name, archive path or Info.plist string in the app may name a vendor; a failing build is removed.
+try {
+  assertStealthyApps(dir)
+} catch (error) {
+  clearOutput(dir)
+  throw error
 }

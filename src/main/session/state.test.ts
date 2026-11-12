@@ -17,7 +17,7 @@ const request = (id: string, status: RequestStatus = 'pending'): RequestItem => 
 })
 const assistant = (id: string, text: string): AssistantItem => ({ kind: 'assistant', id, text, phase: 'final' })
 const rateLimited: Failure = { class: 'usage_limit', detail: 'Rate limited.', retryable: false, resetAt: null }
-const LIMIT_SENTENCE = 'You’ve reached your usage limit. Try again later.'
+const LIMIT_SENTENCE = 'You’ve reached this account’s limit. Try again later.'
 
 const opened = (
   threadId: string,
