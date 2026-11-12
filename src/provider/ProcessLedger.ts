@@ -132,7 +132,12 @@ const run = (command: string, args: ReadonlyArray<string>) =>
       command,
       [...args],
       // C locale and UTC, so start times parse the same on every machine; a big table must fit.
-      { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' }, maxBuffer: 16 * 1024 * 1024, timeout: COMMAND_TIMEOUT_MS },
+      {
+        encoding: 'utf8',
+        env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' },
+        maxBuffer: 16 * 1024 * 1024,
+        timeout: COMMAND_TIMEOUT_MS,
+      },
       (error, stdout) => resume(Effect.succeed(error ? Option.none() : Option.some(stdout))),
     )
   })
