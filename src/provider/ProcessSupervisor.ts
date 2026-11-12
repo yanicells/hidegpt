@@ -129,8 +129,13 @@ const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledge
               }),
         ),
       )
+      // Released before the spawner's own kill, so this stops the server: its tree is read while
+      // it still runs, its group is stopped, then whatever left the group (a `setsid` daemon).
       yield* Effect.acquireRelease(ledger.record(handle.pid, options.command, options.args[0] ?? ''), () =>
-        ledger.forget(handle.pid),
+        ledger.track.pipe(
+          Effect.andThen(Effect.ignore(handle.kill({ forceKillAfter: FORCE_KILL_AFTER }))),
+          Effect.andThen(ledger.stop(handle.pid)),
+        ),
       )
 
       const tail = yield* Ref.make('')
@@ -163,13 +168,28 @@ const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledge
      * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
      */
     callbackSpawner: Effect.gen(function* () {
-      const running = new Map<ChildProcessWithoutNullStreams, number>()
+      const running = new Map<ChildProcessWithoutNullStreams, { readonly pid: number; readonly recorded: Fiber.Fiber<void> }>()
+      // Ledger stops forked by exits; a closing scope waits for them, so a quit never leaves a record.
+      const stopping = new Set<Fiber.Fiber<void>>()
+      const stopTree = (pid: number, recorded: Fiber.Fiber<void>) => Fiber.join(recorded).pipe(Effect.andThen(ledger.stop(pid)))
       let closed = false
+      // Trees are read while the CLIs still run, then each group is stopped, then what left it.
       yield* Effect.addFinalizer(() =>
-        Effect.suspend(() => {
+        Effect.sync(() => {
           closed = true
-          return Effect.forEach(running, ([child, pid]) => stopGroup(child, pid), { concurrency: 'unbounded', discard: true })
-        }),
+        }).pipe(
+          Effect.andThen(ledger.track),
+          Effect.andThen(
+            Effect.suspend(() =>
+              Effect.forEach(
+                [...running],
+                ([child, { pid, recorded }]) => stopGroup(child, pid).pipe(Effect.andThen(stopTree(pid, recorded))),
+                { concurrency: 'unbounded', discard: true },
+              ),
+            ),
+          ),
+          Effect.andThen(Effect.suspend(() => Fiber.awaitAll([...stopping]))),
+        ),
       )
       return (options: CallbackSpawnOptions) => {
         const child = spawnChild(options.command, [...options.args], {
@@ -191,13 +211,16 @@ const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledge
           signalGroup(pid, 'SIGKILL')
           return child
         }
-        running.set(child, pid)
         // The full command path, so another app's copy of the same CLI never matches.
         const recorded = Effect.runFork(ledger.record(pid, options.command, options.args[0] ?? ''))
+        running.set(child, { pid, recorded })
         child.once('exit', () => {
           running.delete(child)
           signalGroup(pid, 'SIGKILL')
-          Effect.runFork(Fiber.join(recorded).pipe(Effect.andThen(ledger.forget(pid))))
+          // As T3 Code's `tracker.stop`: members that left the group are stopped too.
+          const stop = Effect.runFork(stopTree(pid, recorded))
+          stopping.add(stop)
+          stop.addObserver(() => stopping.delete(stop))
         })
         return child
       }
