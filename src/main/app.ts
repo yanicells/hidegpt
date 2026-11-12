@@ -64,6 +64,15 @@ const decodeFailed: CommandResult = { ok: false, error: 'Docs could not read tha
 
 /** The app: IPC, the window, the menu, and the first library's connection. Runs until quit. */
 const program = Effect.gen(function* () {
+  // One app per profile: a second one would share the process ledger. It hands off to this
+  // one (focus below) and quits before it starts anything. Demo mode keeps no ledger, so
+  // `pnpm screenshot` still runs beside the real app.
+  // Adapted from T3 Code (apps/desktop/src/app/DesktopClerk.ts) at commit 5c6f2f12.
+  // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+  if (!demo && !app.requestSingleInstanceLock()) {
+    app.quit()
+    return yield* Effect.never
+  }
   yield* Effect.promise(() => app.whenReady())
   registerDocsProtocol()
   const supervisor = yield* ProcessSupervisor.ProcessSupervisor
@@ -148,6 +157,13 @@ const program = Effect.gen(function* () {
   // While a quit waits on shutdown, activation opens nothing (T3 Code's DesktopLifecycle).
   app.on('activate', () => {
     if (quitPhase === 'running' && BrowserWindow.getAllWindows().length === 0) open()
+  })
+  app.on('second-instance', () => {
+    if (quitPhase !== 'running') return
+    const current = getWindow()
+    if (!current) return void open()
+    if (current.isMinimized()) current.restore()
+    current.focus()
   })
 
   yield* manager.start('codex')
