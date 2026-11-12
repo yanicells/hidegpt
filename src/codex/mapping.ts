@@ -1,6 +1,7 @@
 import * as Option from 'effect/Option'
 import * as Schema from 'effect/Schema'
 
+import { toolTitle } from '../main/session/present'
 import type {
   AccountSummary,
   ApprovalBlock,
@@ -136,7 +137,7 @@ export function itemToBlock(item: ThreadItem): Block | null {
       const output = item.aggregatedOutput?.trim()
       return callout(
         item.id,
-        item.status === 'completed' ? 'Ran a command' : 'Running a command',
+        toolTitle('command', item.status === 'completed' ? 'completed' : 'running'),
         output ? `${item.command}\n${output}` : item.command,
       )
     }
@@ -150,21 +151,21 @@ export function itemToBlock(item: ThreadItem): Block | null {
       // The server and tool names are what it did, so they go in the body, never the title.
       return callout(
         item.id,
-        CONNECTED_APP[item.status],
+        toolTitle('mcp_tool', TOOL_STATUS[item.status]),
         [`${item.server} · ${item.tool}`, item.error?.message].filter(Boolean).join('\n'),
       )
     case 'dynamicToolCall':
       return callout(item.id, item.namespace ? `${item.namespace} · ${item.tool}` : item.tool, item.status)
     case 'webSearch':
-      return callout(item.id, 'Looked something up', item.query)
+      return callout(item.id, toolTitle('web_search', 'completed'), item.query)
     case 'imageView':
       return callout(item.id, 'Image', item.path)
     case 'imageGeneration':
       return callout(item.id, 'Generated image', item.savedPath ?? item.revisedPrompt ?? item.status)
     case 'collabAgentToolCall':
-      return callout(item.id, `Subtask · ${item.tool}`, item.prompt ?? item.status)
+      return callout(item.id, toolTitle('subagent', TOOL_STATUS[item.status]), item.prompt ?? item.status)
     case 'contextCompaction':
-      return callout(item.id, 'Compacted context', '')
+      return callout(item.id, toolTitle('compaction', 'completed'), '')
     case 'enteredReviewMode':
       return callout(item.id, 'Review', item.review)
     case 'exitedReviewMode':
@@ -176,16 +177,13 @@ export function itemToBlock(item: ThreadItem): Block | null {
       // the client logs and drops that notification. Kept so a widened union still renders.
       // Its raw type would put Codex's own vocabulary on the page, so it gets a neutral title.
       const unknown: { readonly id: string; readonly type: string } = item
-      return callout(unknown.id, 'Finished a step', '')
+      return callout(unknown.id, toolTitle('other', 'completed'), '')
     }
   }
 }
 
-const CONNECTED_APP = {
-  inProgress: 'Using a connected app',
-  completed: 'Used a connected app',
-  failed: 'A connected app didn’t respond',
-} as const
+// Codex item statuses as tool row statuses; the titles are present.ts's.
+const TOOL_STATUS = { inProgress: 'running', completed: 'completed', failed: 'failed', interrupted: 'failed' } as const
 
 export function blocksFromTurns(turns: ReadonlyArray<Turn>): Block[] {
   const blocks: Block[] = []
