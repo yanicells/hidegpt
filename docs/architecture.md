@@ -172,7 +172,7 @@ type SnapshotPatch = {
 
 - `session-bridge.ts` is the store over the preload. `dispatch` returns the command's `CommandResult` and never throws. A failure shows on the banner until it is dismissed or a later command succeeds; `request` is the same without the banner, for callers that show the error themselves.
 - Errors never replace the page. Library and command errors sit on a dismissible banner with Refresh.
-- Render errors stay small (`components/layout/RenderErrorBoundary.tsx`, from T3). A block that throws shows "This part of the document couldn't be displayed." in its row, and its next version tries again. A throw anywhere else shows a plain "Something went wrong" page with Reload.
+- Render errors stay small (`components/layout/RenderErrorBoundary.tsx`, from T3). A block that throws shows "This part of the document couldn't be displayed." in its row, and its next version tries again. A throw anywhere else shows a plain "Something went wrong" page with Reload. The root's `onCaughtError` (`reportRenderError`) logs one line per caught error: the name and a message capped at 200 characters, never the document text or stack.
 - `components/home/` and `components/document/` render the snapshot. The UI branches on `capabilities`, never on provider names.
 
 ### Streaming stays cheap at any length
@@ -190,7 +190,7 @@ A streamed delta should cost the same at 300 turns as at 3. Each rule below remo
 
 ### The window (`src/main/window.ts`)
 
-- A crashed or killed renderer reloads, at most 3 times a minute per window (T3's `DesktopWindow`); the reload's `did-finish-load` resyncs the snapshot. A renderer unresponsive for 15 s is killed, so it reloads the same way.
+- A crashed or killed renderer reloads, at most 3 times a minute per window (T3's `DesktopWindow`); the reload's `did-finish-load` resyncs the snapshot. A renderer unresponsive for 15 s is killed, so it reloads the same way. A crash also drops any pending hang kill, so it can't hit the reloaded renderer. Past the limit the window shows a static "Docs couldn't load this document." page (no script, a drag strip for the hidden title bar). Main cancels its "Try again" navigation and loads the app itself, as T3's startup recovery window does, and the crash page's own load skips the snapshot resync.
 - Every permission is denied except clipboard writes (copying a document link).
 - `docs://app` sends the CSP as a header as well as `index.html`'s meta tag. `docs://local` serves only images under `userData/images` (pasted) and images in the open document's questions; anything else gets 403.
 

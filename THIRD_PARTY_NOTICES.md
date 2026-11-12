@@ -72,6 +72,8 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     commit 5c6f2f12.
   - `src/main/window.ts` and `window.test.ts` (commit 5c6f2f12): bounded
     reloads after a renderer crash, from `apps/desktop/src/window/DesktopWindow.ts`;
+    the static page shown once reloads run out, from
+    `apps/desktop/src/app/DesktopStartupRecovery.ts`;
     the CSP response header and serving local files only under allowed roots,
     from `apps/desktop/src/electron/ElectronProtocol.ts`; deny-by-default
     permission handlers, from `apps/desktop/src/preview/BrowserSession.ts`; and

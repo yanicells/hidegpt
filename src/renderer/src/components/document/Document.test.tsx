@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { HideGptApi, SnapshotPatch } from '../../../../shared/api'
 import { emptySnapshot, type Block, type Snapshot } from '../../../../shared/model'
 import { diffSnapshot } from '../../../../shared/snapshot-patch'
+import { reportRenderError } from '../layout/RenderErrorBoundary'
 import { Document } from './Document'
 
 import '@testing-library/jest-dom/vitest'
@@ -37,7 +38,8 @@ function mount(blocks: Block[]) {
     platform: 'darwin',
   }
   window.hidegpt = api as HideGptApi
-  render(<Document snap={snap} onNew={() => undefined} />)
+  // The same root option main.tsx uses.
+  render(<Document snap={snap} onNew={() => undefined} />, { onCaughtError: reportRenderError })
   let seq = 0
   return (next: Block[]) =>
     act(() => {
@@ -51,7 +53,7 @@ const row = (id: string) => document.querySelector<HTMLElement>(`[data-block="${
 
 describe('Document', () => {
   it('shows a placeholder for a block that fails to render and keeps the rest of the page', () => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const question: Block = { kind: 'user', id: 'u1', text: 'Why is the sky blue?' }
     const broken: Block = { kind: 'agent', id: 'a1', text: 'boom' }
     const after: Block = { kind: 'agent', id: 'a2', text: 'Rayleigh scattering.' }
@@ -64,6 +66,8 @@ describe('Document', () => {
     // The row stays on the page, so the outline can still jump to it.
     expect(row('a1')).toContainElement(placeholder)
     expect(screen.getByRole('textbox')).toBeInTheDocument()
+    // One capped line, by name and message only: no stack, never the block's text.
+    expect(logged.mock.calls).toEqual([['render error', 'Error', 'bad block']])
 
     // A new version of the block renders again.
     update([question, { ...broken, text: 'Light scatters.' }, after])
