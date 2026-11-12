@@ -55,6 +55,16 @@ describe('describeFailure', () => {
     }),
   )
 
+  it.effect('reports a defect that arrives beside a tagged error, instead of showing only the tagged one', () =>
+    Effect.gen(function* () {
+      const tagged = new ProviderRequestError({ provider: 'codex', operation: 'turn/start', detail: 'Prompt-81aa' })
+      const { message, logged } = yield* failWith(Effect.failCause(Cause.combine(Cause.fail(tagged), Cause.die(new Error('bad frame')))))
+      expect(message).toBe(DEFECT_MESSAGE)
+      expect(logged).toEqual([{ level: 'Error', text: expect.stringContaining('bad frame') }])
+      expect(logged[0]!.text).not.toContain('Prompt-81aa')
+    }),
+  )
+
   it.effect('treats a rejected promise as a defect, not as a sentence to show', () =>
     Effect.gen(function* () {
       const { message, logged } = yield* failWith(Effect.tryPromise(() => Promise.reject(new Error('EACCES: /Users/x/images'))))

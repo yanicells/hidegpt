@@ -59,13 +59,14 @@ export function errorLogFields(error: ProviderError | CommandRejectedError): Rec
  * sentence and is logged as a warning by its fields (unless it only says the
  * request could not happen right now); a defect, or a failure that is not a
  * tagged error, is logged in full and shows the generic sentence instead of
- * its raw text.
+ * its raw text. A defect anywhere in the cause wins, even beside a tagged error.
  */
 export const describeFailure = (cause: Cause.Cause<unknown>): Effect.Effect<string> => {
-  const reason = cause.reasons.find((item) => item._tag === 'Fail' || item._tag === 'Die')
+  if (cause.reasons.some((item) => item._tag === 'Die')) return Effect.as(reportDefect(cause), DEFECT_MESSAGE)
+  const reason = cause.reasons.find((item) => item._tag === 'Fail')
   // Interrupted with nothing else wrong: nothing to report.
   if (!reason) return Effect.succeed('Something went wrong. Try again.')
-  const error = reason._tag === 'Fail' ? reason.error : undefined
+  const error = reason.error
   if (typeof error === 'string') return Effect.succeed(bannerMessage(error))
   if (isExpectedError(error)) {
     const log =
