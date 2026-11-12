@@ -132,13 +132,14 @@ export async function scenario(app, { docs, around = (_phase, run) => run() }) {
   await around('cold', async () => {
     let cold = null
     for (const deadline = Date.now() + 30000; ; await sleep(50)) {
-      cold = await bench('cold()')
-      if (cold.allCards) break
+      // The window can exist before its page has loaded, and then the probe is not there yet.
+      cold = await page.evaluate('window.__bench?.cold() ?? null')
+      if (cold?.allCards) break
       // A Home that mounts only the cards in view never shows them all: the library is up
       // once the provider has served its last page and cards have painted.
       const listed = app.listedAt()
-      if (cold.firstCard && listed && Date.now() - listed > 1000) break
-      if (cold.error || Date.now() > deadline) throw new Error(`cold start: the library never appeared (${cold.error ?? 'timeout'})`)
+      if (cold?.firstCard && listed && Date.now() - listed > 1000) break
+      if (cold?.error || Date.now() > deadline) throw new Error(`cold start: the library never appeared (${cold?.error ?? 'timeout'})`)
     }
     await sleep(1500)
     cold = await bench('cold()')
