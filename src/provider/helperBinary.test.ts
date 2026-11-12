@@ -1,8 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process'
 import {
   chmodSync,
-  constants,
-  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -35,10 +33,10 @@ const mac = { platform: 'darwin' as const, env: {} }
 let count = 0
 /** A fresh helpers folder for each test. */
 const helpersDir = () => join(root, `helpers-${(count += 1)}`)
-/** A clone of Node at `path` (instant on APFS), to stand in for a provider binary. */
+/** A clone of Node at `path` (instant on APFS; Node's own FICLONE makes a full copy), to stand in for a provider binary. */
 const nodeAt = (path: string) => {
   mkdirSync(join(path, '..'), { recursive: true })
-  copyFileSync(process.execPath, path, constants.COPYFILE_FICLONE)
+  execFileSync('/bin/cp', ['-c', process.execPath, path])
   return path
 }
 
@@ -48,8 +46,8 @@ describe.runIf(process.platform === 'darwin')('resolveHelper', () => {
     async () => {
       const bin = join(root, 'path-bin')
       mkdirSync(bin)
-      symlinkSync(process.execPath, join(bin, 'realtool'))
-      const helper = resolveHelper('realtool', { PATH: bin }, helpersDir(), mac)
+      symlinkSync(process.execPath, join(bin, 'node'))
+      const helper = resolveHelper('node', { PATH: bin }, helpersDir(), mac)
       expect(helper.command.endsWith(`/${HELPER_NAME}`)).toBe(true)
 
       const child = spawn(helper.command, ['-e', 'setTimeout(() => {}, 5000)'], { stdio: 'ignore' })
@@ -100,7 +98,7 @@ describe.runIf(process.platform === 'darwin')('resolveHelper', () => {
     }
   })
 
-  it('leaves the command alone when off, off macOS, in demo mode, already renamed, or not a binary', () => {
+  it('leaves the command alone when off, off macOS, in demo mode, already renamed, a shim, or not a binary', () => {
     const source = nodeAt(join(root, 'plain', 'bin', 'tool'))
     const renamed = nodeAt(join(root, 'plain', 'Resources', HELPER_NAME))
     const script = join(root, 'plain', 'bin', 'script')
@@ -115,6 +113,9 @@ describe.runIf(process.platform === 'darwin')('resolveHelper', () => {
     expect(resolveHelper(source, undefined, null, mac)).toEqual(unchanged)
     expect(resolveHelper(renamed, undefined, dir, mac)).toEqual({ command: renamed, env: undefined })
     expect(resolveHelper(script, undefined, dir, mac)).toEqual({ command: script, env: undefined })
+    // A shim named after the CLI that links to a multi-call binary (mise) must keep its name.
+    symlinkSync(source, join(root, 'plain', 'bin', 'shim'))
+    expect(resolveHelper('shim', { PATH: join(root, 'plain', 'bin') }, dir, mac).command).toBe('shim')
     expect(resolveHelper('hidegpt-no-such-binary', { PATH: join(root, 'plain', 'bin') }, dir, mac).command).toBe(
       'hidegpt-no-such-binary',
     )

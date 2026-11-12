@@ -79,6 +79,9 @@ export function resolveHelper(
       binary = launcher.binary
       childEnv = { ...env, ...launcher.env }
     }
+    // A link to a binary of another name is a multi-call tool (a mise shim runs whichever CLI its
+    // name says, as T3 Code notes); renamed, it would not know what to run.
+    if (basename(binary) !== basename(found)) return unchanged
     if (!MACH_O.has(readHead(binary).toString('hex'))) return unchanged
     return { command: ensureClone(binary, directory), env: childEnv }
   } catch {
