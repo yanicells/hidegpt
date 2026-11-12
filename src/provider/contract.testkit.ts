@@ -59,21 +59,26 @@ export const SCENARIOS = [
   'passthrough_requests',
   'passthrough_notices',
   'passthrough_errors',
+  'passthrough_crash',
   'title_stealth',
 ] as const
 export type ScenarioName = (typeof SCENARIOS)[number]
 
 /**
- * A scenario an adapter fails today: `why`, and `fails`, text its failure message contains.
- * The test passes only while the scenario fails with that message, so a fixed gap turns red
- * until its entry is deleted, and so does a gap that starts failing for another reason (a
- * driver timeout). Wave 3 (ARCH-4a/b/c) empties these lists.
+ * A scenario an adapter fails today, and why. The test passes only while the scenario fails as
+ * listed, so a fixed gap turns red until its entry is deleted, and so does a gap that starts
+ * failing for another reason (a driver timeout). Wave 3 (ARCH-4a/b/c) empties these lists.
+ * - `fails`: text the failure message contains.
+ * - `leaks` (`passthrough_*` only): every leaked `where: text` line, compared exactly, so a new
+ *   leak in a source that already leaks still turns the test red. A leak can never pass as `fails`.
  */
-export type KnownGap = { readonly why: string; readonly fails: string }
+export type KnownGap =
+  | { readonly why: string; readonly fails: string }
+  | { readonly why: string; readonly leaks: ReadonlyArray<string> }
 export type KnownGaps = Partial<Record<ScenarioName, KnownGap>>
 
 /** Where provider strings come from, one `passthrough_*` scenario each, so fixing one source never hides another. */
-export type PassthroughSource = 'tools' | 'requests' | 'notices' | 'errors'
+export type PassthroughSource = 'tools' | 'requests' | 'notices' | 'errors' | 'crash'
 
 /**
  * One thing the adapter sent the provider. `target` names the native turn, session or task an
@@ -123,9 +128,9 @@ export interface ContractScript {
   /**
    * Mid-turn, every provider-controlled string of `source` the fake can send carries `marker`.
    * `tools`: tool, server and namespace names, tool errors. `requests`: request titles, names,
-   * reasons and messages. `notices`: warnings, retries, notices. `errors`: error messages and
-   * stderr; it ends the turn or the process. Returns the provider values that cannot carry the
-   * marker (enum values); they must not reach the page either.
+   * reasons and messages. `notices`: warnings, retries, notices. `errors`: the turn's failure
+   * text; it ends the turn failed. `crash`: stderr, then the process dies mid-turn. Returns the
+   * provider values that cannot carry the marker (enum values); they must not reach the page either.
    */
   readonly passthrough: (source: PassthroughSource, marker: string) => Effect.Effect<ReadonlyArray<string>>
   /**
@@ -159,7 +164,11 @@ export interface ContractDriver {
 /** Real time for a fake's promises and timers; the TestClock still owns every adapter deadline. */
 export const tick = Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)))
 
-/** Lets in-flight work settle. Used before asserting that something did not happen. */
+/**
+ * Lets in-flight work settle. Used before asserting that something did not happen. It counts
+ * event-loop turns, not time: a fake's push reaches the reducer within a few turns (stream,
+ * queue, fold), so 20 leaves a wide margin without waiting on a clock.
+ */
 export const settle = Effect.repeat(tick, { times: 20 })
 
 /** Waits (in real ticks) until `check` holds, or fails naming `what`. */
@@ -382,14 +391,23 @@ const failureScenario = (kind: FailureClass & ('provider_error' | 'usage_limit')
     if (kind === 'usage_limit') expect(ended.failure?.resetAt, 'when the limit resets').toBe(run.script.usageResetAt)
   })
 
-/** What a `passthrough_*` scenario fails with: each leaked `where: text` line. A gap's `fails` quotes it whole. */
-export const leakMessage = (lines: ReadonlyArray<string>) => ['Provider text on the page:', ...lines].join('\n  ')
+/** What a `passthrough_*` scenario fails with: each leaked `where: text` line, sorted. A gap's `leaks` lists them. */
+export class Leaked extends Error {
+  constructor(readonly lines: ReadonlyArray<string>) {
+    super(['Provider text on the page:', ...lines].join('\n  '))
+  }
+}
+
+/** The block a source must draw, so a hidden string is told apart from one that never arrived. */
+const DRAWS: Partial<Record<PassthroughSource, Block['kind']>> = { tools: 'callout', requests: 'approval' }
 
 const passthroughScenario = (source: PassthroughSource) => (run: Run) =>
   Effect.gen(function* () {
     const turnId = yield* begin(run, 'Look it up')
     const raw = yield* run.script.passthrough(source, MARKER)
-    if (source === 'errors') {
+    const draws = DRAWS[source]
+    if (draws) yield* until(() => run.blocks().some((block) => block.kind === draws), `a ${draws} is on the page`)
+    if (source === 'errors' || source === 'crash') {
       yield* until(() => run.ended(turnId) !== undefined || run.exited(), 'the turn ended or the session exited')
     } else {
       yield* settle
@@ -402,7 +420,7 @@ const passthroughScenario = (source: PassthroughSource) => (run: Run) =>
       .shown()
       .filter((line) => line.includes(MARKER) || raw.some((value) => line.includes(value)))
       .sort()
-    if (leaked.length > 0) return yield* Effect.die(new Error(leakMessage(leaked)))
+    if (leaked.length > 0) return yield* Effect.die(new Leaked(leaked))
   })
 
 /** Text a provider writes about itself; it must never read as the document's answer. */
@@ -596,6 +614,7 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
   passthrough_requests: passthroughScenario('requests'),
   passthrough_notices: passthroughScenario('notices'),
   passthrough_errors: passthroughScenario('errors'),
+  passthrough_crash: passthroughScenario('crash'),
 
   // A provider's title summarises the person's own content, so it reaches the page (D5), unless
   // it would make the page read as an AI tool.
@@ -701,12 +720,18 @@ export const failureMessage = (exit: Exit.Exit<unknown, unknown>): string | null
   return error instanceof Error ? error.message : String(error)
 }
 
-/** Passes while the scenario fails with the gap's message; says why when it does not. */
-const expectGap = (gap: KnownGap) => (exit: Exit.Exit<unknown, unknown>) =>
+/** Passes while the scenario fails as the gap lists; says why when it does not. */
+export const expectGap = (gap: KnownGap) => (exit: Exit.Exit<unknown, unknown>) =>
   Effect.sync(() => {
     const message = failureMessage(exit)
     if (message === null) throw new Error(`Passes now: delete this known gap (${gap.why})`)
-    if (!message.includes(gap.fails)) {
+    const error = Cause.squash((exit as Exit.Failure<unknown, unknown>).cause)
+    if ('leaks' in gap) {
+      if (!(error instanceof Leaked)) throw new Error(`Fails for another reason than its known leaks.\nGot: ${message}`)
+      expect(error.lines, 'every leaked line, exactly').toEqual([...gap.leaks].sort())
+    } else if (error instanceof Leaked) {
+      throw new Error(`Leaks provider text: list every line as the gap's \`leaks\`.\nGot: ${message}`)
+    } else if (!message.includes(gap.fails)) {
       throw new Error(`Fails for another reason than its known gap.\nExpected: ${gap.fails}\nGot: ${message}`)
     }
   })
@@ -719,6 +744,9 @@ export function contractSuite(name: string, driver: ContractDriver, knownGaps: K
   describe(`${name} adapter contract`, () => {
     for (const scenario of SCENARIOS) {
       const gap = knownGaps[scenario]
+      if (gap !== undefined && 'leaks' in gap && !scenario.startsWith('passthrough_')) {
+        throw new Error(`${name} ${scenario}: only a passthrough gap lists \`leaks\``)
+      }
       if (gap !== undefined) {
         it.effect(`${scenario} (known gap)`, () =>
           runScenario(driver, scenario).pipe(Effect.exit, Effect.flatMap(expectGap(gap))),

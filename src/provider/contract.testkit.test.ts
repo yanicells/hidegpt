@@ -1,6 +1,8 @@
+import * as Effect from 'effect/Effect'
+import * as Exit from 'effect/Exit'
 import { describe, expect, it } from 'vitest'
 
-import { contractViolations } from './contract.testkit'
+import { contractViolations, expectGap, Leaked } from './contract.testkit'
 import type { ThreadEvent } from './events'
 import type { OpenedThread } from './ProviderAdapter'
 
@@ -86,5 +88,30 @@ describe('contractViolations', () => {
     })
     expect(contractViolations([started('t1'), reset(null), upserted(null)], opened)).toEqual([])
     expect(contractViolations([reset('t5'), delta(), ended('t5')], opened)).toEqual([])
+  })
+})
+
+/** A known gap's guard: a gap that hides a new failure would let a regression through. */
+describe('expectGap', () => {
+  const check = (gap: Parameters<typeof expectGap>[0], exit: Exit.Exit<unknown, unknown>) =>
+    Effect.runSync(Effect.exit(expectGap(gap)(exit)))
+  const why = 'known'
+  const leaked = (...lines: string[]) => Exit.die(new Leaked(lines))
+
+  it('passes while a passthrough scenario leaks exactly the listed lines, in any order', () => {
+    expect(
+      Exit.isSuccess(check({ why, leaks: ['banner: b', 'agent.text: a'] }, leaked('agent.text: a', 'banner: b'))),
+    ).toBe(true)
+  })
+
+  it('fails when a new leak joins the listed ones, or a listed one stops', () => {
+    expect(Exit.isFailure(check({ why, leaks: ['banner: b'] }, leaked('agent.text: a', 'banner: b')))).toBe(true)
+    expect(Exit.isFailure(check({ why, leaks: ['agent.text: a', 'banner: b'] }, leaked('banner: b')))).toBe(true)
+  })
+
+  it('never takes a leak as a `fails` gap, and fails a gap that passes', () => {
+    expect(Exit.isFailure(check({ why, fails: 'Provider text' }, leaked('banner: b')))).toBe(true)
+    expect(Exit.isFailure(check({ why, fails: 'anything' }, Exit.void))).toBe(true)
+    expect(Exit.isSuccess(check({ why, fails: 'never ended' }, Exit.die(new Error('t1 never ended'))))).toBe(true)
   })
 })

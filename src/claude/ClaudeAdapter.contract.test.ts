@@ -3,7 +3,6 @@ import * as Effect from 'effect/Effect'
 
 import {
   contractSuite,
-  leakMessage,
   RESETS_AT,
   tick,
   until,
@@ -145,6 +144,19 @@ const driver: ContractDriver = {
                 { type: 'tool_use', id: 'toolu_m', name: `mcp__${marker}_server__${marker}_search`, input: {} },
                 { type: 'tool_use', id: 'toolu_t', name: `${marker}Tool`, input: {} },
               ]),
+              // The second tool fails: its error text stays off the page.
+              frame({
+                type: 'user',
+                message: {
+                  role: 'user',
+                  content: [
+                    { type: 'tool_result', tool_use_id: 'toolu_t', is_error: true, content: `${marker} tool error` },
+                  ],
+                },
+                parent_tool_use_id: null,
+                uuid: 'tool_result',
+                session_id: '',
+              }),
             )
             return []
           case 'requests':
@@ -173,6 +185,12 @@ const driver: ContractDriver = {
             // `api_retry.error` is an enum, so it cannot carry the marker.
             return ['server_error']
           case 'errors':
+            // Claude Code writes its own error notice, then the failed result: both texts are its own.
+            yield* push(cliNotice(`${marker} notice error`, 'server_error'))
+            yield* result({ is_error: true, result: `${marker} result`, errors: [`${marker} errors`] })
+            // `error` is an enum, so it cannot carry the marker.
+            return ['server_error']
+          case 'crash':
             // Claude Code writes to stderr, then dies mid-turn: the page explains the stop.
             yield* until(() => live() !== undefined, 'Claude Code started')
             const stderr = live()!.options.stderr
@@ -297,15 +315,19 @@ contractSuite('Claude', driver, {
   },
   passthrough_tools: {
     why: 'A raw tool name titles its callout (C-3).',
-    fails: leakMessage(['callout.title: Using ZZPROVTool']),
+    leaks: ['callout.title: Using ZZPROVTool'],
   },
   passthrough_requests: {
     why: "The permission's `displayName` titles the card.",
-    fails: leakMessage(['approval.title: Allow ZZPROV name?']),
+    leaks: ['approval.title: Allow ZZPROV name?'],
   },
   passthrough_notices: {
     why: 'A `<synthetic>` notice is drawn as answer text (C-1).',
-    fails: leakMessage(['agent.text: ZZPROV notice']),
+    leaks: ['agent.text: ZZPROV notice'],
+  },
+  passthrough_errors: {
+    why: "Claude Code's own `<synthetic>` error notice is drawn as answer text (C-1); the failed result's text stays off the page.",
+    leaks: ['agent.text: ZZPROV notice error'],
   },
   title_stealth: {
     why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',

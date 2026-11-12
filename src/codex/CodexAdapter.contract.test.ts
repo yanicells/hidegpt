@@ -7,7 +7,6 @@ import * as Stream from 'effect/Stream'
 import {
   contractSuite,
   failureMessage,
-  leakMessage,
   RESETS_AT,
   runScenario,
   type ContractDriver,
@@ -116,6 +115,22 @@ const driver: ContractDriver = {
       })
     const completed = (item: Record<string, unknown>) =>
       peer.notify('item/completed', { ...turn(), item, completedAtMs: 1 } as never)
+    /** Codex spawns the subagent as T3 Code learns of it: a `spawnAgent` item naming the child's thread. */
+    const spawnChild = Effect.suspend(() =>
+      peer.notify('item/started', {
+        ...turn(),
+        startedAtMs: 1,
+        item: {
+          type: 'collabAgentToolCall',
+          id: 'collab_spawn',
+          tool: 'spawnAgent',
+          status: 'inProgress',
+          senderThreadId: THREAD,
+          receiverThreadIds: [CHILD.threadId],
+          agentsStates: { [CHILD.threadId]: { status: 'running' } },
+        },
+      } as never),
+    )
 
     const passthrough = (source: PassthroughSource, marker: string) =>
       Effect.gen(function* () {
@@ -147,7 +162,9 @@ const driver: ContractDriver = {
               status: 'completed',
               senderThreadId: THREAD,
               receiverThreadIds: [CHILD.threadId],
-              agentsStates: {},
+              prompt: `${marker} brief`,
+              model: `${marker}_model`,
+              agentsStates: { [CHILD.threadId]: { status: 'completed', message: `${marker} agent message` } },
             })
             yield* completed({
               type: 'functionCallOutput',
@@ -173,12 +190,18 @@ const driver: ContractDriver = {
             return []
           case 'notices':
             yield* peer.notify('warning', { message: `${marker} warning` } as never)
-            yield* peer.notify('configWarning', { summary: `${marker} config warning` })
+            yield* peer.notify('configWarning', {
+              summary: `${marker} config warning`,
+              details: `${marker} config details`,
+            })
             yield* peer.notify('guardianWarning', { threadId: THREAD, message: `${marker} guardian warning` })
             yield* retrying(`${marker} retrying`)
             return []
           case 'errors':
             yield* turnError(`${marker} failed`, null)
+            yield* complete('failed', { message: `${marker} turn failed` })
+            return []
+          case 'crash':
             yield* peer.exit(1, `${marker} stderr`)
             return []
         }
@@ -241,13 +264,15 @@ const driver: ContractDriver = {
         nameDocument: (title) =>
           Effect.as(peer.notify('thread/name/updated', { threadId: THREAD, threadName: title } as never), null),
         // A subagent's turn runs on its own thread; T3 Code takes its approvals and routes them by turn.
-        childRequest: askCommand({ command: 'ls' }, CHILD),
-        busyChild: Effect.as(
-          peer.notify('turn/started', {
-            threadId: CHILD.threadId,
-            turn: { id: CHILD.turnId, items: [], status: 'inProgress' },
-          }),
-          CHILD.turnId,
+        childRequest: Effect.andThen(spawnChild, askCommand({ command: 'ls' }, CHILD)),
+        busyChild: spawnChild.pipe(
+          Effect.andThen(
+            peer.notify('turn/started', {
+              threadId: CHILD.threadId,
+              turn: { id: CHILD.turnId, items: [], status: 'inProgress' },
+            }),
+          ),
+          Effect.as(CHILD.turnId),
         ),
         nativeTurn: () => native,
         received: () => received,
@@ -267,38 +292,39 @@ contractSuite('Codex', driver, {
     fails: "a reply to an expired request is refused: expected 'taken'",
   },
   subagent_request: {
-    why: 'An approval from a subagent thread the adapter never opened never reaches the page. T3 Code allows approvals from subagents (`approvalsCanOriginateFromSubagents`) and routes them by turn.',
+    why: 'An approval from a subagent never reaches the page: the adapter ignores the `spawnAgent` item that names its thread (`receiverThreadIds`). T3 Code registers the child from it, allows approvals from subagents (`approvalsCanOriginateFromSubagents`) and routes them by turn.',
     fails: 'Timed out waiting until a request is open on the page',
   },
   subagent_outlives_stop: {
-    why: "Stop interrupts only the document's own turn; the subagent's turn on its own thread keeps running.",
+    why: "Stop interrupts only the document's own turn; the subagent's turn on the thread `spawnAgent` named keeps running.",
     fails: 'Stop reaches the busy subagent',
   },
   passthrough_tools: {
-    why: 'Dynamic and function tool names and namespaces title or fill callouts; the MCP server and tool names fill its body.',
-    fails: leakMessage([
+    why: "Dynamic and function tool names and namespaces title or fill callouts, the MCP server and tool names fill its body, and a subagent's brief fills the spawn callout.",
+    leaks: [
+      'callout.body: ZZPROV brief',
       'callout.body: ZZPROV_functions',
       'callout.body: ZZPROV_server · ZZPROV_search',
       'callout.title: ZZPROV_function',
       'callout.title: ZZPROV_space · ZZPROV_dynamic',
-    ]),
+    ],
   },
   passthrough_requests: {
     why: "The MCP server's name titles the elicitation card, and its message is the card's body.",
-    fails: leakMessage(['approval.body: ZZPROV asks for details', 'approval.title: Continue with ZZPROV_server?']),
+    leaks: ['approval.body: ZZPROV asks for details', 'approval.title: Continue with ZZPROV_server?'],
   },
   passthrough_notices: {
     why: 'Warning, config warning, guardian warning and retry text go on the banner.',
-    fails: leakMessage([
+    leaks: [
       'banner: ZZPROV config warning',
       'banner: ZZPROV guardian warning',
       'banner: ZZPROV retrying',
       'banner: ZZPROV warning',
-    ]),
+    ],
   },
-  passthrough_errors: {
+  passthrough_crash: {
     why: "The process's stderr goes in the crash banner.",
-    fails: leakMessage(['banner: Codex stopped unexpectedly (exit 1): ZZPROV stderr. Docs is reconnecting.']),
+    leaks: ['banner: Codex stopped unexpectedly (exit 1): ZZPROV stderr. Docs is reconnecting.'],
   },
   title_stealth: {
     why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',

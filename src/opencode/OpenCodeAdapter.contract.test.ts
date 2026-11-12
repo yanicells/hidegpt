@@ -2,7 +2,6 @@ import * as Effect from 'effect/Effect'
 
 import {
   contractSuite,
-  leakMessage,
   settle,
   type ContractDriver,
   type PassthroughSource,
@@ -152,6 +151,10 @@ const driver: ContractDriver = {
             yield* sessionError(SESSION, `${marker} failed`, 500)
             fake.finish(SESSION)
             return []
+          case 'crash':
+            // The server writes nothing the adapter reads, so only the page's own wording can show.
+            fake.exit(1)
+            return []
         }
       })
 
@@ -248,11 +251,15 @@ contractSuite('OpenCode', driver, {
   },
   passthrough_requests: {
     why: 'The permission name titles the card.',
-    fails: leakMessage(['approval.title: Allow ZZPROV: rm -r build?']),
+    leaks: ['approval.title: Allow ZZPROV: rm -r build?'],
   },
   passthrough_errors: {
     why: 'An error for no session in particular goes on the banner as written.',
-    fails: leakMessage(['banner: ZZPROV server error']),
+    leaks: ['banner: ZZPROV server error'],
+  },
+  passthrough_crash: {
+    why: 'The same in-flight busy status as `exit_mid_turn` adopts a turn that never ends; nothing leaks.',
+    fails: 'on ses_1 never ended',
   },
   title_stealth: {
     why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',
