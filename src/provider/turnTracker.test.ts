@@ -54,6 +54,21 @@ describe('TurnTracker', () => {
     }),
   )
 
+  it.effect('a stopped turn’s late start response keeps its events off the next turn', () =>
+    Effect.gen(function* () {
+      const { tracker, types } = yield* setup
+      yield* tracker.begin('t', 'turn-a')
+      yield* tracker.requestStop('t', 'turn-a')
+      yield* tracker.begin('t', 'turn-b')
+      // A's start response, then its notifications, arrive after B began.
+      yield* tracker.started('t', 'native-a', 'turn-a')
+      yield* tracker.started('t', 'native-a')
+      yield* tracker.end('t', { status: 'completed', failure: null, nativeTurnId: 'native-a' })
+      expect(types()).toEqual(['ended:interrupted'])
+      expect(tracker.current('t')).toBe('turn-b')
+    }),
+  )
+
   it.effect('adopts a turn started elsewhere, and fills a failure the provider left out', () =>
     Effect.gen(function* () {
       const { tracker, emitted } = yield* setup

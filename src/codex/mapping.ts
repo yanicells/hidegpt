@@ -148,11 +148,8 @@ export function itemToBlock(item: ThreadItem): Block | null {
       )
     case 'mcpToolCall':
       // The server and tool names are what it did, so they go in the body, never the title.
-      return callout(
-        item.id,
-        CONNECTED_APP[item.status],
-        [`${item.server} · ${item.tool}`, item.error?.message].filter(Boolean).join('\n'),
-      )
+      // Its error text is the tool's own words, so a failure shows only Docs' title.
+      return callout(item.id, CONNECTED_APP[item.status], `${item.server} · ${item.tool}`)
     case 'dynamicToolCall':
       return callout(item.id, item.namespace ? `${item.namespace} · ${item.tool}` : item.tool, item.status)
     case 'webSearch':

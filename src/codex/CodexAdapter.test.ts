@@ -383,6 +383,23 @@ describe('CodexAdapter', () => {
     }),
   )
 
+  it.effect('a turn error with an empty turn id names no turn', () =>
+    Effect.gen(function* () {
+      const { peer, events } = yield* open()
+      const error = { message: 'boom', codexErrorInfo: null, additionalDetails: null, misalignment: null }
+      yield* peer.notify('error', { error, willRetry: false, threadId: 'thr_1', turnId: '' })
+      yield* settle
+      expect(events).toEqual([{ type: 'turnEnded', threadId: 'thr_1', error: 'boom' }])
+    }),
+  )
+
+  it.effect('send returns the native turn id from the start response', () =>
+    Effect.gen(function* () {
+      const { session } = yield* open({ reply: null })
+      expect(yield* send(session, 'Hi')).toBe('turn_1')
+    }),
+  )
+
   it.effect('an error Codex will retry only shows a notice and keeps the turn running', () =>
     Effect.gen(function* () {
       const { peer, events } = yield* open()

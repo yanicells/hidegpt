@@ -12,7 +12,7 @@ import * as TestClock from 'effect/testing/TestClock'
 import * as ClaudeAdapter from '../claude/ClaudeAdapter'
 import { makeFakeClaude } from '../claude/FakeClaude'
 import * as CodexAdapter from '../codex/CodexAdapter'
-import { agentItem, makeFakeCodex, stubTurn, userItem, type FakeCodexOptions } from '../codex/FakeCodex'
+import { agentItem, makeFakeCodex, rpcFailure, stubTurn, userItem, type FakeCodexOptions } from '../codex/FakeCodex'
 import { fromLegacy, type LegacyProviderAdapter } from '../provider/legacyEvents'
 import type { Snapshot } from '../shared/model'
 import { layerAdapters, layerLoaders } from './ProviderRegistry'
@@ -290,6 +290,16 @@ describe('ProviderSessionManager', () => {
       const done = yield* Fiber.join(loaded)
       expect(done.blocks.map((block) => block.id)).toEqual(['u0', 'u1', 'a1'])
       expect(done.hasOlder).toBe(false)
+    }),
+  )
+
+  it.effect('a send the provider refuses frees the document and drops the echo', () =>
+    Effect.gen(function* () {
+      const { manager } = yield* setup({ handlers: { 'turn/start': () => Effect.fail(rpcFailure('busy')) } })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      const before = (yield* manager.snapshot).blocks
+      yield* Effect.flip(manager.dispatch({ op: 'send', text: 'Hi' }))
+      expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false, blocks: before })
     }),
   )
 
