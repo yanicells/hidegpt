@@ -42,4 +42,21 @@ describe('itemToBlock', () => {
       body: 'github · create_issue',
     })
   })
+
+  it('leaves out a server or tool name that would fail the stealth gate', () => {
+    const call = (server: string, tool: string) =>
+      itemToBlock({
+        type: 'mcpToolCall',
+        id: 'm1',
+        server,
+        tool,
+        status: 'completed',
+        error: null,
+      } as unknown as Parameters<typeof itemToBlock>[0])
+    expect(call('codex_apps', 'gmail_search_emails')).toMatchObject({ body: 'gmail_search_emails' })
+    expect(call('openaiDeveloperDocs', 'search_openai_docs')).toMatchObject({
+      title: 'Used a connected app',
+      body: '',
+    })
+  })
 })

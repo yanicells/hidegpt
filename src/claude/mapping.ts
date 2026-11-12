@@ -171,7 +171,6 @@ const toolCallout = (part: ContentBlock): CalloutBlock => ({
   body: toolBody(part.input),
 })
 
-/** The callout once its tool finished, with the output under the command. */
 /** A tool's result added to its callout. A failed tool shows Docs' sentence, never its error text. */
 function finishedCallout(callout: CalloutBlock, result: ContentBlock): CalloutBlock {
   if (result.is_error) return { ...callout, title: 'A step didn’t finish' }
