@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -8,6 +8,8 @@ import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
 
+import { HELPER_NAME, resolveHelper } from './helperBinary'
+import { FIRST_LAUNCH_MS, nodeAt, processName } from './helperBinary.testing'
 import { ProcessSupervisor, layer } from './ProcessSupervisor'
 
 /** Real processes: the supervisor's job is the boundary with the OS, so nothing here is faked. */
@@ -265,12 +267,21 @@ describe('ProcessSupervisor.callbackSpawner', () => {
 })
 
 describe.runIf(process.platform === 'darwin')('ProcessSupervisor under the helper name', () => {
-  // Node stands in for a provider CLI: a signed third-party binary that macOS lets us clone.
-  /** macOS checks a new executable on its first launch, which can take seconds on a busy runner. */
-  const FIRST_LAUNCH = 30_000
   const sleeper = { command: process.execPath, args: ['-e', 'setTimeout(() => {}, 5000)'] }
-  const processName = (pid: number) =>
-    execFileSync('/bin/ps', ['-o', 'ucomm=', '-p', String(pid)], { encoding: 'utf8' }).trim()
+  let count = 0
+  /** A fresh helpers folder for each test. */
+  const helpersDir = () => join(dir, `helpers-${(count += 1)}`)
+  const ledgerEntries = (path: string) =>
+    Object.values(JSON.parse(readFileSync(path, 'utf8')) as Record<string, { command: string }>)
+  /**
+   * A clone that is there (its stamp matches) but will not start, as when it is removed between
+   * the lookup and the spawn or a security tool refuses it: a script with no interpreter.
+   */
+  const brokenClone = (helpers: string) => {
+    const clone = resolveHelper(process.execPath, undefined, helpers)
+    writeFileSync(clone.command, '#!/hidegpt/no-such-interpreter\n')
+    return clone.command
+  }
 
   it.live(
     'starts a CLI as Docs Helper and records that path in the ledger',
@@ -282,34 +293,97 @@ describe.runIf(process.platform === 'darwin')('ProcessSupervisor under the helpe
             Effect.scoped(
               Effect.gen(function* () {
                 const { handle } = yield* supervisor.spawn({ provider: 'codex', ...sleeper })
-                expect(processName(handle.pid)).toBe('Docs Helper')
-                const [entry] = Object.values(JSON.parse(readFileSync(ledgerPath, 'utf8')) as Record<string, object>)
-                expect(entry).toMatchObject({ command: expect.stringMatching(/\/Docs Helper$/) })
+                expect(processName(handle.pid)).toBe(HELPER_NAME)
+                expect(ledgerEntries(ledgerPath)).toEqual([
+                  expect.objectContaining({ command: expect.stringMatching(/\/Docs Helper$/) }),
+                ])
               }),
             ),
           ledgerPath,
-          join(dir, 'helpers'),
+          helpersDir(),
         )
       }),
-    FIRST_LAUNCH,
+    FIRST_LAUNCH_MS,
   )
 
   it.live(
-    'starts an SDK’s CLI as Docs Helper too',
+    'starts an SDK’s CLI as Docs Helper too, and records that path',
     () =>
-      withSupervisor(
-        (supervisor) =>
-          Effect.scoped(
-            Effect.gen(function* () {
-              const spawn = yield* supervisor.callbackSpawner
-              const child = spawn({ ...sleeper, env: {} })
-              yield* Effect.callback<void>((resume) => void child.once('spawn', () => resume(Effect.void)))
-              expect(processName(child.pid ?? 0)).toBe('Docs Helper')
-            }),
-          ),
-        null,
-        join(dir, 'helpers'),
-      ),
-    FIRST_LAUNCH,
+      Effect.gen(function* () {
+        const ledgerPath = join(dir, 'helper-callback-ledger.json')
+        yield* withSupervisor(
+          (supervisor) =>
+            Effect.scoped(
+              Effect.gen(function* () {
+                const spawn = yield* supervisor.callbackSpawner
+                // A bare name on the SDK's own PATH only: the lookup reads the env the SDK passes.
+                const bin = join(dir, 'sdk-bin')
+                nodeAt(join(bin, 'hidegpt-sleeper'))
+                const child = spawn({ ...sleeper, command: 'hidegpt-sleeper', env: { PATH: bin } })
+                yield* Effect.callback<void>((resume) => void child.once('spawn', () => resume(Effect.void)))
+                expect(processName(child.pid ?? 0)).toBe(HELPER_NAME)
+                yield* until(() => {
+                  try {
+                    return ledgerEntries(ledgerPath).some(({ command }) => command.endsWith(`/${HELPER_NAME}`))
+                  } catch {
+                    return false
+                  }
+                })
+              }),
+            ),
+          ledgerPath,
+          helpersDir(),
+        )
+      }),
+    FIRST_LAUNCH_MS,
+  )
+
+  it.live(
+    'starts the original when the clone will not start, and drops that clone',
+    () =>
+      Effect.gen(function* () {
+        const helpers = helpersDir()
+        const clone = brokenClone(helpers)
+        const ledgerPath = join(dir, 'helper-fallback-ledger.json')
+        yield* withSupervisor(
+          (supervisor) =>
+            Effect.scoped(
+              Effect.gen(function* () {
+                const { handle } = yield* supervisor.spawn({ provider: 'codex', ...sleeper })
+                expect(processName(handle.pid)).toBe('node')
+                expect(ledgerEntries(ledgerPath)).toEqual([expect.objectContaining({ command: process.execPath })])
+              }),
+            ),
+          ledgerPath,
+          helpers,
+        )
+        // The next start makes a fresh clone.
+        expect(existsSync(clone)).toBe(false)
+      }),
+    FIRST_LAUNCH_MS,
+  )
+
+  it.live(
+    'starts an SDK’s original CLI when its clone will not start',
+    () =>
+      Effect.gen(function* () {
+        const helpers = helpersDir()
+        const clone = brokenClone(helpers)
+        yield* withSupervisor(
+          (supervisor) =>
+            Effect.scoped(
+              Effect.gen(function* () {
+                const spawn = yield* supervisor.callbackSpawner
+                const child = spawn({ ...sleeper, env: {} })
+                yield* Effect.callback<void>((resume) => void child.once('spawn', () => resume(Effect.void)))
+                expect(processName(child.pid ?? 0)).toBe('node')
+              }),
+            ),
+          null,
+          helpers,
+        )
+        expect(existsSync(clone)).toBe(false)
+      }),
+    FIRST_LAUNCH_MS,
   )
 })
