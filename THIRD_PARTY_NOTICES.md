@@ -145,6 +145,13 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     PATH, and not blocking launch on it, from `packages/shared/src/shell.ts`,
     `apps/server/src/os-jank.ts` and
     `apps/desktop/src/shell/DesktopShellEnvironment.ts` (commit 5c6f2f12).
+  - `src/provider/contract.testkit.ts`: the adapter contract suite, with one
+    test per scenario per adapter (`itRunsReplayFixtures`), the scenario names, and
+    the hold-and-release start gate, from
+    `apps/server/src/orchestration-v2/testkit/ProviderReplayFixtures.ts` and its
+    `fixtures/` and `packages/provider-testing/src/replayGate.ts`; its traps
+    come from `docs/orchestration-v2/testing-strategy.md` and
+    `docs/internals/adding-a-provider.md` (commit 5c6f2f12).
 - License: MIT
 
 ```
