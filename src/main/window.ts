@@ -152,6 +152,8 @@ export function recoverRenderer(win: BrowserWindow, appUrl: string, now: () => n
     hung = undefined
   }
   win.on('unresponsive', () => {
+    // In development a paused debugger also reads as unresponsive; only kill in a packaged app.
+    if (!app.isPackaged) return
     hung ??= setTimeout(() => {
       hung = undefined
       if (!win.isDestroyed()) win.webContents.forcefullyCrashRenderer()
@@ -193,7 +195,7 @@ export async function saveImage(bytes: Uint8Array, mime: string): Promise<string
 
 /** Sent as a header on every app page as well as index.html's meta tag; keep the two the same. */
 export const CONTENT_SECURITY_POLICY =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: docs:; connect-src 'self'"
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: docs:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
 
 // The CSP header and resolving local images under an allowed root are adapted from T3 Code
 // (apps/desktop/src/electron/ElectronProtocol.ts `withContentSecurityPolicy`, `serveDesktopAsset`)

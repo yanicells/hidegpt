@@ -13,7 +13,7 @@ import { emptySnapshot, type Snapshot } from '../shared/model'
 const { handleMock, netFetchMock } = vi.hoisted(() => ({ handleMock: vi.fn(), netFetchMock: vi.fn() }))
 
 vi.mock('electron', () => ({
-  app: { getPath: () => '/data' },
+  app: { getPath: () => '/data', isPackaged: true },
   net: { fetch: netFetchMock },
   protocol: { handle: handleMock },
   screen: {},
