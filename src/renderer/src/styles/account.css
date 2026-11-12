@@ -1,0 +1,160 @@
+/* ---------- Account switcher ---------- */
+
+.account-panel {
+  width: 360px;
+  max-height: var(--available-height);
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 28px;
+  background: #e9eef6;
+  box-shadow: var(--shadow-menu);
+}
+
+.account-card {
+  @apply relative flex flex-col items-center text-center;
+  padding: 16px 16px 20px;
+  border-radius: 20px;
+  background: var(--surface);
+}
+
+.account-email {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* Google's × in the card's top-right corner. */
+.account-close {
+  @apply absolute grid place-items-center rounded-full;
+  top: 6px;
+  right: 6px;
+  width: 40px;
+  height: 40px;
+  color: var(--text-2);
+}
+
+.account-close:hover {
+  background: var(--hover);
+}
+
+.account-photo {
+  @apply relative;
+  margin: 20px 0 10px;
+}
+
+/* The white camera disc on the big avatar's lower right. */
+.account-camera {
+  @apply absolute grid place-items-center rounded-full;
+  right: -4px;
+  bottom: -2px;
+  width: 28px;
+  height: 28px;
+  background: var(--surface);
+  color: var(--text-2);
+  box-shadow:
+    0 1px 2px rgb(60 64 67 / 30%),
+    0 1px 3px 1px rgb(60 64 67 / 15%);
+}
+
+.account-hello {
+  font-size: 22px;
+  color: var(--text);
+  margin-bottom: 14px;
+}
+
+.account-manage {
+  height: 36px;
+  padding: 0 24px;
+  border: 1px solid #747775;
+  border-radius: 18px;
+  color: var(--blue);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.account-manage:hover {
+  background: var(--blue-tint);
+}
+
+.account-list {
+  margin-top: 4px;
+  border-radius: 20px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.account-row {
+  @apply flex items-center w-full text-left;
+  gap: 14px;
+  min-height: 56px;
+  padding: 8px 20px;
+}
+
+.account-row:hover:not(:disabled),
+.account-row:focus-visible {
+  background: var(--hover-menu);
+  outline: none;
+}
+
+.account-row:disabled {
+  opacity: 0.6;
+}
+
+.account-row .avatar-sm {
+  flex: 0 0 auto;
+}
+
+.account-row-text {
+  @apply flex flex-col min-w-0;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.account-row-text small {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.account-row .row-icon {
+  @apply grid place-items-center;
+  width: 32px;
+  color: var(--text-2);
+}
+
+.account-foot {
+  @apply flex justify-center gap-2;
+  padding: 12px 0 6px;
+  font-family: Roboto, var(--font-ui);
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.account-error {
+  margin: 8px 16px 0;
+  font-family: var(--font-text);
+  font-size: 12px;
+  color: var(--red);
+}
+
+/* Google's thin loading bar while an account (library) switch runs. */
+.top-progress {
+  @apply fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 200;
+  background: linear-gradient(90deg, transparent, var(--blue), transparent);
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  animation: top-progress 1.1s linear infinite;
+}
+
+@keyframes top-progress {
+  from {
+    background-position: -50% 0;
+  }
+  to {
+    background-position: 150% 0;
+  }
+}

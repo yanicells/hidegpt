@@ -1,40 +1,4 @@
-/* Tokens: Google Docs (Material) palette. Page text is Arial because that is the Docs default. */
-:root {
-  --text: #1f1f1f;
-  --text-2: #444746;
-  --muted: #5f6368;
-  --faint: #80868b;
-  --hairline: #e3e3e3;
-  --line: #c4c7c5;
-  --blue: #0b57d0;
-  --blue-dark: #0842a0;
-  --blue-soft: #c2e7ff;
-  --blue-tint: rgba(11, 87, 208, 0.08);
-  --docs-blue: #4285f4;
-  --ruler-tick: #9aa0a6;
-  --green: #188038;
-  --red: #b3261e;
-  --red-soft: #fce8e6;
-  --yellow-soft: #fef7e0;
-  --info-soft: #e8f0fe;
-  --surface: #ffffff;
-  --canvas: #f8fafd;
-  --pill: #f0f4f9;
-  --band: #f1f3f4;
-  --hover: rgba(68, 71, 70, 0.08);
-  --hover-menu: rgba(31, 31, 31, 0.06);
-  --hover-soft: #f0f4f9;
-  --shadow-menu: 0 2px 6px 2px rgba(60, 64, 67, 0.15), 0 1px 2px 0 rgba(60, 64, 67, 0.3);
-  --shadow-page: 0 0 0 0.75pt #d1d1d1, 0 0 3pt 0.75pt #ccc;
-  /* Chrome: Google Sans (bundled as Google Sans Flex, see fonts.ts) and Roboto for small labels. */
-  --font-ui: 'Google Sans Flex Variable', 'Google Sans', Roboto, Arial, sans-serif;
-  --font-text: Roboto, 'Google Sans Flex Variable', Arial, sans-serif;
-  --font-page: Arial, Helvetica, sans-serif;
-  --font-mono: 'Courier New', Courier, monospace;
-  --paper-width: 816px;
-  --paper-margin: 96px;
-  --rail-width: 56px;
-}
+/* Resets, body, buttons, the avatar, and reduced motion. Tokens live in tokens.css. */
 
 * {
   box-sizing: border-box;
@@ -148,78 +112,6 @@ label,
   box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.3);
 }
 
-/* ---------- Banners ---------- */
-
-.banners {
-  @apply shrink-0;
-}
-
-.banner {
-  @apply flex items-center justify-center gap-4;
-  padding: 8px 24px;
-  font-size: 13px;
-  color: var(--text-2);
-  background: var(--info-soft);
-}
-
-.banner.danger {
-  background: var(--red-soft);
-  color: var(--red);
-}
-
-.banner button {
-  color: var(--blue);
-  font-size: 13px;
-  @apply font-medium whitespace-nowrap;
-}
-
-.banner button:hover {
-  text-decoration: underline;
-}
-
-.status {
-  @apply flex-1 grid place-items-center p-6;
-  background: var(--canvas);
-  color: var(--text-2);
-  @apply text-sm text-center;
-}
-
-.status p {
-  margin: 0 0 12px;
-  font-size: 16px;
-  color: var(--text);
-}
-
-.status-reload {
-  height: 36px;
-  padding: 0 24px;
-  border-radius: 18px;
-  background: var(--blue);
-  color: #fff;
-  font-weight: 500;
-}
-
-.status-reload:hover {
-  background: var(--blue-dark);
-}
-
-.status .error-details-toggle,
-.status .error-details {
-  @apply block mx-auto;
-  margin-top: 12px;
-}
-
-.error-details-toggle {
-  color: var(--blue);
-}
-
-.error-details {
-  max-width: 560px;
-  font-size: 12px;
-  color: var(--text-2);
-  overflow-wrap: anywhere;
-}
-
 /* ---------- Responsive ---------- */
 
 @media (max-width: 960px) {
@@ -243,21 +135,4 @@ label,
   * {
     transition: none !important;
   }
-}
-
-/* The whole window couldn't render: a plain Docs-style notice with a reload. */
-.page-error {
-  @apply flex h-full flex-col items-center justify-center gap-3 text-center;
-}
-.page-error h1 {
-  @apply m-0;
-  font-size: 22px;
-  font-weight: 400;
-}
-.page-error p {
-  @apply m-0;
-  color: var(--text-2);
-}
-.page-error .outlined-button {
-  padding: 0 24px;
 }

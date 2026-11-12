@@ -1,0 +1,21 @@
+/* ---------- Opening a document: status line and skeleton page ---------- */
+
+.opening-document {
+  @apply flex-1 min-h-0 overflow-hidden;
+  background: var(--canvas);
+}
+.opening-status {
+  @apply flex items-center justify-center gap-3 p-5;
+  color: var(--muted);
+}
+.opening-paper {
+  margin: 0 auto;
+}
+.opening-paper .sk-text {
+  @apply h-2.5;
+  margin-bottom: 18px;
+  border-radius: 2px;
+}
+.opening-paper .sk-text:nth-child(3n) {
+  @apply mb-9;
+}
