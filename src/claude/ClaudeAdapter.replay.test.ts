@@ -11,7 +11,7 @@ import * as Stream from 'effect/Stream'
 
 import type { AdapterEvent } from '../provider/ProviderAdapter'
 import { readTranscript, type RecordingMachine, type ReplayEntry, type ReplayTranscript, scrub } from '../provider/replayFixture'
-import { approvalScenario, type ReplayScenario, type TurnResult } from '../provider/replayScenario'
+import { type ApprovalResult, approvalScenario, type ReplayScenario, type TurnResult } from '../provider/replayScenario'
 import * as ClaudeAdapter from './ClaudeAdapter'
 import { assistantFrame, type FakeClaude, type FakeClaudeOptions, makeFakeClaude, resultFrame } from './FakeClaude'
 import { recordingSdk, replaySdk, withoutPersonalDetails } from './replay'
@@ -28,7 +28,7 @@ const WORKSPACE = '/tmp/replay-workspace'
 
 /** A real folder for the scenario, so the adapter keeps it as the cwd, mapped back to the recorder's placeholder. */
 const workspace = Effect.acquireRelease(
-  Effect.sync(() => realpathSync(mkdtempSync(join(tmpdir(), 'hidegpt-replay-test-')))),
+  Effect.sync(() => realpathSync(mkdtempSync(join(tmpdir(), 'docs-replay-test-')))),
   (dir) => Effect.sync(() => rmSync(dir, { recursive: true, force: true })),
 ).pipe(Effect.map((dir) => ({ dir, paths: [[dir, WORKSPACE]] as const })))
 
@@ -57,17 +57,17 @@ const asRecorded = (entries: ReadonlyArray<ReplayEntry>, scratch: RecordingMachi
 }
 
 /**
- * Plays Claude Code for the approval scenario: after each of `turns` prompts, it
- * asks to write tea.txt `asks` times in a row, then ends the turn.
+ * Plays Claude Code for the approval scenario: after prompt `index`, it asks to
+ * write tea.txt `asks[index]` times in a row, then ends the turn.
  */
-const askingClaudeCode = (fake: FakeClaude, turns: number, asks: number, dir: string) => {
+const askingClaudeCode = (fake: FakeClaude, asks: ReadonlyArray<number>, dir: string) => {
   const sent = () => fake.queries.flatMap((query) => query.prompts).length
-  return Effect.forEach(Array.from({ length: turns }, (_, index) => index), (index) =>
+  return Effect.forEach(asks, (count, index) =>
     Effect.gen(function* () {
       yield* Effect.sleep('5 millis').pipe(Effect.repeat({ until: () => sent() > index }), Effect.timeout('5 seconds'))
       const query = fake.queries.at(-1)!
       let allowed = false
-      for (let ask = 0; ask < asks; ask++) {
+      for (let ask = 0; ask < count; ask++) {
         const asked = query.askTool('Write', { file_path: join(dir, 'tea.txt'), content: 'tea' }, `toolu_${index + 1}_${ask + 1}`)
         allowed = (yield* Effect.promise(() => asked.result))?.behavior === 'allow'
       }
@@ -75,6 +75,15 @@ const askingClaudeCode = (fake: FakeClaude, turns: number, asks: number, dir: st
       query.push(resultFrame())
     }),
   )
+}
+
+/** Claude Code may ask more than once in a turn; each turn has to ask at least once. */
+const everyTurnAsked = (result: ApprovalResult, events: ReadonlyArray<AdapterEvent>) => {
+  expect(result.ended).toHaveLength(approval.prompts.length)
+  expect(result.asked).toHaveLength(approval.prompts.length)
+  expect(result.asked.filter((count) => count < 1)).toEqual([])
+  const ids = new Set(events.flatMap((event) => (event.type === 'block' && event.block.kind === 'approval' ? [event.block.id] : [])))
+  expect(ids.size).toBe(result.asked.reduce((sum, count) => sum + count, 0))
 }
 
 const userTexts = (result: TurnResult) => result.opened.blocks.flatMap((block) => (block.kind === 'user' ? [block.text] : []))
@@ -95,36 +104,8 @@ describe('ClaudeAdapter replay', () => {
     }),
   )
 
-  /** Turn fixtures a person records with real prompts; each test is skipped until its file exists. */
-  const recorded: ReadonlyArray<readonly [name: string, scenario: ReplayScenario<TurnResult>, check: (result: TurnResult, events: ReadonlyArray<AdapterEvent>) => void]> = [
-    [
-      'turn',
-      turn,
-      (result) => {
-        expect(result.ended.filter((ended) => ended.error)).toEqual([])
-        expect(userTexts(result)).toEqual(turn.prompts)
-        expect(result.opened.blocks.filter((block) => block.kind === 'agent' && block.text)).toHaveLength(turn.prompts.length)
-      },
-    ],
-    [
-      'stop',
-      stop,
-      (result) => {
-        // A stopped turn ends without an error.
-        expect(result.ended).toEqual([{ type: 'turnEnded', threadId: result.opened.threadId }])
-        expect(userTexts(result)).toEqual(stop.prompts)
-      },
-    ],
-    [
-      'approval',
-      approval,
-      (result, events) => {
-        expect(result.ended).toHaveLength(approval.prompts.length)
-        expect(events.filter((event) => event.type === 'block' && event.block.kind === 'approval')).toHaveLength(approval.prompts.length)
-      },
-    ],
-  ]
-  for (const [name, scenario, check] of recorded) {
+  /** A fixture a person records with real prompts; its test is skipped until the file exists. */
+  const recorded = <A extends TurnResult>(name: string, scenario: ReplayScenario<A>, check: (result: A, events: ReadonlyArray<AdapterEvent>) => void) => {
     const skip = `needs src/claude/fixtures/${name}.ndjson, which a person records with real prompts (docs/replay-fixtures.md)`
     it.live.skipIf(!existsSync(fixture(name)))(`${name}: ${scenario.description} (${skip})`, () =>
       Effect.gen(function* () {
@@ -136,6 +117,17 @@ describe('ClaudeAdapter replay', () => {
       }),
     )
   }
+  recorded('turn', turn, (result) => {
+    expect(result.ended.filter((ended) => ended.error)).toEqual([])
+    expect(userTexts(result)).toEqual(turn.prompts)
+    expect(result.opened.blocks.filter((block) => block.kind === 'agent' && block.text)).toHaveLength(turn.prompts.length)
+  })
+  recorded('stop', stop, (result) => {
+    // A stopped turn ends without an error.
+    expect(result.ended).toEqual([{ type: 'turnEnded', threadId: result.opened.threadId }])
+    expect(userTexts(result)).toEqual(stop.prompts)
+  })
+  recorded('approval', approval, (result, events) => everyTurnAsked(result, events))
 
   // FakeClaude stands in for Claude Code, so these prove each path end to end before real turns are recorded.
   const roundTrips: ReadonlyArray<readonly [ReplayScenario<TurnResult>, FakeClaudeOptions]> = [
@@ -180,18 +172,24 @@ describe('ClaudeAdapter replay', () => {
       const entries: ReplayEntry[] = []
       const recording = yield* workspace
       const [recorded] = yield* Effect.all(
-        [run(approval, recordingSdk(fake.sdk, entries, true), recording.dir), askingClaudeCode(fake, approval.prompts.length, 1, recording.dir)],
+        // The second turn asks twice, which a fixture may hold too.
+        [run(approval, recordingSdk(fake.sdk, entries, true), recording.dir), askingClaudeCode(fake, [1, 2], recording.dir)],
         { concurrency: 2 },
       )
       const answers = entries.flatMap((entry) => (entry.type === 'expect_outbound' && entry.label === 'permissionResult' ? [entry.frame] : []))
-      expect(answers).toMatchObject([{ permissionResult: { behavior: 'allow' } }, { permissionResult: { behavior: 'deny' } }])
+      expect(answers).toMatchObject([
+        { permissionResult: { behavior: 'allow' } },
+        { permissionResult: { behavior: 'deny' } },
+        { permissionResult: { behavior: 'deny' } },
+      ])
+      expect(recorded.result.asked).toEqual([1, 2])
 
       const transcript = asRecorded(entries, recording.paths, 'approval')
       const replaying = yield* workspace
       const replay = replaySdk(transcript, replaying.paths)
       const replayed = yield* run(approval, replay.sdk, replaying.dir)
-      const approvals = (events: ReadonlyArray<AdapterEvent>) => events.filter((event) => event.type === 'block' && event.block.kind === 'approval')
-      expect(approvals(replayed.events)).toHaveLength(approvals(recorded.events).length)
+      everyTurnAsked(replayed.result, replayed.events)
+      expect(replayed.result.asked).toEqual([1, 2])
       expect(replayed.result.ended.map((ended) => ended.error ?? null)).toEqual(recorded.result.ended.map((ended) => ended.error ?? null))
       expect(replay.finished()).toEqual({ failure: null, unused: 0 })
 
@@ -207,7 +205,7 @@ describe('ClaudeAdapter replay', () => {
       const fake = makeFakeClaude({ reply: null })
       const entries: ReplayEntry[] = []
       const { dir } = yield* workspace
-      yield* Effect.all([run(approvalScenario(['Make tea.'], [true]), recordingSdk(fake.sdk, entries, true), dir), askingClaudeCode(fake, 1, 2, dir)], {
+      yield* Effect.all([run(approvalScenario(['Make tea.'], [true]), recordingSdk(fake.sdk, entries, true), dir), askingClaudeCode(fake, [2], dir)], {
         concurrency: 2,
       })
       const answers = entries.flatMap((entry) => (entry.type === 'expect_outbound' && entry.label === 'permissionResult' ? [entry.frame] : []))
@@ -249,6 +247,8 @@ describe('ClaudeAdapter replay', () => {
   it('permission requests are recorded and replayed: an accept, a deny, and a wrong answer fails', async () => {
     const WRITE = { file_path: 'tea.txt', content: 'tea' }
     const REMOVE = { command: 'rm tea.txt' }
+    // Extra fields Claude Code sends with a request; requestId is per run, so it stays out.
+    const BLOCKED = { blockedPath: 'tea.txt', decisionReason: 'Writes outside the allowed folders' }
     const decide =
       (allowAll: boolean): CanUseTool =>
       async (tool, input) =>
@@ -260,12 +260,12 @@ describe('ClaudeAdapter replay', () => {
     const entries: ReplayEntry[] = []
     const recordedQuery = recordingSdk(fake.sdk, entries, true).query({ prompt: silent, options: { canUseTool: decide(false) } })
     await fake.queries[0]!.askTool('Write', WRITE, 'toolu_1').result
-    await fake.queries[0]!.askTool('Bash', REMOVE, 'toolu_2').result
+    await fake.queries[0]!.askTool('Bash', REMOVE, 'toolu_2', BLOCKED).result
     recordedQuery.close()
     expect(entries.filter((entry) => entry.type !== 'runtime_exit' && entry.label?.startsWith('permission'))).toEqual([
       { type: 'emit_inbound', label: 'permission', frame: { query: 1, permission: { tool: 'Write', input: WRITE, toolUseID: 'toolu_1' } } },
       { type: 'expect_outbound', label: 'permissionResult', frame: { query: 1, permissionResult: { behavior: 'allow', updatedInput: WRITE } } },
-      { type: 'emit_inbound', label: 'permission', frame: { query: 1, permission: { tool: 'Bash', input: REMOVE, toolUseID: 'toolu_2' } } },
+      { type: 'emit_inbound', label: 'permission', frame: { query: 1, permission: { tool: 'Bash', input: REMOVE, toolUseID: 'toolu_2', ...BLOCKED } } },
       { type: 'expect_outbound', label: 'permissionResult', frame: { query: 1, permissionResult: { behavior: 'deny', message: 'Not this time.' } } },
     ])
 
@@ -274,14 +274,15 @@ describe('ClaudeAdapter replay', () => {
 
     // The same decisions replay cleanly: the replay itself calls Docs' canUseTool.
     const right = replaySdk(transcript)
-    const asked: string[] = []
+    const asked: Array<Parameters<CanUseTool>[2]> = []
     const rightQuery = right.sdk.query({
       prompt: (async function* (): AsyncGenerator<SDKUserMessage> {})(),
-      options: { canUseTool: (tool, input, options) => (asked.push(options.toolUseID), decide(false)(tool, input, options)) },
+      options: { canUseTool: (tool, input, options) => (asked.push(options), decide(false)(tool, input, options)) },
     })
     await settle()
     rightQuery.close()
-    expect(asked).toEqual(['toolu_1', 'toolu_2'])
+    expect(asked).toMatchObject([{ toolUseID: 'toolu_1' }, { toolUseID: 'toolu_2', ...BLOCKED }])
+    expect(asked[0]).not.toHaveProperty('blockedPath')
     expect(right.finished()).toEqual({ failure: null, unused: 0 })
 
     // Allowing what the recording denied fails the replay.
