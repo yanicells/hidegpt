@@ -51,8 +51,8 @@ projects below. Each copied or adapted file carries a header naming its source.
     Claude Code spawned in its own process group with stderr drained
     (`spawnClaudeProcessGroup`) and pid plus start time from `ps`
     (`parseClaudeProcessTable`), and recording a CLI's process tree to stop
-    only what is still the same process (`trackDescendants`,
-    `claudeDescendants`), from
+    only what is still the same process, after the CLI exits too
+    (`trackDescendants` and its `stop`, `claudeDescendants`), from
     `apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts`; the
     atomic ledger write (`packages/shared/src/atomicWrite.ts`), and one app per
     profile in `src/main/app.ts` (`apps/desktop/src/app/DesktopClerk.ts`), at

@@ -8,7 +8,7 @@ import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
 import * as Option from 'effect/Option'
 
-import { layer, parseProcessTable, ProcessLedger, startOf, type LedgerEntry, type LedgerOptions } from './ProcessLedger'
+import { layer, parseProcessTable, ProcessLedger, startOf, type LedgerEntry, type LedgerOptions, type ProcessRow } from './ProcessLedger'
 
 /** Real processes and files: the ledger's job is the boundary with the OS. */
 const dir = mkdtempSync(join(tmpdir(), 'hidegpt-ledger-'))
@@ -17,15 +17,8 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }))
 let files = 0
 const freshPath = () => join(mkdtempSync(join(dir, 'case-')), `ledger-${(files += 1)}.json`)
 
-const withLedger = <A, E>(
-  path: string,
-  options: LedgerOptions,
-  use: (ledger: ProcessLedger['Service']) => Effect.Effect<A, E>,
-) =>
-  Effect.flatMap(Effect.service(ProcessLedger), use).pipe(
-    Effect.provide(layer(path, options)),
-    Effect.provide(NodeServices.layer),
-  )
+const withLedger = <A, E>(path: string, options: LedgerOptions, use: (ledger: ProcessLedger['Service']) => Effect.Effect<A, E>) =>
+  Effect.flatMap(Effect.service(ProcessLedger), use).pipe(Effect.provide(layer(path, options)), Effect.provide(NodeServices.layer))
 const reap = (path: string, options: LedgerOptions = {}) => withLedger(path, options, (ledger) => ledger.reap)
 
 const onDisk = (path: string): Record<string, LedgerEntry> => JSON.parse(readFileSync(path, 'utf8'))
@@ -63,38 +56,31 @@ afterAll(() => {
 })
 
 const processTableNow = () =>
-  parseProcessTable(
-    execFileSync('ps', ['-A', '-o', 'pid=,ppid=,pgid=,lstart=,command='], {
-      encoding: 'utf8',
-      env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' },
-    }),
-  )
+  parseProcessTable(execFileSync('ps', ['-A', '-o', 'pid=,ppid=,pgid=,lstart=,command='], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' } }))
 
 /** A main process that crashed: its pid and start time no longer run. */
 const GONE = { owner: 2, ownerStarted: Date.UTC(2001, 0, 1) }
 /** Above every OS's pid range, so `ps` knows nothing about it. */
 const NO_SUCH_PID = 2 ** 30
-const entry = (fields: Partial<LedgerEntry> & Pick<LedgerEntry, 'command' | 'started'>): LedgerEntry => ({
-  arg: '',
-  members: [],
-  ...GONE,
-  ...fields,
-})
+/** A daemon that leaves its parent's group and session, as `setsid` does; a group kill misses it. */
+const DAEMON = `/usr/bin/perl -MPOSIX -e 'POSIX::setsid(); sleep 30'`
+/** A stand-in process table the test changes between reads. */
+const fakeTable = (rows: () => ReadonlyArray<ProcessRow>, duringRead: () => Effect.Effect<void> = () => Effect.void) =>
+  Effect.suspend(() => Effect.as(duringRead(), Option.some(rows())))
+const row = (pid: number, ppid: number, started: number): ProcessRow => ({ pid, ppid, pgid: pid, started, command: '' })
+
+const entry = (fields: Partial<LedgerEntry> & Pick<LedgerEntry, 'command' | 'started'>): LedgerEntry => ({ arg: '', members: [], ...GONE, ...fields })
 
 describe('ProcessLedger', () => {
   it('reads pid, parent, group, a UTC start time and a command with spaces from ps', () => {
-    expect(
-      parseProcessTable(
-        '  123     1    45 Thu Nov  5 14:39:47 2026     /Applications/My App.app/claude --output-format\n junk\n',
-      ),
-    ).toEqual([
-      {
-        pid: 123,
-        ppid: 1,
-        pgid: 45,
-        started: Date.UTC(2026, 10, 5, 14, 39, 47),
-        command: '/Applications/My App.app/claude --output-format',
-      },
+    expect(parseProcessTable('  123     1    45 Thu Nov  5 14:39:47 2026     /Applications/My App.app/claude --output-format\n junk\n')).toEqual([
+      { pid: 123, ppid: 1, pgid: 45, started: Date.UTC(2026, 10, 5, 14, 39, 47), command: '/Applications/My App.app/claude --output-format' },
+    ])
+  })
+
+  it('reads a table without command lines, as tracking asks for', () => {
+    expect(parseProcessTable('  123     1    45 Thu Nov  5 14:39:47 2026\n')).toEqual([
+      { pid: 123, ppid: 1, pgid: 45, started: Date.UTC(2026, 10, 5, 14, 39, 47), command: '' },
     ])
   })
 
@@ -119,11 +105,7 @@ describe('ProcessLedger', () => {
         path,
         JSON.stringify({
           [server]: entry({ command: '/bin/sleep', arg: '30', started: yield* startOf(server) }),
-          [otherApp]: entry({
-            command: '/Users/someone/hidegpt/node_modules/sleep',
-            arg: '30',
-            started: yield* startOf(otherApp),
-          }),
+          [otherApp]: entry({ command: '/Users/someone/hidegpt/node_modules/sleep', arg: '30', started: yield* startOf(otherApp) }),
           [reused]: entry({ command: '/bin/sleep', arg: '30', started: (yield* startOf(reused)) - 60_000 }),
         }),
       )
@@ -139,13 +121,7 @@ describe('ProcessLedger', () => {
       const path = freshPath()
       const firstInstance = sleeper()
       const server = sleeper()
-      const kept = entry({
-        command: '/bin/sleep',
-        arg: '30',
-        started: yield* startOf(server),
-        owner: firstInstance,
-        ownerStarted: yield* startOf(firstInstance),
-      })
+      const kept = entry({ command: '/bin/sleep', arg: '30', started: yield* startOf(server), owner: firstInstance, ownerStarted: yield* startOf(firstInstance) })
       writeFileSync(path, JSON.stringify({ [server]: kept }))
       expect(yield* reap(path)).toBe(0)
       expect(alive(server)).toBe(true)
@@ -158,12 +134,7 @@ describe('ProcessLedger', () => {
     Effect.gen(function* () {
       const path = freshPath()
       const server = sleeper()
-      writeFileSync(
-        path,
-        JSON.stringify({
-          [server]: entry({ command: '/bin/sleep', arg: '30', started: yield* startOf(server), owner: process.pid }),
-        }),
-      )
+      writeFileSync(path, JSON.stringify({ [server]: entry({ command: '/bin/sleep', arg: '30', started: yield* startOf(server), owner: process.pid }) }))
       expect(yield* reap(path)).toBe(1)
     }),
   )
@@ -177,9 +148,7 @@ describe('ProcessLedger', () => {
       const cliPid = cli.pid ?? 0
       yield* Effect.sleep('200 millis')
       const firstOptions = { owner: firstInstance.pid ?? 0 }
-      yield* withLedger(path, firstOptions, (ledger) =>
-        Effect.andThen(ledger.record(cliPid, '/bin/sh', '-c'), ledger.track),
-      )
+      yield* withLedger(path, firstOptions, (ledger) => Effect.andThen(ledger.record(cliPid, '/bin/sh', '-c'), ledger.track))
       const members = onDisk(path)[cliPid]?.members ?? []
       expect(members).toHaveLength(1)
       const mcp = members[0]?.pid ?? 0
@@ -191,13 +160,7 @@ describe('ProcessLedger', () => {
       const unrelatedChild = processTableNow().find((row) => row.pgid === unrelatedPid && row.pid !== unrelatedPid)
       expect(unrelatedChild).toBeDefined()
       const ledgerNow = onDisk(path)
-      writeFileSync(
-        path,
-        JSON.stringify({
-          ...ledgerNow,
-          [unrelatedPid]: entry({ command: '/bin/sh', arg: '-c', started: Date.now() - 60_000 }),
-        }),
-      )
+      writeFileSync(path, JSON.stringify({ ...ledgerNow, [unrelatedPid]: entry({ command: '/bin/sh', arg: '-c', started: Date.now() - 60_000 }) }))
 
       // The first instance crashes; its CLI exits on stdin close and leaves the MCP server behind.
       firstInstance.kill('SIGKILL')
@@ -212,6 +175,69 @@ describe('ProcessLedger', () => {
     }),
   )
 
+  it.live('stop kills a member that left the group once the CLI has exited, then forgets the CLI', () =>
+    Effect.gen(function* () {
+      const path = freshPath()
+      const cli = launch('/bin/sh', ['-c', `${DAEMON} & read line`], 'pipe')
+      const cliPid = cli.pid ?? 0
+      yield* Effect.sleep('300 millis')
+      yield* withLedger(path, {}, (ledger) =>
+        Effect.gen(function* () {
+          yield* ledger.record(cliPid, '/bin/sh', '-c')
+          yield* ledger.track
+          const daemon = onDisk(path)[cliPid]?.members[0]?.pid ?? 0
+          expect(processTableNow().find((proc) => proc.pid === daemon)?.pgid).toBe(daemon)
+          // The CLI exits on its own and its group goes; the daemon is in a group of its own.
+          cli.stdin?.end()
+          yield* exited(cli)
+          expect(alive(daemon)).toBe(true)
+
+          yield* ledger.stop(cliPid)
+          for (let i = 0; i < 50 && alive(daemon); i += 1) yield* Effect.sleep('20 millis')
+          expect(alive(daemon)).toBe(false)
+          expect(onDisk(path)).toEqual({})
+        }),
+      )
+    }),
+  )
+
+  it.effect('drops a member that has exited on the next re-read', () =>
+    Effect.gen(function* () {
+      const path = freshPath()
+      const leader = sleeper()
+      const at = yield* startOf(leader)
+      let rows = [row(leader, 1, at), row(NO_SUCH_PID, leader, at)]
+      yield* withLedger(path, { processTable: fakeTable(() => rows) }, (ledger) =>
+        Effect.gen(function* () {
+          yield* ledger.record(leader, '/bin/sleep', '30')
+          yield* ledger.track
+          expect(onDisk(path)[leader]?.members).toEqual([{ pid: NO_SUCH_PID, started: at }])
+          rows = [row(leader, 1, at)]
+          yield* ledger.track
+          expect(onDisk(path)[leader]?.members).toEqual([])
+        }),
+      )
+    }),
+  )
+
+  it.effect('an entry forgotten while its tree is being read stays forgotten', () =>
+    Effect.gen(function* () {
+      const path = freshPath()
+      const leader = sleeper()
+      const at = yield* startOf(leader)
+      let duringRead = (): Effect.Effect<void> => Effect.void
+      const table = fakeTable(() => [row(leader, 1, at), row(NO_SUCH_PID, leader, at)], () => duringRead())
+      yield* withLedger(path, { processTable: table }, (ledger) =>
+        Effect.gen(function* () {
+          yield* ledger.record(leader, '/bin/sleep', '30')
+          duringRead = () => ledger.forget(leader)
+          yield* ledger.track
+          expect(onDisk(path)).toEqual({})
+        }),
+      )
+    }),
+  )
+
   it.effect('drops entries from before the last boot without killing anything', () =>
     Effect.gen(function* () {
       const path = freshPath()
@@ -222,6 +248,19 @@ describe('ProcessLedger', () => {
       expect(yield* reap(path, { bootTime: at + 1_000 })).toBe(0)
       expect(alive(server)).toBe(true)
       expect(onDisk(path)).toEqual({})
+    }),
+  )
+
+  it.effect('still reaps the members of an entry whose own start time is unknown', () =>
+    Effect.gen(function* () {
+      const path = freshPath()
+      const member = sleeper()
+      const at = yield* startOf(member)
+      writeFileSync(path, JSON.stringify({ [NO_SUCH_PID]: entry({ command: '/bin/sh', started: 0, members: [{ pid: member, started: at }] }) }))
+      // An unknown start time says nothing about the boot, so the entry is not dropped for it.
+      expect(yield* reap(path, { bootTime: at - 1_000 })).toBe(1)
+      for (let i = 0; i < 50 && alive(member); i += 1) yield* Effect.sleep('20 millis')
+      expect(alive(member)).toBe(false)
     }),
   )
 
@@ -243,14 +282,7 @@ describe('ProcessLedger', () => {
       yield* withLedger(path, {}, (ledger) => ledger.record(server, '/bin/sleep', '30'))
       expect(onDisk(path)).toEqual({
         5001: { command: 'codex', arg: 'app-server', started: 0, owner: NO_SUCH_PID, ownerStarted: 0, members: [] },
-        [server]: {
-          command: '/bin/sleep',
-          arg: '30',
-          started: yield* startOf(server),
-          owner: process.pid,
-          ownerStarted: yield* startOf(process.pid),
-          members: [],
-        },
+        [server]: { command: '/bin/sleep', arg: '30', started: yield* startOf(server), owner: process.pid, ownerStarted: yield* startOf(process.pid), members: [] },
       })
     }),
   )
@@ -272,18 +304,8 @@ describe('ProcessLedger', () => {
 
   it.effect('treats corrupt or old-format JSON as empty and rewrites it', () =>
     Effect.gen(function* () {
-      const oldFormat = {
-        binary: 'codex',
-        arg: 'app-server',
-        started: 'Thu Nov 12 14:39:47 2026',
-        owner: 1,
-        ownerStarted: '',
-      }
-      for (const corrupt of [
-        '{not json',
-        JSON.stringify({ 4242: 'codex app-server' }),
-        JSON.stringify({ 4242: oldFormat }),
-      ]) {
+      const oldFormat = { binary: 'codex', arg: 'app-server', started: 'Thu Nov 12 14:39:47 2026', owner: 1, ownerStarted: '' }
+      for (const corrupt of ['{not json', JSON.stringify({ 4242: 'codex app-server' }), JSON.stringify({ 4242: oldFormat })]) {
         const path = freshPath()
         writeFileSync(path, corrupt)
         yield* withLedger(path, { owner: NO_SUCH_PID }, (ledger) =>
@@ -297,7 +319,5 @@ describe('ProcessLedger', () => {
     }),
   )
 
-  it.effect('reaps nothing without a ledger file', () =>
-    reap(freshPath()).pipe(Effect.map((killed) => expect(killed).toBe(0))),
-  )
+  it.effect('reaps nothing without a ledger file', () => reap(freshPath()).pipe(Effect.map((killed) => expect(killed).toBe(0))))
 })
