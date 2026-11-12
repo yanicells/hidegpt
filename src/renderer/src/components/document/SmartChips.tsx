@@ -1,15 +1,17 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 
+import { skillDescription, skillLabel } from '../../../../shared/labels'
 import type { Skill } from '../../../../shared/model'
 
 /** A skill attached to a question, drawn like a Docs smart chip. */
 export function SkillChip({ name, onRemove }: { name: string; onRemove?: () => void }) {
+  const label = skillLabel(name)
   return (
     <span className="smart-chip" data-testid={`chip-skill-${name}`}>
       <ChipIcon />
-      <span>{name}</span>
+      <span>{label}</span>
       {onRemove ? (
-        <button type="button" className="smart-chip-remove" aria-label={`Remove ${name}`} onClick={onRemove}>
+        <button type="button" className="smart-chip-remove" aria-label={`Remove ${label}`} onClick={onRemove}>
           ×
         </button>
       ) : null}
@@ -62,8 +64,8 @@ export function SkillMenu({
         >
           <ChipIcon />
           <span className="chip-menu-text">
-            <span className="chip-menu-name">{skill.name}</span>
-            {skill.description ? <span className="chip-menu-desc">{skill.description}</span> : null}
+            <span className="chip-menu-name">{skillLabel(skill.name)}</span>
+            <SkillDescription text={skill.description} />
           </span>
         </button>
       ))}
@@ -80,4 +82,10 @@ function ChipIcon() {
       />
     </svg>
   )
+}
+
+/** A skill's description in the menu, left out when it has no Docs wording (see `skillDescription`). */
+function SkillDescription({ text }: { text: string }) {
+  const shown = skillDescription(text)
+  return shown ? <span className="chip-menu-desc">{shown}</span> : null
 }
