@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -12,10 +12,10 @@ import { ProcessSupervisor, layer } from './ProcessSupervisor'
 const dir = mkdtempSync(join(tmpdir(), 'hidegpt-supervisor-'))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
-const withSupervisor = <A, E>(use: (supervisor: ProcessSupervisor['Service']) => Effect.Effect<A, E>) =>
+const withSupervisor = <A, E>(use: (supervisor: ProcessSupervisor['Service']) => Effect.Effect<A, E>, ledgerPath: string | null = null) =>
   Effect.gen(function* () {
     return yield* use(yield* ProcessSupervisor)
-  }).pipe(Effect.provide(layer(null)), Effect.provide(NodeServices.layer))
+  }).pipe(Effect.provide(layer(ledgerPath)), Effect.provide(NodeServices.layer))
 
 describe('ProcessSupervisor', () => {
   it.effect('reports a command that is not on PATH as not installed', () =>
@@ -94,6 +94,32 @@ describe('ProcessSupervisor.callbackSpawner', () => {
         }),
       ),
     ),
+  )
+
+  it.live('records the full command path and start time, so another app’s copy of the CLI never matches', () =>
+    Effect.gen(function* () {
+      const ledgerPath = join(dir, 'callback-ledger.json')
+      const entries = () => JSON.parse(readFileSync(ledgerPath, 'utf8')) as Record<string, { command: string; arg: string; started: string }>
+      yield* withSupervisor(
+        (supervisor) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              const spawn = yield* supervisor.callbackSpawner
+              const pid = spawn({ command: '/bin/sleep', args: ['30'], env: {} }).pid ?? 0
+              yield* until(() => {
+                try {
+                  return entries()[pid]?.command === '/bin/sleep'
+                } catch {
+                  return false
+                }
+              })
+              expect(entries()[pid]).toMatchObject({ arg: '30', started: expect.stringMatching(/\d{4}$/) })
+            }),
+          ),
+        ledgerPath,
+      )
+      yield* until(() => Object.keys(entries()).length === 0)
+    }),
   )
 
   it.live('runs each child in its own group and kills the whole group when the scope closes', () =>

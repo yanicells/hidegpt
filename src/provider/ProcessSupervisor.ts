@@ -1,5 +1,4 @@
 import { spawn as spawnChild, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { basename } from 'node:path'
 
 import * as Context from 'effect/Context'
 import * as Duration from 'effect/Duration'
@@ -130,7 +129,7 @@ const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledge
               }),
         ),
       )
-      yield* Effect.acquireRelease(ledger.record(handle.pid, basename(options.command), options.args[0] ?? ''), () =>
+      yield* Effect.acquireRelease(ledger.record(handle.pid, options.command, options.args[0] ?? ''), () =>
         ledger.forget(handle.pid),
       )
 
@@ -182,6 +181,9 @@ const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledge
         })
         // Always drained, so a chatty CLI never blocks on a full stderr pipe.
         child.stderr.setEncoding('utf8').on('data', (text: string) => options.onStderr?.(text))
+        // A failed spawn or an aborted `signal` emits "error"; the caller learns of it from the
+        // exit (or listens itself), and an unheard "error" would crash main.
+        child.on('error', () => {})
         const pid = child.pid
         // A spawn that fails has no pid and emits only "error", which the SDK reports.
         if (pid === undefined) return child
@@ -190,7 +192,8 @@ const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledge
           return child
         }
         running.set(child, pid)
-        const recorded = Effect.runFork(ledger.record(pid, basename(options.command), options.args[0] ?? ''))
+        // The full command path, so another app's copy of the same CLI never matches.
+        const recorded = Effect.runFork(ledger.record(pid, options.command, options.args[0] ?? ''))
         child.once('exit', () => {
           running.delete(child)
           signalGroup(pid, 'SIGKILL')
