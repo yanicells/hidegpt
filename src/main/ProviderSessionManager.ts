@@ -201,12 +201,15 @@ export const make = (options: ManagerOptions) =>
         Effect.retry({ schedule: RESTART_SCHEDULE, while: endsConnection }),
         Effect.tap((error) => update((current) => S.connectionLost(current, id, error.message))),
         Effect.forever,
-        // Anything else, a defect included, leaves the library in error until Tools → Refresh.
-        Effect.catchCause((cause) =>
-          Cause.hasInterrupts(cause)
-            ? Effect.interrupt
-            : updateLibrary(id, (lib) => ({ ...lib, status: 'error', error: userMessage(Cause.squash(cause)), opening: null })),
-        ),
+        // Anything else, a defect included, leaves the library in error; the next command or
+        // library switch connects it again. The shown document is marked stale either way.
+        Effect.catchCause((cause) => {
+          if (Cause.hasInterrupts(cause)) return Effect.interrupt
+          const error = userMessage(Cause.squash(cause))
+          return update((current) => S.connectionLost(current, id, error)).pipe(
+            Effect.andThen(updateLibrary(id, (lib) => ({ ...lib, status: 'error', error, opening: null }))),
+          )
+        }),
       )
 
     /** After a (re)connect the document on screen reloads from the provider. */

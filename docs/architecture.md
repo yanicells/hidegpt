@@ -126,7 +126,7 @@ Rules it enforces:
 - **Approvals** belong to their thread runtime. An approval that arrives while you're on Home waits in that document, and the provider waits too. A reply that fails, or that the server rejects, leaves the approval open and shows the error.
 - **Stopping** shows "Stopping…" until the turn's terminal event. After 10 s it settles anyway, so a lost turn end never traps the document.
 - **Errors never replace the whole UI.** A connection failure shows a banner with Refresh. Home and the other libraries keep working.
-- **Defects don't freeze a connection** (T3's `catchCause` pattern). A defect while applying events ends the session like a crash, so it restarts; one anywhere else in supervision, or a provider chunk that fails to load, leaves that library in error with the message.
+- **Defects don't freeze a connection** (T3's `catchCause` pattern). A defect while applying events ends the session like a crash, so it restarts; one anywhere else in supervision, or a provider chunk that fails to load, leaves that library in error with the message (and the shown document stale) until the next command or library switch connects it again.
 
 ## 5. Processes (`src/provider/ProcessSupervisor.ts`)
 
