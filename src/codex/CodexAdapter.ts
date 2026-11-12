@@ -588,6 +588,13 @@ export function toAccount(account: Account): AccountSummary | null {
   return { kind: 'other', label: 'Account' }
 }
 
+/**
+ * Options for the vendored client. It can log every JSON-RPC frame at Debug,
+ * and main's log file keeps Debug lines, but frames hold prompts and answers.
+ * Never turn these on.
+ */
+export const CLIENT_OPTIONS = { logIncoming: false, logOutgoing: false } as const satisfies CodexClient.CodexAppServerClientOptions
+
 /** The real backend: `codex app-server`, spawned under the process supervisor. */
 export const spawnAppServer = (supervisor: ProcessSupervisor['Service']): Connect =>
   Effect.gen(function* () {
@@ -596,6 +603,6 @@ export const spawnAppServer = (supervisor: ProcessSupervisor['Service']): Connec
       command: globalThis.process.env.CODEX_BIN || 'codex',
       args: ['app-server'],
     })
-    const context = yield* Layer.build(CodexClient.layerChildProcess(process.handle))
+    const context = yield* Layer.build(CodexClient.layerChildProcess(process.handle, CLIENT_OPTIONS))
     return Context.get(context, CodexClient.CodexAppServerClient)
   })
