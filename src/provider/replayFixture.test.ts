@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { leaks, type RecordingMachine, scrub, turnsAllowed } from './replayFixture'
+import { leaks, type RecordingMachine, recordNames, scrub, turnsAllowed } from './replayFixture'
 
 const MACHINE: RecordingMachine = {
   home: '/Users/ada',
@@ -78,6 +78,16 @@ describe('replay fixtures', () => {
     const text = '{"email":"replay-user@example.com","cwd":"/tmp/replay-workspace","host":"replay-host","key":"<redacted>"}'
     expect(leaks(text, machine)).toEqual([])
     expect(scrub(text, machine)).toBe(text)
+  })
+
+  it('HIDEGPT_RECORD_NAMES adds names to scrub and to check', () => {
+    const names = recordNames({ HIDEGPT_RECORD_NAMES: ' Ada Lovelace , Analytical Engines,,' })
+    expect(names).toEqual(['Ada Lovelace', 'Analytical Engines'])
+    expect(recordNames({})).toEqual([])
+    const machine: RecordingMachine = { home: '', people: names, hosts: [], scratch: [] }
+    const text = 'Ada Lovelace works at analytical engines'
+    expect(leaks(text, machine)).toEqual(['analytical engines', 'Ada Lovelace'])
+    expect(scrub(text, machine)).toBe('replay-user works at replay-user')
   })
 
   // Names are per machine (a CI runner is called "runner"), so the recorders check those;
