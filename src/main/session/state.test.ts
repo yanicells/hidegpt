@@ -36,6 +36,23 @@ const runtime = (state: S.State, provider: 'codex' | 'opencode', threadId: strin
   state.runtimes.get(S.keyOf(provider, threadId))
 
 describe('session state', () => {
+  it('shows the signed-in address for a library that reports no account', () => {
+    let state = S.initialState('opencode', () => '/tmp/docs')
+    expect(S.toSnapshot(state).account).toBeNull()
+    const account = { kind: 'chatgpt', label: 'yan@school.edu' } as const
+    state = {
+      ...state,
+      libraries: {
+        ...state.libraries,
+        codex: { ...state.libraries.codex, catalog: { ...state.libraries.codex.catalog, account } },
+      },
+    }
+    expect(S.toSnapshot(state).account).toBe(account)
+    expect(S.toSnapshot({ ...state, active: 'claude' }).account).toBeNull()
+    const noAddress = { ...state.libraries.codex, catalog: { ...state.libraries.codex.catalog, account: { kind: 'chatgpt', label: 'ChatGPT' } as const } }
+    expect(S.toSnapshot({ ...state, libraries: { ...state.libraries, codex: noAddress } }).account).toBeNull()
+  })
+
   it('keeps the document a background library shows, so switching back is not blank', () => {
     const state = twoLibraries()
     const idle = S.idleRuntimes(state, 2 * 60 * 60_000, 30 * 60_000, 12)

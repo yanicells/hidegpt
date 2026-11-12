@@ -1,6 +1,7 @@
 import { appendText, openApprovals, updateApproval, upsertBlock } from '../../shared/blocks'
 import { CAPABILITIES, HOME, NO_BLOCKS } from '../../shared/model'
-import type { Block, DocSummary, ProviderId, Route, Skill, Snapshot } from '../../shared/model'
+import { accountAddress } from '../../shared/labels'
+import type { AccountSummary, Block, DocSummary, ProviderId, Route, Skill, Snapshot } from '../../shared/model'
 import { EMPTY_CATALOG, type Catalog, type OpenedThread, type ThreadEvent, type TurnSettings } from '../../provider/ProviderAdapter'
 
 /**
@@ -97,6 +98,21 @@ export function isDisplayed(state: State, runtime: ThreadRuntime): boolean {
   return route.kind === 'doc' && route.threadId === runtime.threadId
 }
 
+/** Libraries with no account of their own. Claude reports one after it loads, so it never borrows. */
+const HAS_NO_ACCOUNT: ReadonlySet<ProviderId> = new Set(['opencode'])
+
+/**
+ * A library that reports no account (OpenCode) shows the first library account
+ * that has a real address, the way one Google session covers every Docs tab.
+ * Returns that library's own object, so the reference stays stable across patches.
+ */
+function borrowedAccount(state: State): AccountSummary | null {
+  for (const library of Object.values(state.libraries)) {
+    if (accountAddress(library.catalog.account)) return library.catalog.account
+  }
+  return null
+}
+
 /** What the window draws. Unchanged parts keep their references, so patches stay small. */
 export function toSnapshot(state: State): Snapshot {
   const lib = state.libraries[state.active]
@@ -106,7 +122,7 @@ export function toSnapshot(state: State): Snapshot {
     capabilities: CAPABILITIES[lib.id],
     status: lib.status,
     error: lib.error,
-    account: lib.catalog.account,
+    account: lib.catalog.account ?? (HAS_NO_ACCOUNT.has(lib.id) ? borrowedAccount(state) : null),
     requiresAuth: lib.catalog.requiresAuth,
     loginUrl: lib.loginUrl,
     models: lib.catalog.models,
