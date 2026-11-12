@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import type { Block } from '../../../../codex/blocks'
+import type { Block } from '../../../../shared/model'
 import { ChevronIcon } from '../ui/Icons'
 import { imageSrc } from '../ui/imageSrc'
 import { AgentMarkdown } from '../ui/Markdown'

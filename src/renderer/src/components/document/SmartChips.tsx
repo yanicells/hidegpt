@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 
-import type { Skill } from '../../../../codex/types'
+import type { Skill } from '../../../../shared/model'
 
 /** A skill attached to a question, drawn like a Docs smart chip. */
 export function SkillChip({ name, onRemove }: { name: string; onRemove?: () => void }) {
@@ -24,7 +24,7 @@ export function SkillMenu({
   onPick,
   onHover,
 }: {
-  skills: Skill[]
+  skills: ReadonlyArray<Skill>
   active: number
   onPick: (name: string) => void
   onHover: (index: number) => void

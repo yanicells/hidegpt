@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import type { Block } from '../../../../codex/blocks'
+import type { UserBlock } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
 import { BackIcon, KebabIcon, PlusMonoIcon, TabDocIcon } from '../ui/Icons'
 
@@ -9,7 +9,7 @@ export function Tabs({
   onNew,
   onJump,
 }: {
-  questions: Extract<Block, { kind: 'user' }>[]
+  questions: ReadonlyArray<UserBlock>
   onNew: () => void
   onJump: (id: string) => void
 }) {

@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
-import { PROVIDERS, providerLabel } from '../../../../codex/labels'
-import type { Snapshot } from '../../../../codex/types'
+import { PROVIDERS, providerLabel } from '../../../../shared/labels'
+import type { Snapshot } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
 import { ChevronIcon, PenIcon } from '../ui/Icons'
 import { MIcon, type MaterialIconName } from '../ui/MaterialIcon'
@@ -11,8 +11,8 @@ import { openImagePicker } from './Composer'
 
 export function Toolbar({ snap }: { snap: Snapshot }) {
   const [menu, setMenu] = useState<MenuId>(null)
-  const model = snap.models.find((item) => item.model === snap.model)
-  const efforts = model?.supportedReasoningEfforts ?? []
+  const model = snap.models.find((item) => item.id === snap.model)
+  const efforts = model?.efforts ?? []
   const tiers = model?.serviceTiers ?? []
   const toggle = (id: MenuId) => setMenu(menu === id ? null : id)
 
@@ -36,10 +36,10 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
           searchable
           searchPlaceholder="Search models"
           items={snap.models.map((item) => ({
-            id: item.model,
-            label: item.displayName,
-            checked: item.model === snap.model,
-            run: () => dispatch({ op: 'setModel', model: item.model }),
+            id: item.id,
+            label: item.label,
+            checked: item.id === snap.model,
+            run: () => dispatch({ op: 'setModel', model: item.id }),
           }))}
           onClose={() => setMenu(null)}
         />
@@ -51,11 +51,11 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
               label="Arial"
               open={menu === 'effort'}
               onClick={() => toggle('effort')}
-              items={efforts.map((item) => ({
-                id: item.reasoningEffort,
-                label: capitalize(item.reasoningEffort),
-                checked: item.reasoningEffort === snap.effort,
-                run: () => dispatch({ op: 'setEffort', effort: item.reasoningEffort }),
+              items={efforts.map((effort) => ({
+                id: effort,
+                label: capitalize(effort),
+                checked: effort === (snap.effort ?? model?.defaultEffort),
+                run: () => dispatch({ op: 'setEffort', effort }),
               }))}
               onClose={() => setMenu(null)}
             />
@@ -155,10 +155,10 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
               align="end"
               onClick={() => toggle('mode')}
               items={snap.collaborationModes.map((item) => ({
-                id: item.name,
-                label: item.name,
-                checked: item.name === snap.collaborationMode,
-                run: () => dispatch({ op: 'setCollaborationMode', name: item.name }),
+                id: item.id,
+                label: item.label,
+                checked: item.id === snap.collaborationMode,
+                run: () => dispatch({ op: 'setCollaborationMode', name: item.id }),
               }))}
               onClose={() => setMenu(null)}
             />

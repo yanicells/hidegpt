@@ -1,43 +1,16 @@
-import type { Provider, Snapshot } from '../codex/types'
-import type { SnapshotPatch } from './snapshot-patch'
+import type { Command, CommandResult, MenuAction, Snapshot, SnapshotPatch } from './contracts'
 
-export type NewDocumentOptions = { projectId?: string | null; cwd?: string; title?: string }
+export type { Command, CommandResult, MenuAction, SnapshotPatch } from './contracts'
 
-export type Command =
-  | ({ op: 'newDocument' } & NewDocumentOptions)
-  | { op: 'createProject'; name: string; cwd: string }
-  | { op: 'openThread'; threadId: string }
-  | { op: 'goHome' }
-  | { op: 'send'; text: string; skill?: string; images?: string[] }
-  | { op: 'interrupt' }
-  | { op: 'login' }
-  | { op: 'logout' }
-  | { op: 'connectMcp'; name: string }
-  | { op: 'setSearch'; value: string }
-  | { op: 'applySearch' }
-  | { op: 'setModel'; model: string }
-  | { op: 'setEffort'; effort: string }
-  | { op: 'setServiceTier'; serviceTier: string | null }
-  | { op: 'setCollaborationMode'; name: string }
-  | { op: 'openFolder' }
-  | { op: 'loadOlderTurns' }
-  | { op: 'resolveApproval'; blockId: string; accept: boolean }
-  | { op: 'setApprovalDraft'; blockId: string; key: string; value: string }
-  | { op: 'setDocumentName'; name: string }
-  | { op: 'setProvider'; provider: Provider; home?: boolean }
-  | { op: 'refresh' }
-
-/** Extras a message can carry besides its text. */
-export type SendExtras = { skill?: string; images?: string[] }
-
-export type MenuAction = 'rename' | 'grid' | 'list' | 'newDocument' | 'goHome' | 'focusSearch'
-
+/** The `window.hidegpt` bridge the preload script exposes. */
 export type HideGptApi = {
+  /** The whole current snapshot; read once at startup, then patches follow. */
   getSnapshot: () => Snapshot
   /** Live updates arrive as patches against the last snapshot. */
   onSnapshot: (handler: (patch: SnapshotPatch) => void) => () => void
   onMenu: (handler: (action: MenuAction) => void) => () => void
-  dispatch: (command: Command) => Promise<void>
+  /** Settles with the command's result; a failure carries a message to show. */
+  dispatch: (command: Command) => Promise<CommandResult>
   pickDirectory: () => Promise<string | null>
   /** Stores pasted image bytes on disk and returns the file path to attach. */
   saveImage: (bytes: Uint8Array, mime: string) => Promise<string>

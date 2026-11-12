@@ -1,7 +1,7 @@
 import { useRef, useState, type KeyboardEvent } from 'react'
 
-import { displayServerName, PROVIDERS, providerLabel, toolsNeedingConnect } from '../../../../codex/labels'
-import type { Snapshot } from '../../../../codex/types'
+import { displayServerName, PROVIDERS, providerLabel, toolsNeedingConnect } from '../../../../shared/labels'
+import type { Snapshot } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
 import { MenuPanel, useDismiss, type Item, type MenuId } from '../ui/MenuPanel'
 import { openImagePicker, startSmartChip } from './Composer'
@@ -64,7 +64,7 @@ export function DocMenus({
         checked: snap.provider === provider,
         run: () => dispatch({ op: 'setProvider', provider }),
       })),
-      ...toolsNeedingConnect(snap.mcpServers).map((server) => ({
+      ...(snap.capabilities.connectTools ? toolsNeedingConnect(snap.mcpServers) : []).map((server) => ({
         id: `mcp-${server.name}`,
         label: `Connect ${displayServerName(server.name)}`,
         run: () => dispatch({ op: 'connectMcp', name: server.name }),

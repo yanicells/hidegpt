@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type UIEvent } from 'react'
 
-import type { Snapshot } from '../../../../codex/types'
+import type { Snapshot } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
 import { BlockView } from './BlockView'
 import { Composer } from './Composer'
@@ -18,7 +18,7 @@ export function Document({
   const threadId = snap.route.kind === 'doc' ? snap.route.threadId : ''
   const visibleBlocks = outputOnly
     ? snap.blocks.filter(
-        (block) => block.kind !== 'callout' && !(block.kind === 'agent' && block.phase === 'commentary'),
+        (block) => block.kind !== 'callout' && !(block.kind === 'agent' && block.commentary),
       )
     : snap.blocks
   const lastBlock = visibleBlocks[visibleBlocks.length - 1]
@@ -85,7 +85,7 @@ export function Document({
         <div className="paper-col">
           <Ruler />
           <article className="paper">
-            {snap.olderTurnsCursor ? (
+            {snap.hasOlder ? (
               <button
                 type="button"
                 className="load-older"
@@ -116,9 +116,16 @@ export function Document({
       </div>
       {snap.streaming ? (
         <div className="stop-wrap">
-          <button type="button" className="stop" data-testid="stop-turn" onClick={() => dispatch({ op: 'interrupt' })}>
+          {/* Stays "Stopping…" from the click until the turn really ends. */}
+          <button
+            type="button"
+            className="stop"
+            data-testid="stop-turn"
+            disabled={snap.stopping}
+            onClick={() => dispatch({ op: 'interrupt' })}
+          >
             <span className="stop-square" aria-hidden="true" />
-            Stop
+            {snap.stopping ? 'Stopping…' : 'Stop'}
           </button>
         </div>
       ) : null}
