@@ -99,13 +99,28 @@ pnpm fidelity:shots                    # core and states (about 2 minutes) -> sc
 pnpm fidelity:shots --phase motion     # or any comma-separated list; --no-build reuses out/
 pnpm fidelity:check                    # every metric in scripts/fidelity/targets.json
 pnpm fidelity:check --failing --only toolbar
-pnpm fidelity:diff before/ after/      # zero differing pixels, or the screens that changed
 ```
+
+To prove a change moves no pixels (or only the ones it should), capture both
+sides into their own directories and compare them:
+
+```sh
+git switch main && pnpm fidelity:shots --out tmp/before
+git switch my-branch && pnpm fidelity:shots --out tmp/after
+pnpm fidelity:diff tmp/before tmp/after     # "137 identical", or each screen that changed
+pnpm fidelity:diff tmp/before tmp/after --out tmp/overlays   # red overlays of the changes
+```
+
+A phase still running after `--timeout` seconds (600 by default) is killed, as
+is every phase on Ctrl-C.
 
 Captures are 2x PNGs with a JSON dump beside each: element boxes, computed fonts
 and colours, the faces Chromium actually drew, and the selectors `targets.json`
-probes. The clock, time zone, locale and colour scheme are pinned, so two runs on
-the same commit are pixel-identical. Targets hold the Google Docs values from the
+probes. The clock, time zone, locale and colour scheme are pinned, and pages are
+rastered on the CPU (GPU raster antialiases icons slightly differently each run),
+so two runs on the same commit are pixel-identical. CPU and GPU raster draw page
+text identically; icon edges can differ by a level or two from what the app shows
+on screen. Targets hold the Google Docs values from the
 UI audit. A selector may change when markup changes; a target value may not.
 
 The check and diff tools are Python. With [uv](https://docs.astral.sh/uv/)
