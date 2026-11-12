@@ -164,8 +164,10 @@ export const make = (options: ManagerOptions) =>
               Effect.andThen(Effect.forEach(['all', 'docs', 'skills', 'catalog'], (part) => FiberMap.remove(refreshes, `${id}:${part}`), { discard: true })),
             ),
           )
-          // A defect while applying an event ends the session like a crash (T3 Code's
-          // catchCause pattern), so it restarts instead of looking connected but frozen.
+          // A defect while applying an event ends the session like a crash, so it restarts
+          // instead of looking connected but frozen.
+          // Adapted from T3 Code (packages/provider-opencode/src/server/adapter.ts) at commit 8a14762c.
+          // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
           const pump = yield* session.events.pipe(
             Stream.runForEach(onEvent(id)),
             Effect.andThen(Effect.never),

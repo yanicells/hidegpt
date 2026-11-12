@@ -59,6 +59,11 @@ import {
  * prompt queue (T3 Code's streaming-input pattern). It starts on the first
  * send, settles its turn on the `result` frame, and settles it as failed if
  * Claude Code exits first; the next send then resumes the transcript.
+ *
+ * The streaming-input query per document, the probe and the approval bridge are
+ * adapted from T3 Code (apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts
+ * and apps/server/src/provider/ClaudeProvider.ts) at commit 8a14762c.
+ * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
  */
 
 /** The SDK functions the adapter uses; tests and demo mode pass an in-process fake. */
@@ -192,7 +197,11 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
 
       // ---- probe ------------------------------------------------------------------
 
-      /** Starts Claude Code just long enough to read its models, commands and login. */
+      /**
+       * Starts Claude Code just long enough to read its models, commands and login.
+       * Adapted from T3 Code (apps/server/src/provider/ClaudeProvider.ts) at commit 8a14762c.
+       * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+       */
       const probe = (cwd: string) =>
         Effect.acquireUseRelease(
           Effect.sync(() => {
@@ -202,7 +211,7 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
               options: {
                 cwd,
                 abortController: abort,
-                // Adapted from T3 Code's capabilities probe: no tools, hooks or MCP servers start.
+                // As in T3 Code's capabilities probe: no tools, hooks or MCP servers start.
                 allowedTools: [],
                 mcpServers: {},
                 strictMcpConfig: true,
@@ -247,7 +256,11 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
 
       const deny = (message: string): PermissionResult => ({ behavior: 'deny', message })
 
-      /** Bridges `canUseTool` to an approval block (T3 Code's Deferred-per-request pattern). */
+      /**
+       * Bridges `canUseTool` to an approval block, one Deferred per request.
+       * Adapted from T3 Code (apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts) at commit 8a14762c.
+       * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+       */
       const askPermission = (threadId: string, tool: string, input: Record<string, unknown>, options: Parameters<CanUseTool>[2]) => {
         const id = permissionBlockId(options.toolUseID)
         return Effect.gen(function* () {
