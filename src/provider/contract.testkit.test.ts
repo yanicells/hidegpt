@@ -67,6 +67,9 @@ describe('contractViolations', () => {
     expect(contractViolations([started('t1'), upserted('t0'), ended('t1')], opened)).toEqual([
       'a1 stamped t0 while t1 was open',
     ])
+    expect(contractViolations([started('t1'), ended('t1'), upserted('t1')], opened)).toEqual([
+      'a1 stamped t1 while no turn was open',
+    ])
     expect(contractViolations([upserted(null), delta()], opened)).toEqual(['a1 streamed with no turn open'])
     expect(contractViolations([started('t1'), delta(), ended('t1')], opened)).toEqual([
       'a1 streamed before it was announced',
