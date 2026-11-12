@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn as spawnChild } from 'node:child_process'
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,7 +8,12 @@ import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
+import * as PlatformError from 'effect/PlatformError'
+import { ChildProcessSpawner } from 'effect/process'
+import * as Sink from 'effect/Sink'
+import * as Stream from 'effect/Stream'
 
+import { captureReports } from './observed.testkit'
 import { DEFAULT_TIMING, ProcessSupervisor, layer, type SupervisorTiming } from './ProcessSupervisor'
 
 /** Real processes: the supervisor's job is the boundary with the OS, so nothing here is faked. */
@@ -124,6 +129,62 @@ describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
     }),
   )
 
+  it.live('reports nothing when the server exits on its own before the scope closes', () => {
+    const { layer: logs, reported } = captureReports()
+    return withSupervisor((supervisor) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const child = yield* supervisor.spawn({ provider: 'codex', command: '/bin/sh', args: ['-c', 'exit 0'] })
+          yield* Effect.exit(child.awaitExit)
+        }),
+      ),
+    ).pipe(
+      Effect.provide(logs),
+      Effect.map(() => expect(reported()).toEqual([])),
+    )
+  })
+
+  it.live('reports a kill that fails on a server still running, and keeps its record for the next launch', () => {
+    const { layer: logs, reported } = captureReports()
+    const ledgerPath = join(dir, 'failed-kill-ledger.json')
+    // A real process, so the ledger can read its start time; this test stops it.
+    const server = spawnChild('/bin/sleep', ['30'])
+    const pid = server.pid ?? 0
+    daemons.push(pid)
+    const denied = PlatformError.systemError({ _tag: 'PermissionDenied', module: 'ChildProcess', method: 'kill' })
+    const spawner = ChildProcessSpawner.make(() =>
+      Effect.succeed(
+        ChildProcessSpawner.makeHandle({
+          pid: ChildProcessSpawner.ProcessId(pid),
+          exitCode: Effect.never,
+          isRunning: Effect.succeed(true),
+          kill: () => Effect.fail(denied),
+          stdin: Sink.drain,
+          stdout: Stream.empty,
+          stderr: Stream.empty,
+          all: Stream.empty,
+          getInputFd: () => Sink.drain,
+          getOutputFd: () => Stream.empty,
+          unref: Effect.succeed(Effect.void),
+        }),
+      ),
+    )
+    return Effect.gen(function* () {
+      const supervisor = yield* ProcessSupervisor
+      yield* Effect.scoped(supervisor.spawn({ provider: 'codex', command: '/bin/sleep', args: ['30'] }))
+      expect(reported().map(({ where }) => where)).toEqual(['supervisor.kill'])
+      expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))[pid]).toMatchObject({ command: '/bin/sleep' })
+    }).pipe(
+      Effect.provide(
+        layer(ledgerPath, UNHURRIED).pipe(
+          Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner)),
+          Layer.provideMerge(NodeServices.layer),
+        ),
+      ),
+      Effect.provide(logs),
+    )
+  })
+
   it.live('ends with the exit code and the last stderr line, even when it lands after the exit', () =>
     withSupervisor((supervisor) =>
       Effect.scoped(
@@ -238,6 +299,61 @@ describe('ProcessSupervisor.callbackSpawner', { timeout: PROCESS_TEST_TIMEOUT },
         ledgerPath,
       )
       // The scope waits for the record to go, so a quit never leaves one behind.
+      expect(entries()).toEqual({})
+    }),
+  )
+
+  it.live('logs a ledger write failure in the spawn callback to the app’s logger, as a warning, not a defect', () => {
+    const { layer: logs, reported, warned } = captureReports()
+    const saveFailed = () => warned().some(({ annotations }) => annotations.where === 'ledger.save')
+    return withSupervisor(
+      (supervisor) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const spawn = yield* supervisor.callbackSpawner
+            spawn({ command: '/bin/sleep', args: ['30'], env: {} })
+            yield* until(saveFailed)
+          }),
+        ),
+      // Not a folder, so every ledger write fails.
+      '/dev/null/ledger.json',
+    ).pipe(
+      Effect.provide(logs),
+      Effect.map(() => {
+        expect(warned().find(({ annotations }) => annotations.where === 'ledger.save')?.annotations).toMatchObject({
+          error: 'PlatformError',
+          reason: expect.any(String),
+        })
+        expect(JSON.stringify(warned())).not.toContain('/dev/null')
+        expect(reported()).toEqual([])
+      }),
+    )
+  })
+
+  it.live('leaves no record when the scope closes while records and stops are still landing', () =>
+    Effect.gen(function* () {
+      const ledgerPath = join(dir, 'closing-ledger.json')
+      const entries = () => {
+        try {
+          return JSON.parse(readFileSync(ledgerPath, 'utf8')) as Record<string, unknown>
+        } catch {
+          return {}
+        }
+      }
+      yield* withSupervisor(
+        (supervisor) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              const spawn = yield* supervisor.callbackSpawner
+              // One CLI that exits at once (its stop is forked from the exit), and one still running
+              // whose record is still being written as the scope closes.
+              const quick = spawn({ command: '/bin/sh', args: ['-c', 'exit 0'], env: {} })
+              yield* Effect.callback<void>((resume) => void quick.once('exit', () => resume(Effect.void)))
+              spawn({ command: '/bin/sleep', args: ['30'], env: {} })
+            }),
+          ),
+        ledgerPath,
+      )
       expect(entries()).toEqual({})
     }),
   )

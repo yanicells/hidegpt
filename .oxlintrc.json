@@ -15,6 +15,8 @@
     "src/vendor/effect-codex-app-server/test/codex-app-server-mock-peer.ts"
   ],
   "plugins": ["eslint", "oxc", "react", "unicorn", "typescript"],
+  // HideGPT's own rules (tools/oxlint-plugin-hidegpt), loaded as T3 Code loads its plugin.
+  "jsPlugins": ["./tools/oxlint-plugin-hidegpt/index.ts"],
   "categories": {
     "correctness": "warn",
     "suspicious": "warn",
@@ -80,13 +82,42 @@
     "typescript/unbound-method": "off",
     // ~10 s per run under type-aware linting, and HideGPT declares no enums.
     "typescript/no-unsafe-enum-assignment": "off",
-    "typescript/no-floating-promises": "error"
+    "typescript/no-floating-promises": "error",
+    // Work nobody awaits goes through src/provider/observed.ts; see "Background work" in docs/architecture.md.
+    "hidegpt/no-unobserved-effect": "error"
   },
   "overrides": [
     {
       // Vendored from T3 Code, which lints it without type information.
       "files": ["src/vendor/**"],
       "rules": { "typescript/no-misused-spread": "off" }
+    },
+    {
+      // The helpers themselves, and code that is not the running app: tests, fakes, scripts, the
+      // lint plugin, and vendored code.
+      "files": [
+        "src/provider/observed.ts",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "src/**/Fake*.ts",
+        "scripts/**",
+        "tools/**",
+        "src/vendor/**"
+      ],
+      "rules": { "hidegpt/no-unobserved-effect": "off" }
+    },
+    {
+      // Temporary: files an in-flight package owns. Each package converts its file's sites and
+      // removes its own line; the list should be empty once they land.
+      "files": [
+        "src/main/ProviderSessionManager.ts", // ARCH-3 (turn controller)
+        "src/codex/CodexAdapter.ts", // ARCH-4a (Codex adapter)
+        "src/claude/ClaudeAdapter.ts", // ARCH-4b (Claude adapter)
+        "src/opencode/OpenCodeAdapter.ts", // ARCH-4c (OpenCode adapter)
+        "src/main/logging/ProviderEventLog.ts", // ARCH-8 (event log)
+        "src/main/app.ts" // RT-2 (app lifecycle: menu dispatch, callback runs, program start and quit)
+      ],
+      "rules": { "hidegpt/no-unobserved-effect": "off" }
     }
   ],
   "options": {

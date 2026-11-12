@@ -3,6 +3,7 @@ import { spawn as spawnChild, type ChildProcessWithoutNullStreams } from 'node:c
 import * as Context from 'effect/Context'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
+import * as Exit from 'effect/Exit'
 import * as Fiber from 'effect/Fiber'
 import * as Layer from 'effect/Layer'
 import * as PlatformError from 'effect/PlatformError'
@@ -13,9 +14,9 @@ import { ChildProcess, ChildProcessSpawner } from 'effect/process'
 
 import type { ProviderId } from '../shared/model'
 import { appendStderrTail, stderrExcerpt } from '../vendor/effect-codex-app-server/_internal/stdio'
-import { logDefects } from './DefectReport'
 import { BinaryMissingError, ProcessExitedError, ProviderRequestError } from './errors'
 import { providerLabel } from '../shared/labels'
+import { forkObserved, makeRunObserved, observed } from './observed'
 import * as ProcessLedger from './ProcessLedger'
 
 /**
@@ -136,10 +137,6 @@ const treeReadBeforeKill = (
   pending: Effect.Effect<unknown> = Effect.void,
 ) => Effect.asVoid(Effect.timeoutOption(Effect.andThen(pending, ledger.track), cap))
 
-/** Forked ledger work fails nowhere visible, so a failure or defect is logged instead of lost. */
-const logLedgerFailure = (effect: Effect.Effect<void>) =>
-  Effect.catchCause(effect, (cause) => Effect.logWarning('ledger', cause))
-
 const make = (
   spawner: ChildProcessSpawner.ChildProcessSpawner['Service'],
   ledger: ProcessLedger.ProcessLedger['Service'],
@@ -169,8 +166,23 @@ const make = (
       // The read is capped, so a slow `ps` never delays the kill past quit's deadline.
       yield* Effect.acquireRelease(ledger.record(handle.pid, options.command, options.args[0] ?? ''), () =>
         treeReadBeforeKill(ledger, timing.ledgerReadCap).pipe(
-          Effect.andThen(Effect.ignore(handle.kill({ forceKillAfter: FORCE_KILL_AFTER }))),
-          Effect.andThen(ledger.stop(handle.pid)),
+          Effect.andThen(
+            Effect.exit(
+              handle.kill({ forceKillAfter: FORCE_KILL_AFTER }).pipe(
+                // A server that already exited cannot be signalled (as `signalGroup`): no defect.
+                // One still running that could not be killed (EPERM) is.
+                Effect.catchTag('PlatformError', (error) =>
+                  Effect.flatMap(handle.isRunning, (running) => (running ? Effect.fail(error) : Effect.void)),
+                ),
+              ),
+            ),
+          ),
+          // A kill that failed or died is reported and its record kept, so the next launch reaps the server.
+          Effect.flatMap((exit) =>
+            Exit.isSuccess(exit)
+              ? ledger.stop(handle.pid)
+              : observed(Effect.failCause(exit.cause), { name: 'supervisor.kill' }),
+          ),
         ),
       )
 
@@ -179,9 +191,7 @@ const make = (
         ? yield* handle.stderr.pipe(
             Stream.decodeText(),
             Stream.runForEach((chunk) => Ref.update(tail, (current) => appendStderrTail(current, chunk))),
-            Effect.ignore,
-            logDefects,
-            Effect.forkScoped,
+            forkObserved({ name: 'supervisor.stderrTail' }),
           )
         : null
       // Stderr is drained before the tail is read, as T3 Code's processRunner drains output
@@ -210,9 +220,10 @@ const make = (
      * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
      */
     callbackSpawner: Effect.gen(function* () {
-      // The SDK spawns from its own callback, outside any fiber; forks there keep this layer's
-      // services (its logger), so a ledger failure reaches the log.
-      const runFork = Effect.runForkWith(yield* Effect.context<never>())
+      // The SDK spawns from its own callback, outside any fiber: `runObserved` keeps this layer's
+      // services (its logger) and reports a defect. Made before the finalizer below, so that
+      // finalizer runs first and can still wait on its fibers.
+      const runObserved = yield* makeRunObserved()
       const running = new Map<
         ChildProcessWithoutNullStreams,
         { readonly pid: number; readonly recorded: Fiber.Fiber<void> }
@@ -226,8 +237,10 @@ const make = (
       const stopTreeOf = (child: ChildProcessWithoutNullStreams) => {
         const entry = running.get(child)
         if (!entry || !running.delete(child)) return
-        // `record` logs its own defects, so the join never fails and the stop always runs.
-        const stop = runFork(logLedgerFailure(Fiber.join(entry.recorded).pipe(Effect.andThen(ledger.stop(entry.pid)))))
+        // `record` is observed, so the join never fails and the stop always runs.
+        const stop = runObserved(Fiber.join(entry.recorded).pipe(Effect.andThen(ledger.stop(entry.pid))), {
+          name: 'supervisor.ledgerStop',
+        })
         stopping.add(stop)
         stop.addObserver(() => stopping.delete(stop))
       }
@@ -283,7 +296,9 @@ const make = (
           return child
         }
         // The full command path, so another app's copy of the same CLI never matches.
-        const recorded = runFork(logLedgerFailure(ledger.record(pid, options.command, options.args[0] ?? '')))
+        const recorded = runObserved(ledger.record(pid, options.command, options.args[0] ?? ''), {
+          name: 'supervisor.ledgerRecord',
+        })
         running.set(child, { pid, recorded })
         child.once('exit', () => {
           signalGroup(pid, 'SIGKILL')

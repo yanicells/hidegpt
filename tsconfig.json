@@ -18,6 +18,13 @@
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true
   },
-  "include": ["electron.vite.config.ts", "vitest.config.ts", "scripts/**/*.ts", "src/**/*.ts", "src/**/*.tsx"],
+  "include": [
+    "electron.vite.config.ts",
+    "vitest.config.ts",
+    "scripts/**/*.ts",
+    "tools/**/*.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
   "exclude": ["node_modules", "out", "dist"]
 }
