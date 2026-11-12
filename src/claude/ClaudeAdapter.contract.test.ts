@@ -85,12 +85,8 @@ const driver: ContractDriver = {
       },
     }
     const session = yield* fromLegacy(ClaudeAdapter.make(() => Promise.resolve(sdk))).openSession
-    const opened = yield* session.createThread({
-      cwd: '/tmp',
-      projectId: null,
-      title: 'Reading notes',
-      settings: driver.settings,
-    })
+    // As "new document" does: no title of its own, so Claude Code's summary names it (D5).
+    const opened = yield* session.createThread({ cwd: '/tmp', projectId: null, title: null, settings: driver.settings })
 
     /** Frames go to the document's query once the adapter started it. */
     const push = (...frames: ReadonlyArray<SDKMessage>) =>
@@ -194,6 +190,14 @@ const driver: ContractDriver = {
             yield* tick
             live()!.exit(new Error(`${marker} exited`))
           }),
+        // Claude Code keeps its title in the session's summary; the page reads it as the document opens.
+        nameDocument: (title) =>
+          Effect.suspend(() => {
+            const info = fake.sessions.find((item) => item.sessionId === opened.threadId)
+            if (!info) return Effect.die(new Error('the document has no session yet'))
+            info.summary = title
+            return session.openThread(opened.threadId)
+          }),
         childRequest: ask('Bash', { command: 'ls' }, 'toolu_child', { agentID: 'agent_child' }),
         busyChild: notScripted('background subagents'),
         nativeTurn: () => null,
@@ -215,4 +219,6 @@ contractSuite('Claude', driver, {
   provider_notice: 'A `<synthetic>` frame is drawn as answer text (PAR-B item 6, C-1).',
   passthrough:
     'Raw tool and MCP names in callout titles (`Using mcp__…`), the permission `displayName` in the card title, and `<synthetic>` text in the answer (C-1, C-3).',
+  title_stealth:
+    'A provider title with a banned word ("Claude Code session") reaches the page and window title: the runtime guard in present.ts covers tool and request titles, not document titles.',
 })

@@ -197,6 +197,8 @@ const driver: ContractDriver = {
             yield* turnError(`${marker} failed`, null)
             yield* peer.exit(1, `${marker} stderr`)
           }),
+        nameDocument: (title) =>
+          Effect.as(peer.notify('thread/name/updated', { threadId: THREAD, threadName: title } as never), null),
         childRequest: notScripted('subagent threads'),
         busyChild: notScripted('subagent threads'),
         nativeTurn: () => native,
@@ -214,4 +216,6 @@ contractSuite('Codex', driver, {
     'A late `turn/completed` for an earlier turn ends the open one: the legacy path drops the native turn id, so `tracker.end` cannot tell the turns apart.',
   passthrough:
     'MCP server and tool names in callout titles (`server · tool`) and in the elicitation card title; warning, retry and error text on the banner; stderr in the crash banner.',
+  title_stealth:
+    'A provider title with a banned word ("Claude Code session") reaches the page and window title: the runtime guard in present.ts covers tool and request titles, not document titles.',
 })

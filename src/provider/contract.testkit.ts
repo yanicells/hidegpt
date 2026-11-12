@@ -13,6 +13,7 @@ import * as Stream from 'effect/Stream'
 
 import * as S from '../main/session/state'
 import type { Block, ProviderId } from '../shared/model'
+import { stealthViolations } from '../shared/stealth'
 import type { ProviderError } from './errors'
 import type { FailureClass, ThreadEvent, TurnId } from './events'
 import {
@@ -58,6 +59,7 @@ export const SCENARIOS = [
   'provider_notice',
   'terminal_once',
   'passthrough',
+  'title_stealth',
 ] as const
 export type ScenarioName = (typeof SCENARIOS)[number]
 
@@ -107,6 +109,11 @@ export interface ContractScript {
    * with the process exiting.
    */
   readonly passthrough: (marker: string) => Effect.Effect<void>
+  /**
+   * The provider names the document `title`. Returns the document reopened when the provider
+   * only reports a title as the document opens, and null when it tells the page live.
+   */
+  readonly nameDocument: (title: string) => Effect.Effect<OpenedThread | null, ProviderError>
   /** A request from a subagent session the adapter never saw created. */
   readonly childRequest: Effect.Effect<void>
   /** A subagent of the open turn is working; returns its native id. */
@@ -164,6 +171,10 @@ type Run = {
   /** Every string the window showed at any point: block text, titles, the banner (and Details). */
   readonly shown: () => ReadonlyArray<string>
   readonly blocks: () => ReadonlyArray<Block>
+  /** Every page and window title the document had, in order. */
+  readonly titles: () => ReadonlyArray<string>
+  /** Takes in the document as reopened, as the session manager does. */
+  readonly adopt: (opened: OpenedThread) => void
   /** Sends a message under a fresh app turn id; succeeds once the provider accepted it. */
   readonly send: (text: string) => Effect.Effect<TurnId, ProviderError>
   readonly started: (turnId: TurnId) => boolean
@@ -179,6 +190,7 @@ const open = (driver: ContractDriver) =>
     const threadId = opened.threadId
     const events: AdapterEvent[] = []
     const shown = new Set<string>()
+    const titles: string[] = []
     let state = S.showThread(
       S.adopt(
         S.initialState(provider, () => '/tmp'),
@@ -197,6 +209,7 @@ const open = (driver: ContractDriver) =>
       const snapshot = S.toSnapshot(state)
       for (const { id: _id, ...block } of snapshot.blocks) shown.add(JSON.stringify(block))
       shown.add(snapshot.title)
+      if (titles.at(-1) !== snapshot.title) titles.push(snapshot.title)
       if (snapshot.error) shown.add(snapshot.error)
     }
     look()
@@ -232,6 +245,11 @@ const open = (driver: ContractDriver) =>
       thread,
       shown: () => [...shown],
       blocks: () => S.toSnapshot(state).blocks,
+      titles: () => titles,
+      adopt: (reopened) => {
+        state = S.showThread(S.adopt(state, provider, reopened, 0), provider, threadId)
+        look()
+      },
       send: (text) =>
         Effect.gen(function* () {
           turns += 1
@@ -495,6 +513,25 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
       yield* settle
       // Provider text stays in the log; the page, cards, hovers, banner and Details never carry it.
       expect(run.shown().filter((text) => text.includes(MARKER))).toEqual([])
+    }),
+
+  // A provider's title summarises the person's own content, so it reaches the page (D5), unless
+  // it would make the page read as an AI tool.
+  title_stealth: (run) =>
+    Effect.gen(function* () {
+      yield* answeredTurn(run, 'Summarise week 3', 'Week 3 covers attention.')
+      const name = (title: string) =>
+        Effect.gen(function* () {
+          const reopened = yield* run.script.nameDocument(title)
+          if (reopened) run.adopt(reopened)
+          yield* settle
+        })
+      yield* name('Week 3 reading notes')
+      expect(run.titles().at(-1)).toBe('Week 3 reading notes')
+      yield* name('Claude Code session')
+      yield* name('Ask GPT about photosynthesis')
+      expect(run.titles().flatMap(stealthViolations)).toEqual([])
+      expect(run.titles().at(-1)?.trim()).not.toBe('')
     }),
 }
 

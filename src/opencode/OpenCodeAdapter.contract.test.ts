@@ -183,6 +183,12 @@ const driver: ContractDriver = {
             yield* settle
             fake.exit(1)
           }),
+        nameDocument: (title) =>
+          Effect.sync(() => {
+            const info = stubSession(SESSION, title, '/tmp/course')
+            fake.push({ id: 'evt_named', type: 'session.updated', properties: { sessionID: SESSION, info } })
+            return null
+          }),
         childRequest: ask('per_child', CHILD),
         busyChild: Effect.sync(() => {
           fake.status[CHILD] = { type: 'busy' }
@@ -207,4 +213,6 @@ contractSuite('OpenCode', driver, {
   subagent_outlives_stop: 'Stop aborts only the root session; a busy child keeps running (O-9).',
   passthrough:
     'The raw tool name in callout titles (`Ran <tool>`), the permission name in the card title, and a sessionless error message on the banner.',
+  title_stealth:
+    'A provider title with a banned word ("Claude Code session") reaches the page and window title: the runtime guard in present.ts covers tool and request titles, not document titles.',
 })
