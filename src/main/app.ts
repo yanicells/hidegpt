@@ -153,7 +153,15 @@ const program = Effect.gen(function* () {
   yield* manager.start('codex')
   const shots = process.env.HIDEGPT_SCREENSHOT
   if (shots) {
-    yield* captureScreenshots(win, manager, shots)
+    // A failed step still quits, with the reason on stderr, so a run never hangs.
+    yield* captureScreenshots(win, manager, shots).pipe(
+      Effect.catchCause((cause) =>
+        Effect.sync(() => {
+          console.error('Screenshots failed:', cause)
+          process.exitCode = 1
+        }),
+      ),
+    )
     app.quit()
   }
   return yield* Effect.never
