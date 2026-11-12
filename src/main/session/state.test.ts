@@ -42,6 +42,19 @@ const running = (turnId = 'turn-1') =>
   S.applyThreadEvent(twoLibraries(), 'codex', { type: 'turn.started', threadId: 'thr_1', turnId }, 1)
 
 describe('session state', () => {
+  it('drops a retrying notice once the turn streams again', () => {
+    const notice: Item = { kind: 'notice', id: 'n1', notice: 'retrying', detail: null }
+    let state = S.applyThreadEvent(
+      running(),
+      'codex',
+      { type: 'item.upserted', threadId: 'thr_1', turnId: 'turn-1', item: notice },
+      2,
+    )
+    expect(runtime(state, 'codex', 'thr_1')?.items.map((item) => item.id)).toEqual(['a1', 'n1'])
+    state = S.applyThreadEvent(state, 'codex', { type: 'item.delta', threadId: 'thr_1', itemId: 'a1', delta: '!' }, 3)
+    expect(runtime(state, 'codex', 'thr_1')?.items.map((item) => item.id)).toEqual(['a1'])
+  })
+
   it('shows the signed-in address for a library that reports no account', () => {
     let state = S.initialState('opencode', () => '/tmp/docs')
     expect(S.toSnapshot(state).account).toBeNull()

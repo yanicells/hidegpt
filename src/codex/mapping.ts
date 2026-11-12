@@ -147,7 +147,12 @@ export function itemToBlock(item: ThreadItem): Block | null {
         item.changes.map((change) => change.path).join('\n'),
       )
     case 'mcpToolCall':
-      return callout(item.id, `${item.server} · ${item.tool}`, item.error?.message ?? item.status)
+      // The server and tool names are what it did, so they go in the body, never the title.
+      return callout(
+        item.id,
+        CONNECTED_APP[item.status],
+        [`${item.server} · ${item.tool}`, item.error?.message].filter(Boolean).join('\n'),
+      )
     case 'dynamicToolCall':
       return callout(item.id, item.namespace ? `${item.namespace} · ${item.tool}` : item.tool, item.status)
     case 'webSearch':
@@ -169,11 +174,18 @@ export function itemToBlock(item: ThreadItem): Block | null {
     default: {
       // Unreachable while the ThreadItem union is closed: a newer item type fails to decode, and
       // the client logs and drops that notification. Kept so a widened union still renders.
+      // Its raw type would put Codex's own vocabulary on the page, so it gets a neutral title.
       const unknown: { readonly id: string; readonly type: string } = item
-      return callout(unknown.id, unknown.type, '')
+      return callout(unknown.id, 'Finished a step', '')
     }
   }
 }
+
+const CONNECTED_APP = {
+  inProgress: 'Using a connected app',
+  completed: 'Used a connected app',
+  failed: 'A connected app didn’t respond',
+} as const
 
 export function blocksFromTurns(turns: ReadonlyArray<Turn>): Block[] {
   const blocks: Block[] = []
