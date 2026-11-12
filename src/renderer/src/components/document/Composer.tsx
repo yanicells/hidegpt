@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 
 import type { Skill } from '../../../../shared/model'
-import { dispatch } from '../../session-bridge'
+import { dispatch, showRequestError } from '../../session-bridge'
 import { takePendingDraft } from '../../templates'
 import { imageSrc } from '../ui/imageSrc'
 import { SkillChip, SkillMenu } from './SmartChips'
@@ -97,10 +97,21 @@ export const Composer = memo(function Composer({
   const attach = async (files: File[]) => {
     const pictures = files.filter((file) => IMAGE_TYPES.has(file.type))
     if (!pictures.length || !window.hidegpt) return
-    const paths = await Promise.all(
-      pictures.map(async (file) => window.hidegpt.saveImage(new Uint8Array(await file.arrayBuffer()), file.type)),
+    // Every picture settles: the ones that saved are attached, and the first
+    // failure goes on the banner (main's sentence, or a plain one when the file
+    // could not be read or the request never reached main).
+    const settled = await Promise.allSettled(
+      pictures.map(async (file) => window.hidegpt.saveImage({ bytes: new Uint8Array(await file.arrayBuffer()), mime: file.type })),
     )
-    setImages((current) => [...current, ...paths])
+    const paths: string[] = []
+    let failure: string | null = null
+    for (const outcome of settled) {
+      if (outcome.status === 'rejected') failure ??= 'Docs could not attach that image.'
+      else if (outcome.value.ok) paths.push(outcome.value.path)
+      else failure ??= outcome.value.error
+    }
+    if (paths.length) setImages((current) => [...current, ...paths])
+    if (failure) showRequestError(failure)
   }
 
   // The draft clears only once main accepts the question; a failed send keeps

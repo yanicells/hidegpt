@@ -113,7 +113,8 @@ plain React.
   `console`. Never log prompt or answer text, titles, sign-in links,
   credentials, or a provider's error text; log `errorLogFields` instead
   (`docs/architecture.md` §1).
-- Commands are decoded with their schema at the IPC boundary.
+- Every IPC channel is a row in the `Ipc*` tables in `src/shared/contracts.ts`;
+  main decodes its payload at the boundary and the preload's types derive from it.
 - Tests use `@effect/vitest` and `TestClock`, against fakes that replace only
   the process boundary (`FakeCodex`, `FakeOpenCode`, `FakeClaude`).
 - Don't mix styles: new main/provider code is Effect, not promise chains.

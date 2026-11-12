@@ -48,7 +48,7 @@ export function FolderPicker({
       const path = await window.hidegpt.pickDirectory()
       if (!path) return
       await window.hidegpt.dispatch({ op: 'createProject', name: name.trim(), cwd: path })
-      const project = window.hidegpt.getSnapshot().projects.find((item) => item.roots.some((root) => root.path === path))
+      const project = window.hidegpt.getSnapshot().snapshot.projects.find((item) => item.roots.some((root) => root.path === path))
       if (!project) throw new Error('The folder could not be found. Refresh and try again.')
       onOpen(project.id)
     } catch (cause) {

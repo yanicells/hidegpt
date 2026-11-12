@@ -30,7 +30,9 @@ describe('snapshot patches', () => {
     const open = { ...emptySnapshot(), blocks: [question, answer('x')] }
     const home = { ...open, blocks: [], route: { kind: 'home' as const } }
     expect(applySnapshotPatch(open, diffSnapshot(open, home))).toEqual(home)
-    expect(diffSnapshot(null, open)).toEqual({ fields: open })
+    const first = diffSnapshot(null, open)
+    expect(first.blocks).toEqual({ length: 2, set: [[0, question], [1, answer('x')]] })
+    expect(applySnapshotPatch(emptySnapshot('/elsewhere'), first)).toEqual(open)
   })
 
   it('reports an unchanged snapshot as an empty patch', () => {

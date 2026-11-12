@@ -1,4 +1,7 @@
 import * as Schema from 'effect/Schema'
+import * as Struct from 'effect/Struct'
+
+import { EVENT_CHANNELS, INVOKE_CHANNELS, SNAPSHOT_NOW_CHANNEL } from './channels'
 
 /**
  * The provider-neutral contracts, as `effect/Schema` values (the T3 Code
@@ -198,14 +201,20 @@ export const Snapshot = Schema.Struct({
 })
 export type Snapshot = typeof Snapshot.Type
 
+/** Every top-level snapshot value except `blocks`, each optional: what a patch replaces. */
+export const SnapshotFields = Snapshot.mapFields((fields) =>
+  Struct.map(Struct.omit(fields, ['blocks']), Schema.optionalKey),
+)
+export type SnapshotFields = typeof SnapshotFields.Type
+
 /**
- * A change to the last snapshot the window has. `fields` replaces top-level
- * values; `blocks.set` replaces whole blocks by index and `blocks.append`
- * appends streamed text to the agent text (or callout body) at an index, so a
+ * A change between two snapshots. `fields` replaces top-level values;
+ * `blocks.set` replaces whole blocks by index and `blocks.append` appends
+ * streamed text to the agent text (or callout body) at an index, so a
  * streaming answer crosses IPC as its new characters only.
  */
-export const SnapshotPatch = Schema.Struct({
-  fields: Schema.Record(Schema.String, Schema.Unknown),
+export const SnapshotDiff = Schema.Struct({
+  fields: SnapshotFields,
   blocks: Schema.optionalKey(
     Schema.Struct({
       length: Schema.Number,
@@ -214,7 +223,18 @@ export const SnapshotPatch = Schema.Struct({
     }),
   ),
 })
+export type SnapshotDiff = typeof SnapshotDiff.Type
+
+/**
+ * A diff as main sends it. `seq` counts up by one per patch, so a reader that
+ * already holds a snapshot up to `seq` N skips any patch at or below N.
+ */
+export const SnapshotPatch = Schema.Struct({ ...SnapshotDiff.fields, seq: Schema.Int })
 export type SnapshotPatch = typeof SnapshotPatch.Type
+
+/** A snapshot and the `seq` of the last patch it includes (0 before any). */
+export const SequencedSnapshot = Schema.Struct({ snapshot: Snapshot, seq: Schema.Int })
+export type SequencedSnapshot = typeof SequencedSnapshot.Type
 
 const op = <const Op extends string, const Fields extends Schema.Struct.Fields = {}>(
   name: Op,
@@ -268,3 +288,76 @@ export type CommandResult = typeof CommandResult.Type
 
 export const MenuAction = Schema.Literals(['rename', 'grid', 'list', 'newDocument', 'goHome', 'focusSearch'])
 export type MenuAction = typeof MenuAction.Type
+
+/** The bytes of a pasted image and its MIME type, to store on disk. */
+export const SaveImageRequest = Schema.Struct({ bytes: Schema.Uint8Array, mime: Schema.String })
+export type SaveImageRequest = typeof SaveImageRequest.Type
+
+/** The stored image's path, or a sentence saying why it could not be stored. */
+export const SaveImageResult = Schema.Union([
+  Schema.Struct({ ok: Schema.Literal(true), path: Schema.String }),
+  Schema.Struct({ ok: Schema.Literal(false), error: Schema.String }),
+])
+export type SaveImageResult = typeof SaveImageResult.Type
+
+/** The chosen folder, or null when the picker was cancelled (or the request did not decode). */
+export const PickDirectoryResult = Schema.NullOr(Schema.String)
+export type PickDirectoryResult = typeof PickDirectoryResult.Type
+
+// The IPC tables, adapted from T3 Code's contracts (packages/contracts/src/ipc.ts) and
+// typed IPC methods (apps/desktop/src/ipc/DesktopIpc.ts, makeIpcMethod) at commit 5c6f2f12.
+// Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+
+/** One invoke channel's contract (a row of `IpcInvoke`). */
+export interface IpcInvokeSpec<Payload, PayloadEncoded, Result, Channel extends string = string> {
+  readonly channel: Channel
+  readonly payload: Schema.Codec<Payload, PayloadEncoded>
+  readonly result: Schema.Codec<Result>
+  /** The answer when the payload does not decode. */
+  readonly invalid: Result
+}
+
+/** Checks a row: `invalid` must be a valid `result`. */
+const invokeSpec = <Payload, PayloadEncoded, Result, const Channel extends string>(
+  spec: IpcInvokeSpec<Payload, PayloadEncoded, Result, Channel>,
+) => spec
+
+/** Each row's `channel` must be the name `channels.ts` gives its key. */
+type ChannelRows<Channels extends Record<string, string>> = { readonly [K in keyof Channels]: { readonly channel: Channels[K] } }
+
+/**
+ * Every renderer → main request, keyed by its `window.hidegpt` method. Main
+ * decodes `payload` before the handler runs and answers `invalid` when it does
+ * not decode; the handler must answer with `result`. `HideGptApi` and the
+ * preload are derived from this table, so adding a channel is: a row here, a
+ * name in `INVOKE_CHANNELS`, a `handle` call in main, and a preload member.
+ */
+export const IpcInvoke = {
+  dispatch: invokeSpec({
+    channel: INVOKE_CHANNELS.dispatch,
+    payload: Command,
+    result: CommandResult,
+    invalid: { ok: false, error: 'Docs could not read that request.' },
+  }),
+  pickDirectory: invokeSpec({
+    channel: INVOKE_CHANNELS.pickDirectory,
+    payload: Schema.Undefined,
+    result: PickDirectoryResult,
+    invalid: null,
+  }),
+  saveImage: invokeSpec({
+    channel: INVOKE_CHANNELS.saveImage,
+    payload: SaveImageRequest,
+    result: SaveImageResult,
+    invalid: { ok: false, error: 'Docs could not read that image.' },
+  }),
+} satisfies ChannelRows<typeof INVOKE_CHANNELS>
+
+/** Every main → renderer push and the value it carries, keyed by its `window.hidegpt` subscriber. */
+export const IpcEvents = {
+  onSnapshot: { channel: EVENT_CHANNELS.onSnapshot, value: SnapshotPatch },
+  onMenu: { channel: EVENT_CHANNELS.onMenu, value: MenuAction },
+} satisfies ChannelRows<typeof EVENT_CHANNELS> & Record<keyof typeof EVENT_CHANNELS, { value: Schema.Top }>
+
+/** The synchronous read: what main last published and its `seq`, or null before anything was. */
+export const IpcSnapshotNow = { channel: SNAPSHOT_NOW_CHANNEL, result: Schema.NullOr(SequencedSnapshot) }

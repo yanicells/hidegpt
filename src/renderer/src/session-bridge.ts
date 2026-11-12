@@ -3,24 +3,38 @@ import { useEffect, useRef, useSyncExternalStore } from 'react'
 import type { Command, CommandResult, MenuAction } from '../../shared/api'
 import { errorMessage } from '../../shared/labels'
 import { emptySnapshot, type Block, type Snapshot } from '../../shared/model'
-import { applySnapshotPatch } from '../../shared/snapshot-patch'
+import { applyPatchOnce, type SequencedSnapshot } from '../../shared/snapshot-patch'
 
-// Read the preload's assembled copy right away, so the first paint is the real
-// library rather than an empty one.
-let snapshot: Snapshot = window.hidegpt?.getSnapshot() ?? emptySnapshot()
+let current: SequencedSnapshot = { snapshot: emptySnapshot(), seq: 0 }
+let snapshot: Snapshot = current.snapshot
 const listeners = new Set<() => void>()
 let detach: (() => void) | null = null
 
-// One IPC listener applies each patch once, however many components subscribe.
+/**
+ * Takes the snapshot from the preload and applies every later patch here,
+ * however many components subscribe. A reconnect (StrictMode remounting the
+ * root, a test's fresh bridge) reads main again, which may already include
+ * patches still on their way; `applyPatchOnce` skips those by `seq`, so no
+ * streamed text lands twice.
+ */
+function connect(): void {
+  if (detach || !window.hidegpt) return
+  current = window.hidegpt.getSnapshot()
+  snapshot = current.snapshot
+  detach = window.hidegpt.onSnapshot((patch) => {
+    const next = applyPatchOnce(current, patch)
+    if (next === current) return
+    current = next
+    snapshot = next.snapshot
+    for (const listener of [...listeners]) listener()
+  })
+}
+
+// At load, so the first paint is the real library and nothing is missed before React subscribes.
+connect()
+
 function subscribe(onChange: () => void): () => void {
-  if (listeners.size === 0 && window.hidegpt) {
-    // Catch up on anything that arrived before the first subscriber.
-    snapshot = window.hidegpt.getSnapshot()
-    detach = window.hidegpt.onSnapshot((patch) => {
-      snapshot = applySnapshotPatch(snapshot, patch)
-      for (const listener of Array.from(listeners)) listener()
-    })
-  }
+  connect()
   listeners.add(onChange)
   return () => {
     listeners.delete(onChange)
@@ -112,6 +126,11 @@ export function useCommandError(): string | null {
 
 export function clearCommandError(): void {
   setCommandError(null)
+}
+
+/** Puts a failed window request that is not a command (a pasted image) on the same banner. */
+export function showRequestError(message: string): void {
+  setCommandError(message)
 }
 
 /**

@@ -6,7 +6,7 @@ import * as Effect from 'effect/Effect'
 import * as Option from 'effect/Option'
 import * as Stream from 'effect/Stream'
 
-import type { Block, SnapshotPatch } from '../shared/contracts'
+import type { Block, SnapshotDiff } from '../shared/contracts'
 import type { ProviderSessionManager } from './ProviderSessionManager'
 
 type Point = { x: number; y: number }
@@ -21,7 +21,13 @@ export const SCREENSHOT_SIZE = { width: 1280, height: 840 } as const
  * the narrow layouts, and the library switch, saving a PNG of each plus the
  * fonts that loaded, then returns. A smoke test of the real app.
  */
-export const captureScreenshots = (win: BrowserWindow, manager: ProviderSessionManager['Service'], dir: string) =>
+export const captureScreenshots = (
+  win: BrowserWindow,
+  manager: ProviderSessionManager['Service'],
+  /** Sends a screenshot-only patch through the publisher, so it gets a real `seq`. */
+  stage: (diff: SnapshotDiff) => void,
+  dir: string,
+) =>
   Effect.gen(function* () {
     mkdirSync(dir, { recursive: true })
     const js = <A = unknown>(script: string) =>
@@ -165,10 +171,10 @@ export const captureScreenshots = (win: BrowserWindow, manager: ProviderSessionM
     // patches on top of the real blocks, and the real blocks come back after.
     const real = (yield* manager.snapshot).blocks.length
     const showBlocks = (blocks: Block[], streaming: boolean) =>
-      win.webContents.send('snapshot', {
+      stage({
         fields: { streaming },
         blocks: { length: real + blocks.length, set: blocks.map((block, index) => [real + index, block] as const) },
-      } satisfies SnapshotPatch)
+      })
     const question: Block = { kind: 'user', id: 'shot-question', text: 'How would we check the worked examples?' }
     const reply: Block = {
       kind: 'agent',
@@ -200,7 +206,7 @@ export const captureScreenshots = (win: BrowserWindow, manager: ProviderSessionM
     yield* pause(400)
     yield* scrollToQuestion()
     yield* shot('document-suggestion')
-    win.webContents.send('snapshot', { fields: { streaming: false }, blocks: { length: real } } satisfies SnapshotPatch)
+    stage({ fields: { streaming: false }, blocks: { length: real } })
     yield* pause(300)
     yield* js(`(() => {
       document.querySelector('[data-testid="document"]').scrollTop = 0
