@@ -1,0 +1,71 @@
+/* ---------- Editor canvas ----------
+ * Layout follows live Docs: a 16px vertical ruler, the 280px tabs panel, and
+ * the 816px page. The page centres in the window but never slides under the
+ * panel (page left = max(centred, panel right + 5px)); narrow windows scroll.
+ */
+
+/* Registered so it computes to a plain number here and inherits unchanged into the zoomed page. */
+@property --card-room {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+
+.workspace {
+  @apply relative flex-1 min-h-0 overflow-auto;
+  /* Lets the layout below measure the canvas (cqw) for the suggestion card. */
+  container-type: inline-size;
+  background: var(--canvas);
+  margin-right: var(--rail-width);
+  --page-w: calc(var(--paper-width) * var(--page-zoom, 1));
+  --tabs-w: 280px;
+  /* The page's left edge in the window: centred, but clear of the ruler, the panel and a 5px gap. */
+  --page-left: max(calc(21px + var(--tabs-w)), calc((100vw - var(--rail-width) - var(--page-w)) / 2));
+}
+
+/* Docs draws its own always-visible thin scrollbars over the canvas. */
+.workspace::-webkit-scrollbar {
+  width: var(--scrollbar-w);
+  height: var(--scrollbar-w);
+}
+
+.workspace::-webkit-scrollbar-thumb {
+  min-height: 40px;
+  border: 3px solid transparent;
+  border-radius: 7px;
+  background: var(--outline) padding-box;
+}
+
+.workspace::-webkit-scrollbar-thumb:hover {
+  background-color: #bdc1c6;
+}
+
+.workspace::-webkit-scrollbar-track,
+.workspace::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.doc-layout {
+  @apply relative flex items-start min-h-full;
+  min-width: max-content;
+  /*
+   * CSS px left between the page's right edge and the 14px scrollbar, minus
+   * what a suggestion card needs there at this zoom (24px gap, 256px card,
+   * 16px air); approvals.css puts the card in the margin when it is positive.
+   */
+  --card-room: calc(
+    (100cqw - var(--scrollbar-w) - var(--page-left) - var(--page-w)) / 1px - (24 + 256 + 16) * var(--page-zoom, 1)
+  );
+}
+
+.workspace:has(.tabs.collapsed) {
+  --tabs-w: 64px;
+}
+
+.paper-col {
+  @apply flex flex-col items-start;
+  flex: 1 0 auto;
+  /* The ruler and panel already sit to the page's left. */
+  padding-left: calc(var(--page-left) - 16px - var(--tabs-w));
+  padding-right: 24px;
+}

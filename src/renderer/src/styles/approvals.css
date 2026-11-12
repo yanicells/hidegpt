@@ -4,7 +4,7 @@
  * A suggestion's line: the suggested text in the page, and Docs' 256px card
  * level with it. The card floats outside the flow, as Docs' comments do, so
  * it never moves page text or breaks; only the text line paginates. When the
- * canvas right of the page has room for it (--card-room, document.css), the
+ * canvas right of the page has room for it (--card-room, workspace.css), the
  * card sits fully in that margin; otherwise it tucks inside the page's right
  * edge and the text stops short of it. --fits is 1 or 0 (a fraction only in
  * the last pixel), so one rule covers any window width, zoom and tabs panel.
@@ -99,7 +99,7 @@
 
 .suggestion input {
   @apply w-full;
-  border: 1px solid #747775;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
   padding: 8px 12px;
   font-size: 14px;
@@ -119,7 +119,7 @@
 .choice {
   height: 32px;
   padding: 0 12px;
-  border: 1px solid #747775;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   font-size: 14px;
   color: var(--text-2);

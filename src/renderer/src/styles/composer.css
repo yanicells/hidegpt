@@ -8,47 +8,11 @@
   font: inherit;
   line-height: inherit;
   color: inherit;
-  caret-color: #000;
+  caret-color: var(--page-ink);
 }
 
 .composer::placeholder {
   color: #9aa0a6;
-}
-
-.pending {
-  margin: 0 0 1lh;
-  min-height: 1lh;
-}
-
-/*
- * The cursor while an answer streams in: Docs' black bar, solid as it is
- * while typing, at the end of the last line. A pseudo-element puts it inside
- * that line; the caret span after the text stands in before there is a line.
- */
-.caret,
-.streaming .doc-body > :is(p, h2, h3, h4, h5, h6, pre, blockquote):last-child::after,
-.streaming .doc-body > :is(ul, ol):last-child > li:last-child::after {
-  content: '';
-  display: inline-block;
-  width: 2px;
-  height: 1.15em;
-  margin-left: 1px;
-  background: #000;
-  vertical-align: text-bottom;
-}
-
-.streaming:has(.doc-body > :is(p, h2, h3, h4, h5, h6, pre, blockquote, ul, ol):last-child) > .caret {
-  display: none;
-}
-
-/* A pending suggestion is waiting on you, not writing, so no cursor runs on after it. */
-.doc-block:has(> .suggestion-row) + .pending {
-  display: none;
-}
-
-/* The page's own "Type @ to insert" waits until the answer is in. */
-.paper:has(.streaming, .pending .caret) .composer::placeholder {
-  color: transparent;
 }
 
 /* Docs' floating spark pill, centred under the page; stops a streaming answer. */
@@ -78,25 +42,6 @@
   }
 }
 
-.opening-document {
-  @apply flex-1 min-h-0 overflow-hidden;
-  background: var(--canvas);
-}
-.opening-status {
-  @apply flex items-center justify-center gap-3 p-5;
-  color: var(--muted);
-}
-.opening-paper {
-  margin: 0 auto;
-}
-.opening-paper .sk-text {
-  @apply h-2.5;
-  margin-bottom: 18px;
-  border-radius: 2px;
-}
-.opening-paper .sk-text:nth-child(3n) {
-  @apply mb-9;
-}
 /* Composer attachments: images sit on the page like inserted images, skills as smart chips. */
 .composer-wrap {
   position: relative;
@@ -121,7 +66,7 @@
   margin-right: 4px;
   padding: 0 6px 0 4px;
   border-radius: 10px;
-  background: #f1f3f4;
+  background: var(--surface-2);
   color: #1f1f1f;
   font-family: var(--font-page);
   font-size: 10.5pt;

@@ -1,0 +1,63 @@
+/* Tokens: Google Docs (Material) palette. Page text is Arial because that is the Docs default. */
+:root {
+  --text: #1f1f1f;
+  --text-2: #444746;
+  --muted: #5f6368;
+  --text-3: #666;
+  --faint: #80868b;
+  --hairline: #e3e3e3;
+  --line: #c4c7c5;
+  --border-strong: #747775;
+  /*
+   * One grey, four roles: Home card and thumbnail borders (home.css), the
+   * vertical ruler's border (ruler.css), the callout rule (page.css) and the
+   * scrollbar thumb (workspace.css). Docs draws these in different greys, so a
+   * package that changes one points that usage at its own value and leaves
+   * this token alone.
+   */
+  --outline: #dadce0;
+  --blue: #0b57d0;
+  --blue-dark: #0842a0;
+  --blue-soft: #c2e7ff;
+  --blue-tint: rgba(11, 87, 208, 0.08);
+  --docs-blue: #4285f4;
+  --ruler-tick: #9aa0a6;
+  --green: #188038;
+  --red: #b3261e;
+  --red-soft: #fce8e6;
+  --yellow-soft: #fef7e0;
+  --info-soft: #e8f0fe;
+  --surface: #ffffff;
+  --canvas: #f8fafd;
+  --pill: #f0f4f9;
+  /*
+   * Same value, two names. Use --surface-2 (filled chips and callout summaries);
+   * --band is only the render-error note's background, and can fold into
+   * --surface-2 when that note is next touched.
+   */
+  --band: #f1f3f4;
+  --surface-2: #f1f3f4;
+  --hover: rgba(68, 71, 70, 0.08);
+  --hover-menu: rgba(31, 31, 31, 0.06);
+  --hover-soft: #f0f4f9;
+  --shadow-menu: 0 2px 6px 2px rgba(60, 64, 67, 0.15), 0 1px 2px 0 rgba(60, 64, 67, 0.3);
+  --shadow-page: 0 0 0 0.75pt #d1d1d1, 0 0 3pt 0.75pt #ccc;
+  /* Chrome: Google Sans (bundled as Google Sans Flex, see fonts.ts) and Roboto for small labels. */
+  --font-ui: 'Google Sans Flex Variable', 'Google Sans', Roboto, Arial, sans-serif;
+  --font-text: Roboto, 'Google Sans Flex Variable', Arial, sans-serif;
+  --font-page: Arial, Helvetica, sans-serif;
+  --font-mono: 'Courier New', Courier, monospace;
+  /* Google Sans Flex optical sizes: 18 matches Docs' display cut, 16 its Text cut. */
+  --opsz-display: 18;
+  --opsz-text: 16;
+  /*
+   * Page text and the cursor that writes it. Also the streaming caret, the doc
+   * thumbnails' text, the style menu's previews and the toolbar's text-colour
+   * swatch. To recolour one of those, change its usage, not this value.
+   */
+  --page-ink: #000;
+  --paper-width: 816px;
+  --paper-margin: 96px;
+  --rail-width: 56px;
+  --scrollbar-w: 14px;
+}

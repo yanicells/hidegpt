@@ -1,0 +1,117 @@
+/* ---------- Rulers ---------- */
+
+/* Horizontal ruler: the page's width, numbered in inches from the left margin. */
+.ruler {
+  @apply sticky;
+  top: 0;
+  z-index: 3;
+  padding: 2px 0 0;
+  background: var(--canvas);
+}
+
+.ruler-track {
+  @apply relative;
+  width: var(--paper-width);
+  height: 18px;
+  zoom: var(--page-zoom, 1);
+  border-bottom: 1px solid #c7c7c7;
+  font-family: var(--font-text);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text-2);
+}
+
+/*
+ * Docs' ticks run the full width, margins included: an 8px tick at each half
+ * inch and a 4px tick every eighth. Inch numbers sit above their tick.
+ */
+.ruler-track::before {
+  content: '';
+  @apply absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 8px;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 47px, var(--ruler-tick) 47px 48px, transparent 48px 96px) 0 0 / 100%
+      8px no-repeat,
+    repeating-linear-gradient(90deg, var(--ruler-tick) 0 1px, transparent 1px 12px) 0 4px / 100% 4px no-repeat;
+}
+
+.ruler-num {
+  @apply absolute;
+  top: 3px;
+  transform: translateX(-50%);
+}
+
+/* Docs' blue indent markers: a down-pointing triangle at each margin. */
+.ruler-indent {
+  @apply absolute;
+  top: 0;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 7px solid var(--docs-blue);
+  transform: translateX(-50%);
+}
+
+/* The left one carries the first-line indent bar on top, a 1px gap apart. */
+.ruler-indent-left {
+  top: 4px;
+  left: var(--paper-margin);
+}
+
+.ruler-indent-left::after {
+  content: '';
+  @apply absolute;
+  left: -6px;
+  top: -11px;
+  width: 12px;
+  height: 3px;
+  background: var(--docs-blue);
+}
+
+.ruler-indent-right {
+  left: calc(100% - var(--paper-margin));
+}
+
+.vruler {
+  @apply sticky shrink-0;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  width: 16px;
+  height: 100vh;
+  /* Starts level with the page top (ruler 20 + page gap 16), so "1" sits 1in below the top margin. */
+  margin-top: 36px;
+  border-right: 1px solid var(--outline);
+  background: var(--canvas);
+  font-family: var(--font-text);
+  font-size: 10px;
+  color: var(--text-2);
+  zoom: var(--page-zoom, 1);
+  overflow: hidden;
+}
+
+/* The same ticks, running down the ruler's right edge. */
+.vruler::before {
+  content: '';
+  @apply absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 47px, var(--ruler-tick) 47px 48px, transparent 48px 96px) 100% 0 /
+      8px 100% no-repeat,
+    repeating-linear-gradient(180deg, var(--ruler-tick) 0 1px, transparent 1px 12px) 100% 0 / 4px 100% no-repeat;
+}
+
+.vruler-num {
+  @apply absolute;
+  left: 0;
+  right: 6px;
+  text-align: center;
+  transform: translateY(-50%) rotate(-90deg);
+}

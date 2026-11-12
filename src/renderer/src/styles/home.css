@@ -1,73 +1,4 @@
-/* ---------- Home (measured against live docs.google.com) ---------- */
-
-.home-header {
-  @apply grid items-center shrink-0;
-  grid-template-columns: 238px minmax(120px, 720px) minmax(120px, 1fr);
-  height: 64px;
-  padding: 8px 12px 8px 16px;
-  column-gap: 24px;
-  background: var(--surface);
-}
-
-.brand {
-  @apply flex items-center min-w-0;
-  gap: 4px;
-}
-
-.brand > svg {
-  margin-left: 4px;
-}
-
-.brand-name {
-  margin-left: 4px;
-  font-size: 22px;
-  line-height: 24px;
-  color: var(--text-2);
-}
-
-/* Decorative Docs chrome icons (hamburger, apps grid). */
-.header-icon {
-  @apply grid place-items-center shrink-0 w-10 h-10 rounded-full;
-  color: var(--text-2);
-}
-
-.search {
-  @apply flex items-center w-full;
-  gap: 16px;
-  height: 48px;
-  padding: 0 16px 0 14px;
-  border-radius: 24px;
-  background: #f0f4f9;
-  color: var(--text-2);
-  transition:
-    background-color 120ms,
-    box-shadow 120ms;
-}
-
-.search:focus-within {
-  background: var(--surface);
-  box-shadow:
-    0 1px 1px rgba(65, 69, 73, 0.3),
-    0 1px 3px 1px rgba(65, 69, 73, 0.15);
-}
-
-.search input {
-  @apply flex-1 min-w-0 border-0 bg-transparent;
-  outline: none;
-  font-size: 16px;
-  color: var(--text);
-  -webkit-appearance: none;
-  appearance: none;
-}
-
-.search input::-webkit-search-cancel-button {
-  -webkit-appearance: none;
-  appearance: none;
-}
-
-.search input::placeholder {
-  color: var(--text-2);
-}
+/* ---------- Home: template gallery and recent documents ---------- */
 
 .home {
   @apply flex-1 min-h-0 overflow-auto;
@@ -121,7 +52,7 @@
   height: 184px;
   @apply grid place-items-center overflow-hidden;
   background: var(--surface);
-  border: 1px solid #dadce0;
+  border: 1px solid var(--outline);
   border-radius: 4px;
   transition: border-color 120ms;
 }
@@ -182,7 +113,7 @@
   /* Large libraries: skip layout and paint for cards scrolled out of view. */
   content-visibility: auto;
   contain-intrinsic-size: auto 324px;
-  border: 1px solid #dadce0;
+  border: 1px solid var(--outline);
   border-radius: 6px;
   background: var(--surface);
   transition: border-color 120ms;
@@ -200,7 +131,7 @@
 .thumb {
   height: 264px;
   background: var(--surface);
-  border-bottom: 1px solid #dadce0;
+  border-bottom: 1px solid var(--outline);
   @apply overflow-hidden relative;
 }
 
@@ -213,7 +144,7 @@
   font-family: var(--font-page);
   font-size: 11pt;
   line-height: 1.35;
-  color: #000;
+  color: var(--page-ink);
 }
 
 /* The document's Heading 1, as .doc-question sets it: 20pt with 6pt after. */
@@ -269,7 +200,7 @@
 
 .skeleton .thumb,
 .sk-text {
-  background: linear-gradient(90deg, #f1f3f4 25%, #f8f9fa 50%, #f1f3f4 75%);
+  background: linear-gradient(90deg, var(--surface-2) 25%, #f8f9fa 50%, var(--surface-2) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.4s linear infinite;
 }
@@ -485,7 +416,7 @@
   gap: 8px;
   height: 36px;
   padding: 0 16px 0 12px;
-  border: 1px solid #747775;
+  border: 1px solid var(--border-strong);
   border-radius: 18px;
   color: var(--blue);
   font-size: 14px;
