@@ -432,6 +432,48 @@ describe('home list view', () => {
   })
 })
 
+describe('home document menus', () => {
+  it("opens a card's menu without opening the document", async () => {
+    const user = userEvent.setup()
+    const { calls } = mount()
+    await user.click(screen.getByTestId('more-thr_1'))
+    expect(await screen.findByTestId('doc-rename')).toBeInTheDocument()
+    expect(calls.some((call) => call.op === 'openThread')).toBe(false)
+    await user.click(screen.getByTestId('doc-open-new-tab'))
+    expect(calls).toContainEqual({ op: 'openThread', threadId: 'thr_1' })
+  })
+
+  it("opens a list row's menu without opening the document", async () => {
+    const user = userEvent.setup()
+    const { calls } = mount()
+    await user.click(screen.getByLabelText('List view'))
+    await user.click(screen.getByTestId('more-thr_2'))
+    expect(await screen.findByTestId('doc-remove')).toBeInTheDocument()
+    expect(calls.some((call) => call.op === 'openThread')).toBe(false)
+  })
+
+  it('sorts from the sort menu, and the date column follows the date sort', async () => {
+    const user = userEvent.setup()
+    mount({
+      threads: [
+        { ...stubThread('thr_b', 'Beta', 'Beta'), updatedAt: noonSec(0) },
+        { ...stubThread('thr_a', 'Alpha', 'Alpha'), updatedAt: noonSec(1) },
+      ],
+    })
+    await user.click(screen.getByLabelText('List view'))
+    const order = () => screen.getAllByTestId(/^thread-/).map((row) => row.dataset.testid)
+    expect(order()).toEqual(['thread-thr_b', 'thread-thr_a'])
+    await user.click(screen.getByTestId('home-sort'))
+    await user.click(await screen.findByTestId('sort-title'))
+    expect(order()).toEqual(['thread-thr_a', 'thread-thr_b'])
+    expect(screen.getByText('Last opened by me')).toBeInTheDocument()
+    await user.click(screen.getByTestId('home-sort'))
+    await user.click(await screen.findByTestId('sort-modified'))
+    expect(order()).toEqual(['thread-thr_b', 'thread-thr_a'])
+    expect(screen.getByText('Last modified')).toBeInTheDocument()
+  })
+})
+
 describe('grouping', () => {
   it('titles orphan folders by directory basename, never a hash', () => {
     const threads = [

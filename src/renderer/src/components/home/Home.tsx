@@ -8,7 +8,7 @@ import { DocCard } from './DocCard'
 import { FolderPicker } from './FolderPicker'
 import { groupByRecency } from './grouping'
 import { ListView } from './ListView'
-import { OwnerMenu, type Owner } from './OwnerMenu'
+import { OwnerMenu, SortMenu, SORTS, type Owner, type Sort } from './OwnerMenu'
 import { projectFolders, threadProjectId } from './projects'
 import { TemplateCard } from './TemplateCard'
 import type { HomeView } from './useHomeView'
@@ -33,7 +33,7 @@ export function Home({
   onView: (view: HomeView) => void
   onCreate: (template?: Template) => void
 }) {
-  const [sort, setSort] = useState('recent')
+  const [sort, setSort] = useState<Sort>('opened')
   const [picker, setPicker] = useState(false)
   const [owner, setOwner] = useState<Owner>('anyone')
   const folders = projectFolders(snap)
@@ -47,10 +47,9 @@ export function Home({
         (!query || `${thread.name ?? ''} ${thread.preview}`.toLowerCase().includes(query)),
     )
     .sort((a, b) =>
-      sort === 'name' ? (a.name || a.preview).localeCompare(b.name || b.preview) : b.updatedAt - a.updatedAt,
+      sort === 'title' ? (a.name || a.preview).localeCompare(b.name || b.preview) : b.updatedAt - a.updatedAt,
     )
-  const sections =
-    view === 'list' && sort === 'recent' ? groupByRecency(threads) : [{ key: 'docs', title: '', threads }]
+  const sections = view === 'list' && sort !== 'title' ? groupByRecency(threads) : [{ key: 'docs', title: '', threads }]
   // Like Docs' list view, the first recency group titles the whole section.
   const groupedTitle = view === 'list' && !query && !folder
   const loading = snap.status === 'connecting' && !snap.threads.length
@@ -65,7 +64,7 @@ export function Home({
             <span className="gallery-tools" aria-hidden="true">
               <span className="gallery-caption">
                 Template gallery
-                <MIcon name="unfold_more" />
+                <MIcon name="unfold_more" size={24} />
               </span>
               <span className="gallery-divider" />
               <span className="header-icon">
@@ -95,7 +94,7 @@ export function Home({
                 onProject('all')
               }}
             />
-            {view === 'list' ? <span className="list-col-label">Last opened by me</span> : <span />}
+            {view === 'list' ? <span className="list-col-label">{dateColumn(sort)}</span> : <span />}
             <div className="recent-controls">
               {view === 'grid' ? (
                 <Tip label="List view">
@@ -110,16 +109,7 @@ export function Home({
                   </button>
                 </Tip>
               )}
-              <Tip label="Sort options">
-                <button
-                  className="icon-btn"
-                  aria-label="Sort by title"
-                  aria-pressed={sort === 'name'}
-                  onClick={() => setSort(sort === 'name' ? 'recent' : 'name')}
-                >
-                  <MIcon name="sort_by_alpha" size={24} />
-                </button>
-              </Tip>
+              <SortMenu value={sort} onChange={setSort} />
               <Tip label="Open file picker">
                 <button
                   className="icon-btn"
@@ -168,6 +158,11 @@ export function Home({
       ) : null}
     </div>
   )
+}
+
+/** The list's date column follows the date sort; sorting by title keeps "Last opened by me", as in Docs. */
+function dateColumn(sort: Sort): string {
+  return SORTS.find((item) => item.id === (sort === 'title' ? 'opened' : sort))?.label ?? ''
 }
 
 function SkeletonGrid() {
