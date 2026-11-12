@@ -95,6 +95,15 @@ describe('logDefects', () => {
       expect(logged).toEqual([{ level: 'Error', text: expect.stringContaining('refresh bug') }])
     }),
   )
+
+  it.effect('logs every defect in the cause, not only the first', () =>
+    Effect.gen(function* () {
+      const cause = Cause.combine(Cause.die(new Error('first bug')), Cause.die(new Error('second bug')))
+      const { logged } = yield* capturing(logDefects(Effect.failCause(cause)))
+      expect(logged).toEqual([{ level: 'Error', text: expect.stringContaining('first bug') }])
+      expect(logged[0]!.text).toContain('second bug')
+    }),
+  )
 })
 
 describe('errorLogFields', () => {
