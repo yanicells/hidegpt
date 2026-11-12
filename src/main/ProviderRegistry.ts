@@ -35,12 +35,20 @@ const fromLoaders = (loaders: Loaders) =>
       }),
   })
 
-/** Adapters that load on first use (demo mode); each loader runs once, so a reconnect keeps its library. */
+/**
+ * Adapters that load on first use (demo mode). A loaded adapter is kept, so a reconnect
+ * keeps its library; a failed load is not, so the next connect tries again.
+ */
 export const layerLoaders = (loaders: Loaders) => {
   const loaded = new Map<ProviderId, Promise<ProviderAdapter>>()
   const once = (id: ProviderId) => () => {
     let adapter = loaded.get(id)
-    if (!adapter) loaded.set(id, (adapter = loaders[id]()))
+    if (!adapter) {
+      const loading = loaders[id]()
+      loaded.set(id, loading)
+      loading.catch(() => loaded.get(id) === loading && loaded.delete(id))
+      adapter = loading
+    }
     return adapter
   }
   return Layer.succeed(ProviderRegistry, fromLoaders({ codex: once('codex'), opencode: once('opencode'), claude: once('claude') }))
