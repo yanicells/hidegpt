@@ -20,33 +20,55 @@ import type { ApprovalBlock, Block, CalloutBlock, DocSummary, ModelOption, Skill
  * never reach the page.
  */
 
-/** The fields Docs reads from a Messages API content block; transcripts and stream frames share it. */
-const ContentBlock = Schema.Struct({
-  type: Schema.String,
-  text: Schema.optionalKey(Schema.String),
-  id: Schema.optionalKey(Schema.String),
-  name: Schema.optionalKey(Schema.String),
-  input: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
-  tool_use_id: Schema.optionalKey(Schema.String),
-  content: Schema.optionalKey(Schema.Unknown),
-  source: Schema.optionalKey(
-    Schema.Struct({
-      type: Schema.optionalKey(Schema.String),
-      media_type: Schema.optionalKey(Schema.String),
-      data: Schema.optionalKey(Schema.String),
-    }),
-  ),
-})
-type ContentBlock = typeof ContentBlock.Type
-const decodeBlock = Schema.decodeUnknownOption(ContentBlock)
-const ApiMessage = Schema.Struct({
-  id: Schema.optionalKey(Schema.String),
-  content: Schema.optionalKey(Schema.Union([Schema.String, Schema.Array(Schema.Unknown)])),
-})
-const decodeMessage = Schema.decodeUnknownOption(ApiMessage)
+/**
+ * The fields Docs reads from a Messages API content block; transcripts and stream
+ * frames share it. Fields are decoded one by one, as the old loose reads were: a
+ * field of an unexpected type is left out, and the block (and its siblings) still show.
+ */
+type ContentBlock = {
+  readonly type: string
+  readonly text?: string | undefined
+  readonly id?: string | undefined
+  readonly name?: string | undefined
+  readonly input?: Readonly<Record<string, unknown>> | undefined
+  readonly tool_use_id?: string | undefined
+  readonly content?: unknown
+  readonly source?: { readonly type?: string | undefined; readonly media_type?: string | undefined; readonly data?: string | undefined } | undefined
+}
 
-/** Each well-formed block of `content`; one malformed block never hides the rest. */
-const blocksOf = (content: ReadonlyArray<unknown>): ContentBlock[] => content.flatMap((part) => Option.toArray(decodeBlock(part)))
+const field = <S extends Schema.Top & { readonly DecodingServices: never }>(schema: S) => {
+  const decode = Schema.decodeUnknownOption(schema)
+  return (value: unknown): S['Type'] | undefined => Option.getOrUndefined(decode(value))
+}
+const asString = field(Schema.String)
+const asRecord = field(Schema.Record(Schema.String, Schema.Unknown))
+const asContent = field(Schema.Union([Schema.String, Schema.Array(Schema.Unknown)]))
+
+function decodeBlock(value: unknown): ContentBlock | undefined {
+  const part = asRecord(value)
+  const type = asString(part?.type)
+  if (!part || type === undefined) return undefined
+  const source = asRecord(part.source)
+  return {
+    type,
+    text: asString(part.text),
+    id: asString(part.id),
+    name: asString(part.name),
+    input: asRecord(part.input),
+    tool_use_id: asString(part.tool_use_id),
+    content: part.content,
+    source: source && { type: asString(source.type), media_type: asString(source.media_type), data: asString(source.data) },
+  }
+}
+
+/** A message's `id` and `content`, each read on its own. */
+const decodeMessage = (value: unknown) => {
+  const message = asRecord(value)
+  return { id: asString(message?.id), content: asContent(message?.content) }
+}
+
+/** Each block of `content` that has a type; one malformed block never hides the rest. */
+const blocksOf = (content: ReadonlyArray<unknown>): ContentBlock[] => content.flatMap((part) => decodeBlock(part) ?? [])
 
 const COMMAND = /<command-name>\/?([^<]+)<\/command-name>/
 const COMMAND_ARGS = /<command-args>([\s\S]*?)<\/command-args>/
@@ -105,7 +127,7 @@ export function isSignedIn(account: AccountInfo | undefined): boolean {
 }
 
 function partsOf(message: unknown): ContentBlock[] {
-  const content = Option.getOrUndefined(decodeMessage(message))?.content
+  const content = decodeMessage(message).content
   if (typeof content === 'string') return [{ type: 'text', text: content }]
   return content ? blocksOf(content) : []
 }
@@ -195,7 +217,7 @@ export function blocksFromSessionMessages(messages: ReadonlyArray<SessionMessage
       continue
     }
     if (message.type !== 'assistant') continue
-    const id = Option.getOrUndefined(decodeMessage(message.message))?.id ?? message.uuid
+    const id = decodeMessage(message.message).id ?? message.uuid
     for (const part of parts) {
       if (part.type === 'tool_use' && part.id) put(toolCallout(part))
       if (part.type === 'text' && part.text) {
