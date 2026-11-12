@@ -35,6 +35,7 @@ import {
   type ProviderError,
 } from '../provider/errors'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
+import { reportTurnFailure } from '../provider/turnFailure'
 import type {
   AdapterEvent,
   OpenedThread,
@@ -401,9 +402,11 @@ export function make(
               yield* afterTurn(live)
               if (!live.turn) continue
               live.turn = false
-              const failed = live.stopping ? undefined : emission.error
+              const failure = live.stopping ? undefined : emission.failure
               live.stopping = false
-              yield* emit({ type: 'turnEnded', threadId: live.threadId, ...(failed ? { error: failed } : {}) })
+              // The page gets Docs' sentence and a report id; the provider's text goes to the log.
+              const error = failure ? yield* reportTurnFailure('claude', failure) : undefined
+              yield* emit({ type: 'turnEnded', threadId: live.threadId, ...(error ? { error } : {}) })
             }
           }
         })

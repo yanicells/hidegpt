@@ -9,6 +9,7 @@ import * as Effect from 'effect/Effect'
 import * as Exit from 'effect/Exit'
 import * as Fiber from 'effect/Fiber'
 import * as Logger from 'effect/Logger'
+import * as References from 'effect/References'
 import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
@@ -200,14 +201,31 @@ describe('ClaudeAdapter', () => {
     }),
   )
 
-  it.effect('reports a failed result in Claude words', () =>
+  it.effect('reports a failed result in Docs words with a report id, and logs the provider text', () =>
     Effect.gen(function* () {
-      const { fake, session, events } = yield* open({ reply: null })
-      yield* send(session, DOC, 'Hi')
-      yield* until(() => fake.queries[0]?.prompts.length === 1)
-      fake.queries[0]?.push(resultFrame({ subtype: 'error_max_turns', is_error: true, errors: [] }))
-      yield* until(() => ended(events).length === 1)
-      expect(ended(events)[0]).toMatchObject({ error: 'Claude stopped after reaching its step limit.' })
+      const logged: Array<Record<string, unknown>> = []
+      const capture = Logger.make(({ fiber, logLevel }) => {
+        if (logLevel === 'Warn') logged.push({ ...fiber.getRef(References.CurrentLogAnnotations) })
+      })
+      yield* Effect.gen(function* () {
+        const { fake, session, events } = yield* open({ reply: null })
+        yield* send(session, DOC, 'Hi')
+        yield* until(() => fake.queries[0]?.prompts.length === 1)
+        fake.queries[0]?.push(
+          resultFrame({
+            subtype: 'error_max_turns',
+            is_error: true,
+            errors: ['Claude reached max turns', '[ede_diagnostic] trace 42'],
+          }),
+        )
+        yield* until(() => ended(events).length === 1)
+        expect(ended(events)[0]).toMatchObject({
+          error: expect.stringMatching(/^Docs couldn't finish\. Try again\. \(Report [0-9a-f]{8}\)$/),
+        })
+      }).pipe(Effect.provide(Logger.layer([capture])))
+      expect(logged).toEqual([
+        expect.objectContaining({ provider: 'claude', failure: 'unknown', detail: 'Claude reached max turns' }),
+      ])
     }),
   )
 
