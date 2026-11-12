@@ -21,8 +21,7 @@ import * as Semaphore from 'effect/Semaphore'
  * - its leader (the spawned CLI): pid, start time, and the command as spawned (a
  *   full path for SDK-spawned CLIs, so another app's copy never matches);
  * - its members: the leader's process tree (MCP servers, tools), re-read every
- *   few seconds while it runs (less often while nothing changes), as T3 Code
- *   tracks a CLI's descendants;
+ *   `TRACK_EVERY` while it runs, as T3 Code tracks a CLI's descendants;
  * - its owner: the main process, by pid and start time.
  *
  * When a process ends normally, `stop` re-reads its tree once more, kills the
@@ -44,14 +43,13 @@ import * as Semaphore from 'effect/Semaphore'
  */
 
 /**
- * How often live entries' process trees are re-read: often while they change
- * (a turn starting tools), rarely once they have been still for a while (an
- * idle Codex server). It bounds what a crash, or a CLI that exits on its own,
- * can miss. Each read is one `ps -A` without command lines (about 35 KB, 20 ms).
+ * How often live entries' process trees are re-read, only while there are any.
+ * It bounds what a crash, or a CLI that exits on its own, can miss. Each read is
+ * one `ps -A` without command lines (about 35 KB, 20-40 ms: under 1% of a core).
  */
-const TRACK_ACTIVE = Duration.seconds(5)
-const TRACK_IDLE = Duration.seconds(30)
-const IDLE_AFTER = Duration.minutes(1)
+const TRACK_EVERY = Duration.seconds(5)
+/** `ps` and `sysctl` that hang must not hold up startup (`startOf`, `reap`); T3 Code uses the same. */
+const COMMAND_TIMEOUT_MS = 5_000
 
 const Member = Schema.Struct({ pid: Schema.Number, started: Schema.Number })
 const Entry = Schema.Struct({
@@ -77,7 +75,7 @@ export class ProcessLedger extends Context.Service<
     readonly forget: (pid: number) => Effect.Effect<void>
     /** Kills the members of `pid`'s tree that still run as recorded, then forgets it. For a process that has ended or is being killed. */
     readonly stop: (pid: number) => Effect.Effect<void>
-    /** Re-reads the process tree of every live entry; also runs on its own (see `TRACK_ACTIVE`). */
+    /** Re-reads the process tree of every live entry; also runs on its own every `TRACK_EVERY`. */
     readonly track: Effect.Effect<void>
     /** Kills what crashed owners left, when provably the recorded processes. Returns how many entries. */
     readonly reap: Effect.Effect<number>
@@ -126,7 +124,7 @@ const run = (command: string, args: ReadonlyArray<string>) =>
       command,
       [...args],
       // C locale and UTC, so start times parse the same on every machine; a big table must fit.
-      { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' }, maxBuffer: 16 * 1024 * 1024 },
+      { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' }, maxBuffer: 16 * 1024 * 1024, timeout: COMMAND_TIMEOUT_MS },
       (error, stdout) => resume(Effect.succeed(error ? Option.none() : Option.some(stdout))),
     )
   })
@@ -265,8 +263,6 @@ export const layer = (filePath: string | null, options: LedgerOptions = {}) =>
       // The ledger is best effort: a failed write never fails a spawn.
       const save = lock.withPermits(1)(Effect.ignore(Effect.flatMap(read, (onDisk) => write(othersOn(onDisk)))))
 
-      /** When a record or a re-read last changed something; tracking slows down after `IDLE_AFTER` without one. */
-      let lastChange = 0
       const track = Effect.gen(function* () {
         if (ours.size === 0) return
         const table = yield* trackingTable
@@ -280,21 +276,14 @@ export const layer = (filePath: string | null, options: LedgerOptions = {}) =>
           ours.set(pid, { ...entry, members })
           changed = true
         }
-        if (changed) {
-          lastChange = Date.now()
-          yield* save
-        }
+        if (changed) yield* save
       })
-      const nextTrack = Effect.suspend(() =>
-        Effect.sleep(Date.now() - lastChange < Duration.toMillis(IDLE_AFTER) ? TRACK_ACTIVE : TRACK_IDLE),
-      )
-      yield* Effect.forkScoped(Effect.forever(Effect.andThen(nextTrack, track)))
+      yield* Effect.forkScoped(Effect.forever(Effect.andThen(Effect.sleep(TRACK_EVERY), track)))
 
       return ProcessLedger.of({
         record: (pid, command, arg) =>
           Effect.flatMap(startOf(pid), (started) => {
             ours.set(pid, { command, arg, started, owner, ownerStarted, members: [] })
-            lastChange = Date.now()
             return save
           }),
         forget: (pid) => Effect.suspend(() => (ours.delete(pid) ? save : Effect.void)),
