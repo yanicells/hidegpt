@@ -4,8 +4,8 @@ import * as Effect from 'effect/Effect'
 import * as Logger from 'effect/Logger'
 import * as References from 'effect/References'
 
-import { describeFailure, logDefects, reportDefect } from './DefectReport'
-import { CommandRejectedError, DEFECT_MESSAGE, ProviderRequestError } from './errors'
+import { describeFailure, errorLogFields, logDefects, reportDefect } from './DefectReport'
+import { CommandRejectedError, DEFECT_MESSAGE, ProcessExitedError, ProviderRequestError } from './errors'
 
 type Logged = { readonly level: string; readonly text: string }
 
@@ -95,4 +95,24 @@ describe('logDefects', () => {
       expect(logged).toEqual([{ level: 'Error', text: expect.stringContaining('refresh bug') }])
     }),
   )
+})
+
+describe('errorLogFields', () => {
+  it('says whether a stopped process explained itself, and how much, never what it printed', () => {
+    const exited = new ProcessExitedError({ provider: 'codex', code: 1, signal: null, stderr: 'panic near Prompt-81aa' })
+    const fields = errorLogFields(exited)
+    expect(fields).toEqual({
+      error: 'ProcessExitedError',
+      provider: 'codex',
+      code: 1,
+      signal: null,
+      hasStderr: true,
+      stderrLength: 'panic near Prompt-81aa'.length,
+    })
+    expect(JSON.stringify(fields)).not.toContain('Prompt-81aa')
+    expect(errorLogFields(new ProcessExitedError({ provider: 'codex', code: null, signal: 'SIGKILL' }))).toMatchObject({
+      hasStderr: false,
+      stderrLength: 0,
+    })
+  })
 })

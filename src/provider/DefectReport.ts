@@ -39,7 +39,16 @@ export function errorLogFields(error: ProviderError | CommandRejectedError): Rec
     case 'ProviderTimeoutError':
       return { error: error._tag, provider: error.provider, operation: error.operation, seconds: error.seconds }
     case 'ProcessExitedError':
-      return { error: error._tag, provider: error.provider, code: error.code, signal: error.signal }
+      // Whether the process said why, and how much: enough to tell a silent crash from a
+      // complaint, without its words.
+      return {
+        error: error._tag,
+        provider: error.provider,
+        code: error.code,
+        signal: error.signal,
+        hasStderr: Boolean(error.stderr),
+        stderrLength: error.stderr?.length ?? 0,
+      }
     case 'BinaryMissingError':
       return { error: error._tag, provider: error.provider, command: error.command }
     case 'ProviderRequestError':
