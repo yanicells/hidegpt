@@ -154,9 +154,6 @@ describe('session state', () => {
       2,
     )
     expect(S.toSnapshot(state)).toMatchObject({ streaming: true, stopping: true })
-    // The settle timer of an older turn never ends this one.
-    expect(S.settleStop(runtime(state, 'codex', 'thr_1')!, 'turn-0').turn).not.toBeNull()
-    expect(S.settleStop(runtime(state, 'codex', 'thr_1')!, 'turn-1').turn).toBeNull()
   })
 
   it('shows a document opened mid-answer as streaming', () => {

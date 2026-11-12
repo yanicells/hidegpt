@@ -2,7 +2,7 @@ import { Menubar } from '@base-ui/react/menubar'
 
 import { displayServerName, toolsNeedingConnect } from '../../../../shared/labels'
 import type { Snapshot } from '../../../../shared/model'
-import { dispatch } from '../../session-bridge'
+import { dispatch, dispatchToDocument } from '../../session-bridge'
 import { Menu, MenuTrigger } from '../ui/menu'
 import { MenuPanel, type Item } from '../ui/MenuPanel'
 import { openImagePicker, startSmartChip } from './Composer'
@@ -70,7 +70,7 @@ export function DocMenus({
           {
             id: 'load-earlier',
             label: 'See version history',
-            run: () => dispatch({ op: 'loadOlderTurns' }),
+            run: () => dispatchToDocument({ op: 'loadOlderTurns' }),
             disabled: !snap.hasOlder || snap.loadingOlder,
           },
           row('Name current version'),
