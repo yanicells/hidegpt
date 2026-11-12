@@ -150,6 +150,13 @@ describe('ProviderEventLog', () => {
     for (const length of ['-1', '1.5', '1e400', '1e15']) expect(readLogLine(renamed(length))).toBeNull()
   })
 
+  it('reads a number in an id field as null, not as a placeholder id', () => {
+    const closed = (threadId: string) =>
+      `{"timestamp":"2026-11-12T00:00:00.000Z","provider":"codex","event":{"type":"thread.closed","threadId":${threadId}}}`
+    expect(readLogLine(closed('"thr_1"'))?.event).toEqual({ type: 'thread.closed', threadId: 'thr_1' })
+    expect(readLogLine(closed('3'))).toBeNull()
+  })
+
   it.effect('a session writes to the library file: no prompt or answer, and one delta per item', () =>
     Effect.gen(function* () {
       const dir = mkdtempSync(join(tmpdir(), 'docs-activity-'))

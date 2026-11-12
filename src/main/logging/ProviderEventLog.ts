@@ -93,16 +93,18 @@ const MAX_TEXT_LENGTH = 64 * 1024 * 1024
 
 /**
  * The inverse, for replay: each length becomes a placeholder string of that
- * length. A number that cannot be a length stays a number, so the line fails to decode.
+ * length. A number where the writer keeps a string (an id, a tag), or one that
+ * cannot be a length, stays a number, so the line fails to decode.
  */
-function lengthAsText(value: unknown, key: string | null = null): unknown {
+function lengthAsText(value: unknown, key: string | null = null, keep = true): unknown {
   if (typeof value === 'number') {
-    if (key !== null && KEPT_NUMBERS.has(key)) return value
+    if (key !== null && (KEPT_NUMBERS.has(key) || (keep && KEPT_STRINGS.has(key)))) return value
     return Number.isSafeInteger(value) && value >= 0 && value <= MAX_TEXT_LENGTH ? '·'.repeat(value) : value
   }
-  if (Array.isArray(value)) return value.map((entry) => lengthAsText(entry))
+  const below = keep && !(key !== null && NOTHING_KEPT_BELOW.has(key))
+  if (Array.isArray(value)) return value.map((entry) => lengthAsText(entry, null, below))
   if (typeof value === 'object' && value !== null) {
-    return Object.fromEntries(Object.entries(value).map(([name, entry]) => [name, lengthAsText(entry, name)]))
+    return Object.fromEntries(Object.entries(value).map(([name, entry]) => [name, lengthAsText(entry, name, below)]))
   }
   return value
 }
