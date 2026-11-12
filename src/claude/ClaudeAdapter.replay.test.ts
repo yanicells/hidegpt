@@ -5,7 +5,7 @@ import * as Effect from 'effect/Effect'
 import * as Stream from 'effect/Stream'
 
 import type { AdapterEvent, ProviderSession, TurnSettings } from '../provider/ProviderAdapter'
-import { readTranscript, type ReplayEntry } from '../provider/replayFixture'
+import { readTranscript, type ReplayEntry, type ReplayTranscript } from '../provider/replayFixture'
 import * as ClaudeAdapter from './ClaudeAdapter'
 import { makeFakeClaude } from './FakeClaude'
 import { recordingSdk, replaySdk } from './replay'
@@ -99,7 +99,7 @@ describe('ClaudeAdapter replay', () => {
         'You asked: First question',
         'You asked: Second question',
       ])
-      expect(replay.finished().failure).toBeNull()
+      expect(replay.finished()).toEqual({ failure: null, unused: 0 })
     }),
   )
 
@@ -114,4 +114,43 @@ describe('ClaudeAdapter replay', () => {
       expect(events.find((event) => event.type === 'turnEnded')).toMatchObject({ error: expect.stringContaining('HIDEGPT_RECORD_TURNS=1') })
     }),
   )
+
+  describe('document ids', () => {
+    const KNOWN = '11111111-1111-4111-8111-111111111111'
+    const OTHER = '22222222-2222-4222-8222-222222222222'
+    const MINTED = '33333333-3333-4333-8333-333333333333'
+    const transcript = (entries: ReadonlyArray<ReplayEntry>): ReplayTranscript => ({
+      provider: 'claude',
+      protocol: 'claude-agent-sdk.query',
+      version: 'synthetic',
+      scenario: 'ids',
+      entries,
+    })
+    const ask = (call: string, args: ReadonlyArray<unknown>, result: unknown): ReadonlyArray<ReplayEntry> => [
+      { type: 'expect_outbound', frame: { call, args } },
+      { type: 'emit_inbound', frame: { call, result } },
+    ]
+
+    it('a document Claude listed must be opened by that id, not another', async () => {
+      const recorded = transcript([
+        ...ask('listSessions', [{ limit: 500 }], [{ sessionId: KNOWN }]),
+        ...ask('getSessionMessages', [KNOWN, {}], []),
+      ])
+      const right = replaySdk(recorded)
+      await right.sdk.listSessions({ limit: 500 })
+      await expect(right.sdk.getSessionMessages(KNOWN, {})).resolves.toEqual([])
+      expect(right.finished()).toEqual({ failure: null, unused: 0 })
+
+      const wrong = replaySdk(recorded)
+      await wrong.sdk.listSessions({ limit: 500 })
+      await expect(wrong.sdk.getSessionMessages(OTHER, {})).rejects.toThrow(/expected/)
+    })
+
+    it('a new document id binds once, and two recorded ids never share one', async () => {
+      const recorded = transcript([...ask('getSessionInfo', [KNOWN, {}], null), ...ask('getSessionInfo', [OTHER, {}], null)])
+      const replay = replaySdk(recorded)
+      await replay.sdk.getSessionInfo(MINTED, {})
+      await expect(replay.sdk.getSessionInfo(MINTED, {})).rejects.toThrow(/expected/)
+    })
+  })
 })
