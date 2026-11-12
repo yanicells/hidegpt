@@ -3,17 +3,45 @@
  * (screenshots, the bench, demos). Never personal documents.
  */
 
-export const DEMO_TITLES = [
-  'Lecture notes — Week 3',
-  'Workshop outline',
-  'Reading response',
-  'A question of belonging',
-  'Observations & findings',
-  'Ideas for the next chapter',
-] as const
+/**
+ * The documents, newest first. Each preview is the document's opening text:
+ * Home cards show its first line as the page's Heading 1 and the rest as its
+ * body, so every thumbnail reads differently. The first is DEMO_CONVERSATION's.
+ */
+export const DEMO_DOCUMENTS: ReadonlyArray<{ readonly title: string; readonly preview: string }> = [
+  {
+    title: 'Lecture notes — Week 3',
+    preview:
+      'How do we move from an idea to understanding?\n\nUnderstanding starts with attention. Before we explain an idea, we need to notice the situation it comes from: the people involved, the choices available, and what is at stake.\n\nThree ways to work with a reading\n1. Describe it simply.\n2. Find a concrete example.\n3. Ask what follows.',
+  },
+  {
+    title: 'Workshop outline',
+    preview:
+      'Plan for Thursday’s workshop\n\nOpen with ten minutes of free writing on the prompt, then move into pairs for feedback.\n\nAgenda\n• Warm-up: one sentence that surprised you this week\n• Peer review in pairs, 20 minutes\n• Whole-group discussion of openings\n• Wrap-up and next steps',
+  },
+  {
+    title: 'Reading response',
+    preview:
+      'Response to chapter four\n\nThe author argues that habits are shaped more by our surroundings than by willpower. I found the hospital example convincing, though it leaves out what happens when the setting changes.\n\nWhat I would ask in class: does the argument hold for habits we choose on purpose?',
+  },
+  {
+    title: 'A question of belonging',
+    preview:
+      'What does it mean to belong somewhere?\n\nBelonging seems to grow from small, repeated moments: being expected, being missed, being asked for help. A place becomes ours when someone notices we are gone.\n\nDraft thesis: belonging is less a feeling we have than a role others give us.',
+  },
+  {
+    title: 'Observations & findings',
+    preview:
+      'Field notes from the community garden\n\nSaturday, 9:00–11:30. Fourteen volunteers, most of them returning. Work split into weeding, watering and building two new beds.\n\nFindings\n• Newcomers stayed longer when paired with a regular\n• The tool shed doubles as a meeting point\n• Conversations started over shared tasks',
+  },
+  {
+    title: 'Ideas for the next chapter',
+    preview:
+      'Where the story could go next\n\nMara leaves the city at the end of chapter six, but the reader still does not know why she kept the letters.\n\nOptions\n• Open with her brother finding the box\n• Jump ahead a year and work backwards\n• Tell the next chapter from the neighbour’s point of view',
+  },
+]
 
-export const DEMO_PREVIEW =
-  'Ideas from the discussion\n\nUnderstanding begins with paying attention to what is already in front of us. A useful question connects an abstract idea to a concrete experience.\n\nKey points\n• Describe the situation in your own words.\n• Identify what matters and why.\n• Connect the reading to an example.\n\nQuestions to revisit\nWhat changed in the way you understood the topic? Which example best explains the main idea?'
+export const DEMO_TITLES = DEMO_DOCUMENTS.map((doc) => doc.title)
 
 /** The conversation in the first document. */
 export const DEMO_CONVERSATION: ReadonlyArray<{ readonly question: string; readonly answer: string }> = [

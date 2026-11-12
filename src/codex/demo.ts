@@ -1,4 +1,4 @@
-import { DEMO_CONVERSATION, DEMO_DELTA_MS, DEMO_PREVIEW, DEMO_TITLES } from '../provider/demoLibrary'
+import { DEMO_CONVERSATION, DEMO_DELTA_MS, DEMO_DOCUMENTS } from '../provider/demoLibrary'
 import { agentItem, makeFakeCodex, stubThread, stubTurn, userItem, type FakeCodex, type Project } from './FakeCodex'
 
 /**
@@ -8,8 +8,8 @@ import { agentItem, makeFakeCodex, stubThread, stubTurn, userItem, type FakeCode
  */
 export function makeDemoCodex(): FakeCodex {
   const now = Math.floor(Date.now() / 1000)
-  const threads = DEMO_TITLES.map((title, i) => ({
-    ...stubThread(`demo-${i}`, DEMO_PREVIEW, title, i === 0 || i === 2 ? 'course' : i === 1 ? 'workshop' : null),
+  const threads = DEMO_DOCUMENTS.map(({ title, preview }, i) => ({
+    ...stubThread(`demo-${i}`, preview, title, i === 0 || i === 2 ? 'course' : i === 1 ? 'workshop' : null),
     updatedAt: now - i * 86400,
     recencyAt: now - i * 86400,
   }))
