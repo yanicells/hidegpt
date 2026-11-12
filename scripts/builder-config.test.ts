@@ -26,6 +26,13 @@ describe('builderConfig', () => {
     expect(builderConfig({ CSC_LINK: '', CSC_NAME: '  ' }).mac).toMatchObject({ identity: '-', hardenedRuntime: false })
   })
 
+  it('makes only a .dmg, with no update files, and no one-time-code popup over the composer', () => {
+    const config = builderConfig({})
+    expect(config.mac?.target).toEqual(['dmg'])
+    expect(config.dmg).toMatchObject({ writeUpdateInfo: false })
+    expect(config.mac?.extendInfo).toMatchObject({ NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac: true })
+  })
+
   it('ships no node_modules and no dependency list in a shared build', () => {
     const config = builderConfig({ HIDEGPT_PERSONAL: '0' })
     expect(config.files).toEqual(['out/**/*', 'package.json', '!node_modules/**/*'])
@@ -36,13 +43,17 @@ describe('builderConfig', () => {
   it('ships only the Claude SDK, its binary unpacked, in a personal build', () => {
     const config = builderConfig({ HIDEGPT_PERSONAL: '1' })
     expect(config.files).toContain('node_modules/@anthropic-ai/claude-agent-sdk/**/*')
+    expect(config.files).toContain('!node_modules/@anthropic-ai/claude-agent-sdk/{bridge.mjs,browser-sdk.js,core*.mjs,*.d.ts}')
     expect(config.asarUnpack).toEqual(['node_modules/@anthropic-ai/claude-agent-sdk-*/**/*'])
     expect(config.extraMetadata).not.toHaveProperty('dependencies')
   })
 
   it('names everything a person sees "Docs"', () => {
     const config = builderConfig({})
-    expect(config).toMatchObject({ productName: 'Docs', extraMetadata: { name: 'docs', productName: 'Docs' } })
+    expect(config).toMatchObject({
+      productName: 'Docs',
+      extraMetadata: { name: 'docs', productName: 'Docs', engines: null, packageManager: null },
+    })
     expect(JSON.stringify(config)).not.toMatch(/gpt|claude-code|openai|\bai\b/i)
   })
 })

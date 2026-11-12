@@ -22,9 +22,30 @@ export const wantsNotarizing = (env: Env): boolean =>
     has(env, 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID') ||
     has(env, 'APPLE_KEYCHAIN', 'APPLE_KEYCHAIN_PROFILE'))
 
-/** The SDK's entry bundles its own dependencies, so it and its platform binary are all Claude needs. */
-const CLAUDE_FILES = ['node_modules/@anthropic-ai/claude-agent-sdk/**/*', 'node_modules/@anthropic-ai/claude-agent-sdk-*/**/*']
+/**
+ * The SDK's entry (`sdk.mjs`) bundles its own dependencies and imports no file beside
+ * it, so it and its platform binary are all Claude needs. Its other entry points
+ * (bridge, browser, core) and type declarations are left out.
+ */
+const CLAUDE_FILES = [
+  'node_modules/@anthropic-ai/claude-agent-sdk/**/*',
+  '!node_modules/@anthropic-ai/claude-agent-sdk/{bridge.mjs,browser-sdk.js,core*.mjs,*.d.ts}',
+  'node_modules/@anthropic-ai/claude-agent-sdk-*/**/*',
+]
 const CLAUDE_BINARY = 'node_modules/@anthropic-ai/claude-agent-sdk-*/**/*'
+
+/**
+ * Electron's default reasons for camera, microphone and Bluetooth access read as
+ * generic. Docs never asks for them, so they say so in plain words (a plist can't
+ * hold a null, so they can't simply be removed).
+ */
+const UNUSED_ACCESS = {
+  NSCameraUsageDescription: 'Docs does not use the camera.',
+  NSMicrophoneUsageDescription: 'Docs does not use the microphone.',
+  NSAudioCaptureUsageDescription: 'Docs does not record audio.',
+  NSBluetoothAlwaysUsageDescription: 'Docs does not use Bluetooth.',
+  NSBluetoothPeripheralUsageDescription: 'Docs does not use Bluetooth.',
+}
 
 /** Everything electron-builder reads to sign or notarize. */
 export const SIGNING_VARS = [
@@ -59,7 +80,7 @@ export function builderEnv(env: Env): Record<string, string> {
 }
 
 /**
- * The electron-builder config for a macOS `.dmg` and `.zip`. It's built in code, as
+ * The electron-builder config for a macOS `.dmg`. It's built in code, as
  * T3 Code builds its own, because two parts depend on the environment:
  *
  * - Main bundles everything it runs except the Claude SDK, so a shared build,
@@ -83,9 +104,15 @@ export function builderConfig(env: Env): Configuration {
     // A personal build goes to its own folder with its own name, so it isn't handed out by mistake.
     artifactName: personal ? 'Docs-${version}-${arch}-personal.${ext}' : 'Docs-${version}-${arch}.${ext}',
     directories: { output: outputDir(env), buildResources: 'build' },
-    // The package.json inside the app: the Docs name, and in a shared build no dependency
-    // list (electron-builder merges objects key by key, so only null clears it).
-    extraMetadata: { name: 'docs', productName: 'Docs', ...(personal ? {} : { dependencies: null }) },
+    // The package.json inside the app: the Docs name, no dev tooling fields, and in a shared
+    // build no dependency list (electron-builder merges objects key by key, so only null clears them).
+    extraMetadata: {
+      name: 'docs',
+      productName: 'Docs',
+      engines: null,
+      packageManager: null,
+      ...(personal ? {} : { dependencies: null }),
+    },
     files: ['out/**/*', 'package.json', '!node_modules/**/*', ...(personal ? CLAUDE_FILES : [])],
     asarUnpack: personal ? [CLAUDE_BINARY] : [],
     electronLanguages: ['en'],
@@ -93,7 +120,8 @@ export function builderConfig(env: Env): Configuration {
     npmRebuild: false,
     publish: null,
     mac: {
-      target: ['dmg', 'zip'],
+      // Just the .dmg: nothing auto-updates, so no .zip or blockmaps.
+      target: ['dmg'],
       icon: 'icon.icns',
       category: 'public.app-category.productivity',
       // Unset means "use CSC_LINK or CSC_NAME"; "-" is an ad-hoc signature.
@@ -102,7 +130,12 @@ export function builderConfig(env: Env): Configuration {
       entitlements: 'build/entitlements.mac.plist',
       entitlementsInherit: 'build/entitlements.mac.plist',
       notarize: wantsNotarizing(env),
+      extendInfo: {
+        // Stops macOS offering one-time codes from Messages over the composer (as T3 Code does).
+        NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac: true,
+        ...UNUSED_ACCESS,
+      },
     },
-    dmg: { title: 'Docs ${version}' },
+    dmg: { title: 'Docs ${version}', writeUpdateInfo: false },
   }
 }
