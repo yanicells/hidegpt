@@ -1,7 +1,30 @@
 /* ---------- Home: template gallery and recent documents ---------- */
 
 .home {
-  @apply flex-1 min-h-0 overflow-auto;
+  @apply flex-1 min-h-0;
+  /* Always scroll, so the track never appears or disappears and shifts the centred column. */
+  overflow-x: hidden;
+  overflow-y: scroll;
+}
+
+/* Docs' page scrollbar: a 12px #f0f0f0 track at the window edge with a 6px #cdcdcd thumb inset 3px. */
+.home::-webkit-scrollbar {
+  width: 12px;
+}
+
+.home::-webkit-scrollbar-track {
+  background: #f0f0f0;
+}
+
+.home::-webkit-scrollbar-thumb {
+  min-height: 40px;
+  border: 3px solid transparent;
+  border-radius: 6px;
+  background: #cdcdcd padding-box;
+}
+
+.home::-webkit-scrollbar-thumb:hover {
+  background-color: #bdbdbd;
 }
 
 .gallery {
