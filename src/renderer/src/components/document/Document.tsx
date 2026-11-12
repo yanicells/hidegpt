@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef } from 'react'
 
 import type { Block, Snapshot } from '../../../../shared/model'
 import { dispatch, useBlocks } from '../../session-bridge'
+import { BlockFallback, RenderErrorBoundary } from '../layout/RenderErrorBoundary'
 import { SparkIcon } from '../ui/Icons'
 import { BlockView } from './BlockView'
 import { Composer } from './Composer'
@@ -163,7 +164,10 @@ const BlockRow = memo(function BlockRow({ block, streaming }: { block: Block; st
       data-turn={block.kind === 'user' ? block.id : undefined}
       data-streaming={streaming || undefined}
     >
-      <BlockView block={block} streaming={streaming} />
+      {/* A block that can't render (bad Markdown, say) stands alone; a new version of it tries again. */}
+      <RenderErrorBoundary fallback={<BlockFallback />} resetKeys={[block]}>
+        <BlockView block={block} streaming={streaming} />
+      </RenderErrorBoundary>
     </div>
   )
 })
