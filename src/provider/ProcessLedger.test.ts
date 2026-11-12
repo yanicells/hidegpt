@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import * as NodeServices from '@effect/platform-node/NodeServices'
 import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
+import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as TestClock from 'effect/testing/TestClock'
 
@@ -33,8 +34,7 @@ const withLedger = <A, E>(
   use: (ledger: ProcessLedger['Service']) => Effect.Effect<A, E>,
 ) =>
   Effect.flatMap(Effect.service(ProcessLedger), use).pipe(
-    Effect.provide(layer(path, options)),
-    Effect.provide(NodeServices.layer),
+    Effect.provide(layer(path, options).pipe(Layer.provideMerge(NodeServices.layer))),
   )
 const reap = (path: string, options: LedgerOptions = {}) => withLedger(path, options, (ledger) => ledger.reap)
 
