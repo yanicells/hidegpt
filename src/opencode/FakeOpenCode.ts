@@ -458,6 +458,7 @@ export function makeFakeOpenCode(options: FakeOpenCodeOptions = {}): FakeOpenCod
       alive = false
       exitCode = code
       endStreams()
+      // copy: listeners may unsubscribe while we notify
       for (const listener of Array.from(exitListeners)) listener(code)
       exitListeners.clear()
     },

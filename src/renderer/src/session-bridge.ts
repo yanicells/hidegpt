@@ -18,6 +18,7 @@ function subscribe(onChange: () => void): () => void {
     snapshot = window.hidegpt.getSnapshot()
     detach = window.hidegpt.onSnapshot((patch) => {
       snapshot = applySnapshotPatch(snapshot, patch)
+      // copy: listeners may unsubscribe while we notify
       for (const listener of Array.from(listeners)) listener()
     })
   }
