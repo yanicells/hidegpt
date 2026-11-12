@@ -34,6 +34,22 @@ describe('splitMarkdownBlocks', () => {
     }
   })
 
+  // Cases where a split could change the output: each must split exactly or stay whole.
+  it.each([
+    'see [ref]\n\npara\n\n- ```\n  x\n  ```\n\n  [ref]: https://x.com',
+    'see [ref]\n\n```a`b\n\n[ref]: https://x.com',
+    'see [ref]\n\n> [ref]: https://x.com',
+    'see [ref]\n\n- item\n\n  [ref]: https://x.com',
+    'a\n\u00a0\nb',
+    '```\nx\n```\u00a0\n\ny\n```',
+  ])('never renders differently from the whole text: %j', (text) => {
+    for (let end = 0; end <= text.length; end++) {
+      const source = text.slice(0, end)
+      const blocks = splitMarkdownBlocks(source)
+      if (blocks) expect(blocks.map(html).join('')).toBe(html(source))
+    }
+  })
+
   it('splits only between closed blocks', () => {
     expect(splitMarkdownBlocks('a\n\n```\nb\n\nc\n```\n\n- d\n\n- e\n\nf')).toEqual(['a\n\n', '```\nb\n\nc\n```\n\n- d\n\n- e\n\n', 'f'])
   })
