@@ -31,6 +31,7 @@ pnpm dev
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm protocol` | Regenerate the Codex app-server schemas from the installed CLI |
 | `pnpm screenshot` | Home grid/list, project, creation dialog, and desktop/narrow editor PNGs using fictional content |
+| `pnpm dist` | Package a macOS `.dmg` and `.zip` into `dist/` (see [Packaging](#packaging)) |
 
 Choose **Blank document** or a template to name a document and select its location.
 Projects are browsable folders, including empty projects. Opening a project remembers
@@ -57,6 +58,39 @@ for you there. Streaming text crosses to the window as deltas in 32 ms frames.
 A provider that crashes restarts with backoff and the document on screen reloads; every
 request has a deadline, so nothing stays on "Working…". See
 [docs/architecture.md](docs/architecture.md) for how this is built.
+
+## Packaging
+
+`pnpm dist` builds the app and packages it as **Docs** (`Docs-<version>-<arch>.dmg`
+and `.zip` in `dist/`), with a plain document icon and the bundle id
+`app.docs.desktop`. Before packaging it checks that the preload loads in
+Electron's sandbox (`scripts/verify-preload-bundle.ts`).
+
+**Shared builds leave Claude out.** Anthropic doesn't allow offering Claude
+sign-in or limits to other people through a third-party app, so by default
+`pnpm dist` compiles the Claude library out (`PROVIDERS` and the provider
+registry drop it) and ships no Claude SDK; the script fails if any Claude code
+survives. That build is the one to give friends. For your own copy:
+
+```bash
+HIDEGPT_PERSONAL=1 pnpm dist   # keeps Claude; the SDK's binary is unpacked next to app.asar
+```
+
+Running from source (`pnpm dev`, `pnpm start`, `pnpm screenshot`, tests) always
+includes Claude.
+
+**Signing and notarizing are off unless their variables are set.** With none, the
+app is ad-hoc signed: it opens on your own Mac, and on another Mac only after
+**Open Anyway** in System Settings → Privacy & Security (or
+`xattr -dr com.apple.quarantine Docs.app`).
+
+| Variables | Effect |
+|---|---|
+| `CSC_LINK` (a `.p12`) + `CSC_KEY_PASSWORD`, or `CSC_NAME` (a keychain identity) | Sign with a Developer ID, with the hardened runtime and `build/entitlements.mac.plist` |
+| `APPLE_API_KEY` + `APPLE_API_KEY_ID` + `APPLE_API_ISSUER`, or `APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID`, or `APPLE_KEYCHAIN` + `APPLE_KEYCHAIN_PROFILE` | Also notarize (only for a signed build) |
+
+Empty variables count as unset, and without a certificate variable the keychain
+is never searched for one.
 
 ## Provider compatibility
 

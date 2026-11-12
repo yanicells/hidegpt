@@ -1,0 +1,72 @@
+// Adapted from T3 Code (scripts/build-desktop-artifact.ts, `createBuildConfig`) at commit 5c6f2f12.
+// Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+import type { Configuration } from 'electron-builder'
+
+type Env = Readonly<Record<string, string | undefined>>
+
+const has = (env: Env, ...keys: ReadonlyArray<string>) => keys.every((key) => Boolean(env[key]?.trim()))
+
+/** `HIDEGPT_PERSONAL=1`: the build is for the builder alone and may carry the Claude library. */
+export const isPersonal = (env: Env): boolean => env.HIDEGPT_PERSONAL === '1'
+
+/** A certificate is configured: a .p12 in `CSC_LINK`, or a keychain identity in `CSC_NAME`. */
+export const wantsSigning = (env: Env): boolean => has(env, 'CSC_LINK') || has(env, 'CSC_NAME')
+
+/** Signed, plus notary credentials in one of the three forms electron-builder accepts. */
+export const wantsNotarizing = (env: Env): boolean =>
+  wantsSigning(env) &&
+  (has(env, 'APPLE_API_KEY', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER') ||
+    has(env, 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID') ||
+    has(env, 'APPLE_KEYCHAIN', 'APPLE_KEYCHAIN_PROFILE'))
+
+/** The SDK's entry bundles its own dependencies, so it and its platform binary are all Claude needs. */
+const CLAUDE_FILES = ['node_modules/@anthropic-ai/claude-agent-sdk/**/*', 'node_modules/@anthropic-ai/claude-agent-sdk-*/**/*']
+const CLAUDE_BINARY = 'node_modules/@anthropic-ai/claude-agent-sdk-*/**/*'
+
+/**
+ * The electron-builder config for a macOS `.dmg` and `.zip`. It's built in code, as
+ * T3 Code builds its own, because two parts depend on the environment:
+ *
+ * - Main bundles everything it runs except the Claude SDK, so a shared build,
+ *   which has no Claude code (see electron.vite.config.ts), carries no
+ *   `node_modules` at all. A personal build carries only the SDK, and unpacks
+ *   its platform binary so it can be spawned.
+ * - Signing and notarizing happen only when their env vars are set. Otherwise
+ *   the app is ad-hoc signed, which an Apple silicon Mac needs to open it at
+ *   all, and the hardened runtime stays off, since it refuses an ad-hoc signed
+ *   app's frameworks.
+ *
+ * Every name a person can see (app, bundle id, menu bar, installer) is "Docs".
+ */
+export function builderConfig(env: Env): Configuration {
+  const personal = isPersonal(env)
+  const signed = wantsSigning(env)
+  return {
+    appId: 'app.docs.desktop',
+    productName: 'Docs',
+    copyright: 'Copyright © 2026',
+    artifactName: 'Docs-${version}-${arch}.${ext}',
+    directories: { output: 'dist', buildResources: 'build' },
+    // The package.json inside the app: the Docs name, and in a shared build no dependency
+    // list (electron-builder merges objects key by key, so only null clears it).
+    extraMetadata: { name: 'docs', productName: 'Docs', ...(personal ? {} : { dependencies: null }) },
+    files: ['out/**/*', 'package.json', '!node_modules/**/*', ...(personal ? CLAUDE_FILES : [])],
+    asarUnpack: personal ? [CLAUDE_BINARY] : [],
+    electronLanguages: ['en'],
+    // Nothing native to rebuild, and nothing is published.
+    npmRebuild: false,
+    publish: null,
+    mac: {
+      target: ['dmg', 'zip'],
+      icon: 'icon.icns',
+      category: 'public.app-category.productivity',
+      // Unset means "use CSC_LINK or CSC_NAME"; "-" is an ad-hoc signature.
+      ...(signed ? {} : { identity: '-' }),
+      hardenedRuntime: signed,
+      entitlements: 'build/entitlements.mac.plist',
+      entitlementsInherit: 'build/entitlements.mac.plist',
+      notarize: wantsNotarizing(env),
+    },
+    dmg: { title: 'Docs ${version}' },
+  }
+}
