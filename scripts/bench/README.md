@@ -63,6 +63,13 @@ Instructions retired is the main CPU measure. It comes from the kernel
 move when other programs share the machine or a thread lands on an efficiency core.
 On a machine running ten other builds it repeated within 0.2% while wall time swung 15%.
 
+One caveat: it counts the work the app did, and some work is per frame. A phase that
+streams or types drops frames on a loaded machine, so it runs fewer per-frame passes
+and retires fewer instructions (`stream300.r_ginstr` ranged 77 to 110 over five loaded
+runs, with `frames` 417 to 614). Phases with a fixed amount of work (`cold`, `open`,
+`load_all`, every `m_ginstr`) stay within 1 to 2%. Read a per-frame phase next to its
+`frames`, or compare on a quiet machine.
+
 Latency definitions:
 
 - `first_ms`: click to the first frame that shows the result.
