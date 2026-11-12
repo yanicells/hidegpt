@@ -1,7 +1,20 @@
 import type { AccountSummary, DocSummary, ProviderId, ToolServer } from './model'
 
+/** The account's address, when the provider gave one. */
+export function accountAddress(account: AccountSummary | null): string | null {
+  const label = account?.label.trim() ?? ''
+  return label.includes('@') ? label : null
+}
+
+/**
+ * What the page calls the signed-in account: its address, as Google shows it.
+ * Providers without one label the account with their own name ("ChatGPT",
+ * "Claude Code"), which must never reach the screen, so those read as a plain
+ * Google Account.
+ */
 export function accountLabel(account: AccountSummary | null): string {
-  return account?.label || 'Sign in'
+  if (!account) return 'Sign in'
+  return accountAddress(account) ?? 'Google Account'
 }
 
 export function ownerLabel(account: AccountSummary | null): string {
@@ -41,7 +54,7 @@ export function formatListDate(unixSeconds: number | null | undefined, now = new
 }
 
 export function avatarLetter(account: AccountSummary | null): string {
-  return account?.label ? account.label.charAt(0).toUpperCase() : '?'
+  return account ? accountLabel(account).charAt(0).toUpperCase() : '?'
 }
 
 export function toolsNeedingConnect(servers: ReadonlyArray<ToolServer>): ReadonlyArray<ToolServer> {
@@ -62,6 +75,15 @@ export function previewLines(text: string, limit = 12): string {
 /** Every library the app can open, in switcher order. */
 export const PROVIDERS: ReadonlyArray<ProviderId> = ['codex', 'opencode', 'claude']
 
+/**
+ * Each library as one of the person's Google accounts, the way Chrome names
+ * profiles. This is the only name a library has on screen.
+ */
+export function libraryName(provider: ProviderId): string {
+  return provider === 'codex' ? 'Personal' : provider === 'opencode' ? 'Work' : 'School'
+}
+
+/** The provider's real name, for logs and error details only (behind "Details"). */
 export function providerLabel(provider: ProviderId): string {
   return provider === 'codex' ? 'Codex' : provider === 'opencode' ? 'OpenCode' : 'Claude'
 }
