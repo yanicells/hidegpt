@@ -316,11 +316,17 @@ describe('ClaudeAdapter', () => {
         expect(check()).toBe(true)
       })
 
-    it.live('spawns Claude Code through the supervisor: in the ledger while it runs, its group killed when the library closes', () =>
+    it.live('spawns Claude Code through the supervisor: in the ledger while it runs, its group killed by the library’s scope', () =>
       Effect.gen(function* () {
         const ledger = join(dir, 'provider-processes.json')
-        // `sleep` stands in for the CLI, with a grandchild in its group; no prompt reaches any model.
-        const fake = makeFakeClaude({ ...HISTORY, reply: null, process: { command: 'sh', args: ['-c', 'sleep 30 & wait'] } })
+        // `sleep` stands in for the CLI, with a grandchild in its group; no prompt reaches any model. It ignores
+        // SIGTERM, so closing the query (which aborts the spawn signal) cannot end it: only the supervisor's
+        // scope finalizer can, by escalating to SIGKILL on the whole group.
+        const fake = makeFakeClaude({
+          ...HISTORY,
+          reply: null,
+          process: { command: '/bin/sh', args: ['-c', "trap '' TERM; sleep 30 & wait"] },
+        })
         const supervisor = yield* ProcessSupervisor.ProcessSupervisor
         const scope = yield* Scope.make()
         const session = yield* ClaudeAdapter.make(() => Promise.resolve(fake.sdk), supervisor).openSession.pipe(Scope.provide(scope))
@@ -332,6 +338,7 @@ describe('ClaudeAdapter', () => {
         expect(groupAlive(pid)).toBe(true)
 
         yield* Scope.close(scope, Exit.void)
+        // Scope.close returns once the finalizer has sent SIGKILL (after FORCE_KILL_AFTER).
         yield* waitFor(() => !groupAlive(pid))
         yield* waitFor(() => ledgerAt(ledger)[pid] === undefined)
       }).pipe(

@@ -293,6 +293,8 @@ export function makeFakeClaude(options: FakeClaudeOptions = {}): FakeClaude {
         forwarded.abort()
       },
     }
+    // The SDK listens for "error" (a failed spawn, or the abort on close) and so does the fake.
+    child?.on('error', () => {})
     // The frame stream ends when the CLI exits, as the SDK's transport does.
     child?.once('exit', (code) => frames.end(fake.closed ? undefined : new Error(`Claude Code process exited with code ${code}`)))
     queryOptions.abortController?.signal.addEventListener('abort', () => methods.close(), { once: true })
