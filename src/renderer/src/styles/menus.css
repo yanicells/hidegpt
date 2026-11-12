@@ -202,19 +202,19 @@
 
 /* ---------- Style menu ("Normal text") ---------- */
 
-/* 220px wide; every style row is 71px and Options 45px, like Docs. */
+/* 220px wide; style rows sit 72px apart and Options is 44px, so the menu is 476px like Docs. */
 .style-menu {
-  width: 222px;
+  width: 220px;
   padding: 0;
 }
 
 .style-menu .menu-item + .menu-item {
-  border-top: 1px solid var(--hairline);
+  border-top: 1px solid var(--line);
 }
 
 .style-menu .menu-item {
-  height: 71px;
-  padding: 0 12px 0 8px;
+  height: 72px;
+  padding: 0 12px 0 3px;
   font-family: var(--font-page);
   color: var(--page-ink);
   letter-spacing: 0;
@@ -228,20 +228,20 @@
   background: #e0e0e0;
 }
 
-/* Docs' style tick is a light grey, unlike other menus' checks. */
+/* Docs' style tick is a light grey, unlike other menus' checks, and sits 7px in; labels start 39px in. */
 .style-menu .menu-icon {
-  margin-right: 8px;
+  margin-right: 16px;
   color: #757575;
 }
 
+/* The style menu's ▸ tips sit 15.5px in. */
 .style-menu .menu-arrow {
-  margin: 0 0 0 8px;
+  margin: 0 3px 0 8px;
 }
 
-/* The current style's ▸ is near-black and a touch larger; the rest stay grey. */
+/* The current style's ▸ is text-black; the rest stay grey. */
 .style-menu .menu-item[data-checked] .menu-arrow {
-  color: #202124;
-  transform: scale(1.1);
+  color: var(--text);
 }
 
 /* Each row previews its page style; Normal text is Arial 11pt. */
@@ -295,7 +295,7 @@
 }
 
 .style-menu .menu-item.style-options {
-  height: 45px;
+  height: 44px;
 }
 
 /* ---------- Font menu ("Arial") and size menu ("11") ---------- */
