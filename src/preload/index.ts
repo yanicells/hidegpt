@@ -2,7 +2,15 @@
 // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 import { contextBridge, ipcRenderer } from 'electron'
 
-import type { EventValue, HideGptApi, SequencedSnapshot, SnapshotPatch } from '../shared/api'
+import type {
+  EventValue,
+  HideGptApi,
+  InvokePayload,
+  InvokeResult,
+  SequencedSnapshot,
+  SnapshotPatch,
+} from '../shared/api'
+import type { IpcInvoke } from '../shared/contracts'
 import { EVENT_CHANNELS, INVOKE_CHANNELS, SNAPSHOT_NOW_CHANNEL } from '../shared/channels'
 import { emptySnapshot } from '../shared/model'
 import { applyPatchOnce } from '../shared/snapshot-patch'
@@ -45,16 +53,24 @@ const subscribe =
     }
   }
 
-// Invoke results come back typed `any` from `ipcRenderer.invoke` and flow into
-// the `HideGptApi` types unchecked, as in T3's preload: main answers with the
-// row's `result` (its handler's type) or `invalid`, both checked in main.
+/**
+ * Invokes one `IpcInvoke` row by name. The name picks both the channel and the
+ * result type, so a member wired to the wrong channel fails typecheck.
+ * `ipcRenderer.invoke` itself returns `any`, as in T3's preload; main answers
+ * with the row's `result` or `invalid`, both checked there.
+ */
+const invoke = <K extends keyof typeof IpcInvoke>(
+  name: K,
+  ...payload: InvokePayload<K> extends undefined ? [] : [InvokePayload<K>]
+): Promise<InvokeResult<K>> => ipcRenderer.invoke(INVOKE_CHANNELS[name], ...payload)
+
 const api: HideGptApi = {
   getSnapshot,
   onSnapshot: subscribe('onSnapshot'),
   onMenu: subscribe('onMenu'),
-  dispatch: (command) => ipcRenderer.invoke(INVOKE_CHANNELS.dispatch, command),
-  pickDirectory: () => ipcRenderer.invoke(INVOKE_CHANNELS.pickDirectory),
-  saveImage: (request) => ipcRenderer.invoke(INVOKE_CHANNELS.saveImage, request),
+  dispatch: (command) => invoke('dispatch', command),
+  pickDirectory: () => invoke('pickDirectory'),
+  saveImage: (request) => invoke('saveImage', request),
   platform: process.platform,
 }
 
