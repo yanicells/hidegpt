@@ -266,8 +266,10 @@
    first or last child of a first or last child, at any depth) are dropped;
    none is larger than 10pt, so the old spacing holds. Measured against the
    uncontained layout for lists, nested lists, quotes, code, tables, rules and
-   callouts. (A quote that opens with a heading sits 8pt tighter.) A turn's
-   padding already kept its first child's top margin inside. */
+   callouts. Two rare shapes differ: a quote that opens with a heading sits
+   8pt tighter, and a heading after text in the same list item (`- a` then an
+   indented `# h`) loses its top margin, since `:first-child` skips text. A
+   turn's padding already kept its first child's top margin inside. */
 .doc-block:not(.turn-start) > :first-child,
 .doc-block:not(.turn-start) .doc-body :first-child:not(.doc-block :not(:first-child) *) {
   margin-top: 0;
