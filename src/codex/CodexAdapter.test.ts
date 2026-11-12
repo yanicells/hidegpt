@@ -390,6 +390,95 @@ describe('CodexAdapter', () => {
         { threadId: 'thr_1', turnId: 'turn_1' },
         { threadId: 'thr_child', turnId: 'turn_c' },
       ])
+      yield* settle
+      expect(events.filter((event) => event.type === 'turnEnded')).toEqual([{ type: 'turnEnded', threadId: 'thr_1' }])
+    }),
+  )
+
+  it.effect('a subagent announced only by its activity item still belongs to the document', () =>
+    Effect.gen(function* () {
+      const { peer, events } = yield* open()
+      const item = { type: 'subAgentActivity' as const, id: 's1', agentPath: 'helper', agentThreadId: 'thr_child', kind: 'started' as const }
+      yield* peer.notify('item/started', { threadId: 'thr_1', turnId: 'turn_1', item, startedAtMs: 1 })
+      yield* peer.notify('item/agentMessage/delta', { threadId: 'thr_child', turnId: 'turn_c', itemId: 'c1', delta: 'notes' })
+      yield* peer
+        .request('item/commandExecution/requestApproval', { threadId: 'thr_child', turnId: 'turn_c', itemId: 'cmd_1', command: 'ls', startedAtMs: 1 })
+        .pipe(Effect.forkScoped)
+      yield* settle
+      expect(events).toMatchObject([{ type: 'block', threadId: 'thr_1', block: { kind: 'approval', title: 'Run command?' } }])
+    }),
+  )
+
+  it.effect('a stopped document ends only after its subagent turns have', () =>
+    Effect.gen(function* () {
+      const { peer, events } = yield* open()
+      const item = { type: 'subAgentActivity' as const, id: 's1', agentPath: 'helper', agentThreadId: 'thr_child', kind: 'started' as const }
+      yield* peer.notify('item/started', { threadId: 'thr_1', turnId: 'turn_1', item, startedAtMs: 1 })
+      yield* peer.notify('turn/started', { threadId: 'thr_1', turn: stubTurn('turn_1', [], 'inProgress') })
+      yield* peer.notify('turn/started', { threadId: 'thr_child', turn: stubTurn('turn_c', [], 'inProgress') })
+      yield* peer.notify('turn/completed', { threadId: 'thr_1', turn: stubTurn('turn_1', [], 'interrupted') })
+      yield* settle
+      expect(events.filter((event) => event.type === 'turnEnded')).toEqual([])
+      yield* peer.notify('turn/completed', { threadId: 'thr_child', turn: stubTurn('turn_c', [], 'interrupted') })
+      yield* settle
+      expect(events.filter((event) => event.type === 'turnEnded')).toEqual([{ type: 'turnEnded', threadId: 'thr_1' }])
+    }),
+  )
+
+  it.effect('Stop still interrupts the other turns when one has already ended', () =>
+    Effect.gen(function* () {
+      const child = { ...stubThread('thr_child', ''), source: { subAgent: { thread_spawn: { parent_thread_id: 'thr_1', depth: 1 } } } }
+      const { peer, session } = yield* open({
+        handlers: {
+          'turn/interrupt': (params) => (params.threadId === 'thr_child' ? Effect.fail(rpcFailure('no running turn')) : Effect.succeed({})),
+        },
+      })
+      yield* peer.notify('thread/started', { thread: child })
+      yield* peer.notify('turn/started', { threadId: 'thr_1', turn: stubTurn('turn_1', [], 'inProgress') })
+      yield* peer.notify('turn/started', { threadId: 'thr_child', turn: stubTurn('turn_c', [], 'inProgress') })
+      yield* settle
+      yield* session.interrupt('thr_1')
+      expect(paramsOf(peer, 'turn/interrupt')).toHaveLength(2)
+    }),
+  )
+
+  it.effect('Stop fails when no turn could be interrupted', () =>
+    Effect.gen(function* () {
+      const { peer, session } = yield* open({ handlers: { 'turn/interrupt': () => Effect.fail(rpcFailure('no running turn')) } })
+      yield* peer.notify('turn/started', { threadId: 'thr_1', turn: stubTurn('turn_1', [], 'inProgress') })
+      yield* settle
+      const exit = yield* Effect.exit(session.interrupt('thr_1'))
+      expect(Exit.isFailure(exit)).toBe(true)
+    }),
+  )
+
+  it.effect('a reported error shows only on the failed turn it belongs to', () =>
+    Effect.gen(function* () {
+      const { peer, events } = yield* open()
+      const error = { message: 'stream lost', codexErrorInfo: 'other' as const, additionalDetails: null, misalignment: null }
+      // Reported for turn_1, which still completes: no error.
+      yield* peer.notify('error', { error, willRetry: false, threadId: 'thr_1', turnId: 'turn_1' })
+      yield* peer.notify('turn/completed', { threadId: 'thr_1', turn: stubTurn('turn_1', [], 'completed') })
+      // Reported for an earlier turn, then turn_2 fails on its own: not that earlier error.
+      yield* peer.notify('error', { error, willRetry: false, threadId: 'thr_1', turnId: 'turn_0' })
+      yield* peer.notify('turn/completed', { threadId: 'thr_1', turn: stubTurn('turn_2', [], 'failed') })
+      yield* settle
+      expect(events).toEqual([
+        { type: 'turnEnded', threadId: 'thr_1' },
+        { type: 'turnEnded', threadId: 'thr_1' },
+      ])
+    }),
+  )
+
+  it.effect('a failed turn without its own error shows the error Codex reported for it', () =>
+    Effect.gen(function* () {
+      const { peer, events } = yield* open()
+      yield* peer.notify('turn/started', { threadId: 'thr_1', turn: stubTurn('turn_1', [], 'inProgress') })
+      const error = { message: 'Unauthorized', codexErrorInfo: 'unauthorized' as const, additionalDetails: null, misalignment: null }
+      yield* peer.notify('error', { error, willRetry: false, threadId: 'thr_1', turnId: 'turn_1' })
+      yield* peer.notify('turn/completed', { threadId: 'thr_1', turn: stubTurn('turn_1', [], 'failed') })
+      yield* settle
+      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1', error: 'Sign in again to continue.' })
     }),
   )
 
@@ -588,7 +677,9 @@ describe('CodexAdapter', () => {
       yield* peer.notify('warning', { message: 'The gpt-5 model is deprecated, see https://openai.com/codex', threadId: 'thr_1' })
       yield* peer.notify('configWarning', { summary: 'Unknown key in your Codex config', details: null })
       yield* item({ type: 'mcpToolCall', id: 'm1', server: 'codex_apps', tool: 'chatgpt_search', status: 'completed', arguments: {} })
-      yield* item({ type: 'dynamicToolCall', id: 'd1', tool: 'codex_helper', status: 'completed', arguments: {} })
+      yield* item({ type: 'dynamicToolCall', id: 'd1', tool: 'codex_helper', namespace: 'OpenAIAPI', status: 'completed', arguments: {} })
+      yield* item({ type: 'dynamicToolCall', id: 'd2', tool: 'ChatGPTPlus', namespace: 'gpt5', status: 'completed', arguments: {} })
+      yield* item({ type: 'functionCallOutput', id: 'f1', name: 'GPT4o_lookup', namespace: 'codexTools', output: '' })
       yield* item({
         type: 'collabAgentToolCall',
         id: 'c1',
@@ -632,10 +723,13 @@ describe('CodexAdapter', () => {
       // Everything a person could read, without the ids and internal tags.
       const hidden = new Set(['id', 'threadId', 'replaces', 'type', 'kind', 'command'])
       const shown = JSON.stringify(events, (key, value: unknown) => (hidden.has(key) ? undefined : value))
+        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
         .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .replace(/([a-z])(\d)/gi, '$1 $2')
         .replace(/_/g, ' ')
       expect(events.some((event) => event.type === 'block' && event.block.kind === 'approval')).toBe(true)
       expect(shown).not.toMatch(/\b(ai|assistant|agent|model|prompt|llm|token|claude|codex|opencode|chatgpt|anthropic|openai|gpt|copilot|bot)s?\b/i)
+      expect(shown).not.toMatch(/claude|codex|opencode|chatgpt|anthropic|openai|copilot/i)
       expect(shown).not.toMatch(/https?:|www\./i)
     }),
   )

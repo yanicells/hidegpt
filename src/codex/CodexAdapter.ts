@@ -3,6 +3,7 @@ import * as Context from 'effect/Context'
 import * as Deferred from 'effect/Deferred'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
+import * as Exit from 'effect/Exit'
 import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as Queue from 'effect/Queue'
@@ -404,14 +405,20 @@ export function make(connect: Connect): ProviderAdapter {
         interrupt: (threadId) =>
           Effect.suspend(() => {
             const targets = [...activeTurns].filter(([thread]) => lineage.rootOf(thread) === threadId)
-            return targets.length
-              ? Effect.forEach(targets, ([thread, turnId]) => rpc('turn/interrupt', { threadId: thread, turnId }), {
-                  concurrency: 'unbounded',
-                  discard: true,
-                })
-              : Effect.fail(
-                  new ProviderRequestError({ provider: 'codex', operation: 'turn/interrupt', detail: 'Nothing is running in this document.' }),
-                )
+            if (!targets.length) {
+              return Effect.fail(
+                new ProviderRequestError({ provider: 'codex', operation: 'turn/interrupt', detail: 'Nothing is running in this document.' }),
+              )
+            }
+            // One turn that already ended must not stop the others; fail only if none stopped.
+            return Effect.forEach(targets, ([thread, turnId]) => Effect.exit(rpc('turn/interrupt', { threadId: thread, turnId })), {
+              concurrency: 'unbounded',
+            }).pipe(
+              Effect.flatMap((exits) => {
+                const failed = exits.filter(Exit.isFailure)
+                return failed.length < exits.length ? Effect.void : Effect.failCause(failed[0].cause)
+              }),
+            )
           }),
 
         respond: (_threadId, approvalId, reply) =>
@@ -470,7 +477,8 @@ type Lineage = ReturnType<typeof makeLineage>
 
 // Adapted from T3 Code (https://github.com/pingdotgg/t3code),
 // apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts (child-to-parent links from
-// `thread/started`, requests routed to the root, interrupting descendant turns) at commit
+// `thread/started`, spawn items and subagent activity; requests routed to the root;
+// interrupting descendant turns; deferred root terminals) at commit
 // 5c6f2f12. Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 
 /**
@@ -528,8 +536,11 @@ function registerNotifications(
     toEvents: (params: Notification<M> & { readonly threadId: string }) => ReadonlyArray<AdapterEvent>,
   ) => on(method, (params) => ('threadId' in params && typeof params.threadId === 'string' && !lineage.isChild(params.threadId) ? toEvents({ ...params, threadId: params.threadId }) : []))
 
-  /** A failure Codex reported before its `turn/completed`, which ends the turn with it. */
-  const failures = new Map<string, string>()
+  /** Per thread: the failure Codex reported for a turn before its `turn/completed`. */
+  const failures = new Map<string, { readonly turnId: string; readonly message: string }>()
+  /** A stopped document's end, held until its subagents' turns have ended too. */
+  const heldEnds = new Map<string, AdapterEvent>()
+  const runningUnder = (root: string) => [...activeTurns.keys()].some((thread) => thread !== root && lineage.rootOf(thread) === root)
   /** The "Reconnecting…" banner per thread, cleared once Codex is answering again. */
   const retrying = new Map<string, string>()
   let rateLimits: RateLimits | null = null
@@ -543,6 +554,7 @@ function registerNotifications(
     if (p.item.type === 'collabAgentToolCall' && p.item.tool === 'spawnAgent') {
       for (const child of p.item.receiverThreadIds) lineage.adopt(child, p.item.senderThreadId)
     }
+    if (p.item.type === 'subAgentActivity' && p.item.kind === 'started') lineage.adopt(p.item.agentThreadId, p.threadId)
     if (lineage.isChild(p.threadId)) return []
     const block = itemToBlock(p.item)
     // An agent message starts empty and grows by deltas; only its completed text replaces them.
@@ -577,22 +589,48 @@ function registerNotifications(
       on('item/completed', blockEvents),
       on('turn/started', (p) => {
         activeTurns.set(p.threadId, p.turn.id)
+        failures.delete(p.threadId)
         return lineage.isChild(p.threadId) ? [] : [{ type: 'turnStarted', threadId: p.threadId }]
       }),
       on('turn/completed', (p) => {
         if (activeTurns.get(p.threadId) === p.turn.id) activeTurns.delete(p.threadId)
         const reported = failures.get(p.threadId)
         failures.delete(p.threadId)
-        if (lineage.isChild(p.threadId)) return []
+        if (lineage.isChild(p.threadId)) {
+          // The last subagent turn under a stopped document lets the document's end through.
+          const root = lineage.rootOf(p.threadId)
+          const held = heldEnds.get(root)
+          if (!held || runningUnder(root)) return []
+          heldEnds.delete(root)
+          return [held]
+        }
+        // Only a failed turn shows an error: its own, else what Codex reported for that turn (T3 reads
+        // `latestProviderFailure` the same way).
         const error =
-          reported ?? (p.turn.status === 'failed' && p.turn.error ? docsFailure(p.turn.error, usageLimitResetAt(rateLimits)) : undefined)
-        return [...recovered(p.threadId), { type: 'turnEnded', threadId: p.threadId, ...(error ? { error } : {}) }]
+          p.turn.status !== 'failed'
+            ? undefined
+            : p.turn.error
+              ? docsFailure(p.turn.error, usageLimitResetAt(rateLimits))
+              : reported?.turnId === p.turn.id
+                ? reported.message
+                : undefined
+        const end: AdapterEvent = { type: 'turnEnded', threadId: p.threadId, ...(error ? { error } : {}) }
+        // Stop interrupts the whole lineage; as in T3, the document ends once its subagents have.
+        if (p.turn.status === 'interrupted' && runningUnder(p.threadId)) {
+          heldEnds.set(p.threadId, end)
+          return recovered(p.threadId)
+        }
+        return [...recovered(p.threadId), end]
       }),
       // A retry shows a banner until Codex answers again; a final error waits for `turn/completed`,
       // so a turn ends exactly once (T3 records it as the turn's failure the same way).
       onThread('error', (p) => {
         if (!p.willRetry) {
-          failures.set(p.threadId, docsFailure(p.error, usageLimitResetAt(rateLimits)))
+          // An error for a turn that is no longer running belongs to no turn (T3 ignores it too).
+          const running = activeTurns.get(p.threadId)
+          if (running === undefined || running === p.turnId) {
+            failures.set(p.threadId, { turnId: p.turnId, message: docsFailure(p.error, usageLimitResetAt(rateLimits)) })
+          }
           return recovered(p.threadId)
         }
         const message = retryNotice(p.error.message)
