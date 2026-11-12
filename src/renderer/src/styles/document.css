@@ -4,8 +4,17 @@
  * panel (page left = max(centred, panel right + 5px)); narrow windows scroll.
  */
 
+/* Registered so it computes to a plain number here and inherits unchanged into the zoomed page. */
+@property --card-room {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+
 .workspace {
   @apply relative flex-1 min-h-0 overflow-auto;
+  /* Lets the layout below measure the canvas (cqw) for the suggestion card. */
+  container-type: inline-size;
   background: var(--canvas);
   margin-right: var(--rail-width);
   --page-w: calc(var(--paper-width) * var(--page-zoom, 1));
@@ -39,6 +48,12 @@
 .doc-layout {
   @apply relative flex items-start min-h-full;
   min-width: max-content;
+  /*
+   * CSS px left between the page's right edge and the 14px scrollbar, minus
+   * what a suggestion card needs there at this zoom (24px gap, 256px card,
+   * 16px air); approvals.css puts the card in the margin when it is positive.
+   */
+  --card-room: calc((100cqw - 14px - var(--page-left) - var(--page-w)) / 1px - (24 + 256 + 16) * var(--page-zoom, 1));
 }
 
 .workspace:has(.tabs.collapsed) {
