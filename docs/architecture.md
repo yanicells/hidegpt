@@ -119,7 +119,8 @@ Adapters hold no UI state and know nothing about routes. Every thread event carr
   - The server gets a random password and listens on 127.0.0.1.
   - The global SSE stream has a 30 s watchdog, since the server heartbeats every 10 s. A stalled or closed stream re-subscribes with backoff, and every open document then reloads (`reset`).
   - A prompt carries a `messageID` in OpenCode's own format, so the echo keeps Docs' id without a re-read.
-  - Pending permission and question requests are loaded when a document opens. A subagent's requests route to its root document.
+  - Pending permission and question requests are loaded when a document opens. A subagent's requests route to its root document; when Docs never saw the subagent created, it asks the server for the parents (`resolveRoot`).
+  - Stop aborts the document's session, then every subagent session under it.
   - A `false` reply from the server keeps the approval open.
 - **Claude.** One long-lived `query()` per document that is answering, fed by a prompt queue (T3's streaming-input pattern). It starts on the first send.
   - A turn settles on the `result` frame. If Claude Code exits first, the turn settles as failed, and the next send resumes the transcript (checked with `getSessionInfo` when no answer had arrived yet).

@@ -98,7 +98,8 @@ const entry = (fields: Partial<LedgerEntry> & Pick<LedgerEntry, 'command' | 'sta
   ...fields,
 })
 
-describe('ProcessLedger', () => {
+/** Every case runs `ps` and real processes; a loaded machine (a full suite, other jobs) needs room. */
+describe('ProcessLedger', { timeout: 30_000 }, () => {
   it('reads pid, parent, group, a UTC start time and a command with spaces from ps', () => {
     expect(
       parseProcessTable(

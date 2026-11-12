@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 import * as NodeServices from '@effect/platform-node/NodeServices'
 import { afterAll, describe, expect, it } from '@effect/vitest'
+import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
 import * as PlatformError from 'effect/PlatformError'
@@ -13,19 +14,26 @@ import * as Sink from 'effect/Sink'
 import * as Stream from 'effect/Stream'
 
 import { captureReports } from './observed.testkit'
-import { ProcessSupervisor, layer } from './ProcessSupervisor'
+import { DEFAULT_TIMING, ProcessSupervisor, layer, type SupervisorTiming } from './ProcessSupervisor'
 
 /** Real processes: the supervisor's job is the boundary with the OS, so nothing here is faked. */
 const dir = mkdtempSync(join(tmpdir(), 'hidegpt-supervisor-'))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
+/**
+ * Caps far above any load, for tests of what the supervisor does rather than how long it may
+ * take: a busy machine must not turn a capped wait into a skipped step. The cap tests use the defaults.
+ */
+const UNHURRIED: SupervisorTiming = { stderrDrain: Duration.seconds(10), ledgerReadCap: Duration.seconds(10) }
+
 const withSupervisor = <A, E>(
   use: (supervisor: ProcessSupervisor['Service']) => Effect.Effect<A, E>,
   ledgerPath: string | null = null,
+  timing: SupervisorTiming = UNHURRIED,
 ) =>
   Effect.gen(function* () {
     return yield* use(yield* ProcessSupervisor)
-  }).pipe(Effect.provide(layer(ledgerPath).pipe(Layer.provideMerge(NodeServices.layer))))
+  }).pipe(Effect.provide(layer(ledgerPath, timing).pipe(Layer.provideMerge(NodeServices.layer))))
 
 /** Like an MCP server that daemonizes with setsid: a group kill alone misses it. */
 const WITH_DAEMON = `/usr/bin/perl -MPOSIX -e 'POSIX::setsid(); sleep 30' & wait`
@@ -64,14 +72,16 @@ const running = (pid: number) => {
     return false
   }
 }
-// Up to 6 s: a loaded CI runner can take seconds to start or reap a process.
+/** Polls until `check` holds; returns as soon as it does, so the generous budget only matters under load. */
 const until = (check: () => boolean) =>
   Effect.gen(function* () {
-    for (let i = 0; i < 300 && !check(); i += 1) yield* Effect.sleep('20 millis')
+    for (let i = 0; i < 500 && !check(); i += 1) yield* Effect.sleep('20 millis')
     expect(check()).toBe(true)
   })
+/** Tests that wait on real processes (startup, a 2 s group stop, polling) get room under load. */
+const PROCESS_TEST_TIMEOUT = 30_000
 
-describe('ProcessSupervisor', () => {
+describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
   it.effect('reports a command that is not on PATH as not installed', () =>
     withSupervisor((supervisor) =>
       Effect.flip(Effect.scoped(supervisor.spawn({ provider: 'codex', command: 'hidegpt-no-such-binary', args: [] }))),
@@ -96,30 +106,27 @@ describe('ProcessSupervisor', () => {
     }),
   )
 
-  it.live(
-    'stops a daemon that left the server’s group when the scope closes, and leaves no record',
-    () =>
-      Effect.gen(function* () {
-        const ledgerPath = join(dir, 'spawn-daemon-ledger.json')
-        let daemon = 0
-        yield* withSupervisor(
-          (supervisor) =>
-            Effect.scoped(
-              Effect.gen(function* () {
-                const { handle } = yield* supervisor.spawn({
-                  provider: 'codex',
-                  command: '/bin/sh',
-                  args: ['-c', WITH_DAEMON],
-                })
-                yield* until(() => (daemon = daemonOf(handle.pid)) > 0)
-              }),
-            ),
-          ledgerPath,
-        )
-        yield* until(() => !running(daemon))
-        expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))).toEqual({})
-      }),
-    20_000,
+  it.live('stops a daemon that left the server’s group when the scope closes, and leaves no record', () =>
+    Effect.gen(function* () {
+      const ledgerPath = join(dir, 'spawn-daemon-ledger.json')
+      let daemon = 0
+      yield* withSupervisor(
+        (supervisor) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              const { handle } = yield* supervisor.spawn({
+                provider: 'codex',
+                command: '/bin/sh',
+                args: ['-c', WITH_DAEMON],
+              })
+              yield* until(() => (daemon = daemonOf(handle.pid)) > 0)
+            }),
+          ),
+        ledgerPath,
+      )
+      yield* until(() => !running(daemon))
+      expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))).toEqual({})
+    }),
   )
 
   it.live('reports nothing when the server exits on its own before the scope closes', () => {
@@ -169,7 +176,7 @@ describe('ProcessSupervisor', () => {
       expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))[pid]).toMatchObject({ command: '/bin/sleep' })
     }).pipe(
       Effect.provide(
-        layer(ledgerPath).pipe(
+        layer(ledgerPath, UNHURRIED).pipe(
           Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner)),
           Layer.provideMerge(NodeServices.layer),
         ),
@@ -178,15 +185,21 @@ describe('ProcessSupervisor', () => {
     )
   })
 
-  it.effect('ends with the exit code and the last stderr line', () =>
+  it.live('ends with the exit code and the last stderr line, even when it lands after the exit', () =>
     withSupervisor((supervisor) =>
       Effect.scoped(
         Effect.gen(function* () {
+          // The error line is written 50 ms after Docs reaps the shell (the writer waits for `$$` to go,
+          // which is when "exit" fires), so a tail read at "exit" misses it; waiting for the drain does
+          // not. A clean exit leaves the group, and so the writer, alone.
           const child = yield* supervisor.spawn(
             {
               provider: 'codex',
-              command: 'sh',
-              args: ['-c', 'echo starting >&2; echo "Error: config.toml is invalid" >&2; exit 3'],
+              command: '/bin/sh',
+              args: [
+                '-c',
+                'echo starting >&2; (while kill -0 $$ 2>/dev/null; do sleep 0.01; done; sleep 0.05; echo "Error: config.toml is invalid" >&2) & exit 0',
+              ],
             },
             true,
           )
@@ -195,32 +208,41 @@ describe('ProcessSupervisor', () => {
       ),
     ).pipe(
       Effect.map((error) => {
-        expect(error).toMatchObject({ _tag: 'ProcessExitedError', code: 3, stderr: 'Error: config.toml is invalid' })
+        expect(error).toMatchObject({ _tag: 'ProcessExitedError', code: 0, stderr: 'Error: config.toml is invalid' })
       }),
     ),
   )
 
   it.live('does not hold the exit back on a stderr pipe a child still has open', () =>
-    withSupervisor((supervisor) =>
-      Effect.scoped(
-        Effect.gen(function* () {
-          // The background sleep keeps stderr open after the shell exits. A clean exit (0) leaves
-          // the group alone (a failing one would kill it and close the pipe); the scope's kill ends it.
-          const child = yield* supervisor.spawn(
-            { provider: 'codex', command: '/bin/sh', args: ['-c', 'sleep 30 & echo "Error: bad flag" >&2; exit 0'] },
-            true,
-          )
-          const at = Date.now()
-          const error = yield* Effect.flip(child.awaitExit)
-          expect(Date.now() - at).toBeLessThan(1_000)
-          expect(error).toMatchObject({ _tag: 'ProcessExitedError', code: 0, stderr: 'Error: bad flag' })
-        }),
-      ),
+    withSupervisor(
+      (supervisor) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            // The background sleep keeps stderr open after the shell exits. A clean exit (0) leaves
+            // the group alone (a failing one would kill it and close the pipe); the scope's kill ends it.
+            const holderFile = join(mkdtempSync(join(dir, 'held-')), 'pid')
+            const child = yield* supervisor.spawn(
+              {
+                provider: 'codex',
+                command: '/bin/sh',
+                args: ['-c', `sleep 30 & echo $! > ${holderFile}; echo "Error: bad flag" >&2; exit 0`],
+              },
+              true,
+            )
+            const error = yield* Effect.flip(child.awaitExit)
+            // No clock: the pipe closes only when the sleep ends, so an exit that waited for it finds it gone.
+            expect(running(Number(readFileSync(holderFile, 'utf8')))).toBe(true)
+            expect(error).toMatchObject({ _tag: 'ProcessExitedError', code: 0, stderr: 'Error: bad flag' })
+          }),
+        ),
+      null,
+      // The real 250 ms drain cap is what is under test here.
+      DEFAULT_TIMING,
     ),
   )
 })
 
-describe('ProcessSupervisor.callbackSpawner', () => {
+describe('ProcessSupervisor.callbackSpawner', { timeout: PROCESS_TEST_TIMEOUT }, () => {
   const groupAlive = (pid: number) => {
     try {
       process.kill(-pid, 0)
@@ -355,26 +377,23 @@ describe('ProcessSupervisor.callbackSpawner', () => {
     }),
   )
 
-  it.live(
-    'also stops a daemon that left the group, and leaves no record',
-    () =>
-      Effect.gen(function* () {
-        const ledgerPath = join(dir, 'daemon-ledger.json')
-        let daemon = 0
-        yield* withSupervisor(
-          (supervisor) =>
-            Effect.scoped(
-              Effect.gen(function* () {
-                const spawn = yield* supervisor.callbackSpawner
-                const child = spawn({ command: '/bin/sh', args: ['-c', WITH_DAEMON], env: {} })
-                yield* until(() => (daemon = daemonOf(child.pid ?? 0)) > 0)
-              }),
-            ),
-          ledgerPath,
-        )
-        yield* until(() => !running(daemon))
-        expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))).toEqual({})
-      }),
-    20_000,
+  it.live('also stops a daemon that left the group, and leaves no record', () =>
+    Effect.gen(function* () {
+      const ledgerPath = join(dir, 'daemon-ledger.json')
+      let daemon = 0
+      yield* withSupervisor(
+        (supervisor) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              const spawn = yield* supervisor.callbackSpawner
+              const child = spawn({ command: '/bin/sh', args: ['-c', WITH_DAEMON], env: {} })
+              yield* until(() => (daemon = daemonOf(child.pid ?? 0)) > 0)
+            }),
+          ),
+        ledgerPath,
+      )
+      yield* until(() => !running(daemon))
+      expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))).toEqual({})
+    }),
   )
 })
