@@ -1,5 +1,14 @@
 /// <reference types="electron-vite/node" />
-import { BrowserWindow, app, net, protocol, screen, shell, type Session } from 'electron'
+import {
+  BrowserWindow,
+  app,
+  net,
+  protocol,
+  screen,
+  shell,
+  type BrowserWindowConstructorOptions,
+  type Session,
+} from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -32,8 +41,9 @@ export function resolvePreload(): string {
  * excluded), like a maximized Docs tab. Screenshot runs keep a fixed
  * 1280x840 so captures and benchmarks stay comparable across machines.
  */
-function initialBounds(): { width: number; height: number; x?: number; y?: number } {
-  if (process.env.HIDEGPT_SCREENSHOT) return { ...SCREENSHOT_SIZE }
+function initialBounds(): Pick<BrowserWindowConstructorOptions, 'x' | 'y' | 'width' | 'height' | 'useContentSize'> {
+  // The fixed size is the page's, so the title bar doesn't make captures shorter.
+  if (process.env.HIDEGPT_SCREENSHOT) return { ...SCREENSHOT_SIZE, useContentSize: true }
   return screen.getPrimaryDisplay().workArea
 }
 
