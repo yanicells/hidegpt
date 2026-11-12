@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
+import * as Cause from 'effect/Cause'
 import * as Context from 'effect/Context'
 import * as Deferred from 'effect/Deferred'
 import * as Duration from 'effect/Duration'
@@ -15,10 +16,12 @@ import type { AccountSummary, ApprovalReply, DocSummary, ModelOption, ProjectSum
 import {
   type BinaryMissingError,
   ProcessExitedError,
+  ProviderDefectError,
   ProviderRequestError,
   type ProviderError,
   ProviderTimeoutError,
 } from '../provider/errors'
+import { reportDefect } from '../provider/DefectReport'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
 import type {
   AdapterEvent,
@@ -149,7 +152,9 @@ export function make(connect: Connect): ProviderAdapter {
       const approvals = new Map<string, PendingApproval>()
       let modes: ReadonlyArray<Mode> = []
 
-      yield* registerNotifications(client, emit, { loaded, activeTurns })
+      // A notification handler that dies ends the session here, so the manager restarts it.
+      const defect = yield* Deferred.make<never, ProviderError>()
+      yield* registerNotifications(client, emit, { loaded, activeTurns, defect })
 
       yield* client.handleServerRequest('currentTime/read', () =>
         Effect.succeed({ currentTimeAt: Math.floor(Date.now() / 1000) }),
@@ -242,7 +247,7 @@ export function make(connect: Connect): ProviderAdapter {
 
       const session: ProviderSession = {
         events: Stream.fromQueue(events),
-        awaitExit: client.awaitTermination.pipe(Effect.mapError(exitError)),
+        awaitExit: client.awaitTermination.pipe(Effect.mapError(exitError), Effect.raceFirst(Deferred.await(defect))),
 
         loadCatalog: Effect.gen(function* () {
           const [account, models, projects, modeList, tools] = yield* Effect.all(
@@ -458,14 +463,33 @@ export function make(connect: Connect): ProviderAdapter {
 function registerNotifications(
   client: Client,
   emit: (event: AdapterEvent) => Effect.Effect<void>,
-  { loaded, activeTurns }: { readonly loaded: Set<string>; readonly activeTurns: Map<string, string> },
+  {
+    loaded,
+    activeTurns,
+    defect,
+  }: {
+    readonly loaded: Set<string>
+    readonly activeTurns: Map<string, string>
+    readonly defect: Deferred.Deferred<never, ProviderError>
+  },
 ) {
+  // The vendored dispatch ignores failures but not a die, which would end its reader
+  // silently and leave the page waiting. Report it and end the session instead.
   const on = <M extends CodexRpc.ServerNotificationMethod>(
     method: M,
     toEvents: (params: Notification<M>) => ReadonlyArray<AdapterEvent>,
   ) =>
     client.handleServerNotification(method, (params) =>
-      Effect.suspend(() => Effect.forEach(toEvents(params), emit, { discard: true })),
+      Effect.suspend(() => Effect.forEach(toEvents(params), emit, { discard: true })).pipe(
+        Effect.catchCauseIf(
+          (cause) => !Cause.hasInterruptsOnly(cause),
+          (cause) =>
+            reportDefect(cause).pipe(
+              Effect.flatMap((reportId) => Deferred.fail(defect, new ProviderDefectError({ provider: 'codex', reportId }))),
+              Effect.asVoid,
+            ),
+        ),
+      ),
     )
 
   const docsChanged = { type: 'invalidate', part: 'docs' } as const

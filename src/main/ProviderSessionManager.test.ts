@@ -309,6 +309,46 @@ describe('ProviderSessionManager', () => {
     }).pipe(Effect.provide(layer))
   })
 
+  it.effect('restarts Codex when a notification handler dies, instead of freezing the page', () => {
+    const { logged, layer } = captureErrorLogs()
+    return Effect.gen(function* () {
+      const peer = makeFakeCodex()
+      let broken = true
+      // A mapper bug: the first `turn/started` hands the adapter params that throw when read.
+      const connect = Effect.map(peer.connect, (client): CodexAdapter.Client => ({
+        ...client,
+        handleServerNotification: (method, handler) =>
+          client.handleServerNotification(method, (params) =>
+            method === 'turn/started' && broken
+              ? ((broken = false),
+                handler(
+                  Object.defineProperty({ ...params }, 'turn', {
+                    get: () => {
+                      throw new Error('mapper bug')
+                    },
+                  }),
+                ))
+              : handler(params),
+          ),
+      }))
+      const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
+        Effect.provide(layerAdapters({ codex: CodexAdapter.make(connect) })),
+      )
+      yield* manager.start('codex')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* manager.dispatch({ op: 'send', text: 'Hi' })
+      const lost = yield* until(manager, (snapshot) => snapshot.error !== null)
+      expect(lost).toMatchObject({ status: 'connecting', error: 'Something went wrong. Docs saved a report and is reconnecting.' })
+      expect(logged).toEqual([
+        { cause: expect.stringContaining('mapper bug'), annotations: { provider: 'codex', reportId: expect.stringMatching(/^[0-9a-f]{8}$/) } },
+      ])
+      yield* TestClock.adjust('1 second')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
+      expect(peer.connections()).toBe(2)
+    }).pipe(Effect.provide(layer))
+  })
+
   it.effect('a library that fails to load says so and logs why, the others keep working, and it loads on the next try', () => {
     const { logged, layer } = captureErrorLogs()
     return Effect.gen(function* () {
