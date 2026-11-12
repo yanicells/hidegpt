@@ -25,7 +25,9 @@ export const AgentMarkdown = memo(function AgentMarkdown({ text }: { text: strin
 })
 
 const MarkdownChunk = memo(function MarkdownChunk({ text }: { text: string }) {
-  return <Markdown remarkPlugins={plugins} components={components}>
+  return (
+    <Markdown remarkPlugins={plugins} components={components}>
       {text}
     </Markdown>
+  )
 })
