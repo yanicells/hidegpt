@@ -93,11 +93,10 @@
       "rules": { "typescript/no-misused-spread": "off" }
     },
     {
-      // The helpers themselves, the IPC bridge (its own runtime boundary), and code that is not
-      // the running app: tests, fakes, scripts, the lint plugin, and vendored code.
+      // The helpers themselves, and code that is not the running app: tests, fakes, scripts, the
+      // lint plugin, and vendored code.
       "files": [
         "src/provider/observed.ts",
-        "src/main/ipc.ts",
         "**/*.test.ts",
         "**/*.test.tsx",
         "src/**/Fake*.ts",

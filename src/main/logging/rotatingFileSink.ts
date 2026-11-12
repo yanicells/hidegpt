@@ -92,8 +92,8 @@ export const makeRotatingFileSink = Effect.fnUntraced(function* (options: Rotati
           )
           currentSize += buffer.length
         }).pipe(
-          // After a failed write, or a defect, the size on disk is the truth. The failure itself
-          // goes on to the logger's flush.
+          // After a failed write, a defect or an interrupt (`onError` runs on all three), the size on
+          // disk is the truth. The failure itself goes on to the logger's flush.
           Effect.onError(() =>
             readSize.pipe(
               Effect.tap((size) => Effect.sync(() => void (currentSize = size))),
