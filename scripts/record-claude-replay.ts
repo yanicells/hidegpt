@@ -14,7 +14,7 @@
  * a login, and the person's own sessions stay out of the fixture.
  */
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { hostname, tmpdir, userInfo } from 'node:os'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import * as Effect from 'effect/Effect'
@@ -26,9 +26,9 @@ import type { AdapterEvent, ProviderSession, TurnSettings } from '../src/provide
 import {
   encodeTranscript,
   leaks,
-  type RecordingMachine,
   type ReplayEntry,
   scrub,
+  thisMachine,
   TurnRefusedError,
   turnsAllowed,
 } from '../src/provider/replayFixture.ts'
@@ -109,15 +109,10 @@ async function main() {
 
   const workspace = realpathSync(mkdtempSync(join(tmpdir(), 'hidegpt-replay-workspace-')))
   const emptyHome = realpathSync(mkdtempSync(join(tmpdir(), 'hidegpt-replay-claude-')))
-  const machine: RecordingMachine = {
-    home: process.env.HOME ?? '',
-    username: userInfo().username,
-    hostname: hostname(),
-    scratch: [
-      [workspace, '/tmp/replay-workspace'],
-      [emptyHome, '/tmp/replay-home'],
-    ],
-  }
+  const machine = thisMachine([
+    [workspace, '/tmp/replay-workspace'],
+    [emptyHome, '/tmp/replay-home'],
+  ])
   if (!scenario.sendsTurns) {
     // Set before the SDK loads: it and the Claude Code it starts read these, and the
     // SDK's session list reads the home folder in this process.

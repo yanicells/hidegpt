@@ -1,6 +1,8 @@
 // Adapted from T3 Code (https://github.com/pingdotgg/t3code), apps/server/scripts/codexReplayRecordingRecords.ts
 // at commit 5c6f2f12. Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { homedir, hostname, userInfo } from 'node:os'
 
 /**
  * Replay fixtures: a provider conversation recorded from the real CLI, one JSON
@@ -60,9 +62,12 @@ export class TurnRefusedError extends Error {
 
 /** The machine a recording came from; every value here is replaced before it is written. */
 export type RecordingMachine = {
+  /** The person's home folder. Skipped when empty or the root. */
   readonly home: string
-  readonly username: string
-  readonly hostname: string
+  /** Names that identify the person: the account name and the parts of their git name. */
+  readonly people: ReadonlyArray<string>
+  /** Names that identify the machine: hostname, short hostname, computer name. */
+  readonly hosts: ReadonlyArray<string>
   /** Throwaway folders the recorder made (the CLI's home, the workspace), longest first. */
   readonly scratch: ReadonlyArray<readonly [path: string, placeholder: string]>
 }
@@ -82,20 +87,38 @@ const MAC_TEMP = /(?:\/private)?\/var\/folders\/[^\s"'/]+\/[^\s"'/]+\/T/g
 /** Another account's home folder, for paths the recorder did not know about. */
 const OTHER_HOME = /\/(?:Users|home)\/(?!replay-user\b)[^\s"'/\\]+/g
 
-const word = (text: string) => new RegExp(`\\b${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g')
+/** Shorter names would match inside ordinary words. */
+const MIN_NAME = 3
+
+/** Each name as a whole word in any case, longest first so a hostname goes before its short form. */
+function namePatterns(machine: Pick<RecordingMachine, 'people' | 'hosts'>): ReadonlyArray<readonly [RegExp, string]> {
+  const named: ReadonlyArray<readonly [string, string]> = [
+    ...machine.hosts.map((name) => [name.trim(), REPLAY_HOST] as const),
+    ...machine.people.map((name) => [name.trim(), REPLAY_USER] as const),
+  ].filter(([name]) => name.length >= MIN_NAME && name.toLowerCase() !== 'localhost')
+  // Patterns ignore case, so one per name in any case.
+  const unique = [...new Map(named.map((entry) => [entry[0].toLowerCase(), entry])).values()]
+  return unique
+    .sort(([a], [b]) => b.length - a.length)
+    .map(([name, placeholder]) => {
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      return [new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, 'gi'), placeholder] as const
+    })
+}
+
+const usableHome = (home: string) => home.length > 1
 
 function scrubString(value: string, machine: RecordingMachine): string {
   let text = value
-  for (const [path, placeholder] of machine.scratch) text = text.replaceAll(path, placeholder)
-  text = text.replaceAll(machine.home, REPLAY_HOME).replace(MAC_TEMP, '/tmp').replace(OTHER_HOME, REPLAY_HOME)
+  for (const [path, placeholder] of machine.scratch) if (path) text = text.replaceAll(path, placeholder)
+  if (usableHome(machine.home)) text = text.replaceAll(machine.home, REPLAY_HOME)
+  text = text.replace(MAC_TEMP, '/tmp').replace(OTHER_HOME, REPLAY_HOME)
   text = text.replace(EMAIL, REPLAY_EMAIL).replace(TOKEN, REDACTED)
-  if (machine.hostname) text = text.replaceAll(machine.hostname, REPLAY_HOST)
-  // The username last, and only as a whole word, so it cannot eat into other words.
-  if (machine.username.length >= 3) text = text.replace(word(machine.username), REPLAY_USER)
+  for (const [pattern, placeholder] of namePatterns(machine)) text = text.replace(pattern, placeholder)
   return text
 }
 
-/** Replaces emails, home and temp paths, the username, the hostname and secrets anywhere in a frame. */
+/** Replaces emails, home and temp paths, people's and machine names, and secrets anywhere in a frame. */
 export function scrub(value: unknown, machine: RecordingMachine, key?: string): unknown {
   if (key !== undefined && SECRET_KEYS.test(key) && typeof value === 'string' && value) return REDACTED
   if (typeof value === 'string') return scrubString(value, machine)
@@ -105,18 +128,36 @@ export function scrub(value: unknown, machine: RecordingMachine, key?: string): 
 }
 
 /**
- * What must never appear in a committed fixture. Returns the offending matches;
- * the fixture test runs it over every file, and recorders refuse to write a
- * transcript that fails it.
+ * What must never appear in a committed fixture: everything `scrub` replaces.
+ * Returns the offending matches; the fixture test runs it over every file, and
+ * recorders refuse to write a transcript that fails it.
  */
-export function leaks(text: string, machine: Pick<RecordingMachine, 'home' | 'username'>): ReadonlyArray<string> {
+export function leaks(text: string, machine: Omit<RecordingMachine, 'scratch'>): ReadonlyArray<string> {
   const found = [
     ...[...text.matchAll(EMAIL)].map((match) => match[0]).filter((email) => email !== REPLAY_EMAIL),
     ...[...text.matchAll(TOKEN)].map((match) => match[0]),
     ...[...text.matchAll(MAC_TEMP)].map((match) => match[0]),
     ...[...text.matchAll(OTHER_HOME)].map((match) => match[0]),
   ]
-  if (text.includes(machine.home)) found.push(machine.home)
-  if (machine.username.length >= 3 && word(machine.username).test(text)) found.push(machine.username)
+  if (usableHome(machine.home) && text.includes(machine.home)) found.push(machine.home)
+  for (const [pattern] of namePatterns(machine)) found.push(...[...text.matchAll(pattern)].map((match) => match[0]))
   return found
+}
+
+/** The machine this process runs on, for recorders and the committed-fixture check. */
+export function thisMachine(scratch: RecordingMachine['scratch'] = []): RecordingMachine {
+  const run = (command: string, args: ReadonlyArray<string>) => {
+    try {
+      return execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+    } catch {
+      return ''
+    }
+  }
+  const host = hostname()
+  return {
+    home: homedir(),
+    people: [userInfo().username, ...run('git', ['config', 'user.name']).split(/\s+/)],
+    hosts: [host, host.split('.')[0] ?? '', process.platform === 'darwin' ? run('scutil', ['--get', 'ComputerName']) : ''],
+    scratch,
+  }
 }

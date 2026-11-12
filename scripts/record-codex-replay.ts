@@ -12,7 +12,7 @@
  * can reach Codex, so the recorder cannot start a turn even by mistake.
  */
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { hostname, tmpdir, userInfo } from 'node:os'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import * as NodeServices from '@effect/platform-node/NodeServices'
@@ -28,9 +28,9 @@ import type { AdapterEvent, ProviderSession, TurnSettings } from '../src/provide
 import {
   encodeTranscript,
   leaks,
-  type RecordingMachine,
   type ReplayEntry,
   scrub,
+  thisMachine,
   TurnRefusedError,
   turnsAllowed,
 } from '../src/provider/replayFixture.ts'
@@ -122,15 +122,10 @@ async function main() {
       (pair): pair is [string, string] => pair[1] !== undefined,
     ),
   )
-  const machine: RecordingMachine = {
-    home: process.env.HOME ?? '',
-    username: userInfo().username,
-    hostname: hostname(),
-    scratch: [
-      [codexHome, '/tmp/replay-codex-home'],
-      [workspace, '/tmp/replay-workspace'],
-    ],
-  }
+  const machine = thisMachine([
+    [codexHome, '/tmp/replay-codex-home'],
+    [workspace, '/tmp/replay-workspace'],
+  ])
 
   const entries: ReplayEntry[] = []
   try {
