@@ -31,9 +31,9 @@ export interface TurnTracker {
    * The native start signal: the start response or the start notification, whichever comes
    * first. Idempotent. Without `turnId` (a notification), a thread with no open turn adopts
    * one (a turn started elsewhere), unless `nativeTurnId` names a turn that already ended
-   * here. With it (the start response, which knows its turn),
-   * only that turn is confirmed, and its `nativeTurnId` is the one that counts: it may
-   * already have ended, and must not come back.
+   * here. With it (the start response, which knows its turn), only that turn is confirmed,
+   * and its `nativeTurnId` is the one that counts. If that turn already closed, the id is
+   * remembered as ended, so the turn's later events can't come back as the next turn's.
    */
   readonly started: (threadId: string, nativeTurnId: string | null, turnId?: TurnId) => Effect.Effect<void>
   /**
@@ -51,9 +51,9 @@ export interface TurnTracker {
    * Exactly-once: ends the open turn and emits `turn.ended`. A call with no open turn, or whose
    * `nativeTurnId` names a different native turn or one that already ended here, is dropped
    * and logged. A turn the person stopped that ends without a failure is `interrupted`,
-   * whatever the provider called it.
+   * whatever the provider called it. True when it ended the open turn.
    */
-  readonly end: (threadId: string, outcome: TurnOutcome) => Effect.Effect<void>
+  readonly end: (threadId: string, outcome: TurnOutcome) => Effect.Effect<boolean>
   /** The native send failed: forget the turn without a terminal (the manager rolls back its echo). */
   readonly abandon: (threadId: string, turnId: TurnId) => Effect.Effect<void>
   /** The open turn's id, to stamp items with. */
@@ -102,6 +102,8 @@ export const makeTurnTracker = (options: TurnTrackerOptions): Effect.Effect<Turn
     const open = new Map<string, OpenTurn>()
     /** Native ids of the turns that ended on each thread, newest last. */
     const ended = new Map<string, ReadonlyArray<string>>()
+    const remember = (threadId: string, nativeTurnId: string) =>
+      void ended.set(threadId, [...(ended.get(threadId) ?? []), nativeTurnId].slice(-ENDED_MEMORY))
     const hasEnded = (threadId: string, nativeTurnId: string | null | undefined) =>
       nativeTurnId != null && (ended.get(threadId)?.includes(nativeTurnId) ?? false)
     const dropped = (what: string, threadId: string) =>
@@ -113,9 +115,7 @@ export const makeTurnTracker = (options: TurnTrackerOptions): Effect.Effect<Turn
     const close = (threadId: string, turn: OpenTurn, outcome: TurnOutcome) =>
       Effect.gen(function* () {
         open.delete(threadId)
-        if (turn.nativeTurnId !== null) {
-          ended.set(threadId, [...(ended.get(threadId) ?? []), turn.nativeTurnId].slice(-ENDED_MEMORY))
-        }
+        if (turn.nativeTurnId !== null) remember(threadId, turn.nativeTurnId)
         yield* Deferred.fail(turn.started, notRunning('interrupt'))
         const status: TurnStatus = outcome.status === 'completed' && turn.stopRequested ? 'interrupted' : outcome.status
         yield* emit({
@@ -182,9 +182,12 @@ export const makeTurnTracker = (options: TurnTrackerOptions): Effect.Effect<Turn
             outcome.nativeTurnId != null &&
             turn.nativeTurnId !== null &&
             outcome.nativeTurnId !== turn.nativeTurnId
-          if (!turn || otherTurn || hasEnded(threadId, outcome.nativeTurnId))
-            return yield* dropped('terminal', threadId)
+          if (!turn || otherTurn || hasEnded(threadId, outcome.nativeTurnId)) {
+            yield* dropped('terminal', threadId)
+            return false
+          }
           yield* close(threadId, turn, outcome)
+          return true
         }),
       )
 
@@ -195,7 +198,11 @@ export const makeTurnTracker = (options: TurnTrackerOptions): Effect.Effect<Turn
           Effect.suspend(() => {
             const turn = open.get(threadId)
             if (turnId !== undefined) {
-              if (turn?.turnId !== turnId) return Effect.void
+              if (turn?.turnId !== turnId) {
+                // A late response for a turn that already closed: its native events must not land on the next one.
+                if (nativeTurnId !== null && !hasEnded(threadId, nativeTurnId)) remember(threadId, nativeTurnId)
+                return Effect.void
+              }
               if (nativeTurnId !== null) turn.nativeTurnId = nativeTurnId
             } else if (hasEnded(threadId, nativeTurnId)) {
               return dropped('start', threadId)
