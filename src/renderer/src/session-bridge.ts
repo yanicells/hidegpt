@@ -11,7 +11,8 @@ let detach: (() => void) | null = null
 
 function publish(next: SequencedSnapshot): void {
   current = next
-  for (const listener of [...listeners]) listener()
+  // A copy: a listener that subscribes another component must not run it this round.
+  for (const listener of Array.from(listeners)) listener()
 }
 
 /**
@@ -52,11 +53,6 @@ function subscribe(onChange: () => void): () => void {
     detach?.()
     detach = null
   }
-}
-
-/** The latest snapshot, for event handlers that must not hold a stale render's copy. */
-export function currentSnapshot(): Snapshot {
-  return current.snapshot
 }
 
 /**

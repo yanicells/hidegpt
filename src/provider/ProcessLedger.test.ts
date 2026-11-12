@@ -383,7 +383,7 @@ describe('ProcessLedger', () => {
       const path = freshPath()
       const contents = JSON.stringify({ 4242: entry({ command: 'codex', arg: 'app-server', started: Date.now() }) })
       writeFileSync(path, contents)
-      expect(yield* reap(path, { processTable: Effect.succeed(Option.none()) })).toBe(0)
+      expect(yield* reap(path, { processTable: Effect.succeedNone })).toBe(0)
       expect(readFileSync(path, 'utf8')).toBe(contents)
     }),
   )

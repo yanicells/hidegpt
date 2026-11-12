@@ -22,7 +22,7 @@ const capturing = <A, E>(effect: Effect.Effect<A, E>) =>
   })
 
 /** The banner sentence for the cause `effect` fails with, and what was logged. */
-const failWith = (effect: Effect.Effect<unknown, unknown>) =>
+const failWith = <E>(effect: Effect.Effect<unknown, E>) =>
   capturing(effect.pipe(Effect.as('no failure'), Effect.catchCause(describeFailure))).pipe(
     Effect.map(({ result, logged }) => ({ message: result._tag === 'Success' ? result.value : 'failed', logged })),
   )
@@ -78,7 +78,7 @@ describe('describeFailure', () => {
   it.effect('treats a rejected promise as a defect, not as a sentence to show', () =>
     Effect.gen(function* () {
       const { message, logged } = yield* failWith(
-        Effect.tryPromise(() => Promise.reject(new Error('EACCES: /Users/x/images'))),
+        Effect.promise(() => Promise.reject(new Error('EACCES: /Users/x/images'))),
       )
       expect(message).toBe(DEFECT_MESSAGE)
       expect(logged).toEqual([{ level: 'Error', text: expect.stringContaining('EACCES') }])

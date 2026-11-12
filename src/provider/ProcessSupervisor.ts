@@ -229,6 +229,9 @@ const make = (
           Effect.andThen(Effect.suspend(() => Fiber.awaitAll([...stopping]))),
         ),
       )
+      // The SDK spawns from its own callback, outside any fiber; forks there keep this layer's
+      // services (its logger), so a ledger failure reaches the log.
+      const runFork = Effect.runForkWith(yield* Effect.context<never>())
       return (options: CallbackSpawnOptions) => {
         const child = spawnChild(options.command, [...options.args], {
           cwd: options.cwd,
@@ -251,13 +254,13 @@ const make = (
         }
         // The full command path, so another app's copy of the same CLI never matches.
         // Defects are logged here, so a failed record never stops `stopTree` from running.
-        const recorded = Effect.runFork(logLedgerFailure(ledger.record(pid, options.command, options.args[0] ?? '')))
+        const recorded = runFork(logLedgerFailure(ledger.record(pid, options.command, options.args[0] ?? '')))
         running.set(child, { pid, recorded })
         child.once('exit', () => {
           running.delete(child)
           signalGroup(pid, 'SIGKILL')
           // As T3 Code's `tracker.stop`: members that left the group are stopped too.
-          const stop = Effect.runFork(stopTree(pid, recorded))
+          const stop = runFork(stopTree(pid, recorded))
           stopping.add(stop)
           stop.addObserver(() => stopping.delete(stop))
         })

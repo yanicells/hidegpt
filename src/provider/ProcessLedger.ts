@@ -155,7 +155,7 @@ export const run = (command: string, args: ReadonlyArray<string>, timeoutMs = CO
     )
     // Interrupted (a timeout below, a capped read, a closing scope): the child goes too.
     return Effect.sync(() => void child.kill('SIGKILL'))
-  }).pipe(Effect.timeoutOrElse({ duration: timeoutMs + 500, orElse: () => Effect.succeed(Option.none()) }))
+  }).pipe(Effect.timeoutOrElse({ duration: timeoutMs + 500, orElse: () => Effect.succeedNone }))
 
 /** The start time of `pid` in epoch ms; 0 when it is gone. */
 export const startOf = (pid: number) =>

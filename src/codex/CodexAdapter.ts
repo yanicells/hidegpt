@@ -20,7 +20,7 @@ import {
   type ProviderError,
   ProviderTimeoutError,
 } from '../provider/errors'
-import { logDefects, reportDefect } from '../provider/DefectReport'
+import { reportDefect } from '../provider/DefectReport'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
 import { randomUuidV4 } from '../provider/randomUuid'
 import type {

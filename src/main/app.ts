@@ -169,7 +169,8 @@ const program = Effect.gen(function* () {
         return picked.canceled ? null : (picked.filePaths[0] ?? null)
       }),
     saveImage: ({ bytes, mime }) =>
-      Effect.tryPromise(() => saveImage(bytes, mime)).pipe(
+      // A rejection is a defect: logged under a report id, with the generic sentence on the page.
+      Effect.promise(() => saveImage(bytes, mime)).pipe(
         Effect.map((path): SaveImageResult => ({ ok: true, path })),
         Effect.catchCause((cause) =>
           Effect.map(describeFailure(cause), (error): SaveImageResult => ({ ok: false, error })),

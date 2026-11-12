@@ -1,6 +1,8 @@
+import * as Data from 'effect/Data'
 import type * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 
+import type { ProviderError } from './errors'
 import type { AdapterEvent, OpenedThread, ProviderSession, TurnSettings } from './ProviderAdapter'
 
 /**
@@ -9,6 +11,11 @@ import type { AdapterEvent, OpenedThread, ProviderSession, TurnSettings } from '
  * recording. The turn, stop and approval builders here are shared by both
  * providers; each provider's `replayScenarios.ts` lists its own.
  */
+
+/** Why a scenario stopped on its own: a wait ran out, or the model did not do what it needs. */
+export class ReplayError extends Data.TaggedError('ReplayError')<{ readonly message: string }> {}
+
+export type ScenarioError = ProviderError | ReplayError
 
 export const SETTINGS: TurnSettings = { model: null, effort: null, serviceTier: null, mode: null }
 
@@ -20,14 +27,14 @@ export type ScenarioContext = {
   /** How long to wait for a turn: minutes for a real model, seconds in a replay. */
   readonly wait: Duration.Input
   /** Runs once the catalog has loaded. The no-prompt recorders stop here if a login turned up. */
-  readonly afterCatalog: Effect.Effect<void, unknown>
+  readonly afterCatalog: Effect.Effect<void, ReplayError>
 }
 
 export type ReplayScenario<A> = {
   readonly description: string
   /** Prompts sent to the model, in order. Empty means no turn, so any agent may record it. */
   readonly prompts: ReadonlyArray<string>
-  readonly run: (context: ScenarioContext) => Effect.Effect<A, unknown>
+  readonly run: (context: ScenarioContext) => Effect.Effect<A, ScenarioError>
 }
 
 type TurnEnded = Extract<AdapterEvent, { type: 'turnEnded' }>
@@ -43,7 +50,10 @@ const ofThread = (threadId: string) => (event: AdapterEvent) => 'threadId' in ev
 /** Polls the event list until `done` holds; fails with `what` after `context.wait`. */
 const waitFor = (context: ScenarioContext, what: string, done: () => boolean) =>
   Effect.suspend(() => (done() ? Effect.void : Effect.sleep('10 millis').pipe(Effect.repeat({ until: done })))).pipe(
-    Effect.timeoutOrElse({ duration: context.wait, orElse: () => Effect.fail(new Error(`Timed out waiting for ${what}.`)) }),
+    Effect.timeoutOrElse({
+      duration: context.wait,
+      orElse: () => Effect.fail(new ReplayError({ message: `Timed out waiting for ${what}.` })),
+    }),
   )
 
 /** Sends one prompt and waits for its turn to end; `during` runs while the turn is going (a stop, an approval). */
@@ -52,13 +62,18 @@ const runTurn = (
   threadId: string,
   text: string,
   index: number,
-  during: (since: number) => Effect.Effect<void, unknown> = () => Effect.void,
+  during: (since: number) => Effect.Effect<void, ScenarioError> = () => Effect.void,
 ) =>
   Effect.gen(function* () {
-    const turnEnded = () => context.events.filter((event): event is TurnEnded => event.type === 'turnEnded' && event.threadId === threadId)
+    const turnEnded = () =>
+      context.events.filter((event): event is TurnEnded => event.type === 'turnEnded' && event.threadId === threadId)
     const before = turnEnded().length
     const since = context.events.length
-    yield* context.session.send(threadId, { text, images: [], skill: null, clientId: `local-replay-${index + 1}` }, SETTINGS)
+    yield* context.session.send(
+      threadId,
+      { text, images: [], skill: null, clientId: `local-replay-${index + 1}` },
+      SETTINGS,
+    )
     yield* during(since)
     yield* waitFor(context, `turn ${index + 1} to end`, () => turnEnded().length > before)
     return turnEnded()[before]!
@@ -67,10 +82,15 @@ const runTurn = (
 /** A new document, then `body` on it, then the document read back and released. */
 const onNewDocument = (
   context: ScenarioContext,
-  body: (threadId: string) => Effect.Effect<ReadonlyArray<TurnEnded>, unknown>,
+  body: (threadId: string) => Effect.Effect<ReadonlyArray<TurnEnded>, ScenarioError>,
 ) =>
   Effect.gen(function* () {
-    const created = yield* context.session.createThread({ cwd: context.workspace, projectId: null, title: null, settings: SETTINGS })
+    const created = yield* context.session.createThread({
+      cwd: context.workspace,
+      projectId: null,
+      title: null,
+      settings: SETTINGS,
+    })
     const ended = yield* body(created.threadId)
     const opened = yield* context.session.openThread(created.threadId)
     yield* context.session.releaseThread(created.threadId)
@@ -95,7 +115,8 @@ export const stopScenario = (prompt: string): ReplayScenario<TurnResult> => ({
     onNewDocument(context, (threadId) =>
       runTurn(context, threadId, prompt, 0, (since) =>
         Effect.gen(function* () {
-          const started = () => context.events.slice(since).some((event) => event.type === 'text' && ofThread(threadId)(event))
+          const started = () =>
+            context.events.slice(since).some((event) => event.type === 'text' && ofThread(threadId)(event))
           yield* waitFor(context, 'the answer to start', started)
           yield* context.session.interrupt(threadId)
         }),
@@ -108,7 +129,10 @@ export const stopScenario = (prompt: string): ReplayScenario<TurnResult> => ({
  * prompt i's (accept, then deny, by default). Fails if the model ends a turn
  * without asking, since then the recording would not show an approval at all.
  */
-export const approvalScenario = (prompts: ReadonlyArray<string>, decisions: ReadonlyArray<boolean>): ReplayScenario<TurnResult> => ({
+export const approvalScenario = (
+  prompts: ReadonlyArray<string>,
+  decisions: ReadonlyArray<boolean>,
+): ReplayScenario<TurnResult> => ({
   description: `A new document and ${prompts.length} turns that each ask before acting: ${decisions.map((accept) => (accept ? 'accepted' : 'denied')).join(', then ')}. Then the document read back.`,
   prompts,
   run: (context) =>
@@ -118,10 +142,21 @@ export const approvalScenario = (prompts: ReadonlyArray<string>, decisions: Read
           Effect.gen(function* () {
             const fresh = () => context.events.slice(since).filter(ofThread(threadId))
             const asked = () =>
-              fresh().flatMap((event) => (event.type === 'block' && event.block.kind === 'approval' ? [event.block] : []))[0]
-            yield* waitFor(context, 'an approval request', () => asked() !== undefined || fresh().some((event) => event.type === 'turnEnded'))
+              fresh().flatMap((event) =>
+                event.type === 'block' && event.block.kind === 'approval' ? [event.block] : [],
+              )[0]
+            yield* waitFor(
+              context,
+              'an approval request',
+              () => asked() !== undefined || fresh().some((event) => event.type === 'turnEnded'),
+            )
             const block = asked()
-            if (!block) return yield* Effect.fail(new Error(`Turn ${index + 1} ended without asking for approval; see docs/replay-fixtures.md.`))
+            if (!block)
+              return yield* Effect.fail(
+                new ReplayError({
+                  message: `Turn ${index + 1} ended without asking for approval; see docs/replay-fixtures.md.`,
+                }),
+              )
             yield* context.session.respond(threadId, block.id, { accept: decisions[index] ?? false, answers: {} })
           }),
         ),
