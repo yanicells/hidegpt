@@ -47,8 +47,9 @@ function mount(partial: Partial<Snapshot> = {}, fail: (command: Command) => stri
     ...partial,
   }
 
+  let seq = 0
   const api: HideGptApi = {
-    getSnapshot: () => snapshot,
+    getSnapshot: () => ({ snapshot, seq }),
     onSnapshot: (handler) => {
       listeners.add(handler)
       return () => listeners.delete(handler)
@@ -84,7 +85,8 @@ function mount(partial: Partial<Snapshot> = {}, fail: (command: Command) => stri
       if (command.op === 'goHome') {
         snapshot = { ...snapshot, route: { kind: 'home' }, title: 'Docs' }
       }
-      for (const listener of listeners) listener({ fields: snapshot })
+      seq += 1
+      for (const listener of listeners) listener({ fields: snapshot, seq })
       return { ok: true }
     },
     pickDirectory: async () => '/tmp/project',

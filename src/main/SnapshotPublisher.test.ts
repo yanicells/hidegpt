@@ -49,7 +49,9 @@ describe('SnapshotPublisher', () => {
       yield* SubscriptionRef.update(state, (s) => ({ ...s, streaming: false }))
       yield* settle
       expect(sent).toHaveLength(4)
-      expect(sent[3]).toEqual({ fields: { streaming: false }, blocks: { length: 1, append: [[0, 'word ']] } })
+      expect(sent[3]).toEqual({ fields: { streaming: false }, blocks: { length: 1, append: [[0, 'word ']] }, seq: 4 })
+      // Patches are numbered in the order they go out.
+      expect(sent.map((patch) => patch.seq)).toEqual([1, 2, 3, 4])
 
       // The cancelled frame sends nothing more later.
       yield* TestClock.adjust('100 millis')
@@ -68,6 +70,8 @@ describe('SnapshotPublisher', () => {
       publisher.resync()
       expect(sent).toHaveLength(2)
       expect(applySnapshotPatch(emptySnapshot('/elsewhere'), sent[1])).toEqual(snapshot)
+      // A read now names the resync patch, so a reloaded page skips it if it arrives late.
+      expect(publisher.delivered()).toEqual({ snapshot, seq: 2 })
     }),
   )
 

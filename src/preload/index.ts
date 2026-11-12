@@ -2,31 +2,36 @@
 // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 import { contextBridge, ipcRenderer } from 'electron'
 
-import type { EventValue, HideGptApi, SnapshotPatch } from '../shared/api'
+import type { EventValue, HideGptApi, SequencedSnapshot, SnapshotPatch } from '../shared/api'
 import { EVENT_CHANNELS, INVOKE_CHANNELS, SNAPSHOT_NOW_CHANNEL } from '../shared/channels'
-import { emptySnapshot, type Snapshot } from '../shared/model'
-import { applySnapshotPatch } from '../shared/snapshot-patch'
+import { emptySnapshot } from '../shared/model'
+import { applyPatchOnce } from '../shared/snapshot-patch'
+
+/** What main last published and its `seq`; seq 0 (nothing yet) before main has published. */
+const readFromMain = (): SequencedSnapshot =>
+  ipcRenderer.sendSync(SNAPSHOT_NOW_CHANNEL) ?? { snapshot: emptySnapshot(), seq: 0 }
 
 // The preload only relays: patches pass straight to the page, which applies
 // them itself. It holds a snapshot only until the page first reads it: the
 // copy starts as what main last published (so the first paint is the real
 // library) and takes the patches that land before the page's scripts run.
-// That first read hands it over and stops tracking, and the page subscribes
-// in the same task, so every patch is applied exactly once.
-let handover: Snapshot | null = ipcRenderer.sendSync(SNAPSHOT_NOW_CHANNEL) ?? emptySnapshot()
+// Patches are numbered, so one that main sent before answering the read
+// (already in the copy) and delivered after it is skipped, not applied twice.
+// The first read hands the copy over and stops tracking.
+let handover: SequencedSnapshot | null = readFromMain()
 
 const track = (_event: Electron.IpcRendererEvent, patch: SnapshotPatch) => {
-  if (handover) handover = applySnapshotPatch(handover, patch)
+  if (handover) handover = applyPatchOnce(handover, patch)
 }
 ipcRenderer.on(EVENT_CHANNELS.onSnapshot, track)
 
-/** The first read hands over the tracked copy; a later one asks main for what it last published. */
-function getSnapshot(): Snapshot {
-  if (!handover) return ipcRenderer.sendSync(SNAPSHOT_NOW_CHANNEL) ?? emptySnapshot()
-  const snapshot = handover
+/** The first read hands over the tracked copy; a later one asks main again. */
+function getSnapshot(): SequencedSnapshot {
+  if (!handover) return readFromMain()
+  const current = handover
   handover = null
   ipcRenderer.off(EVENT_CHANNELS.onSnapshot, track)
-  return snapshot
+  return current
 }
 
 /** A subscriber for one `IpcEvents` row; main is trusted, so values pass through as sent. */
@@ -40,6 +45,9 @@ const subscribe =
     }
   }
 
+// Invoke results come back typed `any` from `ipcRenderer.invoke` and flow into
+// the `HideGptApi` types unchecked, as in T3's preload: main answers with the
+// row's `result` (its handler's type) or `invalid`, both checked in main.
 const api: HideGptApi = {
   getSnapshot,
   onSnapshot: subscribe('onSnapshot'),

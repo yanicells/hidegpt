@@ -3,23 +3,29 @@ import { useEffect, useRef, useSyncExternalStore } from 'react'
 import type { Command, CommandResult, MenuAction } from '../../shared/api'
 import { errorMessage } from '../../shared/labels'
 import { emptySnapshot, type Block, type Snapshot } from '../../shared/model'
-import { applySnapshotPatch } from '../../shared/snapshot-patch'
+import { applyPatchOnce, type SequencedSnapshot } from '../../shared/snapshot-patch'
 
-let snapshot: Snapshot = emptySnapshot()
+let current: SequencedSnapshot = { snapshot: emptySnapshot(), seq: 0 }
+let snapshot: Snapshot = current.snapshot
 const listeners = new Set<() => void>()
 let detach: (() => void) | null = null
 
 /**
- * Takes the snapshot from the preload and applies every later patch here, once,
- * however many components subscribe. The read and the subscription happen in
- * one task, so no patch falls between them. The app's root never unsubscribes,
- * so in the app this runs once; tests reconnect to a fresh bridge.
+ * Takes the snapshot from the preload and applies every later patch here,
+ * however many components subscribe. A reconnect (StrictMode remounting the
+ * root, a test's fresh bridge) reads main again, which may already include
+ * patches still on their way; `applyPatchOnce` skips those by `seq`, so no
+ * streamed text lands twice.
  */
 function connect(): void {
   if (detach || !window.hidegpt) return
-  snapshot = window.hidegpt.getSnapshot()
+  current = window.hidegpt.getSnapshot()
+  snapshot = current.snapshot
   detach = window.hidegpt.onSnapshot((patch) => {
-    snapshot = applySnapshotPatch(snapshot, patch)
+    const next = applyPatchOnce(current, patch)
+    if (next === current) return
+    current = next
+    snapshot = next.snapshot
     for (const listener of [...listeners]) listener()
   })
 }

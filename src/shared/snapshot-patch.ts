@@ -1,4 +1,4 @@
-import type { Block, Snapshot, SnapshotFields, SnapshotPatch } from './contracts'
+import type { Block, SequencedSnapshot, Snapshot, SnapshotDiff, SnapshotFields, SnapshotPatch } from './contracts'
 
 /**
  * What crosses IPC instead of a whole Snapshot (the `SnapshotPatch` contract).
@@ -7,7 +7,7 @@ import type { Block, Snapshot, SnapshotFields, SnapshotPatch } from './contracts
  * (the streaming answer) travels as its new text, so IPC scales with new
  * tokens, not with the answer size.
  */
-export type { SnapshotPatch } from './contracts'
+export type { SequencedSnapshot, SnapshotDiff, SnapshotPatch } from './contracts'
 
 function grownBy(previous: Block | undefined, next: Block): string | null {
   if (!previous || previous.id !== next.id || previous.kind !== next.kind) return null
@@ -23,16 +23,16 @@ function grownBy(previous: Block | undefined, next: Block): string | null {
 }
 
 /** True when the patch changes nothing (so it need not cross IPC). */
-export const isEmptyPatch = (patch: SnapshotPatch): boolean =>
+export const isEmptyPatch = (patch: SnapshotDiff): boolean =>
   patch.blocks === undefined && Object.keys(patch.fields).length === 0
 
-export function diffSnapshot(previous: Snapshot | null, next: Snapshot): SnapshotPatch {
+export function diffSnapshot(previous: Snapshot | null, next: Snapshot): SnapshotDiff {
   const { blocks, ...shell } = next
   if (!previous) {
     return { fields: shell, blocks: { length: blocks.length, set: blocks.map((block, index) => [index, block]) } }
   }
   const { blocks: before, ...previousShell } = previous
-  const patch: { fields: SnapshotFields; blocks?: SnapshotPatch['blocks'] } = { fields: changed(previousShell, shell) }
+  const patch: { fields: SnapshotFields; blocks?: SnapshotDiff['blocks'] } = { fields: changed(previousShell, shell) }
   if (blocks !== before) {
     const set: [number, Block][] = []
     const append: [number, string][] = []
@@ -58,7 +58,7 @@ function changed<T extends object>(previous: T, next: T): Partial<T> {
 }
 
 /** Rebuilds the next Snapshot, reusing every unchanged block object. */
-export function applySnapshotPatch(previous: Snapshot, patch: SnapshotPatch): Snapshot {
+export function applySnapshotPatch(previous: Snapshot, patch: SnapshotDiff): Snapshot {
   const next: Snapshot = { ...previous, ...patch.fields }
   if (!patch.blocks) return next
   const blocks = previous.blocks.slice(0, patch.blocks.length)
@@ -69,4 +69,17 @@ export function applySnapshotPatch(previous: Snapshot, patch: SnapshotPatch): Sn
     else if (block?.kind === 'callout') blocks[index] = { ...block, body: block.body + delta }
   }
   return { ...next, blocks }
+}
+
+/**
+ * Applies a patch unless `current` already includes it (its `seq` is at or
+ * below `current.seq`), so a snapshot read from main while patches are still
+ * on their way never gets the same streamed text twice.
+ * Adapted from T3 Code's guest stream sequence check
+ * (apps/web/src/components/guest/guestStream.logic.ts) at commit 5c6f2f12.
+ * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+ */
+export function applyPatchOnce(current: SequencedSnapshot, patch: SnapshotPatch): SequencedSnapshot {
+  if (patch.seq <= current.seq) return current
+  return { snapshot: applySnapshotPatch(current.snapshot, patch), seq: patch.seq }
 }

@@ -61,7 +61,7 @@ export function NewDocumentDialog({
       if (!result.ok) throw new Error(result.error)
       const project = window.hidegpt
         .getSnapshot()
-        .projects.find((item) => item.roots.some((root) => root.path === folder))
+        .snapshot.projects.find((item) => item.roots.some((root) => root.path === folder))
       if (!project) throw new Error('The project could not be found. Refresh and try again.')
       if (creation.projectOnly) {
         onClose()

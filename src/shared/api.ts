@@ -1,10 +1,11 @@
-import type { IpcEvents, IpcInvoke, Snapshot } from './contracts'
+import type { IpcEvents, IpcInvoke, SequencedSnapshot } from './contracts'
 
 export type {
   Command,
   CommandResult,
   MenuAction,
   PickDirectoryResult,
+  SequencedSnapshot,
   SaveImageRequest,
   SaveImageResult,
   SnapshotPatch,
@@ -40,10 +41,11 @@ type EventMethods = {
 export type HideGptApi = InvokeMethods &
   EventMethods & {
     /**
-     * The whole current snapshot. Read it once at startup and apply every
-     * `onSnapshot` patch from then on; the preload keeps no copy after this read.
+     * The whole current snapshot and the `seq` of the last patch in it. Apply
+     * every later `onSnapshot` patch with `applyPatchOnce`, which skips the ones
+     * it already includes. The preload keeps no copy after the first read.
      */
-    readonly getSnapshot: () => Snapshot
+    readonly getSnapshot: () => SequencedSnapshot
     readonly platform: NodeJS.Platform
   }
 

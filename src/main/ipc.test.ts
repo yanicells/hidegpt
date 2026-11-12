@@ -75,7 +75,7 @@ describe('ipc', () => {
   it.effect('answers a sync read while the scope is open', () =>
     Effect.gen(function* () {
       const { ipcMain, sync } = fakeIpcMain()
-      const snapshot = emptySnapshot('/docs')
+      const snapshot = { snapshot: emptySnapshot('/docs'), seq: 3 }
       yield* Effect.scoped(
         Effect.gen(function* () {
           yield* handleSync(ipcMain, IpcSnapshotNow, () => snapshot)
