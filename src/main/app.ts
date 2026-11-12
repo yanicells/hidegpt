@@ -7,14 +7,20 @@ import * as Effect from 'effect/Effect'
 import * as Fiber from 'effect/Fiber'
 import * as Layer from 'effect/Layer'
 import * as ManagedRuntime from 'effect/ManagedRuntime'
-import * as Schema from 'effect/Schema'
 
-import { Command, type CommandResult, type MenuAction } from '../shared/contracts'
+import {
+  type Command,
+  type CommandResult,
+  IpcEvents,
+  IpcSnapshotNow,
+  type MenuAction,
+  type SaveImageResult,
+} from '../shared/contracts'
 import type { ProviderId } from '../shared/model'
 import { userMessage } from '../provider/errors'
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import * as Demo from './demo'
-import { handle } from './ipc'
+import { makeIpc, type SenderGuard } from './ipc'
 import { makeMenu } from './menu'
 import * as ProviderRegistry from './ProviderRegistry'
 import { ProviderSessionManager, layer as managerLayer } from './ProviderSessionManager'
@@ -60,8 +66,6 @@ const runtime = ManagedRuntime.make(MainLayer)
 /** Where a quit is: `waiting` while scopes close and providers stop, then `allowed` for the real quit. */
 let quitPhase: 'running' | 'waiting' | 'allowed' = 'running'
 
-const decodeFailed: CommandResult = { ok: false, error: 'Docs could not read that request.' }
-
 /** The app: IPC, the window, the menu, and the first library's connection. Runs until quit. */
 const program = Effect.gen(function* () {
   yield* Effect.promise(() => app.whenReady())
@@ -71,8 +75,7 @@ const program = Effect.gen(function* () {
   if (reaped > 0) console.warn(`Stopped ${reaped} provider process(es) left by the last run.`)
   const manager = yield* ProviderSessionManager
 
-  const send = (channel: string, value: unknown) => getWindow()?.webContents.send(channel, value)
-  const sendMenu = (action: MenuAction) => send('menu', action)
+  const sendMenu = (action: MenuAction) => getWindow()?.webContents.send(IpcEvents.onMenu.channel, action)
 
   /** Every command, from the window or the menu, ends in a result; nothing is thrown away. */
   const run = (command: Command): Effect.Effect<CommandResult> =>
@@ -99,16 +102,10 @@ const program = Effect.gen(function* () {
     )
   const updateMenu = makeMenu({ dispatch: dispatchFromMenu, send: sendMenu })
 
-  yield* handle(ipcMain, {
-    channel: 'command',
-    payload: Command,
-    handler: run,
-    invalid: () => decodeFailed,
-  })
-  yield* handle(ipcMain, {
-    channel: 'pick-directory',
-    payload: Schema.Undefined,
-    handler: () =>
+  const ipc = makeIpc(ipcMain, fromAppWindow)
+  yield* ipc.handleAll({
+    dispatch: run,
+    pickDirectory: () =>
       Effect.promise(async () => {
         const win = getWindow()
         if (!win) return null
@@ -118,30 +115,22 @@ const program = Effect.gen(function* () {
         })
         return picked.canceled ? null : (picked.filePaths[0] ?? null)
       }),
-    invalid: () => null,
-  })
-  yield* handle(ipcMain, {
-    channel: 'save-image',
-    payload: Schema.Tuple([Schema.Uint8Array, Schema.String]),
-    handler: ([bytes, mime]) =>
+    saveImage: ({ bytes, mime }) =>
       Effect.tryPromise(() => saveImage(bytes, mime)).pipe(
-        Effect.map((path): { ok: true; path: string } | { ok: false; error: string } => ({ ok: true, path })),
-        Effect.catch((error) => Effect.succeed({ ok: false as const, error: userMessage(error.cause) })),
+        Effect.map((path): SaveImageResult => ({ ok: true, path })),
+        Effect.catch((error) => Effect.succeed<SaveImageResult>({ ok: false, error: userMessage(error.cause) })),
       ),
-    invalid: () => ({ ok: false, error: 'Docs could not read that image.' }),
   })
 
   const publisher = makeSnapshotPublisher(manager.snapshots, (patch, snapshot) => {
     const win = getWindow()
     win?.setTitle(snapshot.route.kind === 'home' ? 'Docs' : snapshot.title || 'Docs')
-    win?.webContents.send('snapshot', patch)
+    win?.webContents.send(IpcEvents.onSnapshot.channel, patch)
     updateMenu(snapshot)
   })
   yield* Effect.forkScoped(publisher.run)
   // The preload asks synchronously before the first paint, so this must exist before any window.
-  ipcMain.on('snapshot-now', (event) => {
-    event.returnValue = publisher.delivered()
-  })
+  yield* ipc.handleSync(IpcSnapshotNow, publisher.delivered)
 
   const open = () => createWindow({ onDidFinishLoad: publisher.resync })
   const win = open()
@@ -158,6 +147,14 @@ const program = Effect.gen(function* () {
   }
   return yield* Effect.never
 }).pipe(Effect.scoped)
+
+// Adapted from T3 Code (apps/desktop/src/ipc/DesktopIpc.ts, layer) at commit 5c6f2f12.
+// Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+/** Only the app window's own page may call main: not another webContents, not a frame inside it. */
+const fromAppWindow: SenderGuard = (event) => {
+  const win = getWindow()
+  return win !== null && win.webContents.id === event.sender.id && win.webContents.mainFrame === event.senderFrame
+}
 
 /** The first error in a failed command (a tagged provider error, a rejection, or a defect). */
 function causeError(cause: import('effect/Cause').Cause<unknown>): unknown {

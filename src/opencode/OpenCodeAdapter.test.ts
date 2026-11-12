@@ -7,6 +7,7 @@ import * as TestClock from 'effect/testing/TestClock'
 
 import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
 import { agentMessage, makeFakeOpenCode, stubSession, userMessage, type FakeOpenCode, type FakeOpenCodeOptions } from './FakeOpenCode'
+import { readableProviderError } from './mapping'
 import * as OpenCodeAdapter from './OpenCodeAdapter'
 
 const SETTINGS = { model: 'fake/model-a', effort: null, serviceTier: null, mode: 'build' }
@@ -337,4 +338,35 @@ describe('OpenCodeAdapter', () => {
       expect(older.cursor).toBeNull()
     }),
   )
+})
+
+describe('OpenCode error sentences', () => {
+  // The shapes the SDK's `throwOnError` and fetch produce (see the SDK's error-interceptor).
+  const rejection = (cause: unknown, message = 'opencode server failed') => new Error(message, { cause })
+
+  it('reads the error body the SDK attaches, and falls back on anything else', () => {
+    const cases: Array<[unknown, string]> = [
+      [rejection({ status: 404, body: { name: 'NotFoundError', data: { message: 'Session not found: ses_1' } } }), 'OpenCode could not find that document.'],
+      [rejection({ status: 400, body: { name: 'BadRequest', data: { message: ' Model is not set up. ' } } }), 'Model is not set up.'],
+      [rejection({ status: 500, body: { message: 'Server broke.' } }), 'Server broke.'],
+      [rejection({ status: 500, body: { data: { message: 42 } } }), 'OpenCode did not accept that request.'],
+      [rejection({ status: undefined, body: undefined }), 'OpenCode did not accept that request.'],
+      [rejection(Object.assign(new Error('connect'), { code: 'ECONNREFUSED' }), 'request failed'), 'OpenCode is not responding.'],
+      [rejection(undefined, 'fetch failed'), 'OpenCode is not responding.'],
+      [rejection(undefined, 'Something else.'), 'Something else.'],
+      ['not an error', 'OpenCode did not accept that request.'],
+    ]
+    expect(cases.map(([cause]) => OpenCodeAdapter.errorDetail(cause))).toEqual(cases.map(([, sentence]) => sentence))
+  })
+
+  it("decodes a model provider's error data, ignoring a malformed one", () => {
+    const html = '<html><title>Bad   Gateway</title></html>'
+    expect(readableProviderError({ name: 'APIError', data: { message: 'Rate limited.' } })).toBe('Rate limited.')
+    expect(readableProviderError({ name: 'APIError', data: { message: '<none>', statusCode: 502, responseBody: html } })).toBe(
+      'Bad Gateway (HTTP 502).',
+    )
+    expect(readableProviderError({ name: 'APIError', data: { statusCode: 503 } })).toBe('The model provider failed the request (HTTP 503).')
+    expect(readableProviderError({ name: 'APIError', data: { message: 7 } })).toBe('APIError')
+    expect(readableProviderError(undefined)).toBe('The assistant ran into an error.')
+  })
 })

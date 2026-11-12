@@ -98,7 +98,8 @@ plain React.
   `ProviderTimeoutError`); retries and reconnects are `Schedule`s.
 - Failures are the tagged errors in `src/provider/errors.ts`; their
   `message` is the Docs-style sentence the banner shows.
-- Commands are decoded with their schema at the IPC boundary.
+- Every IPC channel is a row in the `Ipc*` tables in `src/shared/contracts.ts`;
+  main decodes its payload at the boundary and the preload's types derive from it.
 - Tests use `@effect/vitest` and `TestClock`, against fakes that replace only
   the process boundary (`FakeCodex`, `FakeOpenCode`, `FakeClaude`).
 - Don't mix styles: new main/provider code is Effect, not promise chains.

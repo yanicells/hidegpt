@@ -9,6 +9,7 @@ import * as Effect from 'effect/Effect'
 import * as Option from 'effect/Option'
 import * as Queue from 'effect/Queue'
 import * as Schedule from 'effect/Schedule'
+import * as Schema from 'effect/Schema'
 import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
 
@@ -83,6 +84,19 @@ type Client = OpencodeClient
 /** `throwOnError` makes every SDK result `{ data, response }` and every failure a rejection. */
 const opts = (signal: AbortSignal) => ({ signal, throwOnError: true as const })
 
+/** The `cause` the SDK's `throwOnError` attaches to an error response; `status` is absent on other errors. */
+const ResponseFailure = Schema.Struct({ status: Schema.UndefinedOr(Schema.Number), body: Schema.optionalKey(Schema.Unknown) })
+/** OpenCode's error body: a named error with `data.message`, or a plain `message`. */
+const ErrorBody = Schema.Union([
+  Schema.Struct({ data: Schema.Struct({ message: Schema.String }) }),
+  Schema.Struct({ message: Schema.String }),
+])
+/** A Node network error, as the `cause` of fetch's own `TypeError`. */
+const NetworkFailure = Schema.Struct({ code: Schema.String })
+const decodeResponseFailure = Schema.decodeUnknownOption(ResponseFailure)
+const decodeErrorBody = Schema.decodeUnknownOption(ErrorBody)
+const decodeNetworkFailure = Schema.decodeUnknownOption(NetworkFailure)
+
 /**
  * A readable sentence for an SDK rejection. With `throwOnError` the SDK wraps
  * an error response in an `Error` whose `cause` holds `{ body, status }`; a
@@ -90,16 +104,16 @@ const opts = (signal: AbortSignal) => ({ signal, throwOnError: true as const })
  */
 export function errorDetail(cause: unknown): string {
   if (!(cause instanceof Error)) return 'OpenCode did not accept that request.'
-  const wrapped = cause.cause as { body?: unknown; status?: unknown; code?: unknown } | undefined
-  if (wrapped && typeof wrapped === 'object' && 'status' in wrapped) {
+  const response = Option.getOrUndefined(decodeResponseFailure(cause.cause))
+  if (response) {
     // A 404 names an internal id ("Session not found: ses_…"); say it plainly instead.
-    if (wrapped.status === 404) return 'OpenCode could not find that document.'
-    const body = wrapped.body as { data?: { message?: unknown }; message?: unknown } | null | undefined
-    const text = body?.data?.message ?? body?.message
-    if (typeof text === 'string' && text.trim()) return text.trim()
-    return 'OpenCode did not accept that request.'
+    if (response.status === 404) return 'OpenCode could not find that document.'
+    const body = Option.getOrUndefined(decodeErrorBody(response.body))
+    const text = body ? ('data' in body ? body.data.message : body.message).trim() : ''
+    return text || 'OpenCode did not accept that request.'
   }
-  if (cause.message === 'fetch failed' || wrapped?.code === 'ECONNREFUSED') return 'OpenCode is not responding.'
+  const network = Option.getOrUndefined(decodeNetworkFailure(cause.cause))
+  if (cause.message === 'fetch failed' || network?.code === 'ECONNREFUSED') return 'OpenCode is not responding.'
   return cause.message || 'OpenCode could not do that.'
 }
 
@@ -232,7 +246,7 @@ export function make(connect: Connect): ProviderAdapter {
           60,
         ).pipe(
           Effect.map((result) => ({
-            messages: result.data as ReadonlyArray<MessageWithParts>,
+            messages: result.data,
             cursor: result.response.headers.get('x-next-cursor') || null,
           })),
         )
