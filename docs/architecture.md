@@ -90,13 +90,13 @@ There is one interface with three implementations:
   - Documents: `openThread`, `createThread`, `loadOlder`, `rename`.
   - Turns: `send`, `interrupt`, `respond`.
   - Cleanup: `releaseThread`.
-  - Optional: `createProject`, `login`, `logout`, `connectTool`.
+  - Optional: `createProject`, `login`, `logout`, `connectTool`. Each is present exactly when its `Capabilities` flag is on (`CAPABILITY_METHODS` in `ProviderAdapter.ts`); `src/provider/capabilities.test.ts` checks all three adapters.
 
 Adapters hold no UI state and know nothing about routes. Every thread event carries its `threadId`. That is what lets a turn keep streaming while the window shows something else.
 
 ### Per provider
 
-- **Codex.** The Effect client in `src/vendor/effect-codex-app-server/` is vendored from T3 Code. It covers JSON-RPC over stdio with no `jsonrpc` field, schema-checked requests and server requests, and termination. Its schemas are generated from the installed CLI with `pnpm protocol`. The adapter echoes the client id the composer used, so a sent message never appears twice.
+- **Codex.** The Effect client in `src/vendor/effect-codex-app-server/` is vendored from T3 Code. It covers JSON-RPC over stdio with no `jsonrpc` field, schema-checked requests and server requests, and termination. Its schemas are generated from the installed CLI with `pnpm protocol`, and `pnpm protocol --check` fails when they drift (it only dumps schemas; it starts no thread or turn). The vendored package's own tests run with `pnpm test`. The adapter echoes the client id the composer used, so a sent message never appears twice.
 - **OpenCode.** It uses `@opencode-ai/sdk`'s HTTP client against `opencode serve`.
   - The server gets a random password and listens on 127.0.0.1.
   - The global SSE stream has a 30 s watchdog, since the server heartbeats every 10 s. A stalled or closed stream re-subscribes with backoff, and every open document then reloads (`reset`).

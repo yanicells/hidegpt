@@ -47,7 +47,9 @@ that maps its own wire types into the shared model in a pure `mapping.ts`.
   are out of scope (no documented API). The protocol schemas under
   `src/vendor/effect-codex-app-server/_generated/` come from `pnpm protocol`
   (the installed CLI's `codex app-server generate-ts`) — never hand-edit them,
-  never invent protocol methods.
+  never invent protocol methods. `pnpm protocol --check` fails when they no
+  longer match the installed CLI. Wire-to-model mapping (items, approvals,
+  catalog) lives in `src/codex/mapping.ts`.
 - **OpenCode** (`src/opencode/OpenCodeAdapter.ts`): spawns `opencode serve` on
   127.0.0.1 with a random server password and talks to it with the official
   `@opencode-ai/sdk` client (REST + the global SSE stream). It uses the user's
@@ -163,6 +165,7 @@ pnpm dev          # Electron app with Vite HMR
 pnpm test         # vitest: session/protocol + renderer UI tests
 pnpm typecheck    # tsc --noEmit
 pnpm protocol     # regenerate the vendored Codex schemas from the installed CLI
+pnpm protocol --check  # fail if the committed schemas drift from the installed CLI
 pnpm screenshot   # PNGs of home + document with a fake session
 ```
 

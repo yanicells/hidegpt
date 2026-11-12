@@ -30,6 +30,7 @@ pnpm dev
 | `pnpm test` | Provider adapter, session manager, and renderer UI tests |
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm protocol` | Regenerate the Codex app-server schemas from the installed CLI |
+| `pnpm protocol --check` | Fail if the committed schemas no longer match the installed CLI |
 | `pnpm screenshot` | Home grid/list, project, creation dialog, and desktop/narrow editor PNGs using fictional content |
 
 Choose **Blank document** or a template to name a document and select its location.
