@@ -8,7 +8,6 @@ import * as FileSystem from 'effect/FileSystem'
 import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
-import * as Schedule from 'effect/Schedule'
 import * as Schema from 'effect/Schema'
 import * as Semaphore from 'effect/Semaphore'
 
@@ -22,22 +21,37 @@ import * as Semaphore from 'effect/Semaphore'
  * - its leader (the spawned CLI): pid, start time, and the command as spawned (a
  *   full path for SDK-spawned CLIs, so another app's copy never matches);
  * - its members: the leader's process tree (MCP servers, tools), re-read every
- *   `TRACK_EVERY` while it runs, as T3 Code tracks a CLI's descendants;
+ *   few seconds while it runs (less often while nothing changes), as T3 Code
+ *   tracks a CLI's descendants;
  * - its owner: the main process, by pid and start time.
+ *
+ * When a process ends normally, `stop` re-reads its tree once more, kills the
+ * members that are still the recorded processes (a daemon that left the group
+ * with `setsid` survives the group kill otherwise), and forgets it, as T3 Code's
+ * `trackDescendants().stop` does. A normal exit and a crash (through `reap`)
+ * kill the same processes.
  *
  * Reaping keeps entries whose owner still runs (another instance's providers),
  * drops entries from before the last boot, kills the leader's group when the
  * leader still runs with its recorded start time and command, and kills each
  * recorded member that still runs. A group whose leader is gone is never killed
  * as a group: its pid may since have been reused by an unrelated program whose
- * own children outlive it. Members that started after the last re-read leak.
+ * own children outlive it. After a crash, members that started after the last
+ * re-read leak.
  *
  * Writes are atomic and keep other owners' entries; a file that does not decode
  * counts as empty, and a `ps` that fails leaves the file as it is.
  */
 
-/** How often each live entry's process tree is re-read. */
-const TRACK_EVERY = Duration.seconds(5)
+/**
+ * How often live entries' process trees are re-read: often while they change
+ * (a turn starting tools), rarely once they have been still for a while (an
+ * idle Codex server). It bounds what a crash, or a CLI that exits on its own,
+ * can miss. Each read is one `ps -A` without command lines (about 35 KB, 20 ms).
+ */
+const TRACK_ACTIVE = Duration.seconds(5)
+const TRACK_IDLE = Duration.seconds(30)
+const IDLE_AFTER = Duration.minutes(1)
 
 const Member = Schema.Struct({ pid: Schema.Number, started: Schema.Number })
 const Entry = Schema.Struct({
@@ -61,7 +75,9 @@ export class ProcessLedger extends Context.Service<
   {
     readonly record: (pid: number, command: string, arg: string) => Effect.Effect<void>
     readonly forget: (pid: number) => Effect.Effect<void>
-    /** Re-reads the process tree of every live entry; also runs on its own every `TRACK_EVERY`. */
+    /** Kills the members of `pid`'s tree that still run as recorded, then forgets it. For a process that has ended or is being killed. */
+    readonly stop: (pid: number) => Effect.Effect<void>
+    /** Re-reads the process tree of every live entry; also runs on its own (see `TRACK_ACTIVE`). */
     readonly track: Effect.Effect<void>
     /** Kills what crashed owners left, when provably the recorded processes. Returns how many entries. */
     readonly reap: Effect.Effect<number>
@@ -69,7 +85,7 @@ export class ProcessLedger extends Context.Service<
 >()('hidegpt/ProcessLedger') {}
 
 /**
- * One row of `ps -A -o pid=,ppid=,pgid=,lstart=,command=`.
+ * One row of `ps -A -o pid=,ppid=,pgid=,lstart=[,command=]`.
  * Adapted from T3 Code (apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts,
  * `parseClaudeProcessTable`, `claudeDescendants`, `trackDescendants`) at commit 5c6f2f12.
  * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
@@ -80,11 +96,12 @@ export type ProcessRow = {
   readonly pgid: number
   /** Epoch ms; 0 when unreadable. */
   readonly started: number
+  /** Empty when the table was read without command lines. */
   readonly command: string
 }
 
 // lstart is always five fields in the C locale: "Thu Nov 12 14:39:47 2026", here in UTC.
-const ROW = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s+(.*)$/
+const ROW = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)(?:\s+(.*))?$/
 
 /** A UTC `lstart` as epoch ms (exact to the second), or 0. */
 const lstartMillis = (text: string) => {
@@ -118,10 +135,11 @@ const run = (command: string, args: ReadonlyArray<string>) =>
 export const startOf = (pid: number) =>
   Effect.map(run('ps', ['-o', 'lstart=', '-p', String(pid)]), (out) => Option.match(out, { onNone: () => 0, onSome: lstartMillis }))
 
-/** Every process, or none when `ps` fails or lists nothing. */
-const readProcessTable = Effect.map(run('ps', ['-A', '-o', 'pid=,ppid=,pgid=,lstart=,command=']), (out) =>
-  Option.filter(Option.map(out, parseProcessTable), (rows) => rows.length > 0),
-)
+/** Every process, or none when `ps` fails or lists nothing. Command lines only when asked: they are most of the output. */
+const readProcessTable = (withCommands: boolean) =>
+  Effect.map(run('ps', ['-A', '-o', `pid=,ppid=,pgid=,lstart=${withCommands ? ',command=' : ''}`]), (out) =>
+    Option.filter(Option.map(out, parseProcessTable), (rows) => rows.length > 0),
+  )
 
 /** When this machine booted, in epoch ms; 0 when unknown (nothing is dropped for it). */
 const readBootTime = Effect.gen(function* () {
@@ -137,6 +155,21 @@ const readBootTime = Effect.gen(function* () {
 })
 
 const identity = (proc: { readonly pid: number; readonly started: number }) => `${proc.pid}@${proc.started}`
+
+/**
+ * An entry's members after a fresh read: the recorded ones still running, plus
+ * everything now under them and under the leader while it runs. After the
+ * leader exits its pid may belong to an unrelated process, so only tracked
+ * members are roots then.
+ */
+function refreshMembers(pid: number, entry: LedgerEntry, rows: ReadonlyArray<ProcessRow>): ReadonlyArray<typeof Member.Type> {
+  const running = new Set(rows.map(identity))
+  const leaderRuns = entry.started > 0 && running.has(identity({ pid, started: entry.started }))
+  const still = entry.members.filter((member) => running.has(identity(member)))
+  const roots = [...(leaderRuns ? [pid] : []), ...still.map((member) => member.pid)]
+  const found = descendants(rows, roots).filter((row) => row.started > 0)
+  return [...new Map([...still, ...found].map((row) => [identity(row), { pid: row.pid, started: row.started }])).values()]
+}
 
 /** Processes under `roots`, by parent pid. */
 function descendants(rows: ReadonlyArray<ProcessRow>, roots: ReadonlyArray<number>): ReadonlyArray<ProcessRow> {
@@ -196,7 +229,7 @@ const writeFileStringAtomically = (fs: FileSystem.FileSystem, path: Path.Path, f
 export type LedgerOptions = {
   /** This main process; tests pass another to stand in for a second instance. */
   readonly owner?: number
-  /** Tests stand in for `ps` and the boot clock. */
+  /** Tests stand in for `ps` (with or without command lines) and the boot clock. */
   readonly processTable?: Effect.Effect<Option.Option<ReadonlyArray<ProcessRow>>>
   readonly bootTime?: number
 }
@@ -207,12 +240,13 @@ export const layer = (filePath: string | null, options: LedgerOptions = {}) =>
     ProcessLedger,
     Effect.gen(function* () {
       if (!filePath) {
-        return ProcessLedger.of({ record: () => Effect.void, forget: () => Effect.void, track: Effect.void, reap: Effect.succeed(0) })
+        return ProcessLedger.of({ record: () => Effect.void, forget: () => Effect.void, stop: () => Effect.void, track: Effect.void, reap: Effect.succeed(0) })
       }
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const owner = options.owner ?? process.pid
-      const processTable = options.processTable ?? readProcessTable
+      const trackingTable = options.processTable ?? readProcessTable(false)
+      const fullTable = options.processTable ?? readProcessTable(true)
       const ownerStarted = yield* startOf(owner)
       const isOurs = (entry: LedgerEntry) => entry.owner === owner && entry.ownerStarted === ownerStarted
       const ours = new Map<number, LedgerEntry>()
@@ -231,40 +265,58 @@ export const layer = (filePath: string | null, options: LedgerOptions = {}) =>
       // The ledger is best effort: a failed write never fails a spawn.
       const save = lock.withPermits(1)(Effect.ignore(Effect.flatMap(read, (onDisk) => write(othersOn(onDisk)))))
 
+      /** When a record or a re-read last changed something; tracking slows down after `IDLE_AFTER` without one. */
+      let lastChange = 0
       const track = Effect.gen(function* () {
         if (ours.size === 0) return
-        const table = yield* processTable
+        const table = yield* trackingTable
         if (Option.isNone(table)) return
-        const running = new Set(table.value.map(identity))
         let changed = false
         for (const [pid, entry] of ours) {
-          const leaderRuns = entry.started > 0 && running.has(identity({ pid, started: entry.started }))
-          const still = entry.members.filter((member) => running.has(identity(member)))
-          // After the leader exits its pid may belong to an unrelated process, so only tracked members are roots.
-          const roots = [...(leaderRuns ? [pid] : []), ...still.map((member) => member.pid)]
-          const found = descendants(table.value, roots).filter((row) => row.started > 0)
-          const members = [...new Map([...still, ...found].map((row) => [identity(row), { pid: row.pid, started: row.started }])).values()]
+          const members = refreshMembers(pid, entry, table.value)
           const before = entry.members.map(identity).sort().join()
-          // A process forgotten meanwhile stays forgotten.
-          if (members.map(identity).sort().join() === before || ours.get(pid) !== entry) continue
+          if (members.map(identity).sort().join() === before) continue
+          // Nothing yields between the read above and here, so an entry forgotten during the read is not in `ours`.
           ours.set(pid, { ...entry, members })
           changed = true
         }
-        if (changed) yield* save
+        if (changed) {
+          lastChange = Date.now()
+          yield* save
+        }
       })
-      yield* Effect.forkScoped(Effect.repeat(track, Schedule.spaced(TRACK_EVERY)))
+      const nextTrack = Effect.suspend(() =>
+        Effect.sleep(Date.now() - lastChange < Duration.toMillis(IDLE_AFTER) ? TRACK_ACTIVE : TRACK_IDLE),
+      )
+      yield* Effect.forkScoped(Effect.forever(Effect.andThen(nextTrack, track)))
 
       return ProcessLedger.of({
         record: (pid, command, arg) =>
           Effect.flatMap(startOf(pid), (started) => {
             ours.set(pid, { command, arg, started, owner, ownerStarted, members: [] })
+            lastChange = Date.now()
             return save
           }),
         forget: (pid) => Effect.suspend(() => (ours.delete(pid) ? save : Effect.void)),
+        stop: (pid) =>
+          Effect.gen(function* () {
+            if (!ours.has(pid)) return
+            // Without a process table nothing can be checked, so nothing is killed; it is forgotten all the same.
+            const table = yield* trackingTable
+            const entry = ours.get(pid)
+            if (entry && Option.isSome(table)) {
+              const byIdentity = new Map(table.value.map((row) => [identity(row), row]))
+              for (const member of refreshMembers(pid, entry, table.value)) {
+                const row = byIdentity.get(identity(member))
+                if (row) killRow(row)
+              }
+            }
+            if (ours.delete(pid)) yield* save
+          }),
         track,
         reap: lock.withPermits(1)(
           Effect.gen(function* () {
-            const table = yield* processTable
+            const table = yield* fullTable
             // Without a process table nothing can be checked, so the ledger stays as it is.
             if (Option.isNone(table)) return 0
             const bootTime = options.bootTime ?? (yield* readBootTime)
@@ -281,8 +333,8 @@ export const layer = (filePath: string | null, options: LedgerOptions = {}) =>
             for (const [pidText, entry] of Object.entries(yield* read)) {
               const pid = Number(pidText)
               if (!Number.isSafeInteger(pid) || pid <= 1 || isOurs(entry)) continue
-              // Recorded before this boot: every pid in it now names something else.
-              if (bootTime > 0 && entry.started < bootTime) continue
+              // Recorded before this boot: every pid in it now names something else. An unknown start time says nothing.
+              if (bootTime > 0 && entry.started > 0 && entry.started < bootTime) continue
               if (ownerRuns(entry)) {
                 kept[pidText] = entry
                 continue

@@ -8,7 +8,7 @@ import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
 import * as Option from 'effect/Option'
 
-import { layer, parseProcessTable, ProcessLedger, startOf, type LedgerEntry, type LedgerOptions } from './ProcessLedger'
+import { layer, parseProcessTable, ProcessLedger, startOf, type LedgerEntry, type LedgerOptions, type ProcessRow } from './ProcessLedger'
 
 /** Real processes and files: the ledger's job is the boundary with the OS. */
 const dir = mkdtempSync(join(tmpdir(), 'hidegpt-ledger-'))
@@ -62,12 +62,25 @@ const processTableNow = () =>
 const GONE = { owner: 2, ownerStarted: Date.UTC(2001, 0, 1) }
 /** Above every OS's pid range, so `ps` knows nothing about it. */
 const NO_SUCH_PID = 2 ** 30
+/** A daemon that leaves its parent's group and session, as `setsid` does; a group kill misses it. */
+const DAEMON = `/usr/bin/perl -MPOSIX -e 'POSIX::setsid(); sleep 30'`
+/** A stand-in process table the test changes between reads. */
+const fakeTable = (rows: () => ReadonlyArray<ProcessRow>, duringRead: () => Effect.Effect<void> = () => Effect.void) =>
+  Effect.suspend(() => Effect.as(duringRead(), Option.some(rows())))
+const row = (pid: number, ppid: number, started: number): ProcessRow => ({ pid, ppid, pgid: pid, started, command: '' })
+
 const entry = (fields: Partial<LedgerEntry> & Pick<LedgerEntry, 'command' | 'started'>): LedgerEntry => ({ arg: '', members: [], ...GONE, ...fields })
 
 describe('ProcessLedger', () => {
   it('reads pid, parent, group, a UTC start time and a command with spaces from ps', () => {
     expect(parseProcessTable('  123     1    45 Thu Nov  5 14:39:47 2026     /Applications/My App.app/claude --output-format\n junk\n')).toEqual([
       { pid: 123, ppid: 1, pgid: 45, started: Date.UTC(2026, 10, 5, 14, 39, 47), command: '/Applications/My App.app/claude --output-format' },
+    ])
+  })
+
+  it('reads a table without command lines, as tracking asks for', () => {
+    expect(parseProcessTable('  123     1    45 Thu Nov  5 14:39:47 2026\n')).toEqual([
+      { pid: 123, ppid: 1, pgid: 45, started: Date.UTC(2026, 10, 5, 14, 39, 47), command: '' },
     ])
   })
 
@@ -162,6 +175,69 @@ describe('ProcessLedger', () => {
     }),
   )
 
+  it.live('stop kills a member that left the group once the CLI has exited, then forgets the CLI', () =>
+    Effect.gen(function* () {
+      const path = freshPath()
+      const cli = launch('/bin/sh', ['-c', `${DAEMON} & read line`], 'pipe')
+      const cliPid = cli.pid ?? 0
+      yield* Effect.sleep('300 millis')
+      yield* withLedger(path, {}, (ledger) =>
+        Effect.gen(function* () {
+          yield* ledger.record(cliPid, '/bin/sh', '-c')
+          yield* ledger.track
+          const daemon = onDisk(path)[cliPid]?.members[0]?.pid ?? 0
+          expect(processTableNow().find((proc) => proc.pid === daemon)?.pgid).toBe(daemon)
+          // The CLI exits on its own and its group goes; the daemon is in a group of its own.
+          cli.stdin?.end()
+          yield* exited(cli)
+          expect(alive(daemon)).toBe(true)
+
+          yield* ledger.stop(cliPid)
+          for (let i = 0; i < 50 && alive(daemon); i += 1) yield* Effect.sleep('20 millis')
+          expect(alive(daemon)).toBe(false)
+          expect(onDisk(path)).toEqual({})
+        }),
+      )
+    }),
+  )
+
+  it.effect('drops a member that has exited on the next re-read', () =>
+    Effect.gen(function* () {
+      const path = freshPath()
+      const leader = sleeper()
+      const at = yield* startOf(leader)
+      let rows = [row(leader, 1, at), row(NO_SUCH_PID, leader, at)]
+      yield* withLedger(path, { processTable: fakeTable(() => rows) }, (ledger) =>
+        Effect.gen(function* () {
+          yield* ledger.record(leader, '/bin/sleep', '30')
+          yield* ledger.track
+          expect(onDisk(path)[leader]?.members).toEqual([{ pid: NO_SUCH_PID, started: at }])
+          rows = [row(leader, 1, at)]
+          yield* ledger.track
+          expect(onDisk(path)[leader]?.members).toEqual([])
+        }),
+      )
+    }),
+  )
+
+  it.effect('an entry forgotten while its tree is being read stays forgotten', () =>
+    Effect.gen(function* () {
+      const path = freshPath()
+      const leader = sleeper()
+      const at = yield* startOf(leader)
+      let duringRead = (): Effect.Effect<void> => Effect.void
+      const table = fakeTable(() => [row(leader, 1, at), row(NO_SUCH_PID, leader, at)], () => duringRead())
+      yield* withLedger(path, { processTable: table }, (ledger) =>
+        Effect.gen(function* () {
+          yield* ledger.record(leader, '/bin/sleep', '30')
+          duringRead = () => ledger.forget(leader)
+          yield* ledger.track
+          expect(onDisk(path)).toEqual({})
+        }),
+      )
+    }),
+  )
+
   it.effect('drops entries from before the last boot without killing anything', () =>
     Effect.gen(function* () {
       const path = freshPath()
@@ -172,6 +248,19 @@ describe('ProcessLedger', () => {
       expect(yield* reap(path, { bootTime: at + 1_000 })).toBe(0)
       expect(alive(server)).toBe(true)
       expect(onDisk(path)).toEqual({})
+    }),
+  )
+
+  it.effect('still reaps the members of an entry whose own start time is unknown', () =>
+    Effect.gen(function* () {
+      const path = freshPath()
+      const member = sleeper()
+      const at = yield* startOf(member)
+      writeFileSync(path, JSON.stringify({ [NO_SUCH_PID]: entry({ command: '/bin/sh', started: 0, members: [{ pid: member, started: at }] }) }))
+      // An unknown start time says nothing about the boot, so the entry is not dropped for it.
+      expect(yield* reap(path, { bootTime: at - 1_000 })).toBe(1)
+      for (let i = 0; i < 50 && alive(member); i += 1) yield* Effect.sleep('20 millis')
+      expect(alive(member)).toBe(false)
     }),
   )
 
