@@ -12,10 +12,7 @@ import { ProcessSupervisor, layer } from './ProcessSupervisor'
 const dir = mkdtempSync(join(tmpdir(), 'hidegpt-supervisor-'))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
-const withSupervisor = <A, E>(
-  use: (supervisor: ProcessSupervisor['Service']) => Effect.Effect<A, E>,
-  ledgerPath: string | null = null,
-) =>
+const withSupervisor = <A, E>(use: (supervisor: ProcessSupervisor['Service']) => Effect.Effect<A, E>, ledgerPath: string | null = null) =>
   Effect.gen(function* () {
     return yield* use(yield* ProcessSupervisor)
   }).pipe(Effect.provide(layer(ledgerPath)), Effect.provide(NodeServices.layer))
@@ -50,11 +47,7 @@ describe('ProcessSupervisor', () => {
       Effect.scoped(
         Effect.gen(function* () {
           const child = yield* supervisor.spawn(
-            {
-              provider: 'codex',
-              command: 'sh',
-              args: ['-c', 'echo starting >&2; echo "Error: config.toml is invalid" >&2; exit 3'],
-            },
+            { provider: 'codex', command: 'sh', args: ['-c', 'echo starting >&2; echo "Error: config.toml is invalid" >&2; exit 3'] },
             true,
           )
           return yield* Effect.flip(child.awaitExit)
@@ -106,11 +99,7 @@ describe('ProcessSupervisor.callbackSpawner', () => {
   it.live('records the full command path and start time, so another app’s copy of the CLI never matches', () =>
     Effect.gen(function* () {
       const ledgerPath = join(dir, 'callback-ledger.json')
-      const entries = () =>
-        JSON.parse(readFileSync(ledgerPath, 'utf8')) as Record<
-          string,
-          { command: string; arg: string; started: string }
-        >
+      const entries = () => JSON.parse(readFileSync(ledgerPath, 'utf8')) as Record<string, { command: string; arg: string; started: number }>
       yield* withSupervisor(
         (supervisor) =>
           Effect.scoped(
@@ -124,7 +113,7 @@ describe('ProcessSupervisor.callbackSpawner', () => {
                   return false
                 }
               })
-              expect(entries()[pid]).toMatchObject({ arg: '30', started: expect.stringMatching(/\d{4}$/) })
+              expect(entries()[pid]).toMatchObject({ arg: '30', started: expect.any(Number) })
             }),
           ),
         ledgerPath,
