@@ -85,7 +85,7 @@
   height: 100vh;
   /* Starts level with the page top (ruler 20 + page gap 16), so "1" sits 1in below the top margin. */
   margin-top: 36px;
-  border-right: 1px solid #dadce0;
+  border-right: 1px solid var(--outline);
   background: var(--canvas);
   font-family: var(--font-text);
   font-size: 10px;

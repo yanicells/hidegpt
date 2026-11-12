@@ -12,7 +12,7 @@
   font-family: var(--font-page);
   font-size: 11pt;
   line-height: 1.35;
-  color: #000;
+  color: var(--page-ink);
 }
 
 /* One white, shadowed sheet per page with Docs' 16px gap; components/document/pages.ts sets the breaks. */
@@ -71,7 +71,7 @@
   font-size: 20pt;
   font-weight: 400;
   line-height: 1.2;
-  color: #000;
+  color: var(--page-ink);
   overflow-wrap: anywhere;
 }
 
@@ -117,13 +117,13 @@
 .doc-body h5 {
   margin: 14pt 0 4pt;
   font-size: 12pt;
-  color: #666;
+  color: var(--text-3);
 }
 
 .doc-body h6 {
   margin: 12pt 0 4pt;
   font-size: 11pt;
-  color: #666;
+  color: var(--text-3);
 }
 
 .doc-body a {
@@ -202,7 +202,7 @@
 
 .doc-body hr {
   @apply border-0;
-  border-top: 1px solid #000;
+  border-top: 1px solid var(--page-ink);
   margin: 0 0 1lh;
 }
 
@@ -228,7 +228,7 @@
 }
 
 .doc-body :is(th, td) {
-  border: 1px solid #000;
+  border: 1px solid var(--page-ink);
   padding: 5pt;
   @apply text-left;
   vertical-align: top;
@@ -279,7 +279,7 @@
   height: 22px;
   padding: 0 8px 0 2px;
   border-radius: 11px;
-  background: #f1f3f4;
+  background: var(--surface-2);
   font-size: 12px;
   color: var(--text-2);
 }
@@ -304,7 +304,7 @@
 .callout pre {
   margin: 4px 0;
   padding: 8px 12px;
-  border-left: 2px solid #dadce0;
+  border-left: 2px solid var(--outline);
   @apply whitespace-pre-wrap overflow-auto;
   overflow-wrap: anywhere;
   max-height: 320px;

@@ -63,7 +63,7 @@
   right: 5px;
   bottom: 3px;
   height: 3px;
-  background: #000;
+  background: var(--page-ink);
 }
 
 /* Toolbar dropdowns: "100% ▾", "Normal text ▾", "Arial ▾". */
@@ -141,7 +141,7 @@
   height: 24px;
   margin: 0;
   padding: 0;
-  border: 1px solid #747775;
+  border: 1px solid var(--border-strong);
   font-size: 14px;
   color: var(--text-2);
 }

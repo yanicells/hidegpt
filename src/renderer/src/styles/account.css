@@ -65,7 +65,7 @@
 .account-manage {
   height: 36px;
   padding: 0 24px;
-  border: 1px solid #747775;
+  border: 1px solid var(--border-strong);
   border-radius: 18px;
   color: var(--blue);
   font-size: 14px;

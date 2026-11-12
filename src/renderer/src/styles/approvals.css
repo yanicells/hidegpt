@@ -99,7 +99,7 @@
 
 .suggestion input {
   @apply w-full;
-  border: 1px solid #747775;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
   padding: 8px 12px;
   font-size: 14px;
@@ -119,7 +119,7 @@
 .choice {
   height: 32px;
   padding: 0 12px;
-  border: 1px solid #747775;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   font-size: 14px;
   color: var(--text-2);

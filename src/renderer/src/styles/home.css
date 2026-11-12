@@ -52,7 +52,7 @@
   height: 184px;
   @apply grid place-items-center overflow-hidden;
   background: var(--surface);
-  border: 1px solid #dadce0;
+  border: 1px solid var(--outline);
   border-radius: 4px;
   transition: border-color 120ms;
 }
@@ -113,7 +113,7 @@
   /* Large libraries: skip layout and paint for cards scrolled out of view. */
   content-visibility: auto;
   contain-intrinsic-size: auto 324px;
-  border: 1px solid #dadce0;
+  border: 1px solid var(--outline);
   border-radius: 6px;
   background: var(--surface);
   transition: border-color 120ms;
@@ -131,7 +131,7 @@
 .thumb {
   height: 264px;
   background: var(--surface);
-  border-bottom: 1px solid #dadce0;
+  border-bottom: 1px solid var(--outline);
   @apply overflow-hidden relative;
 }
 
@@ -144,7 +144,7 @@
   font-family: var(--font-page);
   font-size: 11pt;
   line-height: 1.35;
-  color: #000;
+  color: var(--page-ink);
 }
 
 /* The document's Heading 1, as .doc-question sets it: 20pt with 6pt after. */
@@ -200,7 +200,7 @@
 
 .skeleton .thumb,
 .sk-text {
-  background: linear-gradient(90deg, #f1f3f4 25%, #f8f9fa 50%, #f1f3f4 75%);
+  background: linear-gradient(90deg, var(--surface-2) 25%, #f8f9fa 50%, var(--surface-2) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.4s linear infinite;
 }
@@ -416,7 +416,7 @@
   gap: 8px;
   height: 36px;
   padding: 0 16px 0 12px;
-  border: 1px solid #747775;
+  border: 1px solid var(--border-strong);
   border-radius: 18px;
   color: var(--blue);
   font-size: 14px;

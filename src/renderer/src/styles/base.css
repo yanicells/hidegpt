@@ -14,7 +14,7 @@ body,
 body {
   font-family: var(--font-ui);
   /* Docs uses the display cut of Google Sans; Flex at opsz 18 matches its widths. */
-  font-variation-settings: 'opsz' 18;
+  font-variation-settings: 'opsz' var(--opsz-display);
   @apply text-sm;
   color: var(--text);
   -webkit-font-smoothing: antialiased;

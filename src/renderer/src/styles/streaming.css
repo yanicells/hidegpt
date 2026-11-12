@@ -22,7 +22,7 @@
   width: 2px;
   height: 1.15em;
   margin-left: 1px;
-  background: #000;
+  background: var(--page-ink);
   vertical-align: text-bottom;
 }
 

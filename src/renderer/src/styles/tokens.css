@@ -3,9 +3,12 @@
   --text: #1f1f1f;
   --text-2: #444746;
   --muted: #5f6368;
+  --text-3: #666;
   --faint: #80868b;
   --hairline: #e3e3e3;
   --line: #c4c7c5;
+  --border-strong: #747775;
+  --outline: #dadce0;
   --blue: #0b57d0;
   --blue-dark: #0842a0;
   --blue-soft: #c2e7ff;
@@ -21,6 +24,7 @@
   --canvas: #f8fafd;
   --pill: #f0f4f9;
   --band: #f1f3f4;
+  --surface-2: #f1f3f4;
   --hover: rgba(68, 71, 70, 0.08);
   --hover-menu: rgba(31, 31, 31, 0.06);
   --hover-soft: #f0f4f9;
@@ -31,7 +35,13 @@
   --font-text: Roboto, 'Google Sans Flex Variable', Arial, sans-serif;
   --font-page: Arial, Helvetica, sans-serif;
   --font-mono: 'Courier New', Courier, monospace;
+  /* Google Sans Flex optical sizes: 18 matches Docs' display cut, 16 its Text cut. */
+  --opsz-display: 18;
+  --opsz-text: 16;
+  /* Page text and the cursor that writes it. */
+  --page-ink: #000;
   --paper-width: 816px;
   --paper-margin: 96px;
   --rail-width: 56px;
+  --scrollbar-w: 14px;
 }

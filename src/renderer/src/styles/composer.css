@@ -8,7 +8,7 @@
   font: inherit;
   line-height: inherit;
   color: inherit;
-  caret-color: #000;
+  caret-color: var(--page-ink);
 }
 
 .composer::placeholder {
@@ -66,7 +66,7 @@
   margin-right: 4px;
   padding: 0 6px 0 4px;
   border-radius: 10px;
-  background: #f1f3f4;
+  background: var(--surface-2);
   color: #1f1f1f;
   font-family: var(--font-page);
   font-size: 10.5pt;

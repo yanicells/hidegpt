@@ -25,15 +25,15 @@
 
 /* Docs draws its own always-visible thin scrollbars over the canvas. */
 .workspace::-webkit-scrollbar {
-  width: 14px;
-  height: 14px;
+  width: var(--scrollbar-w);
+  height: var(--scrollbar-w);
 }
 
 .workspace::-webkit-scrollbar-thumb {
   min-height: 40px;
   border: 3px solid transparent;
   border-radius: 7px;
-  background: #dadce0 padding-box;
+  background: var(--outline) padding-box;
 }
 
 .workspace::-webkit-scrollbar-thumb:hover {
@@ -53,7 +53,7 @@
    * what a suggestion card needs there at this zoom (24px gap, 256px card,
    * 16px air); approvals.css puts the card in the margin when it is positive.
    */
-  --card-room: calc((100cqw - 14px - var(--page-left) - var(--page-w)) / 1px - (24 + 256 + 16) * var(--page-zoom, 1));
+  --card-room: calc((100cqw - var(--scrollbar-w) - var(--page-left) - var(--page-w)) / 1px - (24 + 256 + 16) * var(--page-zoom, 1));
 }
 
 .workspace:has(.tabs.collapsed) {

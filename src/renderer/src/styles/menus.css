@@ -205,7 +205,7 @@
   height: 71px;
   padding: 0 12px 0 8px;
   font-family: var(--font-page);
-  color: #000;
+  color: var(--page-ink);
   letter-spacing: 0;
 }
 
@@ -247,7 +247,7 @@
 
 .style-menu .style-subtitle .menu-text {
   font-size: 15pt;
-  color: #666;
+  color: var(--text-3);
 }
 
 .style-menu .style-h1 .menu-text {
@@ -265,13 +265,13 @@
 
 .style-menu .style-h4 .menu-text {
   font-size: 12pt;
-  color: #666;
+  color: var(--text-3);
 }
 
 .style-menu .style-h5 .menu-text,
 .style-menu .style-h6 .menu-text {
   font-size: 11pt;
-  color: #666;
+  color: var(--text-3);
 }
 
 .style-menu .style-h6 .menu-text {
