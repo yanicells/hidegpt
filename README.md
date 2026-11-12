@@ -31,6 +31,7 @@ pnpm dev
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm protocol` | Regenerate the Codex app-server schemas from the installed CLI |
 | `pnpm screenshot` | Home grid/list, folder picker, open menus, a streaming reply and a suggestion, and desktop/narrow editor PNGs using fictional content |
+| `pnpm bench` | Perf bench: drives the built app through a fixed session against a fake provider and reports CPU, layout, IPC, memory and latency ([scripts/bench](scripts/bench/README.md)) |
 
 **Blank document** or a template creates an "Untitled document" right away, like Docs;
 rename it from the title field. Projects are folders. The folder icon (**Open file
