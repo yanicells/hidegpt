@@ -4,6 +4,7 @@ import * as Clock from 'effect/Clock'
 import * as Context from 'effect/Context'
 import * as Effect from 'effect/Effect'
 import * as Fiber from 'effect/Fiber'
+import * as FileSystem from 'effect/FileSystem'
 import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
@@ -266,6 +267,30 @@ export const make = (directory: string) =>
       },
     })
   })
+
+/**
+ * Deletes `logs/providers/`, where earlier builds wrote this log as
+ * `codex.ndjson`, `claude.ndjson` and so on: file names that name the
+ * providers, one click from Help → Report a problem. Best effort: a failure is
+ * logged by its reason (not its path, which names the home folder), never raised.
+ */
+export const removeOldProviderLogs = (logsDirectory: string) =>
+  observed(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs
+        .remove(path.join(logsDirectory, 'providers'), { recursive: true, force: true })
+        .pipe(
+          Effect.catch((error) =>
+            Effect.logWarning('Old event log folder not removed').pipe(
+              Effect.annotateLogs({ reason: error.reason._tag }),
+            ),
+          ),
+        )
+    }),
+    { name: 'eventLog.removeOldFolder' },
+  )
 
 /** The real log, under `userData/logs/activity`. */
 export const layer = (directory: string) => Layer.effect(ProviderEventLog, make(directory))

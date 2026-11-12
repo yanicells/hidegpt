@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -15,7 +15,7 @@ import { fromLegacy } from '../../provider/legacyEvents'
 import { isThreadEvent, type AdapterEvent } from '../../provider/ProviderAdapter'
 import { layerAdapters } from '../ProviderRegistry'
 import * as Manager from '../ProviderSessionManager'
-import { encodeEvent, layer, readLogLine } from './ProviderEventLog'
+import { encodeEvent, layer, readLogLine, removeOldProviderLogs } from './ProviderEventLog'
 
 /** Planted in every text field; it must never reach a line. */
 const SECRET = 'Secret-5f2a my essay'
@@ -179,6 +179,21 @@ describe('ProviderEventLog', () => {
       expect(types).toEqual(expect.arrayContaining(['turn.started', 'item.upserted', 'turn.ended']))
       // The answer streamed word by word; only its first delta, which creates the item, is written.
       expect(types.filter((type) => type === 'item.delta')).toHaveLength(1)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  )
+
+  it.effect('removes the provider-named folder earlier builds wrote, and nothing else', () =>
+    Effect.gen(function* () {
+      const logs = mkdtempSync(join(tmpdir(), 'docs-logs-'))
+      yield* Effect.addFinalizer(() => Effect.sync(() => rmSync(logs, { recursive: true, force: true })))
+      mkdirSync(join(logs, 'providers'))
+      writeFileSync(join(logs, 'providers', 'codex.ndjson'), '{}\n')
+      mkdirSync(join(logs, 'activity'))
+      writeFileSync(join(logs, 'main.ndjson'), '{}\n')
+      yield* removeOldProviderLogs(logs)
+      expect(readdirSync(logs).sort()).toEqual(['activity', 'main.ndjson'])
+      // Nothing left to remove is not an error.
+      yield* removeOldProviderLogs(logs)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   )
 })
