@@ -828,7 +828,8 @@ export const spawnServer = (supervisor: ProcessSupervisor['Service']): Connect =
         command: process.env.OPENCODE_BIN || 'opencode',
         args: ['serve', '--hostname=127.0.0.1', '--port=0'],
         cwd: process.env.HOME || undefined,
-        env: { OPENCODE_SERVER_PASSWORD: password },
+        // No self-update in a server Docs starts (OPENCODE_DISABLE_AUTOUPDATE: https://opencode.ai/docs/cli/).
+        env: { OPENCODE_SERVER_PASSWORD: password, OPENCODE_DISABLE_AUTOUPDATE: '1' },
       },
       true,
     )

@@ -9,6 +9,8 @@ import * as Random from 'effect/Random'
 import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
+import { BinaryMissingError } from '../provider/errors'
+import type { ProcessSupervisor, SpawnOptions } from '../provider/ProcessSupervisor'
 import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
 import type * as CodexRpc from '../vendor/effect-codex-app-server/rpc.ts'
 import * as CodexAdapter from './CodexAdapter'
@@ -70,7 +72,25 @@ const answerRequest = <M extends CodexRpc.ServerRequestMethod>(
 
 const HUMANIZER = { name: 'humanizer', description: '', path: '/tmp/skills/humanizer/SKILL.md' }
 
+/** A supervisor that records what it was asked to spawn, then fails as if the binary were missing. */
+const recordingSupervisor = () => {
+  const spawned: SpawnOptions[] = []
+  const spawn = (options: SpawnOptions) => {
+    spawned.push(options)
+    return Effect.fail(new BinaryMissingError({ provider: options.provider, command: options.command }))
+  }
+  return { spawned, supervisor: { spawn } as unknown as ProcessSupervisor['Service'] }
+}
+
 describe('CodexAdapter', () => {
+  it.effect('starts the app server under the docs-desktop originator', () =>
+    Effect.gen(function* () {
+      const { spawned, supervisor } = recordingSupervisor()
+      yield* Effect.flip(Effect.scoped(CodexAdapter.spawnAppServer(supervisor)))
+      expect(spawned[0]?.env).toEqual({ CODEX_INTERNAL_ORIGINATOR_OVERRIDE: 'docs-desktop' })
+    }),
+  )
+
   it.effect('loads the catalog and hides the Plan mode', () =>
     Effect.gen(function* () {
       const { session } = yield* open()
