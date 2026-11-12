@@ -1,0 +1,117 @@
+import { existsSync } from 'node:fs'
+
+import { describe, expect, it } from '@effect/vitest'
+import * as Effect from 'effect/Effect'
+import * as Stream from 'effect/Stream'
+
+import type { AdapterEvent, ProviderSession, TurnSettings } from '../provider/ProviderAdapter'
+import { readTranscript, type ReplayEntry } from '../provider/replayFixture'
+import * as ClaudeAdapter from './ClaudeAdapter'
+import { makeFakeClaude } from './FakeClaude'
+import { recordingSdk, replaySdk } from './replay'
+
+/**
+ * The real adapter against Agent SDK calls recorded from the real Claude Code
+ * (scripts/record-claude-replay.ts). The replay SDK fails on any call the
+ * recording did not make, so these also pin what the adapter asks Claude for.
+ */
+
+const fixture = (name: string) => new URL(`./fixtures/${name}.ndjson`, import.meta.url).pathname
+const SETTINGS: TurnSettings = { model: null, effort: null, serviceTier: null, mode: null }
+const WORKSPACE = '/tmp/replay-workspace'
+
+const open = (sdk: ClaudeAdapter.ClaudeSdk) =>
+  Effect.gen(function* () {
+    const session = yield* ClaudeAdapter.make(async () => sdk).openSession
+    const events: AdapterEvent[] = []
+    yield* Stream.runForEach(session.events, (event) => Effect.sync(() => events.push(event))).pipe(Effect.forkScoped)
+    return { session, events }
+  })
+
+/** The recorder's turn scenario: a new document, each prompt to the end of its turn, then its history. */
+const turnScenario = (session: ProviderSession, events: ReadonlyArray<AdapterEvent>, prompts: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const created = yield* session.createThread({ cwd: WORKSPACE, projectId: null, title: null, settings: SETTINGS })
+    for (const [index, text] of prompts.entries()) {
+      const ended = () => events.filter((event) => event.type === 'turnEnded').length
+      const before = ended()
+      yield* session.send(created.threadId, { text, images: [], skill: null, clientId: `local-replay-${index + 1}` }, SETTINGS)
+      yield* Effect.sleep('5 millis').pipe(Effect.repeat({ until: () => ended() > before }), Effect.timeout('5 seconds'))
+    }
+    return yield* session.openThread(created.threadId)
+  })
+
+describe('ClaudeAdapter replay', () => {
+  it.live('library: no login shows the sign-in hint, the list is empty, a missing document fails', () =>
+    Effect.gen(function* () {
+      const replay = replaySdk(readTranscript(fixture('library')))
+      const { session } = yield* open(replay.sdk)
+
+      const catalog = yield* Effect.flip(session.loadCatalog)
+      expect(catalog._tag).toBe('NotLoggedInError')
+
+      const docs = yield* Stream.runHead(session.listDocs(''))
+      expect(docs._tag === 'Some' && docs.value).toEqual([])
+
+      const missing = yield* Effect.flip(session.openThread('00000000-0000-4000-8000-000000000001'))
+      expect(missing).toMatchObject({ _tag: 'ProviderRequestError', operation: 'getSessionInfo' })
+      expect(replay.finished()).toEqual({ failure: null, unused: 0 })
+    }),
+  )
+
+  const TURN_SKIP = 'needs src/claude/fixtures/turn.ndjson, which a person records with real prompts (docs/replay-fixtures.md)'
+  it.live.skipIf(!existsSync(fixture('turn')))(`turn: two real turns, then their history (${TURN_SKIP})`, () =>
+    Effect.gen(function* () {
+      const transcript = readTranscript(fixture('turn'))
+      const prompts = transcript.metadata?.prompts as ReadonlyArray<string>
+      const replay = replaySdk(transcript)
+      const { session, events } = yield* open(replay.sdk)
+
+      const opened = yield* turnScenario(session, events, prompts)
+      expect(events.filter((event) => event.type === 'turnEnded' && event.error)).toEqual([])
+      expect(opened.blocks.flatMap((block) => (block.kind === 'user' ? [block.text] : []))).toEqual(prompts)
+      expect(opened.blocks.filter((block) => block.kind === 'agent' && block.text)).toHaveLength(prompts.length)
+      expect(replay.finished()).toEqual({ failure: null, unused: 0 })
+    }),
+  )
+
+  // FakeClaude stands in for Claude Code, so this proves the turn path end to end before real turns are recorded.
+  it.live('a turn recorded through recordingSdk replays to the same document', () =>
+    Effect.gen(function* () {
+      const prompts = ['First question', 'Second question']
+      const entries: ReplayEntry[] = []
+      const recorded = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const { session, events } = yield* open(recordingSdk(makeFakeClaude().sdk, entries, true))
+          return yield* turnScenario(session, events, prompts)
+        }),
+      )
+
+      const replay = replaySdk({ provider: 'claude', protocol: 'claude-agent-sdk.query', version: 'fake', scenario: 'turn', entries })
+      const replayed = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const { session, events } = yield* open(replay.sdk)
+          return yield* turnScenario(session, events, prompts)
+        }),
+      )
+      expect(replayed.blocks.map((block) => block.kind)).toEqual(recorded.blocks.map((block) => block.kind))
+      expect(replayed.blocks.flatMap((block) => (block.kind === 'agent' ? [block.text] : []))).toEqual([
+        'You asked: First question',
+        'You asked: Second question',
+      ])
+      expect(replay.finished().failure).toBeNull()
+    }),
+  )
+
+  it.live('without the turn gate, a prompt never reaches Claude Code', () =>
+    Effect.gen(function* () {
+      const fake = makeFakeClaude()
+      const { session, events } = yield* open(recordingSdk(fake.sdk, [], false))
+      const created = yield* session.createThread({ cwd: WORKSPACE, projectId: null, title: null, settings: SETTINGS })
+      yield* session.send(created.threadId, { text: 'Hello', images: [], skill: null, clientId: 'local-1' }, SETTINGS)
+      yield* Effect.sleep('5 millis').pipe(Effect.repeat({ until: () => events.some((event) => event.type === 'turnEnded') }), Effect.timeout('5 seconds'))
+      expect(fake.queries[0]?.prompts).toEqual([])
+      expect(events.find((event) => event.type === 'turnEnded')).toMatchObject({ error: expect.stringContaining('HIDEGPT_RECORD_TURNS=1') })
+    }),
+  )
+})
