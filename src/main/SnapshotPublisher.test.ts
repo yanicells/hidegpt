@@ -2,12 +2,13 @@ import { describe, expect, it } from '@effect/vitest'
 import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
 import * as Logger from 'effect/Logger'
+import * as References from 'effect/References'
 import * as SubscriptionRef from 'effect/SubscriptionRef'
 import * as TestClock from 'effect/testing/TestClock'
 
 import type { SnapshotPatch } from '../shared/contracts'
 import { emptySnapshot, type Snapshot } from '../shared/model'
-import { makeSnapshotPublisher } from './SnapshotPublisher'
+import { makeSnapshotPublisher, reportingThrows } from './SnapshotPublisher'
 
 const settle = Effect.yieldNow.pipe(Effect.repeat({ times: 10 }))
 
@@ -170,7 +171,11 @@ describe('SnapshotPublisher', () => {
 
   it.effect('restarts with backoff, starts the count over after a stable minute, and past Fatal keeps trying each minute', () => {
     const levels: string[] = []
-    const capture = Logger.make(({ logLevel }) => void levels.push(logLevel))
+    const reports: unknown[] = []
+    const capture = Logger.make(({ fiber, logLevel }) => {
+      levels.push(logLevel)
+      reports.push(fiber.getRef(References.CurrentLogAnnotations).reportId)
+    })
     return Effect.gen(function* () {
       const state = yield* SubscriptionRef.make<Snapshot>({ ...emptySnapshot(), status: 'ready' })
       let failures = 0
@@ -205,10 +210,21 @@ describe('SnapshotPublisher', () => {
       expect(levels.filter((level) => level === 'Error')).toHaveLength(1 + 1 + 1 + 5)
       expect(levels.at(-1)).toBe('Fatal')
 
-      // It keeps trying once a minute, without another Fatal, and recovers once sending works.
-      yield* TestClock.adjust('1 minute')
-      yield* settle
-      expect(levels.filter((level) => level === 'Error')).toHaveLength(9)
+      const firstReport = reports.at(-2)
+      expect(reports.at(-1)).toBe(firstReport)
+
+      // It keeps trying once a minute, without another Fatal. Each try logs one Debug line
+      // pointing at the last full report; the full report comes again once an hour.
+      const minute = TestClock.adjust('1 minute').pipe(Effect.andThen(settle))
+      yield* minute
+      expect(levels.slice(-2)).toEqual(['Fatal', 'Debug'])
+      expect(reports.at(-1)).toBe(firstReport)
+      yield* Effect.repeat(minute, { times: 57 })
+      expect(levels.filter((level) => level === 'Error')).toHaveLength(8)
+      expect(levels.filter((level) => level === 'Debug')).toHaveLength(59)
+      yield* minute
+      expect(levels.at(-1)).toBe('Error')
+      expect(reports.at(-1)).not.toBe(firstReport)
       const before = sent.length
       failures = 0
       yield* TestClock.adjust('1 minute')
@@ -216,7 +232,7 @@ describe('SnapshotPublisher', () => {
       expect(sent).toHaveLength(before + 1)
       expect(sent.at(-1)!.fields).toMatchObject({ title: 'Two', status: 'ready', blocks: [] })
       expect(levels.filter((level) => level === 'Fatal')).toHaveLength(1)
-    }).pipe(Effect.provide(Logger.layer([capture])))
+    }).pipe(Effect.provide(Logger.layer([capture])), Effect.provideService(References.MinimumLogLevel, 'Debug'))
   })
 
   it.effect('a resync whose send throws rethrows, and the next patch is whole', () =>
@@ -241,4 +257,26 @@ describe('SnapshotPublisher', () => {
       expect(sent.at(-1)!.fields).toMatchObject({ title: 'After', status: 'ready', blocks: [] })
     }),
   )
+
+  it.effect('reportingThrows reports a throw under its part, and lets it go no further', () => {
+    const logged: Array<{ readonly cause: string; readonly annotations: Record<string, unknown> }> = []
+    const capture = Logger.make(({ cause, fiber, logLevel }) => {
+      if (logLevel === 'Error') logged.push({ cause: Cause.pretty(cause), annotations: fiber.getRef(References.CurrentLogAnnotations) })
+    })
+    return Effect.gen(function* () {
+      const fork = Effect.runForkWith(yield* Effect.context<never>())
+      let ran = false
+      reportingThrows(fork, 'title', () => void (ran = true))
+      expect(() =>
+        reportingThrows(fork, 'menu', () => {
+          throw new Error('menu bug')
+        }),
+      ).not.toThrow()
+      yield* settle
+      expect(ran).toBe(true)
+      expect(logged).toEqual([
+        { cause: expect.stringContaining('menu bug'), annotations: { part: 'menu', reportId: expect.stringMatching(/^[0-9a-f]{8}$/) } },
+      ])
+    }).pipe(Effect.provide(Logger.layer([capture])))
+  })
 })
