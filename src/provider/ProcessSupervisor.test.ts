@@ -5,18 +5,29 @@ import { join } from 'node:path'
 
 import * as NodeServices from '@effect/platform-node/NodeServices'
 import { afterAll, describe, expect, it } from '@effect/vitest'
+import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 
-import { ProcessSupervisor, layer } from './ProcessSupervisor'
+import { DEFAULT_TIMING, ProcessSupervisor, layer, type SupervisorTiming } from './ProcessSupervisor'
 
 /** Real processes: the supervisor's job is the boundary with the OS, so nothing here is faked. */
 const dir = mkdtempSync(join(tmpdir(), 'hidegpt-supervisor-'))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
-const withSupervisor = <A, E>(use: (supervisor: ProcessSupervisor['Service']) => Effect.Effect<A, E>, ledgerPath: string | null = null) =>
+/**
+ * Caps far above any load, for tests of what the supervisor does rather than how long it may
+ * take: a busy machine must not turn a capped wait into a skipped step. The cap tests use the defaults.
+ */
+const UNHURRIED: SupervisorTiming = { stderrDrain: Duration.seconds(10), ledgerReadCap: Duration.seconds(10) }
+
+const withSupervisor = <A, E>(
+  use: (supervisor: ProcessSupervisor['Service']) => Effect.Effect<A, E>,
+  ledgerPath: string | null = null,
+  timing: SupervisorTiming = UNHURRIED,
+) =>
   Effect.gen(function* () {
     return yield* use(yield* ProcessSupervisor)
-  }).pipe(Effect.provide(layer(ledgerPath)), Effect.provide(NodeServices.layer))
+  }).pipe(Effect.provide(layer(ledgerPath, timing)), Effect.provide(NodeServices.layer))
 
 /** Like an MCP server that daemonizes with setsid: a group kill alone misses it. */
 const WITH_DAEMON = `/usr/bin/perl -MPOSIX -e 'POSIX::setsid(); sleep 30' & wait`
@@ -48,13 +59,16 @@ const running = (pid: number) => {
     return false
   }
 }
+/** Polls until `check` holds; returns as soon as it does, so the generous budget only matters under load. */
 const until = (check: () => boolean) =>
   Effect.gen(function* () {
-    for (let i = 0; i < 100 && !check(); i += 1) yield* Effect.sleep('20 millis')
+    for (let i = 0; i < 500 && !check(); i += 1) yield* Effect.sleep('20 millis')
     expect(check()).toBe(true)
   })
+/** Tests that wait on real processes (startup, a 2 s group stop, polling) get room under load. */
+const PROCESS_TEST_TIMEOUT = 30_000
 
-describe('ProcessSupervisor', () => {
+describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
   it.effect('reports a command that is not on PATH as not installed', () =>
     withSupervisor((supervisor) =>
       Effect.flip(Effect.scoped(supervisor.spawn({ provider: 'codex', command: 'hidegpt-no-such-binary', args: [] }))),
@@ -98,12 +112,22 @@ describe('ProcessSupervisor', () => {
     }),
   )
 
-  it.effect('ends with the exit code and the last stderr line', () =>
+  it.live('ends with the exit code and the last stderr line, even when it lands after the exit', () =>
     withSupervisor((supervisor) =>
       Effect.scoped(
         Effect.gen(function* () {
+          // The error line is written 50 ms after Docs reaps the shell (the writer waits for `$$` to go,
+          // which is when "exit" fires), so a tail read at "exit" misses it; waiting for the drain does
+          // not. A clean exit leaves the group, and so the writer, alone.
           const child = yield* supervisor.spawn(
-            { provider: 'codex', command: 'sh', args: ['-c', 'echo starting >&2; echo "Error: config.toml is invalid" >&2; exit 3'] },
+            {
+              provider: 'codex',
+              command: '/bin/sh',
+              args: [
+                '-c',
+                'echo starting >&2; (while kill -0 $$ 2>/dev/null; do sleep 0.01; done; sleep 0.05; echo "Error: config.toml is invalid" >&2) & exit 0',
+              ],
+            },
             true,
           )
           return yield* Effect.flip(child.awaitExit)
@@ -111,7 +135,7 @@ describe('ProcessSupervisor', () => {
       ),
     ).pipe(
       Effect.map((error) => {
-        expect(error).toMatchObject({ _tag: 'ProcessExitedError', code: 3, stderr: 'Error: config.toml is invalid' })
+        expect(error).toMatchObject({ _tag: 'ProcessExitedError', code: 0, stderr: 'Error: config.toml is invalid' })
       }),
     ),
   )
@@ -122,21 +146,29 @@ describe('ProcessSupervisor', () => {
         Effect.gen(function* () {
           // The background sleep keeps stderr open after the shell exits. A clean exit (0) leaves
           // the group alone (a failing one would kill it and close the pipe); the scope's kill ends it.
+          const holderFile = join(mkdtempSync(join(dir, 'held-')), 'pid')
           const child = yield* supervisor.spawn(
-            { provider: 'codex', command: '/bin/sh', args: ['-c', 'sleep 30 & echo "Error: bad flag" >&2; exit 0'] },
+            {
+              provider: 'codex',
+              command: '/bin/sh',
+              args: ['-c', `sleep 30 & echo $! > ${holderFile}; echo "Error: bad flag" >&2; exit 0`],
+            },
             true,
           )
-          const at = Date.now()
           const error = yield* Effect.flip(child.awaitExit)
-          expect(Date.now() - at).toBeLessThan(1_000)
+          // No clock: the pipe closes only when the sleep ends, so an exit that waited for it finds it gone.
+          expect(running(Number(readFileSync(holderFile, 'utf8')))).toBe(true)
           expect(error).toMatchObject({ _tag: 'ProcessExitedError', code: 0, stderr: 'Error: bad flag' })
         }),
       ),
+      null,
+      // The real 250 ms drain cap is what is under test here.
+      DEFAULT_TIMING,
     ),
   )
 })
 
-describe('ProcessSupervisor.callbackSpawner', () => {
+describe('ProcessSupervisor.callbackSpawner', { timeout: PROCESS_TEST_TIMEOUT }, () => {
   const groupAlive = (pid: number) => {
     try {
       process.kill(-pid, 0)

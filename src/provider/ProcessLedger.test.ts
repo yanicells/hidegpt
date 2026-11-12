@@ -72,7 +72,8 @@ const row = (pid: number, ppid: number, started: number): ProcessRow => ({ pid, 
 
 const entry = (fields: Partial<LedgerEntry> & Pick<LedgerEntry, 'command' | 'started'>): LedgerEntry => ({ arg: '', members: [], ...GONE, ...fields })
 
-describe('ProcessLedger', () => {
+/** Every case runs `ps` and real processes; a loaded machine (a full suite, other jobs) needs room. */
+describe('ProcessLedger', { timeout: 30_000 }, () => {
   it('reads pid, parent, group, a UTC start time and a command with spaces from ps', () => {
     expect(parseProcessTable('  123     1    45 Thu Nov  5 14:39:47 2026     /Applications/My App.app/claude --output-format\n junk\n')).toEqual([
       { pid: 123, ppid: 1, pgid: 45, started: Date.UTC(2026, 10, 5, 14, 39, 47), command: '/Applications/My App.app/claude --output-format' },
