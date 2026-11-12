@@ -26,6 +26,7 @@ import type { AdapterEvent, ProviderSession, TurnSettings } from '../src/provide
 import {
   encodeTranscript,
   leaks,
+  REPLAY_HOME,
   type ReplayEntry,
   scrub,
   thisMachine,
@@ -153,7 +154,8 @@ async function main() {
   const emptyHome = realpathSync(mkdtempSync(join(tmpdir(), 'hidegpt-replay-claude-')))
   const machine = thisMachine([
     [workspace, '/tmp/replay-workspace'],
-    [emptyHome, '/tmp/replay-home'],
+    // The replay maps its own home folder to the same placeholder.
+    [emptyHome, REPLAY_HOME],
   ])
   if (!scenario.sendsTurns) {
     // Set before the SDK loads: it and the Claude Code it starts read these, and the

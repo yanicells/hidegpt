@@ -1,9 +1,11 @@
 // Adapted from T3 Code (https://github.com/pingdotgg/t3code), apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.testkit.ts
 // (recordClaudeAgentSdkReplayTranscript and its replay query) at commit 5c6f2f12.
 // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+import { homedir } from 'node:os'
+
 import type { Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 
-import { type ReplayEntry, type ReplayTranscript, TurnRefusedError } from '../provider/replayFixture'
+import { REPLAY_HOME, type ReplayEntry, type ReplayTranscript, TurnRefusedError } from '../provider/replayFixture'
 import type { ClaudeSdk } from './ClaudeAdapter'
 
 /**
@@ -123,8 +125,6 @@ export function recordingSdk(sdk: ClaudeSdk, entries: ReplayEntry[], allowTurns:
 // ---- replay -------------------------------------------------------------------------
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-/** Folders differ per machine, and the recorder's were scrubbed. */
-const IGNORED_KEYS = new Set(['cwd', 'dir'])
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
@@ -167,10 +167,18 @@ function same(expected: unknown, actual: unknown, bindings: Bindings): boolean {
     )
   }
   if (isRecord(expected) && isRecord(actual)) {
-    const keys = new Set([...Object.keys(expected), ...Object.keys(actual)].filter((key) => !IGNORED_KEYS.has(key)))
+    const keys = new Set([...Object.keys(expected), ...Object.keys(actual)])
     return [...keys].every((key) => same(expected[key], actual[key], bindings))
   }
   return expected === actual
+}
+
+/** Replaces this machine's folders with the placeholders the recorder wrote, as T3's `sanitizedReplayCwd` does. */
+function toPlaceholders(value: unknown, paths: ReadonlyArray<readonly [string, string]>): unknown {
+  if (typeof value === 'string') return paths.reduce((text, [path, placeholder]) => text.replaceAll(path, placeholder), value)
+  if (Array.isArray(value)) return value.map((entry) => toPlaceholders(entry, paths))
+  if (!isRecord(value)) return value
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, toPlaceholders(entry, paths)]))
 }
 
 /** Rewrites recorded UUIDs in an answer to the ones the adapter used. */
@@ -225,9 +233,16 @@ export type ClaudeReplay = {
   readonly finished: () => { readonly failure: string | null; readonly unused: number }
 }
 
-/** An SDK that answers from a recording, in order. */
-export function replaySdk(transcript: ReplayTranscript): ClaudeReplay {
+/**
+ * An SDK that answers from a recording, in order. Folders in what Docs sends
+ * are compared as placeholders: the home folder as `REPLAY_HOME`, and each of
+ * `paths` (a test's workspace, say) as the placeholder the recorder used for it.
+ */
+export function replaySdk(transcript: ReplayTranscript, paths: ReadonlyArray<readonly [path: string, placeholder: string]> = []): ClaudeReplay {
   const entries = transcript.entries
+  const local = [...paths, [homedir(), REPLAY_HOME] as const]
+    .filter(([path]) => path.length > 1)
+    .sort(([a], [b]) => b.length - a.length)
   const bindings: Bindings = { ids: new Map(), taken: new Set(), known: new Set() }
   const pending = new Map<string, Array<{ resolve: (value: unknown) => void; reject: (error: Error) => void }>>()
   const inboxes = new Map<number, Inbox>()
@@ -275,7 +290,7 @@ export function replaySdk(transcript: ReplayTranscript): ClaudeReplay {
     pump()
     if (failure) return false
     const entry = entries[cursor]
-    const actual = json(sent)
+    const actual = toPlaceholders(json(sent), local)
     if (entry?.type !== 'expect_outbound') {
       fail(
         `Docs sent ${JSON.stringify(actual)} at entry ${cursor}, but the recording has ${entry ? entry.type : 'ended'}.`,

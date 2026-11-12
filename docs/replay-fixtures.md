@@ -20,6 +20,9 @@ version, scenario), then `expect_outbound` (what Docs sent), `emit_inbound`
 (what the CLI answered) and a closing `runtime_exit`. This is the T3 Code
 transcript format, so the Codex fixtures play through the vendored
 `replay.ts`. Replay fails as soon as Docs sends anything the recording didn't.
+Folders count too: the recorder writes them as placeholders (`/home/replay-user`,
+`/tmp/replay-workspace`), and the Claude replay maps the test machine's folders
+to the same placeholders before comparing.
 
 ## Scenarios
 
@@ -51,10 +54,15 @@ Codex and Claude logins. Agents must never run them.
    pnpm test src/codex/CodexAdapter.replay.test.ts src/claude/ClaudeAdapter.replay.test.ts src/provider/replayFixture.test.ts
    ```
    The `turn` tests now run instead of being skipped. The fixture test checks
-   that no email, home path, username or token is left in either file.
+   that no email, home or temp path, or token is left in either file. Names
+   differ per machine, so the recorder checks those before it writes.
 4. Read `git diff` before committing. The recorder scrubs emails, paths,
    usernames, the hostname and tokens. It also blanks Claude's list of your MCP
    servers, skills, plugins and agents. The model's answers stay as recorded.
+   A name that is also a word of a placeholder (`replay`, `user`, `host`,
+   `example`, `home`, `tmp`, `workspace`, `codex`) is not scrubbed or checked,
+   since it would match the placeholders themselves. If your account or git
+   name is one of those, look for it yourself.
 5. Each run leaves one "tea" document in that provider's history, so archive
    or delete it there if you like.
 
