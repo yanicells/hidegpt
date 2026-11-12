@@ -124,8 +124,11 @@ const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledge
  */
 export class ProcessLedger {
   private readonly entries = new Map<number, string>()
+  private readonly path: string | null
 
-  constructor(private readonly path: string | null) {}
+  constructor(path: string | null) {
+    this.path = path
+  }
 
   record(pid: number, signature: string) {
     this.entries.set(pid, signature)
