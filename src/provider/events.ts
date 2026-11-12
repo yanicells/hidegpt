@@ -62,6 +62,10 @@ export type ToolKind = typeof ToolKind.Type
 export const ToolStatus = Schema.Literals(['running', 'completed', 'failed'])
 export type ToolStatus = typeof ToolStatus.Type
 
+/**
+ * `form`: the provider asks for structured input, including a plan to approve before it acts
+ * (Claude's `ExitPlanMode`), so no plan approval needs a kind of its own.
+ */
 export const RequestKind = Schema.Literals([
   'command',
   'file_change',
@@ -76,6 +80,11 @@ export type RequestKind = typeof RequestKind.Type
 export const RequestStatus = Schema.Literals(['pending', 'sending', 'accepted', 'declined', 'expired'])
 export type RequestStatus = typeof RequestStatus.Type
 
+/**
+ * `retrying`: the provider hit an error it will retry on its own. The session state drops the
+ * notice on the turn's next content or its end (`clearRetrying`), so a retry that worked
+ * leaves nothing behind.
+ */
 export const NoticeKind = Schema.Literals(['retrying', 'compacted', 'warning'])
 export type NoticeKind = typeof NoticeKind.Type
 

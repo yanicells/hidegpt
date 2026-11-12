@@ -1,5 +1,5 @@
 import { connectedAppTitle, toolRequestTitle, toolTitle as kindTitle } from '../main/session/present'
-import { BANNED_WORDS } from '../shared/stealth'
+import { BANNED_WORDS, PROSE_WORDS } from '../shared/stealth'
 import type { ToolKind, ToolStatus } from './events'
 
 /**
@@ -9,8 +9,9 @@ import type { ToolKind, ToolStatus } from './events'
  * before `present.ts` puts them in a sentence.
  */
 
-// The stealth list, plus the words banned from visible prose.
-const BANNED = [...BANNED_WORDS, 'hidegpt', 'mcp', 'sdk', 'cli', 'subagent', 'provider']
+// The stealth gate's lists. Its own case split reads "AIsearch" as "A" + "Isearch"; the boundary
+// rule below also ends a word after a capital, so a name part is held to the stricter test.
+const BANNED = [...BANNED_WORDS, ...PROSE_WORDS]
 
 const isLetter = (char: string | undefined) => char !== undefined && /\p{L}/u.test(char)
 const isUpper = (char: string | undefined) => char !== undefined && /\p{Lu}/u.test(char)

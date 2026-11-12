@@ -100,7 +100,9 @@ describe('present', () => {
   it('keeps an adapter’s own title unless it would leak, and puts output after the subject', () => {
     const titled = (title: string) => tool('other', 'completed', { legacy: { title } })
     expect(presentItem(titled('Searched the web'))).toMatchObject({ title: 'Searched the web' })
-    expect(presentItem(titled('Agent · spawn'))).toMatchObject({ title: 'Did a step' })
+    for (const leak of ['Agent · spawn', 'Using mcp__github__create_issue', 'collabAgentToolCall', 'gpt5 · CLI']) {
+      expect(presentItem(titled(leak)), leak).toMatchObject({ title: 'Did a step' })
+    }
     expect(presentItem(tool('command', 'running', { subject: 'ls', output: 'a\nb' }))).toMatchObject({
       body: 'ls\na\nb',
     })
