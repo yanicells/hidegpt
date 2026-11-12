@@ -25,7 +25,7 @@ import * as Stream from 'effect/Stream'
 import { ChildProcess, ChildProcessSpawner } from 'effect/process'
 
 import * as CodexAdapter from '../src/codex/CodexAdapter.ts'
-import { recordingOptions, withoutPersonalLists } from '../src/codex/replay.ts'
+import { recordingOptions, withoutPersonalDetails } from '../src/codex/replay.ts'
 import { SCENARIOS } from '../src/codex/replayScenarios.ts'
 import type { AdapterEvent } from '../src/provider/ProviderAdapter.ts'
 import {
@@ -140,7 +140,7 @@ async function main() {
       ...(scenario.config ? { config: scenario.config } : {}),
     },
     entries: [
-      ...entries.map((entry) => scrub(withoutPersonalLists(entry), machine) as ReplayEntry),
+      ...entries.map((entry) => scrub(withoutPersonalDetails(entry), machine) as ReplayEntry),
       { type: 'runtime_exit', status: 'success' },
     ],
   })
