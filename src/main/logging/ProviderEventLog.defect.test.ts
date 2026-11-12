@@ -96,7 +96,7 @@ describe('ProviderEventLog: defects', () => {
       const threads = (yield* readLog(file))
         .trim()
         .split('\n')
-        .map((line) => JSON.parse(line).threadId)
+        .map((line) => JSON.parse(line).event.threadId)
       expect(threads).toHaveLength(MAX_QUEUED_LINES + 1)
       expect(threads.slice(0, 2)).toEqual(['warmup', 't5'])
       expect(threads.at(-1)).toBe(`t${MAX_QUEUED_LINES + 4}`)

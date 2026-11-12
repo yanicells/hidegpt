@@ -5,13 +5,16 @@ import * as Context from 'effect/Context'
 import * as Effect from 'effect/Effect'
 import * as Fiber from 'effect/Fiber'
 import * as Layer from 'effect/Layer'
+import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
 import * as Queue from 'effect/Queue'
+import * as Schema from 'effect/Schema'
 
+import { ThreadEvent } from '../../provider/events'
 import { foreverObserved, observed } from '../../provider/observed'
-import type { AdapterEvent } from '../../provider/ProviderAdapter'
+import { isThreadEvent, type AdapterEvent } from '../../provider/ProviderAdapter'
 import { libraryName } from '../../shared/labels'
-import type { ProviderId } from '../../shared/model'
+import { ProviderId } from '../../shared/contracts'
 import { makeRotatingFileSink, type RotatingFileSink } from './rotatingFileSink'
 
 /** `logs/activity/<library>.ndjson`: 5 MB, plus three rotated files each. */
@@ -21,13 +24,12 @@ const BATCH_WINDOW = '500 millis'
 export const MAX_QUEUED_LINES = 10_000
 
 /**
- * What a provider reported, one JSON line per event, so "the answer stopped"
- * can be debugged after the fact. It never holds text: no prompt or answer
- * (streamed deltas are skipped entirely), no titles, no sign-in links, and no
- * error or notice sentences, which a provider may build from what was sent.
- * A record keeps the event type, the thread, turn and item ids, item kinds and
- * statuses, and a failed turn's failure class (its redacted detail goes to the
- * main log instead).
+ * What each library reported, as the canonical events of `src/provider/events.ts`,
+ * one JSON line each, so a turn that never ended can be replayed after the fact
+ * (`scripts/replay-events.ts`). The log keeps the shape and drops the words:
+ * every text value (a prompt, an answer, a command or its output, a request's
+ * wording, a title, an error or notice, a sign-in link) is written as its
+ * length. Ids, kinds, statuses and failure classes stay.
  */
 export interface ProviderEventLogShape {
   readonly record: (provider: ProviderId, event: AdapterEvent) => Effect.Effect<void>
@@ -38,49 +40,97 @@ export const ProviderEventLog = Context.Reference<ProviderEventLogShape>('hidegp
   defaultValue: () => ({ record: () => Effect.void }),
 })
 
-/** The loggable part of an event, or null for events not worth a line. Exported for tests. */
-export function describeEvent(event: AdapterEvent): Record<string, unknown> | null {
+/**
+ * Keys whose string values are ids or fixed tags. Every other string, at any
+ * depth, is written as its length: a field added to the contract later stays
+ * out of the log until someone decides it is safe and lists it here.
+ */
+const KEPT_STRINGS: ReadonlySet<string> = new Set([
+  'type',
+  'threadId',
+  'turnId',
+  'itemId',
+  'activeTurnId',
+  'replaces',
+  'id',
+  'kind',
+  'phase',
+  'tool',
+  'request',
+  'notice',
+  'status',
+  'class',
+  'part',
+])
+
+/** The contract's own numbers. Any other number in a logged event is a text length. */
+const KEPT_NUMBERS: ReadonlySet<string> = new Set(['resetAt'])
+
+/** `value` with every string not under a kept key replaced by its length. Array entries are never kept. */
+export function textAsLength(value: unknown, key: string | null = null): unknown {
+  if (typeof value === 'string') return key !== null && KEPT_STRINGS.has(key) ? value : value.length
+  if (Array.isArray(value)) return value.map((entry) => textAsLength(entry))
+  if (typeof value === 'object' && value !== null) {
+    return Object.fromEntries(Object.entries(value).map(([name, entry]) => [name, textAsLength(entry, name)]))
+  }
+  return value
+}
+
+/** The inverse, for replay: each length becomes a placeholder string of that length. */
+function lengthAsText(value: unknown, key: string | null = null): unknown {
+  if (typeof value === 'number') return key !== null && KEPT_NUMBERS.has(key) ? value : '·'.repeat(value)
+  if (Array.isArray(value)) return value.map((entry) => lengthAsText(entry))
+  if (typeof value === 'object' && value !== null) {
+    return Object.fromEntries(Object.entries(value).map(([name, entry]) => [name, lengthAsText(entry, name)]))
+  }
+  return value
+}
+
+// Encoding through the schema drops any field the contract does not declare.
+const encodeThreadEvent = Schema.encodeUnknownOption(ThreadEvent)
+const decodeThreadEvent = Schema.decodeUnknownOption(ThreadEvent)
+
+/**
+ * An event as it is written: encoded with the contract's schema, every text
+ * value as its length. Null when the event does not match the contract.
+ */
+export function encodeEvent(event: AdapterEvent): unknown {
+  if (isThreadEvent(event))
+    return Option.getOrNull(Option.map(encodeThreadEvent(event), (encoded) => textAsLength(encoded)))
   switch (event.type) {
-    case 'item.delta':
-      return null
-    case 'turn.started':
-      return { type: event.type, threadId: event.threadId, turnId: event.turnId }
-    case 'turn.ended':
-      return {
-        type: event.type,
-        threadId: event.threadId,
-        turnId: event.turnId,
-        status: event.status,
-        ...(event.failure ? { failureClass: event.failure.class } : {}),
-      }
-    case 'item.upserted':
-      return {
-        type: event.type,
-        threadId: event.threadId,
-        turnId: event.turnId,
-        itemId: event.item.id,
-        kind: event.item.kind,
-        ...(event.item.kind === 'tool' ? { tool: event.item.tool, status: event.item.status } : {}),
-        ...(event.item.kind === 'request' ? { request: event.item.request, status: event.item.status } : {}),
-        ...(event.replaces ? { replaces: event.replaces } : {}),
-      }
-    case 'thread.reset':
-      return {
-        type: event.type,
-        threadId: event.threadId,
-        items: event.items.length,
-        activeTurnId: event.activeTurnId,
-      }
-    case 'thread.renamed':
-    case 'thread.closed':
-      return { type: event.type, threadId: event.threadId }
     case 'invalidate':
       return { type: event.type, part: event.part }
     case 'notice':
-      return { type: event.type }
+      return textAsLength({ type: event.type, message: event.message })
     case 'loginUrl':
-      return { type: event.type, pending: event.url !== null }
+      return textAsLength({ type: event.type, url: event.url })
   }
+}
+
+const LogLine = Schema.Struct({ timestamp: Schema.String, provider: ProviderId, event: Schema.Unknown })
+
+export type LoggedThreadEvent = {
+  readonly timestamp: string
+  readonly provider: ProviderId
+  readonly event: ThreadEvent
+}
+
+/**
+ * Reads one written line back for replay, its text as placeholders of the
+ * logged lengths. Null for library events and lines that do not decode.
+ */
+export function readLogLine(line: string): LoggedThreadEvent | null {
+  let json: unknown
+  try {
+    json = JSON.parse(line)
+  } catch {
+    return null
+  }
+  return Option.getOrNull(
+    Option.flatMap(Schema.decodeUnknownOption(LogLine)(json), (logged) =>
+      Option.map(decodeThreadEvent(lengthAsText(logged.event)), (event) => ({ ...logged, event })),
+    ),
+  )
 }
 
 /** The file a library writes to: its on-screen name, so no file is named after a provider. */
@@ -154,17 +204,41 @@ export const make = (directory: string) =>
       ),
     )
 
+    /**
+     * Item ids per thread that already logged a delta. Only an item's first
+     * delta is written, as T3 skips transient deltas: it is the one that can
+     * create the item, and the rest only grow text, which the log never holds.
+     */
+    const streamed = new Map<string, Set<string>>()
+    const worthALine = (provider: ProviderId, event: AdapterEvent): boolean => {
+      if (!isThreadEvent(event)) return true
+      const key = `${provider}:${event.threadId}`
+      if (event.type === 'item.delta') {
+        const seen = streamed.get(key) ?? new Set<string>()
+        if (seen.has(event.itemId)) return false
+        streamed.set(key, seen.add(event.itemId))
+      } else if (event.type === 'turn.ended' || event.type === 'thread.reset' || event.type === 'thread.closed') {
+        streamed.delete(key)
+      }
+      return true
+    }
+
     return ProviderEventLog.of({
       record: (provider: ProviderId, event: AdapterEvent) => {
-        const fields = describeEvent(event)
-        if (!fields) return Effect.void
+        if (!worthALine(provider, event)) return Effect.void
+        const encoded = encodeEvent(event)
+        if (encoded === null) {
+          return Effect.logWarning('Event log skipped an event outside the contract').pipe(
+            Effect.annotateLogs({ provider, event: event.type }),
+          )
+        }
         return Clock.currentTimeMillis.pipe(
           Effect.flatMap((at) =>
             Effect.sync(() => {
               if (Queue.sizeUnsafe(queue) >= MAX_QUEUED_LINES) dropped += 1
               Queue.offerUnsafe(queue, {
                 provider,
-                text: `${JSON.stringify({ timestamp: new Date(at).toISOString(), provider, ...fields })}\n`,
+                text: `${JSON.stringify({ timestamp: new Date(at).toISOString(), provider, event: encoded })}\n`,
               })
             }),
           ),
