@@ -86,6 +86,12 @@ binary unpacked next to `app.asar` so it can be spawned.
 Running from source (`pnpm dev`, `pnpm start`, `pnpm screenshot`, tests) always
 includes Claude.
 
+An app opened from Finder doesn't get your terminal's PATH, so at launch the
+packaged app asks your login shell (`$SHELL -ilc`, at most 2 seconds) for it.
+That way `codex` and `opencode` installed under nvm, Volta, fnm, npm globals or
+`~/.opencode/bin` are found. Homebrew, `~/.bun/bin` and `~/.local/bin` stay
+as the fallback.
+
 **Signing and notarizing are off unless their variables are set.** With none, the
 app is ad-hoc signed: it opens on your own Mac, and on another Mac only after
 **Open Anyway** in System Settings → Privacy & Security (or
