@@ -252,19 +252,28 @@
 .doc-block[data-turn] {
   contain-intrinsic-size: auto 48px;
 }
+/* A tool step shows as one collapsed line. */
+.doc-block:has(> .callout) {
+  contain-intrinsic-size: auto 24px;
+}
 /* The streamed block is always on screen, so skipping never applies, and
    containment there cost about 10% more raster work per delta in traces. */
 .doc-block[data-streaming] {
   content-visibility: visible;
 }
-/* Containment keeps a child's margins inside its block, where they used to
-   collapse into the block's own 10pt. No child margin is larger, so dropping
-   the outer ones keeps the old spacing. A turn's padding already kept its
-   first child's top margin inside. */
-.doc-block:not(.turn-start) > :first-child {
+/* Containment keeps margins inside their block, where they used to collapse
+   into the block's own 10pt. So the margins along a block's outer edges (the
+   first or last child of a first or last child, at any depth) are dropped;
+   none is larger than 10pt, so the old spacing holds. Measured against the
+   uncontained layout for lists, nested lists, quotes, code, tables, rules and
+   callouts. (A quote that opens with a heading sits 8pt tighter.) A turn's
+   padding already kept its first child's top margin inside. */
+.doc-block:not(.turn-start) > :first-child,
+.doc-block:not(.turn-start) .doc-body :first-child:not(.doc-block :not(:first-child) *) {
   margin-top: 0;
 }
-.doc-block > :last-child {
+.doc-block > :last-child,
+.doc-block :is(.doc-body, .callout) :last-child:not(.doc-block :not(:last-child) *) {
   margin-bottom: 0;
 }
 
