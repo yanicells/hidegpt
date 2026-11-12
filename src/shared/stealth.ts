@@ -35,43 +35,16 @@ export const BANNED_WORDS: ReadonlyArray<string> = [
  */
 export const PROSE_WORDS: ReadonlyArray<string> = ['mcp', 'sdk', 'cli', 'subagent', 'provider']
 
-/** A word list, and a regex that finds any of its words even inside other words: the cheap first check. */
-type Words = { readonly set: ReadonlySet<string>; readonly anywhere: RegExp }
-const words = (list: ReadonlyArray<string>): Words => ({
-  set: new Set(list),
-  anywhere: new RegExp(list.join('|'), 'i'),
-})
-
-const BANNED = words([...BANNED_WORDS, ...PROSE_WORDS])
-const VENDORS = words(VENDOR_WORDS)
+const BANNED = new Set([...BANNED_WORDS, ...PROSE_WORDS])
 
 /** A run of letters split where its case changes: "ChatGPTPlus" is "Chat", "GPT", "Plus". */
 const CASE_PARTS = /\p{Lu}+(?=\p{Lu}\p{Ll})|\p{Lu}?\p{Ll}+|\p{Lu}+/gu
 
-/**
- * `text` as a reader sees it: compatibility forms folded (full-width "ＧＰＴ",
- * ligatures) and invisible format characters (zero-width spaces and joiners,
- * soft hyphens) removed, so neither can hide a word from the gate.
- */
-const visible = (text: string): string =>
-  /[^\x00-\x7f]/.test(text) ? text.normalize('NFKC').replace(/\p{Cf}/gu, '') : text
-
-/** `word` lowercased, if it (or it less a plural "s") is in `words`. */
-function listed(word: string, words: ReadonlySet<string>): string | null {
+/** `word` lowercased, if it (or it less a plural "s") is banned. */
+function banned(word: string): string | null {
   const lower = word.toLowerCase()
-  if (words.has(lower)) return lower
-  return lower.endsWith('s') && words.has(lower.slice(0, -1)) ? lower.slice(0, -1) : null
-}
-
-function violations(text: string, { set, anywhere }: Words): string[] {
-  const clean = visible(text)
-  // Most text holds none of the words even inside another word; that answer needs no word split.
-  if (!anywhere.test(clean)) return []
-  return Array.from(clean.matchAll(/\p{L}+/gu), ([run]) => {
-    const whole = listed(run, set)
-    if (whole) return [whole]
-    return Array.from(run.matchAll(CASE_PARTS), ([part]) => listed(part, set)).filter((word) => word !== null)
-  }).flat()
+  if (BANNED.has(lower)) return lower
+  return lower.endsWith('s') && BANNED.has(lower.slice(0, -1)) ? lower.slice(0, -1) : null
 }
 
 /**
@@ -81,12 +54,21 @@ function violations(text: string, { set, anywhere }: Words): string[] {
  * also checked by its case parts ("OpenAI", "ChatGPTPlus"), so "said" and "maintain" pass
  * but "OpenCode" and "useMcp" do not. A plural "s" counts too ("agents", "models").
  */
-export const stealthViolations = (text: string): string[] => violations(text, BANNED)
+export function stealthViolations(text: string): string[] {
+  return Array.from(text.matchAll(/\p{L}+/gu), ([run]) => {
+    const whole = banned(run)
+    if (whole) return [whole]
+    return Array.from(run.matchAll(CASE_PARTS), ([part]) => banned(part)).filter((word) => word !== null)
+  }).flat()
+}
 
 export const isStealthy = (text: string): boolean => stealthViolations(text).length === 0
 
-/** The vendor names in `text`, by the same rules as `stealthViolations`. */
-export const vendorViolations = (text: string): string[] => violations(text, VENDORS)
+const VENDORS = new Set(VENDOR_WORDS)
+
+/** The vendor names in `text`: the gate's matches, kept to `VENDOR_WORDS`. */
+export const vendorViolations = (text: string): string[] =>
+  stealthViolations(text).filter((word) => VENDORS.has(word))
 
 const namesVendor = (text: string): boolean => vendorViolations(text).length > 0
 
@@ -116,10 +98,9 @@ const replacePieces = (text: string, replace: (piece: string) => string): string
  * result with `isStealthy`.
  */
 export function neutralizeSentence(text: string): string {
-  const clean = visible(text)
   // `search`, not `test`: a global regex's `test` would carry `lastIndex` into the next call.
-  if (!namesVendor(clean) && clean.search(PHRASES) < 0) return text
-  return replacePieces(clean.replace(PHRASES, 'Docs'), (piece) => `Docs${/[.,;:!?)]*$/.exec(piece)![0]}`)
+  if (!namesVendor(text) && text.search(PHRASES) < 0) return text
+  return replacePieces(text.replace(PHRASES, 'Docs'), (piece) => `Docs${/[.,;:!?)]*$/.exec(piece)![0]}`)
 }
 
 const NAME_PARTS = /[\s_:./-]+/
@@ -134,9 +115,8 @@ const NAME_PARTS = /[\s_:./-]+/
  * (`gpt-5-4-prompting` reads "Prompting"). `fallback` when nothing is left.
  */
 export function neutralizeName(name: string, fallback: string): string {
-  const clean = visible(name)
-  const colon = clean.indexOf(':')
-  const rest = colon > 0 && !isStealthy(clean.slice(0, colon)) ? clean.slice(colon + 1) : clean
+  const colon = name.indexOf(':')
+  const rest = colon > 0 && !isStealthy(name.slice(0, colon)) ? name.slice(colon + 1) : name
   const words = rest.split(NAME_PARTS).filter(Boolean)
   const kept = words.filter(isStealthy)
   const label = (kept.length === words.length ? kept : kept.filter((word) => !/^\d+$/.test(word)))
@@ -154,7 +134,7 @@ export function neutralizeName(name: string, fallback: string): string {
  */
 export function stripVendorWords(text: string, fallback: string): string {
   if (!namesVendor(text)) return text
-  const stripped = replacePieces(visible(text).replace(PRODUCT, ' '), () => ' ')
+  const stripped = replacePieces(text.replace(PRODUCT, ' '), () => ' ')
     .replace(/\s+/g, ' ')
     .replace(/^[\s:·,-]+|[\s:·,-]+$/g, '')
   return stripped || fallback

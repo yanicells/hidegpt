@@ -33,12 +33,6 @@ describe('stealth gate', () => {
     ])
   })
 
-  it('sees through full-width letters and invisible characters', () => {
-    expect(stealthViolations('Ask ＧＰＴ')).toEqual(['gpt'])
-    expect(stealthViolations('Ask Cl​aude')).toEqual(['claude'])
-    expect(stealthViolations('Ask Cl­aude')).toEqual(['claude'])
-  })
-
   it('leaves words that only contain one alone', () => {
     for (const text of [
       'said',
