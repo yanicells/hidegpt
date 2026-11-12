@@ -51,9 +51,9 @@ export interface TurnTracker {
    * Exactly-once: ends the open turn and emits `turn.ended`. A call with no open turn, or whose
    * `nativeTurnId` names a different native turn or one that already ended here, is dropped
    * and logged. A turn the person stopped that ends without a failure is `interrupted`,
-   * whatever the provider called it.
+   * whatever the provider called it. True when it ended the open turn.
    */
-  readonly end: (threadId: string, outcome: TurnOutcome) => Effect.Effect<void>
+  readonly end: (threadId: string, outcome: TurnOutcome) => Effect.Effect<boolean>
   /** The native send failed: forget the turn without a terminal (the manager rolls back its echo). */
   readonly abandon: (threadId: string, turnId: TurnId) => Effect.Effect<void>
   /** The open turn's id, to stamp items with. */
@@ -182,9 +182,12 @@ export const makeTurnTracker = (options: TurnTrackerOptions): Effect.Effect<Turn
             outcome.nativeTurnId != null &&
             turn.nativeTurnId !== null &&
             outcome.nativeTurnId !== turn.nativeTurnId
-          if (!turn || otherTurn || hasEnded(threadId, outcome.nativeTurnId))
-            return yield* dropped('terminal', threadId)
+          if (!turn || otherTurn || hasEnded(threadId, outcome.nativeTurnId)) {
+            yield* dropped('terminal', threadId)
+            return false
+          }
           yield* close(threadId, turn, outcome)
+          return true
         }),
       )
 
