@@ -67,6 +67,15 @@ const decodeFailed: CommandResult = { ok: false, error: 'Docs could not read tha
 /** The app: IPC, the window, the menu, and the first library's connection. Runs until quit. */
 const program = Effect.gen(function* () {
   yield* Effect.promise(() => app.whenReady())
+  const shots = process.env.HIDEGPT_SCREENSHOT
+  // The walk drives the demo library; against real providers it would open real documents,
+  // so a screenshot run without the fakes fails at once instead of carrying on as the real app.
+  if (shots && !demo) {
+    console.error('HIDEGPT_SCREENSHOT needs HIDEGPT_FAKE=1.')
+    exitCode = 1
+    app.quit()
+    return
+  }
   registerDocsProtocol()
   const supervisor = yield* ProcessSupervisor.ProcessSupervisor
   const reaped = yield* supervisor.reapOrphans
@@ -153,10 +162,7 @@ const program = Effect.gen(function* () {
   })
 
   yield* manager.start('codex')
-  const shots = process.env.HIDEGPT_SCREENSHOT
-  // The walk drives the demo library; against real providers it would open real documents.
-  if (shots && !demo) console.error('HIDEGPT_SCREENSHOT needs HIDEGPT_FAKE=1; skipping screenshots.')
-  if (shots && demo) {
+  if (shots) {
     // A failed step still quits, with the reason on stderr, so a run never hangs.
     yield* captureScreenshots(win, manager, shots).pipe(
       Effect.catchCause((cause) =>
