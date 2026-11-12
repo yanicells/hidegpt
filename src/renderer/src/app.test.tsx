@@ -694,6 +694,19 @@ describe('failures and replies', () => {
     expect(screen.queryByTestId('error-banner')).toBeNull()
   })
 
+  it('renames the document whose title was being edited, even if another one opened before the blur', async () => {
+    const { calls } = mount(doc)
+    const title = screen.getByLabelText('Document title')
+    fireEvent.focus(title)
+    fireEvent.change(title, { target: { value: 'Photosynthesis notes' } })
+    // A navigation from elsewhere (a menu, Home in another window) lands while the field still has focus.
+    await window.hidegpt!.dispatch({ op: 'openThread', threadId: 'thr_2' })
+    fireEvent.blur(title)
+    expect(calls.filter((command) => command.op === 'setDocumentName')).toEqual([
+      { op: 'setDocumentName', provider: 'codex', threadId: 'thr_1', name: 'Photosynthesis notes' },
+    ])
+  })
+
   it('drafts approval answers locally and sends them once', async () => {
     const user = userEvent.setup()
     const { calls } = mount({
