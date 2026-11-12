@@ -3,11 +3,12 @@ import * as Effect from 'effect/Effect'
 
 import {
   contractSuite,
-  notScripted,
-  settle,
+  leakMessage,
+  RESETS_AT,
   tick,
   until,
   type ContractDriver,
+  type PassthroughSource,
   type Received,
 } from '../provider/contract.testkit'
 import { fromLegacy } from '../provider/legacyEvents'
@@ -35,14 +36,12 @@ const cliNotice = (text: string, error?: string) =>
 const driver: ContractDriver = {
   provider: 'claude',
   settings: { model: 'default', effort: 'high', serviceTier: null, mode: null },
-  notScripted: {
-    subagent_outlives_stop: 'subagents run inside the query, and the fake has no background tasks',
-  },
   open: Effect.gen(function* () {
     const fake = makeFakeClaude({ reply: null })
     const received: Received[] = []
     /** Turns Claude Code is running: prompts read plus turns it started itself, less results written. */
     let selfStarted = 0
+    let asks = 0
     let results = 0
     let hold: { reached: () => void; release: Promise<void> } | null = null
     const live = () => fake.queries.at(-1)
@@ -81,6 +80,10 @@ const driver: ContractDriver = {
           }
           return response
         }
+        // Stop for one background task (a subagent), as T3 Code sends it.
+        query.stopTask = async (taskId) => {
+          received.push({ op: 'interrupt', target: taskId })
+        }
         return query
       },
     }
@@ -108,15 +111,65 @@ const driver: ContractDriver = {
         results += 1
         return push(resultFrame(fields))
       })
-    /** Asks before a tool runs; the decision is recorded once Claude Code gets it. */
+    /** Asks before a tool runs; returns the tool use id, and records the decision once Claude Code gets it. */
     const ask = (...args: Parameters<NonNullable<ReturnType<typeof live>>['askTool']>) =>
       Effect.gen(function* () {
         yield* until(() => live() !== undefined, 'Claude Code started')
+        const request = args[2]
         void live()!
           .askTool(...args)
           .result.then((decision) => {
-            if (decision) received.push({ op: decision.behavior === 'allow' ? 'approve' : 'decline' })
+            if (decision) received.push({ op: decision.behavior === 'allow' ? 'approve' : 'decline', request })
           })
+        return request
+      })
+
+    const passthrough = (source: PassthroughSource, marker: string) =>
+      Effect.gen(function* () {
+        switch (source) {
+          case 'tools':
+            yield* push(
+              assistantFrame('msg_tools', [
+                { type: 'tool_use', id: 'toolu_m', name: `mcp__${marker}_server__${marker}_search`, input: {} },
+                { type: 'tool_use', id: 'toolu_t', name: `${marker}Tool`, input: {} },
+              ]),
+            )
+            return []
+          case 'requests':
+            yield* ask(`${marker}Tool`, { command: 'ls' }, 'toolu_t', {
+              title: `${marker} title`,
+              displayName: `${marker} name`,
+              description: `${marker} description`,
+              decisionReason: `${marker} reason`,
+            })
+            return []
+          case 'notices':
+            yield* push(
+              cliNotice(`${marker} notice`),
+              frame({
+                type: 'system',
+                subtype: 'api_retry',
+                attempt: 1,
+                max_retries: 10,
+                retry_delay_ms: 5000,
+                error_status: 529,
+                error: 'server_error',
+                uuid: 'retry',
+                session_id: '',
+              }),
+            )
+            // `api_retry.error` is an enum, so it cannot carry the marker.
+            return ['server_error']
+          case 'errors':
+            // Claude Code writes to stderr, then dies mid-turn: the page explains the stop.
+            yield* until(() => live() !== undefined, 'Claude Code started')
+            const stderr = live()!.options.stderr
+            if (!stderr) return yield* Effect.die(new Error('Claude Code was started without a stderr reader'))
+            stderr(`${marker} stderr`)
+            yield* tick
+            live()!.exit(new Error(`${marker} exited`))
+            return []
+        }
       })
 
     return {
@@ -134,17 +187,27 @@ const driver: ContractDriver = {
           hold = { reached, release: gate.release }
           return { reached: Effect.promise(() => gate.reached), release: Effect.sync(release) }
         }),
-        askFor: ask('Bash', { command: 'rm -r build' }, 'toolu_ask'),
+        askFor: Effect.suspend(() => ask('Bash', { command: 'rm -r build' }, `toolu_ask_${(asks += 1)}`)),
         fail: (kind) =>
           kind === 'usage_limit'
             ? Effect.andThen(
-                push(cliNotice("You've hit your session limit · resets 3pm", 'rate_limit')),
+                push(
+                  // `resetsAt` is in seconds.
+                  frame({
+                    type: 'rate_limit_event',
+                    rate_limit_info: { status: 'rejected', resetsAt: RESETS_AT / 1000, rateLimitType: 'five_hour' },
+                    uuid: 'limit',
+                    session_id: '',
+                  }),
+                  cliNotice("You've hit your session limit · resets 3pm", 'rate_limit'),
+                ),
                 result({ is_error: true, result: "You've hit your session limit · resets 3pm", api_error_status: 429 }),
               )
             : Effect.andThen(
                 push(cliNotice('API Error: 529 Overloaded', 'server_error')),
                 result({ is_error: true, result: 'API Error: 529 Overloaded', api_error_status: 529 }),
               ),
+        usageResetAt: RESETS_AT,
         exit: Effect.andThen(
           until(() => live() !== undefined, 'Claude Code started'),
           Effect.sync(() => live()!.exit(new Error('Claude Code process exited with code 1'))),
@@ -157,39 +220,7 @@ const driver: ContractDriver = {
             return stream(text)
           }),
         notice: (text) => push(cliNotice(text)),
-        passthrough: (marker) =>
-          Effect.gen(function* () {
-            yield* push(
-              assistantFrame('msg_tools', [
-                { type: 'tool_use', id: 'toolu_m', name: `mcp__${marker}_server__${marker}_search`, input: {} },
-                { type: 'tool_use', id: 'toolu_t', name: `${marker}Tool`, input: {} },
-              ]),
-            )
-            yield* ask(`${marker}Tool`, { command: 'ls' }, 'toolu_t', {
-              title: `${marker} title`,
-              displayName: `${marker} name`,
-              description: `${marker} description`,
-              decisionReason: `${marker} reason`,
-            })
-            yield* push(
-              cliNotice(`${marker} notice`),
-              frame({
-                type: 'system',
-                subtype: 'api_retry',
-                attempt: 1,
-                max_retries: 10,
-                retry_delay_ms: 5000,
-                error_status: 529,
-                error: `${marker} retrying`,
-                uuid: 'retry',
-                session_id: '',
-              }),
-            )
-            yield* settle
-            yield* result({ is_error: true, result: `${marker} failed`, api_error_status: 500 })
-            yield* tick
-            live()!.exit(new Error(`${marker} exited`))
-          }),
+        passthrough,
         // Claude Code keeps its title in the session's summary; the page reads it as the document opens.
         nameDocument: (title) =>
           Effect.suspend(() => {
@@ -199,7 +230,22 @@ const driver: ContractDriver = {
             return session.openThread(opened.threadId)
           }),
         childRequest: ask('Bash', { command: 'ls' }, 'toolu_child', { agentID: 'agent_child' }),
-        busyChild: notScripted('background subagents'),
+        // A subagent Claude Code moved to the background: it outlives the turn that spawned it.
+        busyChild: Effect.as(
+          push(
+            frame({
+              type: 'system',
+              subtype: 'task_started',
+              task_id: 'task_child',
+              description: 'Search the notes',
+              task_type: 'local_agent',
+              is_backgrounded: true,
+              uuid: 'task',
+              session_id: '',
+            }),
+          ),
+          'task_child',
+        ),
         nativeTurn: () => null,
         received: () => received,
       },
@@ -209,16 +255,48 @@ const driver: ContractDriver = {
 
 /** What the legacy-wrapped adapter fails today. ARCH-4b deletes each entry as it fixes it (PAR-B). */
 contractSuite('Claude', driver, {
-  usage_limit: 'A 429 / `rate_limit` result is classed `unknown`, not `usage_limit` (PAR-B item 5).',
-  exit_mid_turn: 'Claude Code exiting mid-turn ends the turn as `unknown`, not `transport_error` (PAR-B item 5).',
-  respond_after_expiry:
-    'A permission request still open when its turn ends stays answerable, and the late reply reaches Claude Code.',
-  foreign_terminal: "A background task's bookkeeping `result` ends the person's turn (PAR-B item 1, C-6).",
-  self_started_turn:
-    'Frames with no turn open start no turn, so the page never shows Working or Stop (PAR-B item 2, C-7).',
-  provider_notice: 'A `<synthetic>` frame is drawn as answer text (PAR-B item 6, C-1).',
-  passthrough:
-    'Raw tool and MCP names in callout titles (`Using mcp__…`), the permission `displayName` in the card title, and `<synthetic>` text in the answer (C-1, C-3).',
-  title_stealth:
-    'A provider title with a banned word ("Claude Code session") reaches the page and window title: the runtime guard in present.ts covers tool and request titles, not document titles. Owner: STL-1 (#59).',
+  usage_limit: {
+    why: 'A 429 / `rate_limit` result is classed `unknown`, and the `rate_limit_event` reset time is not read (PAR-B item 5).',
+    fails: "the failure class: expected 'unknown' to be 'usage_limit'",
+  },
+  exit_mid_turn: {
+    why: 'Claude Code exiting mid-turn ends the turn as `unknown`, not `transport_error` (PAR-B item 5).',
+    fails: 'the turn ends as a lost connection',
+  },
+  respond_after_expiry: {
+    why: 'A permission request still open when its turn ends stays answerable, and the late reply reaches Claude Code.',
+    fails: "a reply to an expired request is refused: expected 'taken'",
+  },
+  foreign_terminal: {
+    why: "A background task's bookkeeping `result` ends the person's turn (PAR-B item 1, C-6).",
+    fails: "a terminal that is not this turn's leaves it running",
+  },
+  self_started_turn: {
+    why: 'Frames with no turn open start no turn, so the page never shows Working or Stop (PAR-B item 2, C-7).',
+    fails: 'a turn the provider starts itself shows as started',
+  },
+  subagent_outlives_stop: {
+    why: 'Stop interrupts the query but never calls `Query.stopTask` for a background task, as T3 Code does, so a backgrounded subagent keeps running (PAR-B).',
+    fails: 'Stop reaches the busy subagent',
+  },
+  provider_notice: {
+    why: 'A `<synthetic>` frame is drawn as answer text (PAR-B item 6, C-1).',
+    fails: 'provider notices stay off the answer',
+  },
+  passthrough_tools: {
+    why: 'Raw tool and MCP names title the callouts (C-3).',
+    fails: leakMessage(['callout.title: Using ZZPROVTool', 'callout.title: Using mcp__ZZPROV_server__ZZPROV_search']),
+  },
+  passthrough_requests: {
+    why: "The permission's `displayName` titles the card.",
+    fails: leakMessage(['approval.title: Allow ZZPROV name?']),
+  },
+  passthrough_notices: {
+    why: 'A `<synthetic>` notice is drawn as answer text (C-1).',
+    fails: leakMessage(['agent.text: ZZPROV notice']),
+  },
+  title_stealth: {
+    why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',
+    fails: 'no title names a vendor or model',
+  },
 })

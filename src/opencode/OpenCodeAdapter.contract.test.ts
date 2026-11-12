@@ -1,6 +1,13 @@
 import * as Effect from 'effect/Effect'
 
-import { contractSuite, settle, type ContractDriver, type Received } from '../provider/contract.testkit'
+import {
+  contractSuite,
+  leakMessage,
+  settle,
+  type ContractDriver,
+  type PassthroughSource,
+  type Received,
+} from '../provider/contract.testkit'
 import { fromLegacy } from '../provider/legacyEvents'
 import { agentMessage, makeFakeOpenCode, stubSession, userMessage } from './FakeOpenCode'
 import * as OpenCodeAdapter from './OpenCodeAdapter'
@@ -43,6 +50,7 @@ const driver: ContractDriver = {
     const session = yield* fromLegacy(OpenCodeAdapter.make(fake.connect)).openSession
     const opened = yield* session.openThread(SESSION)
     let answers = 0
+    let asks = 0
 
     const stream = (text: string) =>
       Effect.sync(() => {
@@ -78,6 +86,7 @@ const driver: ContractDriver = {
         const request = { id, sessionID, permission: kind, patterns: ['rm -r build'], metadata: {}, always: [] }
         fake.permissions.push(request)
         fake.push({ id: `evt_${id}`, type: 'permission.asked', properties: request })
+        return id
       })
     const sessionError = (sessionID: string | undefined, message: string, statusCode: number) =>
       Effect.sync(() =>
@@ -102,9 +111,48 @@ const driver: ContractDriver = {
         const [root, id, action] = request.path.split('/').filter(Boolean)
         if (root === 'session' && action === 'abort') return [{ op: 'interrupt', target: id ?? null }]
         if (root === 'permission' && action === 'reply') {
-          return [{ op: (request.body as { reply: string }).reply === 'reject' ? 'decline' : 'approve' }]
+          const op = (request.body as { reply: string }).reply === 'reject' ? 'decline' : 'approve'
+          return [{ op, request: id ?? '' }]
         }
         return []
+      })
+
+    const passthrough = (source: PassthroughSource, marker: string) =>
+      Effect.gen(function* () {
+        switch (source) {
+          case 'tools':
+            fake.push({
+              id: 'evt_tool',
+              type: 'message.part.updated',
+              properties: {
+                sessionID: SESSION,
+                part: {
+                  id: 'prt_tool',
+                  sessionID: SESSION,
+                  messageID: 'msg_tool',
+                  type: 'tool',
+                  callID: 'call_tool',
+                  tool: `${marker}_search`,
+                  state: { status: 'error', input: {}, error: `${marker} tool error`, time: { start: 1, end: 2 } },
+                },
+                time: 1,
+              },
+            })
+            return []
+          case 'requests':
+            yield* ask('per_marker', SESSION, marker)
+            return []
+          case 'notices':
+            yield* retrying(`${marker} retrying`)
+            return []
+          case 'errors':
+            // One error for no session in particular, then the turn's own.
+            yield* sessionError(undefined, `${marker} server error`, 500)
+            yield* settle
+            yield* sessionError(SESSION, `${marker} failed`, 500)
+            fake.finish(SESSION)
+            return []
+        }
       })
 
     return {
@@ -126,7 +174,7 @@ const driver: ContractDriver = {
           hold = { reached, release: gate.release }
           return { reached: Effect.promise(() => gate.reached), release: Effect.sync(release) }
         }),
-        askFor: ask('per_ask', SESSION),
+        askFor: Effect.suspend(() => ask(`per_ask_${(asks += 1)}`, SESSION)),
         fail: (kind) =>
           Effect.andThen(
             kind === 'usage_limit'
@@ -134,8 +182,10 @@ const driver: ContractDriver = {
               : sessionError(SESSION, 'Overloaded', 503),
             Effect.sync(() => fake.finish(SESSION)),
           ),
+        // OpenCode's error carries no reset time.
+        usageResetAt: null,
         exit: Effect.sync(() => fake.exit(1)),
-        // A stale idle: the server is still busy with this turn (a late event from the previous one).
+        // A stale idle from the previous turn, landing while this turn's prompt is being accepted.
         foreignTerminal: Effect.sync(() => {
           fake.push({
             id: 'evt_stale_status',
@@ -155,34 +205,7 @@ const driver: ContractDriver = {
             yield* stream(text)
           }),
         notice: retrying,
-        passthrough: (marker) =>
-          Effect.gen(function* () {
-            fake.push({
-              id: 'evt_tool',
-              type: 'message.part.updated',
-              properties: {
-                sessionID: SESSION,
-                part: {
-                  id: 'prt_tool',
-                  sessionID: SESSION,
-                  messageID: 'msg_tool',
-                  type: 'tool',
-                  callID: 'call_tool',
-                  tool: `${marker}_search`,
-                  state: { status: 'error', input: {}, error: `${marker} tool error`, time: { start: 1, end: 2 } },
-                },
-                time: 1,
-              },
-            })
-            yield* ask('per_marker', SESSION, marker)
-            yield* retrying(`${marker} retrying`)
-            yield* sessionError(undefined, `${marker} server error`, 500)
-            yield* settle
-            yield* sessionError(SESSION, `${marker} failed`, 500)
-            fake.finish(SESSION)
-            yield* settle
-            fake.exit(1)
-          }),
+        passthrough,
         nameDocument: (title) =>
           Effect.sync(() => {
             const info = stubSession(SESSION, title, '/tmp/course')
@@ -203,16 +226,40 @@ const driver: ContractDriver = {
 
 /** What the legacy-wrapped adapter fails today. ARCH-4c deletes each entry as it fixes it (PAR-C). */
 contractSuite('OpenCode', driver, {
-  exit_mid_turn:
-    'A busy status still in flight when the process dies is read after the terminal and adopts a turn that never ends (PAR-C item 2, admission).',
-  respond_after_expiry:
-    'A permission still open when its turn ends stays answerable, and the late reply reaches OpenCode (PAR-C item 3, O-5).',
-  foreign_terminal: 'A stale `idle` ends the running turn without checking `session.status` (PAR-C item 2).',
-  subagent_request:
-    "A request from a child session it never saw created goes to the child's id, so the page never shows it (O-4).",
-  subagent_outlives_stop: 'Stop aborts only the root session; a busy child keeps running (O-9).',
-  passthrough:
-    'The raw tool name in callout titles (`Ran <tool>`), the permission name in the card title, and a sessionless error message on the banner.',
-  title_stealth:
-    'A provider title with a banned word ("Claude Code session") reaches the page and window title: the runtime guard in present.ts covers tool and request titles, not document titles. Owner: STL-1 (#59).',
+  exit_mid_turn: {
+    why: 'A busy status still in flight when the process dies is read after the terminal and adopts a turn that never ends (PAR-C item 2, admission).',
+    fails: 'on ses_1 never ended',
+  },
+  respond_after_expiry: {
+    why: 'A permission still open when its turn ends stays answerable, and the late reply reaches OpenCode (PAR-C item 3, O-5).',
+    fails: "a reply to an expired request is refused: expected 'taken'",
+  },
+  foreign_terminal: {
+    why: 'A stale `idle` during admission ends the new turn without checking `session.status` (PAR-C item 2).',
+    fails: "a terminal that is not this turn's leaves it running",
+  },
+  subagent_request: {
+    why: "A request from a child session it never saw created goes to the child's id, so the page never shows it (O-4).",
+    fails: 'Timed out waiting until a request is open on the page',
+  },
+  subagent_outlives_stop: {
+    why: 'Stop aborts only the root session; a busy child keeps running (O-9).',
+    fails: 'Stop reaches the busy subagent',
+  },
+  passthrough_tools: {
+    why: "The raw tool name titles the callout (O-6), and the tool's error is its body.",
+    fails: leakMessage(['callout.body: ZZPROV tool error', 'callout.title: Ran ZZPROV_search']),
+  },
+  passthrough_requests: {
+    why: 'The permission name titles the card.',
+    fails: leakMessage(['approval.title: Allow ZZPROV: rm -r build?']),
+  },
+  passthrough_errors: {
+    why: 'An error for no session in particular goes on the banner as written.',
+    fails: leakMessage(['banner: ZZPROV server error']),
+  },
+  title_stealth: {
+    why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',
+    fails: 'no title names a vendor or model',
+  },
 })

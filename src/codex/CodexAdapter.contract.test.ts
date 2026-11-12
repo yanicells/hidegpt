@@ -1,16 +1,22 @@
+import { expect, it } from '@effect/vitest'
 import * as Deferred from 'effect/Deferred'
 import * as Effect from 'effect/Effect'
 import * as Scope from 'effect/Scope'
+import * as Stream from 'effect/Stream'
 
 import {
   contractSuite,
-  notScripted,
-  settle,
+  failureMessage,
+  leakMessage,
+  RESETS_AT,
+  runScenario,
   type ContractDriver,
   type Hold,
+  type PassthroughSource,
   type Received,
 } from '../provider/contract.testkit'
 import { fromLegacy } from '../provider/legacyEvents'
+import type { AdapterEvent } from '../provider/ProviderAdapter'
 import * as CodexAdapter from './CodexAdapter'
 import { agentItem, makeFakeCodex } from './FakeCodex'
 
@@ -21,14 +27,12 @@ import { agentItem, makeFakeCodex } from './FakeCodex'
  */
 
 const THREAD = 'thr_1'
+/** A subagent's thread: Codex spawned it inside the turn, and the adapter never opened it. */
+const CHILD = { threadId: 'thr_child', turnId: 'turn_child' }
 
 const driver: ContractDriver = {
   provider: 'codex',
   settings: { model: null, effort: null, serviceTier: null, mode: null },
-  notScripted: {
-    subagent_request: 'the fake has no spawned subagent threads',
-    subagent_outlives_stop: 'the fake has no spawned subagent threads',
-  },
   open: Effect.gen(function* () {
     const scope = yield* Scope.Scope
     const received: Received[] = []
@@ -76,30 +80,105 @@ const driver: ContractDriver = {
           ...(error ? { error: { ...error, codexErrorInfo: null, additionalDetails: null } } : {}),
         },
       })
-    /** A command approval; its answer is recorded once Codex gets it. */
-    const askCommand = (params: { command: string; reason?: string }) =>
-      peer
-        .request('item/commandExecution/requestApproval', {
-          ...turn(),
-          itemId: `cmd_${received.length}`,
-          startedAtMs: 1,
-          ...params,
-        })
-        .pipe(
-          Effect.tap((answer) =>
-            Effect.sync(() => {
-              const decision = (answer as { decision?: string }).decision
-              received.push({ op: decision === 'accept' ? 'approve' : 'decline' })
-            }),
-          ),
-          Effect.forkIn(scope),
-          Effect.asVoid,
-        )
+    let asks = 0
+    /** A command approval on the open turn (or `on`); returns its item id, and records the answer once Codex gets it. */
+    const askCommand = (params: { command: string; reason?: string }, on?: typeof CHILD) =>
+      Effect.gen(function* () {
+        asks += 1
+        const itemId = `cmd_${asks}`
+        yield* peer
+          .request('item/commandExecution/requestApproval', { ...(on ?? turn()), itemId, startedAtMs: 1, ...params })
+          .pipe(
+            Effect.tap((answer) =>
+              Effect.sync(() => {
+                const decision = (answer as { decision?: string }).decision
+                received.push({ op: decision === 'accept' ? 'approve' : 'decline', request: itemId })
+              }),
+            ),
+            Effect.forkIn(scope),
+          )
+        return itemId
+      })
     const turnError = (message: string, codexErrorInfo: 'internalServerError' | 'usageLimitExceeded' | null) =>
       peer.notify('error', {
         error: { message, codexErrorInfo, additionalDetails: null, misalignment: null },
         willRetry: false,
         ...turn(),
+      })
+    const retrying = (message: string) =>
+      peer.notify('error', {
+        error: { message, codexErrorInfo: null, additionalDetails: null, misalignment: null },
+        willRetry: true,
+        ...turn(),
+      })
+    const completed = (item: Record<string, unknown>) =>
+      peer.notify('item/completed', { ...turn(), item, completedAtMs: 1 } as never)
+
+    const passthrough = (source: PassthroughSource, marker: string) =>
+      Effect.gen(function* () {
+        switch (source) {
+          case 'tools':
+            yield* completed({
+              type: 'mcpToolCall',
+              id: 'mcp_1',
+              server: `${marker}_server`,
+              tool: `${marker}_search`,
+              status: 'failed',
+              arguments: {},
+              result: null,
+              error: { message: `${marker} tool error` },
+              durationMs: 1,
+            })
+            yield* completed({
+              type: 'dynamicToolCall',
+              id: 'dyn_1',
+              namespace: `${marker}_space`,
+              tool: `${marker}_dynamic`,
+              arguments: {},
+              status: 'completed',
+            })
+            yield* completed({
+              type: 'collabAgentToolCall',
+              id: 'collab_1',
+              tool: 'spawnAgent',
+              status: 'completed',
+              senderThreadId: THREAD,
+              receiverThreadIds: [CHILD.threadId],
+              agentsStates: {},
+            })
+            yield* completed({
+              type: 'functionCallOutput',
+              id: 'fn_1',
+              name: `${marker}_function`,
+              namespace: `${marker}_functions`,
+              output: 'ok',
+            })
+            // An enum, so it cannot carry the marker.
+            return ['spawnAgent']
+          case 'requests':
+            yield* askCommand({ command: 'ls', reason: `${marker} reason` })
+            yield* peer
+              .request('mcpServer/elicitation/request', {
+                ...turn(),
+                serverName: `${marker}_server`,
+                mode: 'form',
+                message: `${marker} asks for details`,
+                requestedSchema: { type: 'object', properties: {} },
+                _meta: null,
+              } as never)
+              .pipe(Effect.forkIn(scope))
+            return []
+          case 'notices':
+            yield* peer.notify('warning', { message: `${marker} warning` } as never)
+            yield* peer.notify('configWarning', { summary: `${marker} config warning` })
+            yield* peer.notify('guardianWarning', { threadId: THREAD, message: `${marker} guardian warning` })
+            yield* retrying(`${marker} retrying`)
+            return []
+          case 'errors':
+            yield* turnError(`${marker} failed`, null)
+            yield* peer.exit(1, `${marker} stderr`)
+            return []
+        }
       })
 
     return {
@@ -123,6 +202,10 @@ const driver: ContractDriver = {
         fail: (kind) =>
           Effect.gen(function* () {
             if (kind === 'usage_limit') {
+              // Codex reports the account's windows as it hits the limit; `resetsAt` is in seconds.
+              yield* peer.notify('account/rateLimits/updated', {
+                rateLimits: { primary: { usedPercent: 100, resetsAt: RESETS_AT / 1000, windowDurationMins: 300 } },
+              } as never)
               const message = "You've hit your usage limit. Upgrade to Pro or try again later."
               yield* turnError(message, 'usageLimitExceeded')
               yield* complete('failed', { message })
@@ -132,6 +215,7 @@ const driver: ContractDriver = {
               yield* complete('failed', { message })
             }
           }),
+        usageResetAt: RESETS_AT,
         exit: peer.exit(1, 'thread panicked'),
         // A late terminal for an earlier turn, as after a Stop and a quick resend.
         foreignTerminal: peer.notify('turn/completed', {
@@ -147,60 +231,19 @@ const driver: ContractDriver = {
             })
             yield* stream(`agent_${native}`, text)
           }),
-        notice: (text) =>
-          peer.notify('error', {
-            error: { message: text, codexErrorInfo: null, additionalDetails: null, misalignment: null },
-            willRetry: true,
-            ...turn(),
-          }),
-        passthrough: (marker) =>
-          Effect.gen(function* () {
-            yield* peer.notify('item/completed', {
-              ...turn(),
-              item: {
-                type: 'mcpToolCall',
-                id: 'mcp_1',
-                server: `${marker}_server`,
-                tool: `${marker}_search`,
-                status: 'failed',
-                arguments: {},
-                result: null,
-                error: { message: `${marker} tool error` },
-                durationMs: 1,
-              },
-              completedAtMs: 1,
-            } as never)
-            yield* askCommand({ command: 'ls', reason: `${marker} reason` })
-            yield* peer
-              .request('mcpServer/elicitation/request', {
-                ...turn(),
-                serverName: `${marker}_server`,
-                mode: 'form',
-                message: `${marker} asks for details`,
-                requestedSchema: { type: 'object', properties: {} },
-                _meta: null,
-              } as never)
-              .pipe(Effect.forkIn(scope))
-            yield* peer.notify('warning', { message: `${marker} warning` } as never)
-            yield* peer.notify('error', {
-              error: {
-                message: `${marker} retrying`,
-                codexErrorInfo: null,
-                additionalDetails: null,
-                misalignment: null,
-              },
-              willRetry: true,
-              ...turn(),
-            })
-            // Let the requests reach the page before the turn fails and the process dies.
-            yield* settle
-            yield* turnError(`${marker} failed`, null)
-            yield* peer.exit(1, `${marker} stderr`)
-          }),
+        notice: retrying,
+        passthrough,
         nameDocument: (title) =>
           Effect.as(peer.notify('thread/name/updated', { threadId: THREAD, threadName: title } as never), null),
-        childRequest: notScripted('subagent threads'),
-        busyChild: notScripted('subagent threads'),
+        // A subagent's turn runs on its own thread; T3 Code takes its approvals and routes them by turn.
+        childRequest: askCommand({ command: 'ls' }, CHILD),
+        busyChild: Effect.as(
+          peer.notify('turn/started', {
+            threadId: CHILD.threadId,
+            turn: { id: CHILD.turnId, items: [], status: 'inProgress' },
+          }),
+          CHILD.turnId,
+        ),
         nativeTurn: () => native,
         received: () => received,
       },
@@ -210,12 +253,76 @@ const driver: ContractDriver = {
 
 /** What the legacy-wrapped adapter fails today. ARCH-4a deletes each entry as it fixes it. */
 contractSuite('Codex', driver, {
-  respond_after_expiry:
-    "A request still open when its turn ends stays answerable, and the late reply reaches Codex. Nothing expires the turn's requests at the terminal; the adapter waits for Codex to send `serverRequest/resolved`.",
-  foreign_terminal:
-    'A late `turn/completed` for an earlier turn ends the open one: the legacy path drops the native turn id, so `tracker.end` cannot tell the turns apart.',
-  passthrough:
-    'MCP server and tool names in callout titles (`server · tool`) and in the elicitation card title; warning, retry and error text on the banner; stderr in the crash banner.',
-  title_stealth:
-    'A provider title with a banned word ("Claude Code session") reaches the page and window title: the runtime guard in present.ts covers tool and request titles, not document titles. Owner: STL-1 (#59).',
+  usage_limit: {
+    why: '`account/rateLimits/updated` says when the window resets (`primary.resetsAt`); the failure carries no `resetAt`.',
+    fails: 'when the limit resets: expected null to be 1900000000000',
+  },
+  respond_after_expiry: {
+    why: "A request still open when its turn ends stays answerable, and the late reply reaches Codex: nothing expires the turn's requests at the terminal.",
+    fails: "a reply to an expired request is refused: expected 'taken'",
+  },
+  foreign_terminal: {
+    why: 'A late `turn/completed` for an earlier turn ends the one being admitted: the legacy path drops the native turn id (#50 finding 1 adds it).',
+    fails: "a terminal that is not this turn's leaves it running",
+  },
+  subagent_request: {
+    why: 'An approval from a subagent thread the adapter never opened never reaches the page. T3 Code allows approvals from subagents (`approvalsCanOriginateFromSubagents`) and routes them by turn.',
+    fails: 'Timed out waiting until a request is open on the page',
+  },
+  subagent_outlives_stop: {
+    why: "Stop interrupts only the document's own turn; the subagent's turn on its own thread keeps running.",
+    fails: 'Stop reaches the busy subagent',
+  },
+  passthrough_tools: {
+    why: 'MCP, dynamic and function tool names and namespaces, the subagent tool enum, and the MCP tool error reach callouts.',
+    fails: leakMessage([
+      'callout.body: ZZPROV tool error',
+      'callout.body: ZZPROV_functions',
+      'callout.title: Subtask · spawnAgent',
+      'callout.title: ZZPROV_function',
+      'callout.title: ZZPROV_server · ZZPROV_search',
+      'callout.title: ZZPROV_space · ZZPROV_dynamic',
+    ]),
+  },
+  passthrough_requests: {
+    why: "The MCP server's name titles the elicitation card, and its message is the card's body.",
+    fails: leakMessage(['approval.body: ZZPROV asks for details', 'approval.title: Continue with ZZPROV_server?']),
+  },
+  passthrough_notices: {
+    why: 'Warning, config warning, guardian warning and retry text go on the banner.',
+    fails: leakMessage([
+      'banner: ZZPROV config warning',
+      'banner: ZZPROV guardian warning',
+      'banner: ZZPROV retrying',
+      'banner: ZZPROV warning',
+    ]),
+  },
+  passthrough_errors: {
+    why: "The process's stderr goes in the crash banner.",
+    fails: leakMessage(['banner: Codex stopped unexpectedly (exit 1): ZZPROV stderr. Docs is reconnecting.']),
+  },
+  title_stealth: {
+    why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',
+    fails: 'no title names a vendor or model',
+  },
 })
+
+// The runner, not any one gap, holds every scenario to the stream contract.
+it.effect('the contract runner rejects a stream that breaks the contract', () =>
+  Effect.gen(function* () {
+    const doubled: ContractDriver = {
+      ...driver,
+      open: Effect.map(driver.open, (opened) => ({
+        ...opened,
+        session: {
+          ...opened.session,
+          events: Stream.flatMap(opened.session.events, (event) =>
+            Stream.fromIterable<AdapterEvent>(event.type === 'turn.ended' ? [event, event] : [event]),
+          ),
+        },
+      })),
+    }
+    const exit = yield* Effect.exit(runScenario(doubled, 'simple'))
+    expect(failureMessage(exit)).toContain('turn-1 ended twice')
+  }),
+)

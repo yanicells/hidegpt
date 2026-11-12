@@ -1,12 +1,9 @@
-// The scenario-per-adapter registration (`itRunsReplayFixtures`), the scenario names (`simple`,
-// `multi_turn`, `turn_interrupt`), the hold-and-release start gate (`ProviderReplayGate`) and the
-// traps the scenarios cover are adapted from T3 Code (https://github.com/pingdotgg/t3code) at commit
-// 5c6f2f12: apps/server/src/orchestration-v2/testkit/ProviderReplayFixtures.ts and fixtures/,
-// packages/provider-testing/src/replayGate.ts, docs/orchestration-v2/testing-strategy.md and
-// docs/internals/adding-a-provider.md ("Traps several providers hit").
-// Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+// Adapted from T3 Code (https://github.com/pingdotgg/t3code), its replay fixtures, replay gate, testing strategy and
+// provider traps, at commit 5c6f2f12. Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 import { describe, expect, it } from '@effect/vitest'
+import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
+import * as Exit from 'effect/Exit'
 import * as Fiber from 'effect/Fiber'
 import type * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
@@ -58,22 +55,36 @@ export const SCENARIOS = [
   'subagent_outlives_stop',
   'provider_notice',
   'terminal_once',
-  'passthrough',
+  'passthrough_tools',
+  'passthrough_requests',
+  'passthrough_notices',
+  'passthrough_errors',
   'title_stealth',
 ] as const
 export type ScenarioName = (typeof SCENARIOS)[number]
 
 /**
- * Scenarios an adapter fails today, each with why. They run as `it.fails`, so
- * the suite stays green and a gap that gets fixed fails until its entry is
- * deleted. Wave 3 (ARCH-4a/b/c) empties these lists.
+ * A scenario an adapter fails today: `why`, and `fails`, text its failure message contains.
+ * The test passes only while the scenario fails with that message, so a fixed gap turns red
+ * until its entry is deleted, and so does a gap that starts failing for another reason (a
+ * driver timeout). Wave 3 (ARCH-4a/b/c) empties these lists.
  */
-export type KnownGaps = Partial<Record<ScenarioName, string>>
+export type KnownGap = { readonly why: string; readonly fails: string }
+export type KnownGaps = Partial<Record<ScenarioName, KnownGap>>
 
-/** One thing the adapter sent the provider. `target` names the native turn or session an interrupt was for. */
+/** Where provider strings come from, one `passthrough_*` scenario each, so fixing one source never hides another. */
+export type PassthroughSource = 'tools' | 'requests' | 'notices' | 'errors'
+
+/**
+ * One thing the adapter sent the provider. `target` names the native turn, session or task an
+ * interrupt was for; `request` the native request a decision answered.
+ */
 export type Received =
   | { readonly op: 'interrupt'; readonly target: string | null }
-  | { readonly op: 'approve' | 'decline' }
+  | { readonly op: 'approve' | 'decline'; readonly request: string }
+
+/** When `fail('usage_limit')` says the limit resets, epoch ms (a whole second). */
+export const RESETS_AT = 1_900_000_000_000
 
 /** Holds the provider's acceptance of a new turn (T3's replay gate). */
 export type Hold = {
@@ -91,31 +102,38 @@ export interface ContractScript {
   readonly answer: (text: string) => Effect.Effect<void>
   /** Holds the provider's acceptance of the next turn until `release`. */
   readonly holdStart: Effect.Effect<Hold>
-  /** The provider asks the person to approve a command in the open turn. */
-  readonly askFor: Effect.Effect<void>
+  /** The provider asks the person to approve a command in the open turn; returns the request's native id. */
+  readonly askFor: Effect.Effect<string>
   /** The open turn fails. The provider may also report the turn complete afterwards. */
   readonly fail: (kind: 'provider_error' | 'usage_limit') => Effect.Effect<void>
+  /** What `fail('usage_limit')` tells the adapter about the reset: `RESETS_AT`, or null when the provider cannot say. */
+  readonly usageResetAt: number | null
   /** The provider process, or its stream, dies mid-turn. */
   readonly exit: Effect.Effect<void>
-  /** A terminal that is not the open turn's: a late one for an older turn, or a background task's bookkeeping. */
+  /**
+   * A terminal that is not the new turn's: a late one for an older turn, or a background task's
+   * bookkeeping. Sent while the new turn's start is held, so it races the turn's admission.
+   */
   readonly foreignTerminal: Effect.Effect<void>
   /** With no turn open, the provider starts one itself (a background task waking it) and streams `text`. */
   readonly selfStart: (text: string) => Effect.Effect<void>
   /** Mid-turn, the provider writes `text` about itself: a retry, a limit warning. */
   readonly notice: (text: string) => Effect.Effect<void>
   /**
-   * Mid-turn, every provider-controlled string the fake can send carries `marker`: tool and
-   * server names, request titles and reasons, error and retry messages, notices, stderr. Ends
-   * with the process exiting.
+   * Mid-turn, every provider-controlled string of `source` the fake can send carries `marker`.
+   * `tools`: tool, server and namespace names, tool errors. `requests`: request titles, names,
+   * reasons and messages. `notices`: warnings, retries, notices. `errors`: error messages and
+   * stderr; it ends the turn or the process. Returns the provider values that cannot carry the
+   * marker (enum values); they must not reach the page either.
    */
-  readonly passthrough: (marker: string) => Effect.Effect<void>
+  readonly passthrough: (source: PassthroughSource, marker: string) => Effect.Effect<ReadonlyArray<string>>
   /**
    * The provider names the document `title`. Returns the document reopened when the provider
    * only reports a title as the document opens, and null when it tells the page live.
    */
   readonly nameDocument: (title: string) => Effect.Effect<OpenedThread | null, ProviderError>
-  /** A request from a subagent session the adapter never saw created. */
-  readonly childRequest: Effect.Effect<void>
+  /** A subagent the adapter never saw created asks to run a command; returns the request's native id. */
+  readonly childRequest: Effect.Effect<string>
   /** A subagent of the open turn is working; returns its native id. */
   readonly busyChild: Effect.Effect<string>
   /** The native id the provider gave its newest turn, when it has one (for `Received.target`). */
@@ -133,13 +151,7 @@ export interface ContractDriver {
     ProviderError,
     Scope.Scope
   >
-  /** Scenarios this fake cannot produce, each with why. They are skipped, not counted as gaps. */
-  readonly notScripted?: KnownGaps
 }
-
-/** For a script method a fake cannot produce; list its scenario in the driver's `notScripted`. */
-export const notScripted = <A>(what: string): Effect.Effect<A> =>
-  Effect.die(new Error(`This fake does not script ${what}`))
 
 // ---- waiting ----------------------------------------------------------------------
 
@@ -168,7 +180,7 @@ type Run = {
   readonly script: ContractScript
   /** This document's events, in order. */
   readonly thread: () => ReadonlyArray<ThreadEvent>
-  /** Every string the window showed at any point: block text, titles, the banner (and Details). */
+  /** Every string the window showed at any point, as `where: text` (`callout.title: …`, `banner: …`). */
   readonly shown: () => ReadonlyArray<string>
   readonly blocks: () => ReadonlyArray<Block>
   /** Every page and window title the document had, in order. */
@@ -204,13 +216,23 @@ const open = (driver: ContractDriver) =>
     let exited = false
     let turns = 0
 
-    /** Records what the window would show now: blocks (without their ids), title and banner. */
+    /** Adds every string in `value` under its path (`approval.fields.label`), ids and kinds aside. */
+    const record = (where: string, value: unknown): void => {
+      if (typeof value === 'string') {
+        if (value) shown.add(`${where}: ${value}`)
+      } else if (Array.isArray(value)) for (const item of value) record(where, item)
+      else if (value !== null && typeof value === 'object') {
+        for (const [key, field] of Object.entries(value))
+          if (key !== 'id' && key !== 'kind') record(`${where}.${key}`, field)
+      }
+    }
+    /** Records what the window would show now: blocks, title and banner (Details shows the banner's text). */
     const look = () => {
       const snapshot = S.toSnapshot(state)
-      for (const { id: _id, ...block } of snapshot.blocks) shown.add(JSON.stringify(block))
-      shown.add(snapshot.title)
+      for (const block of snapshot.blocks) record(block.kind, block)
+      record('title', snapshot.title)
       if (titles.at(-1) !== snapshot.title) titles.push(snapshot.title)
-      if (snapshot.error) shown.add(snapshot.error)
+      if (snapshot.error) record('banner', snapshot.error)
     }
     look()
 
@@ -219,7 +241,7 @@ const open = (driver: ContractDriver) =>
         events.push(event)
         if (isThreadEvent(event)) state = S.applyThreadEvent(state, provider, event, 0)
         // The manager puts a library notice on the banner.
-        else if (event.type === 'notice') shown.add(event.message)
+        else if (event.type === 'notice') record('banner', event.message)
         look()
       }),
     ).pipe(Effect.forkScoped)
@@ -228,7 +250,7 @@ const open = (driver: ContractDriver) =>
       Effect.tapError((error) =>
         Effect.sync(() => {
           exited = true
-          shown.add(error.message)
+          record('banner', error.message)
         }),
       ),
       Effect.ignore,
@@ -311,13 +333,13 @@ const openRequest = (run: Run) =>
 const requestScenario = (accept: boolean) => (run: Run) =>
   Effect.gen(function* () {
     const turnId = yield* begin(run, 'Clean up the folder')
-    yield* run.script.askFor
+    const asked = yield* run.script.askFor
     const requestId = yield* openRequest(run)
     yield* run.session.respond(run.threadId, requestId, { accept, answers: {} })
     yield* until(() => decisions(run).length > 0, 'the provider received the decision')
     yield* run.script.answer('Done.')
     yield* awaitEnd(run, turnId)
-    expect(decisions(run)).toEqual([{ op: accept ? 'approve' : 'decline' }])
+    expect(decisions(run)).toEqual([{ op: accept ? 'approve' : 'decline', request: asked }])
   })
 
 /** A request still open when its turn completes. Returns its id. */
@@ -334,13 +356,52 @@ const requestLeftOpen = (run: Run) =>
 const requestStatus = (run: Run, requestId: string) =>
   run.blocks().find((block) => block.id === requestId && block.kind === 'approval')
 
+/** A request still open when its turn ends by `end`; it must show as skipped, waiting on no one. */
+const requestExpiresWhen = (run: Run, how: string, end: (turnId: TurnId) => Effect.Effect<void, ProviderError>) =>
+  Effect.gen(function* () {
+    const turnId = yield* begin(run, 'Clean up the folder')
+    yield* run.script.askFor
+    const requestId = yield* openRequest(run)
+    yield* end(turnId)
+    yield* until(() => run.ended(turnId) !== undefined || run.exited(), `${turnId} ended (${how})`)
+    yield* settle
+    expect(requestStatus(run, requestId), `a request open at ${how} shows as skipped`).toMatchObject({
+      resolved: 'skipped',
+      pending: false,
+    })
+  })
+
 const failureScenario = (kind: FailureClass & ('provider_error' | 'usage_limit')) => (run: Run) =>
   Effect.gen(function* () {
     const turnId = yield* begin(run, 'Summarise week 3')
     yield* run.script.fail(kind)
     const ended = yield* awaitEnd(run, turnId)
     expect(ended.status).toBe('failed')
-    expect(ended.failure?.class).toBe(kind)
+    expect(ended.failure?.class, 'the failure class').toBe(kind)
+    if (kind === 'usage_limit') expect(ended.failure?.resetAt, 'when the limit resets').toBe(run.script.usageResetAt)
+  })
+
+/** What a `passthrough_*` scenario fails with: each leaked `where: text` line. A gap's `fails` quotes it whole. */
+export const leakMessage = (lines: ReadonlyArray<string>) => ['Provider text on the page:', ...lines].join('\n  ')
+
+const passthroughScenario = (source: PassthroughSource) => (run: Run) =>
+  Effect.gen(function* () {
+    const turnId = yield* begin(run, 'Look it up')
+    const raw = yield* run.script.passthrough(source, MARKER)
+    if (source === 'errors') {
+      yield* until(() => run.ended(turnId) !== undefined || run.exited(), 'the turn ended or the session exited')
+    } else {
+      yield* settle
+      yield* run.script.answer('Done.')
+      yield* awaitEnd(run, turnId)
+    }
+    yield* settle
+    // Provider text stays in the log; the page, cards, hovers, banner and Details never carry it.
+    const leaked = run
+      .shown()
+      .filter((line) => line.includes(MARKER) || raw.some((value) => line.includes(value)))
+      .sort()
+    if (leaked.length > 0) return yield* Effect.die(new Error(leakMessage(leaked)))
   })
 
 /** Text a provider writes about itself; it must never read as the document's answer. */
@@ -377,7 +438,9 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
       yield* run.session.interrupt(run.threadId, turnId)
       const ended = yield* awaitEnd(run, turnId)
       expect(ended).toMatchObject({ status: 'interrupted', failure: null })
-      expect(interrupts(run)).toHaveLength(1)
+      expect(interrupts(run), 'Stop names the running turn').toEqual([
+        { op: 'interrupt', target: run.script.nativeTurn() },
+      ])
     }),
 
   interrupt_before_start: (run) =>
@@ -405,17 +468,26 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
       yield* run.script.exit
       yield* until(() => run.ended(turnId) !== undefined || run.exited(), 'the turn ended or the session exited')
       yield* settle
-      expect(run.ended(turnId)).toMatchObject({ status: 'failed', failure: { class: 'transport_error' } })
+      expect(run.ended(turnId), 'the turn ends as a lost connection').toMatchObject({
+        status: 'failed',
+        failure: { class: 'transport_error' },
+      })
     }),
 
   request_accept: requestScenario(true),
   request_decline: requestScenario(false),
 
+  // Expired requests show as skipped, and no longer wait on the person, however the turn ends.
   request_open_at_terminal: (run) =>
     Effect.gen(function* () {
       const requestId = yield* requestLeftOpen(run)
-      // Expired requests show as skipped, and no longer wait on the person.
-      expect(requestStatus(run, requestId)).toMatchObject({ resolved: 'skipped', pending: false })
+      expect(requestStatus(run, requestId), 'a request open at completion shows as skipped').toMatchObject({
+        resolved: 'skipped',
+        pending: false,
+      })
+      yield* requestExpiresWhen(run, 'Stop', (turnId) => run.session.interrupt(run.threadId, turnId))
+      yield* requestExpiresWhen(run, 'a failure', () => run.script.fail('provider_error'))
+      yield* requestExpiresWhen(run, 'an exit', () => run.script.exit)
     }),
 
   respond_after_expiry: (run) =>
@@ -428,17 +500,24 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
         .respond(run.threadId, requestId, { accept: true, answers: {} })
         .pipe(Effect.match({ onFailure: (error) => error._tag, onSuccess: () => 'taken' }))
       yield* settle
-      expect(outcome).toMatch(/Error$/)
+      expect(outcome, 'a reply to an expired request is refused').toMatch(/Error$/)
       expect(decisions(run)).toHaveLength(decided)
       expect(run.blocks()).toEqual(before)
     }),
 
+  // The terminal lands while the new turn is being admitted (T3's admission, PAR-C item 2).
   foreign_terminal: (run) =>
     Effect.gen(function* () {
-      const turnId = yield* begin(run, 'Run the long job')
-      yield* run.script.foreignTerminal
+      const hold = yield* run.script.holdStart
+      const sending = yield* run.send('Run the long job').pipe(Effect.forkScoped)
+      yield* hold.reached
+      const late = yield* run.script.foreignTerminal.pipe(Effect.forkScoped)
       yield* settle
-      expect(run.ended(turnId)).toBeUndefined()
+      yield* hold.release
+      const turnId = yield* Fiber.join(sending)
+      yield* Fiber.join(late)
+      yield* settle
+      expect(run.ended(turnId), "a terminal that is not this turn's leaves it running").toBeUndefined()
       yield* run.script.answer('The job is done.')
       expect(yield* awaitEnd(run, turnId)).toMatchObject({ status: 'completed' })
     }),
@@ -453,7 +532,7 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
       const firstItem = woken.findIndex((event) => event.type === 'item.upserted' || event.type === 'item.delta')
       const start = woken.findIndex((event) => event.type === 'turn.started')
       // The page shows Working (and Stop) for work the provider started itself.
-      expect(start).toBeGreaterThanOrEqual(0)
+      expect(start, 'a turn the provider starts itself shows as started').toBeGreaterThanOrEqual(0)
       expect(start).toBeLessThan(firstItem)
       const turnId = (woken[start] as Extract<ThreadEvent, { type: 'turn.started' }>).turnId
       yield* run.session.interrupt(run.threadId, turnId)
@@ -463,9 +542,12 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
   subagent_request: (run) =>
     Effect.gen(function* () {
       const turnId = yield* begin(run, 'Delegate it')
-      yield* run.script.childRequest
+      const asked = yield* run.script.childRequest
       // On the document's own thread, where the person can answer it.
-      yield* openRequest(run)
+      const requestId = yield* openRequest(run)
+      yield* run.session.respond(run.threadId, requestId, { accept: true, answers: {} })
+      yield* until(() => decisions(run).length > 0, 'the subagent received the decision')
+      expect(decisions(run), 'the decision reaches the subagent').toEqual([{ op: 'approve', request: asked }])
       yield* run.script.answer('Done.')
       yield* awaitEnd(run, turnId)
     }),
@@ -476,7 +558,7 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
       const child = yield* run.script.busyChild
       yield* run.session.interrupt(run.threadId, turnId)
       yield* awaitEnd(run, turnId)
-      expect(interrupts(run)).toContainEqual({ op: 'interrupt', target: child })
+      expect(interrupts(run), 'Stop reaches the busy subagent').toContainEqual({ op: 'interrupt', target: child })
     }),
 
   provider_notice: (run) =>
@@ -485,7 +567,7 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
       yield* run.script.notice(NOTICE)
       yield* run.script.answer('Week 3 covers attention.')
       yield* awaitEnd(run, turnId)
-      expect(agentText(run)).not.toContain('ZZNOTE')
+      expect(agentText(run), 'provider notices stay off the answer').not.toContain('ZZNOTE')
     }),
 
   terminal_once: (run) =>
@@ -505,15 +587,10 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
       ])
     }),
 
-  passthrough: (run) =>
-    Effect.gen(function* () {
-      const turnId = yield* begin(run, 'Look it up')
-      yield* run.script.passthrough(MARKER)
-      yield* until(() => run.ended(turnId) !== undefined || run.exited(), 'the turn ended or the session exited')
-      yield* settle
-      // Provider text stays in the log; the page, cards, hovers, banner and Details never carry it.
-      expect(run.shown().filter((text) => text.includes(MARKER))).toEqual([])
-    }),
+  passthrough_tools: passthroughScenario('tools'),
+  passthrough_requests: passthroughScenario('requests'),
+  passthrough_notices: passthroughScenario('notices'),
+  passthrough_errors: passthroughScenario('errors'),
 
   // A provider's title summarises the person's own content, so it reaches the page (D5), unless
   // it would make the page read as an AI tool.
@@ -530,7 +607,7 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
       expect(run.titles().at(-1)).toBe('Week 3 reading notes')
       yield* name('Claude Code session')
       yield* name('Ask GPT about photosynthesis')
-      expect(run.titles().flatMap(stealthViolations)).toEqual([])
+      expect(run.titles().flatMap(stealthViolations), 'no title names a vendor or model').toEqual([])
       expect(run.titles().at(-1)?.trim()).not.toBe('')
     }),
 }
@@ -601,24 +678,47 @@ export function contractViolations(events: ReadonlyArray<AdapterEvent>, opened: 
 
 // ---- registration -----------------------------------------------------------------
 
-const runScenario = (driver: ContractDriver, name: ScenarioName) =>
+/** Runs one scenario on a fresh fake, then holds its event stream to the contract. */
+export const runScenario = (driver: ContractDriver, name: ScenarioName) =>
   Effect.gen(function* () {
     const run = yield* open(driver)
     yield* SCENARIO_BODIES[name](run)
-    expect(contractViolations(run.thread(), run.opened)).toEqual([])
+    const violations = contractViolations(run.thread(), run.opened)
+    if (violations.length > 0) {
+      return yield* Effect.die(new Error(['The event stream breaks the contract:', ...violations].join('\n  ')))
+    }
   }).pipe(Effect.scoped)
+
+/** The message a failed run failed with: an assertion, a timeout, or a provider error. */
+export const failureMessage = (exit: Exit.Exit<unknown, unknown>): string | null => {
+  if (Exit.isSuccess(exit)) return null
+  const error = Cause.squash(exit.cause)
+  return error instanceof Error ? error.message : String(error)
+}
+
+/** Passes while the scenario fails with the gap's message; says why when it does not. */
+const expectGap = (gap: KnownGap) => (exit: Exit.Exit<unknown, unknown>) =>
+  Effect.sync(() => {
+    const message = failureMessage(exit)
+    if (message === null) throw new Error(`Passes now: delete this known gap (${gap.why})`)
+    if (!message.includes(gap.fails)) {
+      throw new Error(`Fails for another reason than its known gap.\nExpected: ${gap.fails}\nGot: ${message}`)
+    }
+  })
 
 /**
  * Registers every scenario for one adapter (T3's `itRunsReplayFixtures`). A scenario in
- * `knownGaps` runs as `it.fails`; one in the driver's `notScripted` is skipped.
+ * `knownGaps` passes only while it fails as listed.
  */
 export function contractSuite(name: string, driver: ContractDriver, knownGaps: KnownGaps) {
   describe(`${name} adapter contract`, () => {
     for (const scenario of SCENARIOS) {
-      const skipped = driver.notScripted?.[scenario]
-      if (skipped !== undefined) it.effect.skip(`${scenario} (not scripted: ${skipped})`, () => Effect.void)
-      else if (knownGaps[scenario] !== undefined) it.effect.fails(scenario, () => runScenario(driver, scenario))
-      else it.effect(scenario, () => runScenario(driver, scenario))
+      const gap = knownGaps[scenario]
+      if (gap !== undefined) {
+        it.effect(`${scenario} (known gap)`, () =>
+          runScenario(driver, scenario).pipe(Effect.exit, Effect.flatMap(expectGap(gap))),
+        )
+      } else it.effect(scenario, () => runScenario(driver, scenario))
     }
   })
 }
