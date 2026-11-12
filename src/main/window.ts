@@ -1,5 +1,5 @@
 /// <reference types="electron-vite/node" />
-import { BrowserWindow, app, net, protocol, shell } from 'electron'
+import { BrowserWindow, app, net, protocol, screen, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -24,11 +24,20 @@ export function resolvePreload(): string {
   return found ?? join(here, '../preload/index.js')
 }
 
+/**
+ * Initial window bounds: fill the display's work area (menu bar and Dock
+ * excluded), like a maximized Docs tab. Screenshot runs keep a fixed
+ * 1280x840 so captures and benchmarks stay comparable across machines.
+ */
+function initialBounds(): { width: number; height: number; x?: number; y?: number } {
+  if (process.env.HIDEGPT_SCREENSHOT) return { width: 1280, height: 840 }
+  return screen.getPrimaryDisplay().workArea
+}
+
 export function createWindow(opts: { onDidFinishLoad: () => void }): BrowserWindow {
   const isMac = process.platform === 'darwin'
   const win = new BrowserWindow({
-    width: 1280,
-    height: 840,
+    ...initialBounds(),
     minWidth: 720,
     minHeight: 560,
     title: 'Docs',
