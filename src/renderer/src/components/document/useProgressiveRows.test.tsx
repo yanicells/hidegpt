@@ -11,7 +11,10 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-const nextTask = () => act(() => vi.runOnlyPendingTimers())
+// A void callback keeps act synchronous: it returns nothing to await.
+const nextTask = () => act(() => {
+  vi.runOnlyPendingTimers()
+})
 
 describe('useProgressiveRows', () => {
   it('opens a screenful, adds a step per task, then renders new rows at once', () => {

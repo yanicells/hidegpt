@@ -1,4 +1,5 @@
 {
+  "extends": "./tsconfig.effect.json",
   "compilerOptions": {
     "target": "ES2023",
     "lib": ["ES2023", "DOM"],
@@ -12,7 +13,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node"],
+    "types": ["node", "vite/client"],
     "isolatedModules": true,
     "allowImportingTsExtensions": true
   },

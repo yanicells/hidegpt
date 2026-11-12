@@ -124,9 +124,9 @@ const program = Effect.gen(function* () {
     channel: 'save-image',
     payload: Schema.Tuple([Schema.Uint8Array, Schema.String]),
     handler: ([bytes, mime]) =>
-      Effect.tryPromise(() => saveImage(bytes, mime)).pipe(
+      Effect.tryPromise({ try: () => saveImage(bytes, mime), catch: userMessage }).pipe(
         Effect.map((path): { ok: true; path: string } | { ok: false; error: string } => ({ ok: true, path })),
-        Effect.catch((error) => Effect.succeed({ ok: false as const, error: userMessage(error.cause) })),
+        Effect.catch((error) => Effect.succeed({ ok: false as const, error })),
       ),
     invalid: () => ({ ok: false, error: 'Docs could not read that image.' }),
   })

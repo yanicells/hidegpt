@@ -368,6 +368,8 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             if (existing) info.saved = true
           }
           const prompts = yield* Queue.unbounded<SDKUserMessage, Cause.Done>()
+          // Permission prompts run on the SDK's callback, outside this fiber, with its services.
+          const runPromise = Effect.runPromiseWith(yield* Effect.context<never>())
           const effort = settings.effort && EFFORTS.has(settings.effort) ? (settings.effort as EffortLevel) : null
           const live: Live = {
             threadId,
@@ -388,7 +390,7 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
                 ...(settings.model ? { model: settings.model } : {}),
                 ...(effort ? { effort } : {}),
                 includePartialMessages: true,
-                canUseTool: (tool, input, options) => Effect.runPromise(askPermission(threadId, tool, input, options)),
+                canUseTool: (tool, input, options) => runPromise(askPermission(threadId, tool, input, options)),
                 stderr: (data) => {
                   live.stderr = lastLine(data) ?? live.stderr
                 },

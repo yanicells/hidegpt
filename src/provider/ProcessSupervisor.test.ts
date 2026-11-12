@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import * as NodeServices from '@effect/platform-node/NodeServices'
 import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
+import * as Layer from 'effect/Layer'
 
 import { ProcessLedger, ProcessSupervisor, layer } from './ProcessSupervisor'
 
@@ -16,7 +17,7 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }))
 const withSupervisor = <A, E>(use: (supervisor: ProcessSupervisor['Service']) => Effect.Effect<A, E>) =>
   Effect.gen(function* () {
     return yield* use(yield* ProcessSupervisor)
-  }).pipe(Effect.provide(layer(null)), Effect.provide(NodeServices.layer))
+  }).pipe(Effect.provide(layer(null).pipe(Layer.provideMerge(NodeServices.layer))))
 
 const alive = (pid: number) => {
   try {
