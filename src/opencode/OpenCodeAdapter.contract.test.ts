@@ -214,5 +214,5 @@ contractSuite('OpenCode', driver, {
   passthrough:
     'The raw tool name in callout titles (`Ran <tool>`), the permission name in the card title, and a sessionless error message on the banner.',
   title_stealth:
-    'A provider title with a banned word ("Claude Code session") reaches the page and window title: the runtime guard in present.ts covers tool and request titles, not document titles.',
+    'A provider title with a banned word ("Claude Code session") reaches the page and window title: the runtime guard in present.ts covers tool and request titles, not document titles. Owner: STL-1 (#59).',
 })

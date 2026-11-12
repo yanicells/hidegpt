@@ -220,5 +220,5 @@ contractSuite('Claude', driver, {
   passthrough:
     'Raw tool and MCP names in callout titles (`Using mcp__…`), the permission `displayName` in the card title, and `<synthetic>` text in the answer (C-1, C-3).',
   title_stealth:
-    'A provider title with a banned word ("Claude Code session") reaches the page and window title: the runtime guard in present.ts covers tool and request titles, not document titles.',
+    'A provider title with a banned word ("Claude Code session") reaches the page and window title: the runtime guard in present.ts covers tool and request titles, not document titles. Owner: STL-1 (#59).',
 })
