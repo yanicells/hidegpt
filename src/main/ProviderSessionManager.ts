@@ -594,7 +594,8 @@ export const make = (options: ManagerOptions) =>
         yield* session
           .respond(runtime.threadId, command.blockId, { accept: command.accept, answers: command.answers ?? {} })
           .pipe(Effect.tapError(() => mark('pending', 'sending')))
-        yield* mark(command.accept ? 'accepted' : 'declined')
+        // A turn that ended while the reply was on its way already expired the request.
+        yield* mark(command.accept ? 'accepted' : 'declined', 'sending')
       })
 
     const loadOlder = (id: ProviderId) =>
