@@ -46,4 +46,8 @@
   --scrollbar-w: 14px;
   /* UI-07: the page's crisp 1px edge, and Docs' scrollbars as Chrome draws them. */
   --page-edge: 0 0 0 1px #c4c7c5;
+  --scrollbar-size: 12px;
+  --scrollbar-track: #f0f0f0;
+  --scrollbar-thumb: #cdcdcd;
+  --scrollbar-thumb-hover: #bdbdbd;
 }
