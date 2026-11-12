@@ -49,6 +49,7 @@ import {
   type AskedQuestion,
   type StreamState,
 } from './mapping'
+import { packagedClaudeExecutable } from './executable'
 
 /**
  * The Claude Agent SDK as a HideGPT provider. The SDK runs Anthropic's
@@ -169,6 +170,9 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
         try: loadSdk,
         catch: () => new BinaryMissingError({ provider, command: '@anthropic-ai/claude-agent-sdk' }),
       })
+      // Set only in a packaged app, where the binary sits outside app.asar.
+      const executable = packagedClaudeExecutable()
+      const binary = executable ? { pathToClaudeCodeExecutable: executable } : {}
       const events = yield* Queue.unbounded<AdapterEvent>()
       yield* Effect.addFinalizer(() => Queue.shutdown(events))
       const emit = (event: AdapterEvent) => Queue.offer(events, event).pipe(Effect.asVoid)
@@ -209,6 +213,7 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             const query = sdk.query({
               prompt: silentPrompt(abort.signal),
               options: {
+                ...binary,
                 cwd,
                 abortController: abort,
                 // As in T3 Code's capabilities probe: no tools, hooks or MCP servers start.
@@ -382,6 +387,7 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             query: sdk.query({
               prompt: Stream.toAsyncIterable(Stream.fromQueue(prompts)),
               options: {
+                ...binary,
                 cwd: existsSync(info.cwd) ? info.cwd : homedir(),
                 ...(info.saved ? { resume: threadId } : { sessionId: threadId }),
                 ...(settings.model ? { model: settings.model } : {}),
