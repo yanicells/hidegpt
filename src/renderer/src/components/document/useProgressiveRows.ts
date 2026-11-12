@@ -19,11 +19,13 @@ export function useProgressiveRows(count: number): number {
 
   useEffect(() => {
     if (done) {
+      // oxlint-disable-next-line react/set-state-in-effect -- latches `done` once every row is on the page
       if (!state.done) setState((previous) => ({ ...previous, done: true }))
       return
     }
     const step = setTimeout(() => setState((previous) => ({ ...previous, limit: previous.limit + ROWS_PER_STEP })), 0)
     return () => clearTimeout(step)
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- each new limit schedules the next step
   }, [done, state.done, state.limit])
 
   return done ? count : state.limit

@@ -458,7 +458,7 @@ export function makeFakeOpenCode(options: FakeOpenCodeOptions = {}): FakeOpenCod
       alive = false
       exitCode = code
       endStreams()
-      for (const listener of [...exitListeners]) listener(code)
+      for (const listener of Array.from(exitListeners)) listener(code)
       exitListeners.clear()
     },
   }

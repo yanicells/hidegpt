@@ -249,6 +249,7 @@ function Chip({
         ? createPortal(
             <ChipPopover
               anchor={rect}
+              // oxlint-disable-next-line react/refs -- read when the menu opens, after the chip has mounted
               anchorEl={anchorRef.current}
               align={align}
               items={items}
@@ -318,7 +319,7 @@ function ChipPopover({
       window.removeEventListener('resize', onScroll)
       window.removeEventListener('scroll', onScroll, true)
     }
-  }, [onClose])
+  }, [anchorEl, onClose])
 
   const width = Math.min(360, Math.max(240, anchor.width + 48))
   const maxHeight = Math.min(340, window.innerHeight - 16)

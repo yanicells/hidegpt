@@ -243,7 +243,7 @@ describe('OpenCodeAdapter', () => {
       const [listed] = yield* session.listSkills('/tmp/course')
       yield* session.send(SESSION, { text: 'Explain', images: [], skill: listed ?? null, clientId: session.messageId() }, SETTINGS)
 
-      const parts = (requested(fake, 'POST', `/session/${SESSION}/prompt_async`)[0]?.body as { parts: Array<{ synthetic?: boolean; text: string }> }).parts
+      const parts = (requested(fake, 'POST', `/session/${SESSION}/prompt_async`)[0]!.body as { parts: Array<{ synthetic?: boolean; text: string }> }).parts
       expect(parts[1]).toMatchObject({ synthetic: true })
       expect(parts[1]?.text).toContain('Go slowly.')
       const reopened = yield* session.openThread(SESSION)
