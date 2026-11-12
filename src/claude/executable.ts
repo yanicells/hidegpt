@@ -17,7 +17,9 @@ export function packagedClaudeExecutable(
   arch: string = process.arch,
 ): string | undefined {
   try {
-    const path = resolve(`@anthropic-ai/claude-agent-sdk-${platform}-${arch}/claude${platform === 'win32' ? '.exe' : ''}`)
+    const path = resolve(
+      `@anthropic-ai/claude-agent-sdk-${platform}-${arch}/claude${platform === 'win32' ? '.exe' : ''}`,
+    )
     return path.includes(archived) ? path.replace(archived, unpacked) : undefined
   } catch {
     return undefined

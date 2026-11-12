@@ -25,12 +25,19 @@ export function makeDemoCodex(): FakeCodex {
   })
   return makeFakeCodex({
     threads,
-    projects: [project('course', 'Course notes', 0, now), project('workshop', 'Writing workshop', 1, now), project('reading', 'Reading journal', 2, null)],
+    projects: [
+      project('course', 'Course notes', 0, now),
+      project('workshop', 'Writing workshop', 1, now),
+      project('reading', 'Reading journal', 2, null),
+    ],
     deltaDelayMs: DEMO_DELTA_MS,
     turns: [
       stubTurn(
         'demo-turn',
-        DEMO_CONVERSATION.flatMap((turn, i) => [userItem(`question-${i + 1}`, turn.question), agentItem(`answer-${i + 1}`, turn.answer)]),
+        DEMO_CONVERSATION.flatMap((turn, i) => [
+          userItem(`question-${i + 1}`, turn.question),
+          agentItem(`answer-${i + 1}`, turn.answer),
+        ]),
       ),
     ],
   })

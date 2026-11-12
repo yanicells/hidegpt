@@ -35,7 +35,10 @@ export function ShareDialog({
           </span>
         </div>
         <label className="outlined-field">
-          <input aria-label="Add people, groups, and calendar events" placeholder="Add people, groups, and calendar events" />
+          <input
+            aria-label="Add people, groups, and calendar events"
+            placeholder="Add people, groups, and calendar events"
+          />
         </label>
         <h3 className="share-section">People with access</h3>
         <div className="share-person">

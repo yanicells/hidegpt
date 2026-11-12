@@ -19,7 +19,9 @@ describe('builderConfig', () => {
   it('notarizes only a signed build with complete notary credentials', () => {
     expect(builderConfig({ CSC_NAME: 'Developer ID Application: Someone', ...NOTARY }).mac?.notarize).toBe(true)
     expect(builderConfig(NOTARY).mac?.notarize).toBe(false)
-    expect(builderConfig({ CSC_NAME: 'Developer ID Application: Someone', APPLE_API_KEY: '/keys/AuthKey.p8' }).mac?.notarize).toBe(false)
+    expect(
+      builderConfig({ CSC_NAME: 'Developer ID Application: Someone', APPLE_API_KEY: '/keys/AuthKey.p8' }).mac?.notarize,
+    ).toBe(false)
   })
 
   it('treats empty or blank variables as unset', () => {

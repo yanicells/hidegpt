@@ -29,7 +29,12 @@ function runtimeImports(source: string): ReadonlyArray<string> {
   const visit = (node: SyntaxNode): void => {
     if (node.type === 'ImportExpression') throw new Error('The preload bundle contains a dynamic import() call')
     const callee = node.callee
-    if (node.type === 'CallExpression' && isSyntaxNode(callee) && callee.type === 'Identifier' && callee.name === 'require') {
+    if (
+      node.type === 'CallExpression' &&
+      isSyntaxNode(callee) &&
+      callee.type === 'Identifier' &&
+      callee.name === 'require'
+    ) {
       const args = node.arguments as ReadonlyArray<SyntaxNode>
       const [argument] = args
       if (args.length !== 1 || argument?.type !== 'Literal' || typeof argument.value !== 'string') {

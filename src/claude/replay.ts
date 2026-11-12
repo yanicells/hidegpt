@@ -29,14 +29,19 @@ type ApplyFlagSettings = Query['applyFlagSettings']
 const json = (value: unknown): unknown =>
   value === undefined
     ? undefined
-    : JSON.parse(JSON.stringify(value, (key, entry: unknown) => (typeof entry === 'function' || key === 'abortController' ? undefined : entry)))
+    : JSON.parse(
+        JSON.stringify(value, (key, entry: unknown) =>
+          typeof entry === 'function' || key === 'abortController' ? undefined : entry,
+        ),
+      )
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
 /** Wraps the real SDK so every call, answer, prompt and message lands in `entries`. */
 export function recordingSdk(sdk: ClaudeSdk, entries: ReplayEntry[], allowTurns: boolean): ClaudeSdk {
   let queries = 0
-  const outbound = (label: string, frame: unknown) => entries.push({ type: 'expect_outbound', label, frame: json(frame) })
+  const outbound = (label: string, frame: unknown) =>
+    entries.push({ type: 'expect_outbound', label, frame: json(frame) })
   const inbound = (label: string, frame: unknown) => entries.push({ type: 'emit_inbound', label, frame: json(frame) })
   const record = async <A>(label: string, frame: CallFrame, run: () => Promise<A>): Promise<A> => {
     outbound(label, frame)
@@ -52,13 +57,18 @@ export function recordingSdk(sdk: ClaudeSdk, entries: ReplayEntry[], allowTurns:
   }
 
   return {
-    listSessions: (options) => record('listSessions', { call: 'listSessions', args: [options] }, () => sdk.listSessions(options)),
+    listSessions: (options) =>
+      record('listSessions', { call: 'listSessions', args: [options] }, () => sdk.listSessions(options)),
     getSessionMessages: (id, options) =>
-      record('getSessionMessages', { call: 'getSessionMessages', args: [id, options] }, () => sdk.getSessionMessages(id, options)),
+      record('getSessionMessages', { call: 'getSessionMessages', args: [id, options] }, () =>
+        sdk.getSessionMessages(id, options),
+      ),
     getSessionInfo: (id, options) =>
       record('getSessionInfo', { call: 'getSessionInfo', args: [id, options] }, () => sdk.getSessionInfo(id, options)),
     renameSession: (id, title, options) =>
-      record('renameSession', { call: 'renameSession', args: [id, title, options] }, () => sdk.renameSession(id, title, options)),
+      record('renameSession', { call: 'renameSession', args: [id, title, options] }, () =>
+        sdk.renameSession(id, title, options),
+      ),
     query: ({ prompt, options }) => {
       const query = ++queries
       outbound('query', { call: 'query', query, args: [options] })
@@ -150,7 +160,11 @@ function same(expected: unknown, actual: unknown, bindings: Bindings): boolean {
     return bindUuid(expected, actual, bindings)
   }
   if (Array.isArray(expected)) {
-    return Array.isArray(actual) && expected.length === actual.length && expected.every((entry, i) => same(entry, actual[i], bindings))
+    return (
+      Array.isArray(actual) &&
+      expected.length === actual.length &&
+      expected.every((entry, i) => same(entry, actual[i], bindings))
+    )
   }
   if (isRecord(expected) && isRecord(actual)) {
     const keys = new Set([...Object.keys(expected), ...Object.keys(actual)].filter((key) => !IGNORED_KEYS.has(key)))
@@ -263,7 +277,9 @@ export function replaySdk(transcript: ReplayTranscript): ClaudeReplay {
     const entry = entries[cursor]
     const actual = json(sent)
     if (entry?.type !== 'expect_outbound') {
-      fail(`Docs sent ${JSON.stringify(actual)} at entry ${cursor}, but the recording has ${entry ? entry.type : 'ended'}.`)
+      fail(
+        `Docs sent ${JSON.stringify(actual)} at entry ${cursor}, but the recording has ${entry ? entry.type : 'ended'}.`,
+      )
       return false
     }
     if (!same(entry.frame, actual, bindings)) {

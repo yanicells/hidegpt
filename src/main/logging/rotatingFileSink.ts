@@ -55,7 +55,9 @@ export const makeRotatingFileSink = Effect.fnUntraced(function* (options: Rotati
   }).pipe(Effect.mapError(failure('prune')))
   const readSize = fs.stat(options.filePath).pipe(
     Effect.map((stat) => Number(stat.size)),
-    Effect.catch((cause) => (cause.reason._tag === 'NotFound' ? Effect.succeed(0) : Effect.fail(failure('read')(cause)))),
+    Effect.catch((cause) =>
+      cause.reason._tag === 'NotFound' ? Effect.succeed(0) : Effect.fail(failure('read')(cause)),
+    ),
   )
   let currentSize = yield* readSize
   const semaphore = yield* Semaphore.make(1)

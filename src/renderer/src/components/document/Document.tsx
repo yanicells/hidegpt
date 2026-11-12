@@ -63,7 +63,8 @@ export function Document({
     (entry: OutlineEntry) => {
       const root = scrollRef.current
       const block = root?.querySelector(`[data-block="${entry.blockId}"]`)
-      const target = entry.heading === undefined ? block : (block?.querySelectorAll('h1, h2, h3')[entry.heading] ?? block)
+      const target =
+        entry.heading === undefined ? block : (block?.querySelectorAll('h1, h2, h3')[entry.heading] ?? block)
       if (!root || !target) return
       release()
       settling.current?.abort()

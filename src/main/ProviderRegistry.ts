@@ -34,7 +34,11 @@ const fromLoaders = (loaders: Loaders) =>
           reportDefect(Cause.die(cause)).pipe(
             Effect.andThen(
               Effect.fail(
-                new ProviderRequestError({ provider: id, operation: 'load', detail: `Docs could not load ${providerLabel(id)}. Docs saved a report.` }),
+                new ProviderRequestError({
+                  provider: id,
+                  operation: 'load',
+                  detail: `Docs could not load ${providerLabel(id)}. Docs saved a report.`,
+                }),
               ),
             ),
           ),
@@ -58,7 +62,10 @@ export const layerLoaders = (loaders: Loaders) => {
     }
     return adapter
   }
-  return Layer.succeed(ProviderRegistry, fromLoaders({ codex: once('codex'), opencode: once('opencode'), claude: once('claude') }))
+  return Layer.succeed(
+    ProviderRegistry,
+    fromLoaders({ codex: once('codex'), opencode: once('opencode'), claude: once('claude') }),
+  )
 }
 
 /**
@@ -76,7 +83,9 @@ export const layer = Layer.effect(
     return fromLoaders({
       codex: () => import('../codex/CodexAdapter').then((m) => m.make(m.spawnAppServer(supervisor))),
       opencode: () => import('../opencode/OpenCodeAdapter').then((m) => m.make(m.spawnServer(supervisor))),
-      claude: PERSONAL_BUILD ? () => import('../claude/ClaudeAdapter').then((m) => m.make(undefined, supervisor)) : notInThisBuild,
+      claude: PERSONAL_BUILD
+        ? () => import('../claude/ClaudeAdapter').then((m) => m.make(undefined, supervisor))
+        : notInThisBuild,
     })
   }),
 )

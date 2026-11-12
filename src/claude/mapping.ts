@@ -33,7 +33,13 @@ type ContentBlock = {
   readonly input?: Readonly<Record<string, unknown>> | undefined
   readonly tool_use_id?: string | undefined
   readonly content?: unknown
-  readonly source?: { readonly type?: string | undefined; readonly media_type?: string | undefined; readonly data?: string | undefined } | undefined
+  readonly source?:
+    | {
+        readonly type?: string | undefined
+        readonly media_type?: string | undefined
+        readonly data?: string | undefined
+      }
+    | undefined
 }
 
 const field = <S extends Schema.Top & { readonly DecodingServices: never }>(schema: S) => {
@@ -57,7 +63,11 @@ function decodeBlock(value: unknown): ContentBlock | undefined {
     input: asRecord(part.input),
     tool_use_id: asString(part.tool_use_id),
     content: part.content,
-    source: source && { type: asString(source.type), media_type: asString(source.media_type), data: asString(source.data) },
+    source: source && {
+      type: asString(source.type),
+      media_type: asString(source.media_type),
+      data: asString(source.data),
+    },
   }
 }
 
@@ -223,7 +233,11 @@ export function blocksFromSessionMessages(messages: ReadonlyArray<SessionMessage
       if (part.type === 'text' && part.text) {
         const at = index.get(id)
         const current = at === undefined ? undefined : blocks[at]
-        put(current?.kind === 'agent' ? { ...current, text: `${current.text}\n\n${part.text}` } : { kind: 'agent', id, text: part.text })
+        put(
+          current?.kind === 'agent'
+            ? { ...current, text: `${current.text}\n\n${part.text}` }
+            : { kind: 'agent', id, text: part.text },
+        )
       }
     }
   }
@@ -240,7 +254,12 @@ export type StreamState = {
   readonly callouts: Map<string, CalloutBlock>
 }
 
-export const emptyStreamState = (): StreamState => ({ messageId: null, streamed: new Set(), texts: new Map(), callouts: new Map() })
+export const emptyStreamState = (): StreamState => ({
+  messageId: null,
+  streamed: new Set(),
+  texts: new Map(),
+  callouts: new Map(),
+})
 
 /** What one SDK frame changes on the page; the adapter adds the thread id. */
 export type Emission =
@@ -288,7 +307,8 @@ export function readMessage(state: StreamState, message: SDKMessage): Emission[]
     case 'user': {
       const out: Emission[] = []
       for (const part of partsOf(message.message)) {
-        const callout = part.type === 'tool_result' && part.tool_use_id ? state.callouts.get(part.tool_use_id) : undefined
+        const callout =
+          part.type === 'tool_result' && part.tool_use_id ? state.callouts.get(part.tool_use_id) : undefined
         if (!callout) continue
         state.callouts.delete(callout.id)
         out.push({ type: 'block', block: finishedCallout(callout, part) })
@@ -324,14 +344,25 @@ const RESULT_ERRORS: Record<string, string> = {
  */
 export function resultError(message: SDKResultMessage): string | undefined {
   if (message.terminal_reason === 'aborted_tools' || message.terminal_reason === 'aborted_streaming') return undefined
-  if (message.subtype === 'success') return message.is_error ? message.result.trim() || 'Claude ran into an error.' : undefined
+  if (message.subtype === 'success')
+    return message.is_error ? message.result.trim() || 'Claude ran into an error.' : undefined
   const text = message.errors.join('\n').trim()
   if (/interrupt|cancel/i.test(text)) return undefined
   return text || RESULT_ERRORS[message.subtype] || 'Claude stopped before finishing.'
 }
 
 // The input field that best shows what a tool will touch, first match wins.
-const PREVIEW_KEYS = ['command', 'file_path', 'notebook_path', 'path', 'url', 'query', 'pattern', 'prompt', 'description'] as const
+const PREVIEW_KEYS = [
+  'command',
+  'file_path',
+  'notebook_path',
+  'path',
+  'url',
+  'query',
+  'pattern',
+  'prompt',
+  'description',
+] as const
 
 export const permissionBlockId = (toolUseId: string) => `approval-${toolUseId}`
 
@@ -350,7 +381,12 @@ export function toolLabel(tool: string, displayName: string | undefined): string
 }
 
 /** A tool Claude wants to run, as a suggestion card asking to allow it. */
-export function permissionBlock(id: string, tool: string, input: Record<string, unknown>, displayName: string | undefined): ApprovalBlock {
+export function permissionBlock(
+  id: string,
+  tool: string,
+  input: Record<string, unknown>,
+  displayName: string | undefined,
+): ApprovalBlock {
   const preview = PREVIEW_KEYS.map((key) => input[key]).find((value): value is string => typeof value === 'string')
   return {
     kind: 'approval',
@@ -364,9 +400,17 @@ export function permissionBlock(id: string, tool: string, input: Record<string, 
   }
 }
 
-export type AskedQuestion = { readonly question: string; readonly header: string; readonly options: ReadonlyArray<{ readonly label: string }> }
+export type AskedQuestion = {
+  readonly question: string
+  readonly header: string
+  readonly options: ReadonlyArray<{ readonly label: string }>
+}
 
-const AskedItem = Schema.Struct({ question: Schema.String, header: Schema.optionalKey(Schema.Unknown), options: Schema.optionalKey(Schema.Unknown) })
+const AskedItem = Schema.Struct({
+  question: Schema.String,
+  header: Schema.optionalKey(Schema.Unknown),
+  options: Schema.optionalKey(Schema.Unknown),
+})
 const decodeAskedItem = Schema.decodeUnknownOption(AskedItem)
 const decodeOption = Schema.decodeUnknownOption(Schema.Struct({ label: Schema.String }))
 
@@ -379,7 +423,9 @@ export function askedQuestions(input: Record<string, unknown>): AskedQuestion[] 
       question: value.question,
       header: typeof value.header === 'string' ? value.header : '',
       options: Array.isArray(value.options)
-        ? value.options.flatMap((option: unknown) => Option.toArray(decodeOption(option)).map(({ label }) => ({ label })))
+        ? value.options.flatMap((option: unknown) =>
+            Option.toArray(decodeOption(option)).map(({ label }) => ({ label })),
+          )
         : [],
     })),
   )

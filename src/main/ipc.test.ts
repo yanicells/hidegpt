@@ -64,7 +64,10 @@ describe('ipc', () => {
             }),
           )
           const bytes = new Uint8Array([1, 2, 3])
-          expect(yield* call(IpcInvoke.saveImage.channel, { bytes, mime: 'image/png' })).toEqual({ ok: true, path: '/a.png' })
+          expect(yield* call(IpcInvoke.saveImage.channel, { bytes, mime: 'image/png' })).toEqual({
+            ok: true,
+            path: '/a.png',
+          })
           expect(saved).toEqual([{ bytes, mime: 'image/png' }])
         }),
       )

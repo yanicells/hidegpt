@@ -80,7 +80,7 @@ function mount(partial: Partial<Snapshot> = {}, fail: (command: Command) => stri
         const resolved = command.accept ? 'accepted' : 'skipped'
         snapshot = {
           ...snapshot,
-          blocks: snapshot.blocks.map((block) => 
+          blocks: snapshot.blocks.map((block) =>
             block.kind === 'approval' && block.id === command.blockId ? { ...block, resolved } : block,
           ),
         }
@@ -495,7 +495,12 @@ describe('project navigation and creation', () => {
   it('files a document made from inside a folder document in that folder', async () => {
     const user = userEvent.setup()
     const inFolder = { ...stubThread('thr_c', 'Week 3 notes', 'Week 3'), cwd: '/tmp/course/week3' }
-    const { calls } = mount({ projects: [projectFixture], threads: [inFolder], route: { kind: 'doc', threadId: 'thr_c' }, title: 'Week 3' })
+    const { calls } = mount({
+      projects: [projectFixture],
+      threads: [inFolder],
+      route: { kind: 'doc', threadId: 'thr_c' },
+      title: 'Week 3',
+    })
     await user.click(screen.getByLabelText('Add tab'))
     expect(calls).toContainEqual({ op: 'newDocument', projectId: 'course', cwd: '/tmp/course' })
   })
@@ -691,12 +696,18 @@ describe('failures and replies', () => {
     await user.click(screen.getByRole('radio', { name: 'Large' }))
     expect(calls).toEqual([])
     await user.click(screen.getByTestId('accept-ap1'))
-    expect(calls).toEqual([{ op: 'resolveApproval', blockId: 'ap1', accept: true, answers: { name: 'Yani', size: 'Large' } }])
+    expect(calls).toEqual([
+      { op: 'resolveApproval', blockId: 'ap1', accept: true, answers: { name: 'Yani', size: 'Large' } },
+    ])
   })
 
   it('offers sign-in only to libraries that sign in inside Docs', async () => {
     const user = userEvent.setup()
-    mount({ provider: 'claude', capabilities: CAPABILITIES.claude, account: { kind: 'local', label: 'yan@school.edu' } })
+    mount({
+      provider: 'claude',
+      capabilities: CAPABILITIES.claude,
+      account: { kind: 'local', label: 'yan@school.edu' },
+    })
     await user.click(screen.getByTestId('menu-account'))
     expect(screen.queryByTestId('action-login')).toBeNull()
     expect(screen.queryByTestId('action-logout')).toBeNull()

@@ -16,8 +16,15 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }))
 let files = 0
 const freshPath = () => join(mkdtempSync(join(dir, 'case-')), `ledger-${(files += 1)}.json`)
 
-const withLedger = <A, E>(path: string, owner: number, use: (ledger: ProcessLedger['Service']) => Effect.Effect<A, E>) =>
-  Effect.flatMap(Effect.service(ProcessLedger), use).pipe(Effect.provide(layer(path, owner)), Effect.provide(NodeServices.layer))
+const withLedger = <A, E>(
+  path: string,
+  owner: number,
+  use: (ledger: ProcessLedger['Service']) => Effect.Effect<A, E>,
+) =>
+  Effect.flatMap(Effect.service(ProcessLedger), use).pipe(
+    Effect.provide(layer(path, owner)),
+    Effect.provide(NodeServices.layer),
+  )
 const reap = (path: string) => withLedger(path, process.pid, (ledger) => ledger.reap)
 
 const onDisk = (path: string): Record<string, LedgerEntry> => JSON.parse(readFileSync(path, 'utf8'))
@@ -56,8 +63,17 @@ const cleanup = (pids: ReadonlyArray<number>) => {
 
 describe('ProcessLedger', () => {
   it('reads pid, group, start time and a command with spaces from ps', () => {
-    expect(parseProcessTable('  123    45 Thu Nov  5 14:39:47 2026     /Applications/My App.app/claude --output-format\n junk\n')).toEqual([
-      { pid: 123, pgid: 45, started: 'Thu Nov 5 14:39:47 2026', command: '/Applications/My App.app/claude --output-format' },
+    expect(
+      parseProcessTable(
+        '  123    45 Thu Nov  5 14:39:47 2026     /Applications/My App.app/claude --output-format\n junk\n',
+      ),
+    ).toEqual([
+      {
+        pid: 123,
+        pgid: 45,
+        started: 'Thu Nov 5 14:39:47 2026',
+        command: '/Applications/My App.app/claude --output-format',
+      },
     ])
   })
 
@@ -74,7 +90,12 @@ describe('ProcessLedger', () => {
           path,
           JSON.stringify({
             [server]: { command: '/bin/sleep', arg: '30', started: yield* started(server), ...GONE },
-            [otherApp]: { command: '/Users/someone/hidegpt/node_modules/sleep', arg: '30', started: yield* started(otherApp), ...GONE },
+            [otherApp]: {
+              command: '/Users/someone/hidegpt/node_modules/sleep',
+              arg: '30',
+              started: yield* started(otherApp),
+              ...GONE,
+            },
             [reused]: { command: '/bin/sleep', arg: '30', started: LONG_AGO, ...GONE },
           }),
         )
@@ -94,7 +115,13 @@ describe('ProcessLedger', () => {
       const firstInstance = sleeper()
       const server = sleeper()
       try {
-        const entry = { command: '/bin/sleep', arg: '30', started: yield* startOf(server), owner: firstInstance, ownerStarted: yield* startOf(firstInstance) }
+        const entry = {
+          command: '/bin/sleep',
+          arg: '30',
+          started: yield* startOf(server),
+          owner: firstInstance,
+          ownerStarted: yield* startOf(firstInstance),
+        }
         writeFileSync(path, JSON.stringify({ [server]: entry }))
         expect(yield* reap(path)).toBe(0)
         expect(alive(server)).toBe(true)
@@ -113,7 +140,15 @@ describe('ProcessLedger', () => {
       try {
         writeFileSync(
           path,
-          JSON.stringify({ [server]: { command: '/bin/sleep', arg: '30', started: yield* startOf(server), owner: process.pid, ownerStarted: LONG_AGO } }),
+          JSON.stringify({
+            [server]: {
+              command: '/bin/sleep',
+              arg: '30',
+              started: yield* startOf(server),
+              owner: process.pid,
+              ownerStarted: LONG_AGO,
+            },
+          }),
         )
         expect(yield* reap(path)).toBe(1)
       } finally {
@@ -162,7 +197,13 @@ describe('ProcessLedger', () => {
         yield* withLedger(path, process.pid, (ledger) => ledger.record(server, '/bin/sleep', '30'))
         expect(onDisk(path)).toEqual({
           5001: { command: 'codex', arg: 'app-server', started: '', owner: NO_SUCH_PID, ownerStarted: '' },
-          [server]: { command: '/bin/sleep', arg: '30', started: yield* startOf(server), owner: process.pid, ownerStarted: yield* startOf(process.pid) },
+          [server]: {
+            command: '/bin/sleep',
+            arg: '30',
+            started: yield* startOf(server),
+            owner: process.pid,
+            ownerStarted: yield* startOf(process.pid),
+          },
         })
         expect(onDisk(path)[server]?.started).toMatch(/\d{4}$/)
       } finally {
@@ -202,5 +243,7 @@ describe('ProcessLedger', () => {
     }),
   )
 
-  it.effect('reaps nothing without a ledger file', () => reap(freshPath()).pipe(Effect.map((killed) => expect(killed).toBe(0))))
+  it.effect('reaps nothing without a ledger file', () =>
+    reap(freshPath()).pipe(Effect.map((killed) => expect(killed).toBe(0))),
+  )
 })

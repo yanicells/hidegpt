@@ -9,14 +9,21 @@ const resolveTo = (path: string) => (id: string) => {
 
 describe('packagedClaudeExecutable', () => {
   it('points a packaged app at the unpacked binary', () => {
-    const archived = '/Applications/Docs.app/Contents/Resources/app.asar/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude'
+    const archived =
+      '/Applications/Docs.app/Contents/Resources/app.asar/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude'
     expect(packagedClaudeExecutable(resolveTo(archived), 'darwin', 'arm64')).toBe(
       '/Applications/Docs.app/Contents/Resources/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude',
     )
   })
 
   it("leaves a source checkout to the SDK's own lookup", () => {
-    expect(packagedClaudeExecutable(resolveTo('/repo/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude'), 'darwin', 'arm64')).toBeUndefined()
+    expect(
+      packagedClaudeExecutable(
+        resolveTo('/repo/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude'),
+        'darwin',
+        'arm64',
+      ),
+    ).toBeUndefined()
   })
 
   it('leaves a missing platform package to the SDK', () => {

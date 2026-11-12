@@ -46,7 +46,8 @@ const until = (manager: Service, predicate: (snapshot: Snapshot) => boolean) =>
 const captureErrorLogs = () => {
   const logged: Array<{ readonly cause: string; readonly annotations: Record<string, unknown> }> = []
   const capture = Logger.make(({ cause, fiber, logLevel }) => {
-    if (logLevel === 'Error') logged.push({ cause: Cause.pretty(cause), annotations: fiber.getRef(References.CurrentLogAnnotations) })
+    if (logLevel === 'Error')
+      logged.push({ cause: Cause.pretty(cause), annotations: fiber.getRef(References.CurrentLogAnnotations) })
   })
   return { logged, layer: Logger.layer([capture]) }
 }
@@ -111,7 +112,9 @@ describe('ProviderSessionManager', () => {
       const { manager } = yield* setup({ reply: null })
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
       yield* manager.dispatch({ op: 'send', text: 'Write a long essay' })
-      yield* until(manager, (snapshot) => snapshot.blocks.some((block) => block.kind === 'user' && !block.id.startsWith('local-')))
+      yield* until(manager, (snapshot) =>
+        snapshot.blocks.some((block) => block.kind === 'user' && !block.id.startsWith('local-')),
+      )
       const stopping = yield* Effect.forkScoped(until(manager, (snapshot) => snapshot.stopping))
       yield* manager.dispatch({ op: 'interrupt' })
       expect(yield* Fiber.join(stopping)).toMatchObject({ streaming: true, stopping: true })
@@ -126,7 +129,12 @@ describe('ProviderSessionManager', () => {
       const { peer, manager } = yield* setup({ reply: null, handlers: { 'turn/interrupt': () => Effect.never } })
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
       yield* manager.dispatch({ op: 'send', text: 'First' })
-      yield* until(manager, (snapshot) => snapshot.streaming && snapshot.blocks.some((block) => block.kind === 'user' && !block.id.startsWith('local-')))
+      yield* until(
+        manager,
+        (snapshot) =>
+          snapshot.streaming &&
+          snapshot.blocks.some((block) => block.kind === 'user' && !block.id.startsWith('local-')),
+      )
       yield* Effect.forkScoped(manager.dispatch({ op: 'interrupt' }))
       yield* until(manager, (snapshot) => snapshot.stopping)
       yield* peer.exit(1, 'boom')
@@ -182,7 +190,9 @@ describe('ProviderSessionManager', () => {
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
       yield* manager.dispatch({ op: 'newDocument', projectId: null })
       yield* manager.dispatch({ op: 'newDocument', projectId: 'course', cwd: '/tmp/course' })
-      const cwds = peer.calls.filter((call) => call.method === 'thread/start').map((call) => (call.params as { cwd?: string }).cwd)
+      const cwds = peer.calls
+        .filter((call) => call.method === 'thread/start')
+        .map((call) => (call.params as { cwd?: string }).cwd)
       expect(cwds).toEqual(['/tmp/docs', '/tmp/course'])
     }),
   )
@@ -192,7 +202,9 @@ describe('ProviderSessionManager', () => {
       const gate = yield* Deferred.make<void>()
       const { manager } = yield* setup({
         before: (method, params) =>
-          method === 'thread/resume' && (params as { threadId: string }).threadId === 'thr_1' ? Deferred.await(gate) : Effect.void,
+          method === 'thread/resume' && (params as { threadId: string }).threadId === 'thr_1'
+            ? Deferred.await(gate)
+            : Effect.void,
       })
       const slow = yield* Effect.forkScoped(manager.dispatch({ op: 'openThread', threadId: 'thr_1' }))
       yield* settle
@@ -201,17 +213,25 @@ describe('ProviderSessionManager', () => {
       yield* Fiber.join(slow)
       yield* settle
       const snapshot = yield* manager.snapshot
-      expect(snapshot).toMatchObject({ route: { kind: 'doc', threadId: 'thr_2' }, title: 'Chem lab', openingThreadId: null })
+      expect(snapshot).toMatchObject({
+        route: { kind: 'doc', threadId: 'thr_2' },
+        title: 'Chem lab',
+        openingThreadId: null,
+      })
     }),
   )
 
   it.effect('restarts Codex after a crash and reloads the open document', () =>
     Effect.gen(function* () {
-      const { peer, manager } = yield* setup({ turns: [stubTurn('turn_0', [userItem('u0', 'Hi'), agentItem('a0', 'Hello.')])] })
+      const { peer, manager } = yield* setup({
+        turns: [stubTurn('turn_0', [userItem('u0', 'Hi'), agentItem('a0', 'Hello.')])],
+      })
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
       yield* peer.exit(1, 'Error: config.toml is invalid')
       const lost = yield* until(manager, (snapshot) => snapshot.status === 'connecting')
-      expect(lost.error).toBe('Codex stopped unexpectedly (exit 1): Error: config.toml is invalid. Docs is reconnecting.')
+      expect(lost.error).toBe(
+        'Codex stopped unexpectedly (exit 1): Error: config.toml is invalid. Docs is reconnecting.',
+      )
       expect(lost.blocks).toHaveLength(2)
 
       yield* TestClock.adjust('1 second')
@@ -268,7 +288,11 @@ describe('ProviderSessionManager', () => {
       yield* settle
       yield* manager.dispatch({ op: 'setProvider', provider: 'codex' })
       const back = yield* manager.snapshot
-      expect(back).toMatchObject({ provider: 'codex', route: { kind: 'doc', threadId: 'thr_1' }, title: 'Photosynthesis' })
+      expect(back).toMatchObject({
+        provider: 'codex',
+        route: { kind: 'doc', threadId: 'thr_1' },
+        title: 'Photosynthesis',
+      })
       expect(back.account?.label).toMatch(/student@school\.edu/)
     }),
   )
@@ -310,9 +334,15 @@ describe('ProviderSessionManager', () => {
       )
       yield* manager.start('codex')
       const lost = yield* until(manager, (snapshot) => snapshot.error !== null)
-      expect(lost).toMatchObject({ status: 'connecting', error: 'Something went wrong. Docs saved a report and is reconnecting.' })
+      expect(lost).toMatchObject({
+        status: 'connecting',
+        error: 'Something went wrong. Docs saved a report and is reconnecting.',
+      })
       expect(logged).toEqual([
-        { cause: expect.stringContaining('bad frame'), annotations: { provider: 'codex', reportId: expect.stringMatching(/^[0-9a-f]{8}$/) } },
+        {
+          cause: expect.stringContaining('bad frame'),
+          annotations: { provider: 'codex', reportId: expect.stringMatching(/^[0-9a-f]{8}$/) },
+        },
       ])
       yield* TestClock.adjust('1 second')
       yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
@@ -350,9 +380,15 @@ describe('ProviderSessionManager', () => {
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
       yield* manager.dispatch({ op: 'send', text: 'Hi' })
       const lost = yield* until(manager, (snapshot) => snapshot.error !== null)
-      expect(lost).toMatchObject({ status: 'connecting', error: 'Something went wrong. Docs saved a report and is reconnecting.' })
+      expect(lost).toMatchObject({
+        status: 'connecting',
+        error: 'Something went wrong. Docs saved a report and is reconnecting.',
+      })
       expect(logged).toEqual([
-        { cause: expect.stringContaining('mapper bug'), annotations: { provider: 'codex', reportId: expect.stringMatching(/^[0-9a-f]{8}$/) } },
+        {
+          cause: expect.stringContaining('mapper bug'),
+          annotations: { provider: 'codex', reportId: expect.stringMatching(/^[0-9a-f]{8}$/) },
+        },
       ])
       yield* TestClock.adjust('1 second')
       yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
@@ -360,44 +396,54 @@ describe('ProviderSessionManager', () => {
     }).pipe(Effect.provide(layer))
   })
 
-  it.effect('a library that fails to load says so and logs why, the others keep working, and it loads on the next try', () => {
-    const { logged, layer } = captureErrorLogs()
-    return Effect.gen(function* () {
-      const peer = makeFakeCodex()
-      let claudeLoads = 0
-      const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
-        Effect.provide(
-          layerLoaders({
-            codex: () => Promise.resolve(CodexAdapter.make(peer.connect)),
-            opencode: () => Promise.reject(new Error('unused')),
-            claude: () =>
-              claudeLoads++ === 0
-                ? Promise.reject(new Error('Cannot find module ./ClaudeAdapter'))
-                : Promise.resolve(ClaudeAdapter.make(() => Promise.resolve(makeFakeClaude().sdk))),
-          }),
-        ),
-      )
-      yield* manager.start('codex')
-      yield* until(manager, (snapshot) => snapshot.status === 'ready')
-      const shown = yield* Effect.forkScoped(
-        manager.snapshots.pipe(
-          Stream.takeUntil((snapshot) => snapshot.status === 'error'),
-          Stream.runCollect,
-        ),
-      )
-      yield* settle
-      yield* manager.dispatch({ op: 'setProvider', provider: 'claude' })
-      const seen = yield* Fiber.join(shown)
-      const failed = seen[seen.length - 1]!
-      expect(failed.error).toBe('Docs could not load Claude. Docs saved a report.')
-      expect(logged).toEqual([{ cause: expect.stringContaining('Cannot find module ./ClaudeAdapter'), annotations: { provider: 'claude', reportId: expect.any(String) } }])
-      // Not retried, so shown once, as an error: never first as a reconnect.
-      expect(seen.filter((snapshot) => snapshot.error === failed.error && snapshot.status !== 'error')).toEqual([])
-      yield* manager.dispatch({ op: 'setProvider', provider: 'codex' })
-      expect(yield* until(manager, (snapshot) => snapshot.status === 'ready')).toMatchObject({ provider: 'codex' })
-      yield* manager.dispatch({ op: 'setProvider', provider: 'claude' })
-      expect(yield* until(manager, (snapshot) => snapshot.provider === 'claude' && snapshot.status === 'ready')).toMatchObject({ error: null })
-      expect(claudeLoads).toBe(2)
-    }).pipe(Effect.provide(layer))
-  })
+  it.effect(
+    'a library that fails to load says so and logs why, the others keep working, and it loads on the next try',
+    () => {
+      const { logged, layer } = captureErrorLogs()
+      return Effect.gen(function* () {
+        const peer = makeFakeCodex()
+        let claudeLoads = 0
+        const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
+          Effect.provide(
+            layerLoaders({
+              codex: () => Promise.resolve(CodexAdapter.make(peer.connect)),
+              opencode: () => Promise.reject(new Error('unused')),
+              claude: () =>
+                claudeLoads++ === 0
+                  ? Promise.reject(new Error('Cannot find module ./ClaudeAdapter'))
+                  : Promise.resolve(ClaudeAdapter.make(() => Promise.resolve(makeFakeClaude().sdk))),
+            }),
+          ),
+        )
+        yield* manager.start('codex')
+        yield* until(manager, (snapshot) => snapshot.status === 'ready')
+        const shown = yield* Effect.forkScoped(
+          manager.snapshots.pipe(
+            Stream.takeUntil((snapshot) => snapshot.status === 'error'),
+            Stream.runCollect,
+          ),
+        )
+        yield* settle
+        yield* manager.dispatch({ op: 'setProvider', provider: 'claude' })
+        const seen = yield* Fiber.join(shown)
+        const failed = seen[seen.length - 1]!
+        expect(failed.error).toBe('Docs could not load Claude. Docs saved a report.')
+        expect(logged).toEqual([
+          {
+            cause: expect.stringContaining('Cannot find module ./ClaudeAdapter'),
+            annotations: { provider: 'claude', reportId: expect.any(String) },
+          },
+        ])
+        // Not retried, so shown once, as an error: never first as a reconnect.
+        expect(seen.filter((snapshot) => snapshot.error === failed.error && snapshot.status !== 'error')).toEqual([])
+        yield* manager.dispatch({ op: 'setProvider', provider: 'codex' })
+        expect(yield* until(manager, (snapshot) => snapshot.status === 'ready')).toMatchObject({ provider: 'codex' })
+        yield* manager.dispatch({ op: 'setProvider', provider: 'claude' })
+        expect(
+          yield* until(manager, (snapshot) => snapshot.provider === 'claude' && snapshot.status === 'ready'),
+        ).toMatchObject({ error: null })
+        expect(claudeLoads).toBe(2)
+      }).pipe(Effect.provide(layer))
+    },
+  )
 })

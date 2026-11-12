@@ -101,7 +101,8 @@
   bottom: 0;
   height: 8px;
   background:
-    repeating-linear-gradient(90deg, transparent 0 47px, var(--ruler-tick) 47px 48px, transparent 48px 96px) 0 0 / 100% 8px no-repeat,
+    repeating-linear-gradient(90deg, transparent 0 47px, var(--ruler-tick) 47px 48px, transparent 48px 96px) 0 0 / 100%
+      8px no-repeat,
     repeating-linear-gradient(90deg, var(--ruler-tick) 0 1px, transparent 1px 12px) 0 4px / 100% 4px no-repeat;
 }
 
@@ -170,7 +171,8 @@
   bottom: 0;
   width: 8px;
   background:
-    repeating-linear-gradient(180deg, transparent 0 47px, var(--ruler-tick) 47px 48px, transparent 48px 96px) 100% 0 / 8px 100% no-repeat,
+    repeating-linear-gradient(180deg, transparent 0 47px, var(--ruler-tick) 47px 48px, transparent 48px 96px) 100% 0 /
+      8px 100% no-repeat,
     repeating-linear-gradient(180deg, var(--ruler-tick) 0 1px, transparent 1px 12px) 100% 0 / 4px 100% no-repeat;
 }
 

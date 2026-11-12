@@ -35,7 +35,10 @@ describe('ProviderEventLog', () => {
       }).pipe(Effect.scoped, Effect.provide(layer(dir)))
 
       const log = readFileSync(join(dir, 'codex.ndjson'), 'utf8')
-      const types = log.trim().split('\n').map((line) => JSON.parse(line).type)
+      const types = log
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line).type)
       expect(types).toEqual(expect.arrayContaining(['turnStarted', 'block', 'turnEnded']))
       expect(types).not.toContain('text')
       expect(log).not.toContain('Prompt-4b9d')
@@ -44,8 +47,14 @@ describe('ProviderEventLog', () => {
   )
 
   it('keeps sign-in links, titles, and error or notice text out of the log', () => {
-    expect(describeEvent({ type: 'loginUrl', url: 'https://auth.example/?state=secret' })).toEqual({ type: 'loginUrl', pending: true })
-    expect(describeEvent({ type: 'title', threadId: 't1', title: 'My private essay' })).toEqual({ type: 'title', threadId: 't1' })
+    expect(describeEvent({ type: 'loginUrl', url: 'https://auth.example/?state=secret' })).toEqual({
+      type: 'loginUrl',
+      pending: true,
+    })
+    expect(describeEvent({ type: 'title', threadId: 't1', title: 'My private essay' })).toEqual({
+      type: 'title',
+      threadId: 't1',
+    })
     // A provider can quote what was sent in its error ("invalid input: <prompt>").
     expect(describeEvent({ type: 'turnEnded', threadId: 't1', error: 'invalid input: my essay' })).toEqual({
       type: 'turnEnded',

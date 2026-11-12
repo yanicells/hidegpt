@@ -120,7 +120,12 @@ export function itemToBlock(item: ThreadItem): Block | null {
     case 'userMessage':
       return userBlock(item.id, item.content)
     case 'agentMessage':
-      return { kind: 'agent', id: item.id, text: item.text, ...(item.phase === 'commentary' ? { commentary: true } : {}) }
+      return {
+        kind: 'agent',
+        id: item.id,
+        text: item.text,
+        ...(item.phase === 'commentary' ? { commentary: true } : {}),
+      }
     case 'reasoning':
     case 'plan':
     case 'hookPrompt':
@@ -209,7 +214,17 @@ const block = (
   title: string,
   body: string,
   extra: Partial<Pick<ApprovalBlock, 'fields' | 'questions'>> = {},
-): ApprovalBlock => ({ kind: 'approval', id, suggestion, title, body, fields: [], questions: [], resolved: null, ...extra })
+): ApprovalBlock => ({
+  kind: 'approval',
+  id,
+  suggestion,
+  title,
+  body,
+  fields: [],
+  questions: [],
+  resolved: null,
+  ...extra,
+})
 
 const legacyDecision = (reply: ApprovalReply) =>
   reply.accept ? ('approved' as const) : { denied: { rejection: 'skipped' } }
@@ -262,17 +277,20 @@ export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {
   },
   'item/fileChange/requestApproval': {
     threadId: (params) => params.threadId,
-    block: (id, params) => block(id, 'replace', 'Apply file changes?', params.reason ?? 'The assistant wants to edit files.'),
+    block: (id, params) =>
+      block(id, 'replace', 'Apply file changes?', params.reason ?? 'The assistant wants to edit files.'),
     response: (_params, reply) => ({ decision: reply.accept ? 'accept' : 'decline' }),
   },
   applyPatchApproval: {
     threadId: (params) => params.conversationId,
-    block: (id, params) => block(id, 'replace', 'Apply file changes?', params.reason ?? 'The assistant wants to edit files.'),
+    block: (id, params) =>
+      block(id, 'replace', 'Apply file changes?', params.reason ?? 'The assistant wants to edit files.'),
     response: (_params, reply) => ({ decision: legacyDecision(reply) }),
   },
   'item/permissions/requestApproval': {
     threadId: (params) => params.threadId,
-    block: (id, params) => block(id, 'format', 'Grant extra access?', params.reason ?? 'The assistant needs more permissions.'),
+    block: (id, params) =>
+      block(id, 'format', 'Grant extra access?', params.reason ?? 'The assistant needs more permissions.'),
     response: (params, reply) => ({
       permissions: reply.accept
         ? {
@@ -301,14 +319,23 @@ export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {
   'item/tool/requestUserInput': {
     threadId: (params) => params.threadId,
     block: (id, params) =>
-      block(id, 'question', 'The assistant needs input', params.questions.map((q) => q.question).filter(Boolean).join('\n') || 'Continue?', {
-        questions: params.questions.map((question) => ({
-          id: question.id,
-          question: question.question,
-          options: question.options?.map((option) => option.label) ?? [],
-          allowText: Boolean(question.isOther) || !question.options?.length,
-        })),
-      }),
+      block(
+        id,
+        'question',
+        'The assistant needs input',
+        params.questions
+          .map((q) => q.question)
+          .filter(Boolean)
+          .join('\n') || 'Continue?',
+        {
+          questions: params.questions.map((question) => ({
+            id: question.id,
+            question: question.question,
+            options: question.options?.map((option) => option.label) ?? [],
+            allowText: Boolean(question.isOther) || !question.options?.length,
+          })),
+        },
+      ),
     response: (params, reply) => ({
       answers: Object.fromEntries(
         params.questions.map((question) => {

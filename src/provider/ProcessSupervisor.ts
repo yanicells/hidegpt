@@ -109,7 +109,10 @@ const stopGroup = (child: ChildProcessWithoutNullStreams, pid: number) =>
     Effect.timeoutOrElse({ duration: FORCE_KILL_AFTER, orElse: () => Effect.sync(() => signalGroup(pid, 'SIGKILL')) }),
   )
 
-const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledger: ProcessLedger.ProcessLedger['Service']) =>
+const make = (
+  spawner: ChildProcessSpawner.ChildProcessSpawner['Service'],
+  ledger: ProcessLedger.ProcessLedger['Service'],
+) =>
   ProcessSupervisor.of({
     spawn: Effect.fn('ProcessSupervisor.spawn')(function* (options, tailStderr = false) {
       const command = ChildProcess.make(options.command, [...options.args], {
@@ -168,7 +171,10 @@ const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledge
       yield* Effect.addFinalizer(() =>
         Effect.suspend(() => {
           closed = true
-          return Effect.forEach(running, ([child, pid]) => stopGroup(child, pid), { concurrency: 'unbounded', discard: true })
+          return Effect.forEach(running, ([child, pid]) => stopGroup(child, pid), {
+            concurrency: 'unbounded',
+            discard: true,
+          })
         }),
       )
       return (options: CallbackSpawnOptions) => {

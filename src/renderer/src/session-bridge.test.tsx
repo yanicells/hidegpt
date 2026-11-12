@@ -32,7 +32,8 @@ function bridge(start: Snapshot) {
     published = { snapshot: applySnapshotPatch(published.snapshot, patch), seq: patch.seq }
     inFlight.push(patch)
   }
-  const deliver = () => act(() => inFlight.splice(0).forEach((patch) => listeners.forEach((listener) => listener(patch))))
+  const deliver = () =>
+    act(() => inFlight.splice(0).forEach((patch) => listeners.forEach((listener) => listener(patch))))
   return {
     listeners,
     send,

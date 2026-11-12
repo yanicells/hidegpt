@@ -54,13 +54,9 @@ describe('replay fixtures', () => {
   })
 
   it('leaks finds what scrubbing must remove, in any case', () => {
-    expect(leaks('{"email":"ada@school.edu","cwd":"/Users/bob/x","by":"Lovelace","host":"ADAS-MBP"}', MACHINE)).toEqual([
-      'ada@school.edu',
-      '/Users/bob',
-      'ADAS-MBP',
-      'Lovelace',
-      'ada',
-    ])
+    expect(leaks('{"email":"ada@school.edu","cwd":"/Users/bob/x","by":"Lovelace","host":"ADAS-MBP"}', MACHINE)).toEqual(
+      ['ada@school.edu', '/Users/bob', 'ADAS-MBP', 'Lovelace', 'ada'],
+    )
   })
 
   it('an empty home or a short name never counts as a leak', () => {
@@ -68,10 +64,13 @@ describe('replay fixtures', () => {
     expect(scrub('/x/y', { home: '', people: [''], hosts: [''], scratch: [] })).toBe('/x/y')
   })
 
-  it.each(FIXTURES.map((path) => [path.slice(SRC.length), path]))('%s has no emails, home paths, names or tokens of this machine', (_name, path) => {
-    const text = readFileSync(path, 'utf8')
-    expect(leaks(text, thisMachine())).toEqual([])
-  })
+  it.each(FIXTURES.map((path) => [path.slice(SRC.length), path]))(
+    '%s has no emails, home paths, names or tokens of this machine',
+    (_name, path) => {
+      const text = readFileSync(path, 'utf8')
+      expect(leaks(text, thisMachine())).toEqual([])
+    },
+  )
 
   it('turns are refused unless a person sets HIDEGPT_RECORD_TURNS=1', () => {
     expect(turnsAllowed({})).toBe(false)

@@ -43,7 +43,11 @@ const TURN_PROMPTS = ['Reply with one short sentence about tea.', 'Now say it ag
 type Scenario = {
   readonly description: string
   readonly sendsTurns: boolean
-  readonly run: (session: ProviderSession, events: ReadonlyArray<AdapterEvent>, workspace: string) => Effect.Effect<void, unknown>
+  readonly run: (
+    session: ProviderSession,
+    events: ReadonlyArray<AdapterEvent>,
+    workspace: string,
+  ) => Effect.Effect<void, unknown>
 }
 
 const SCENARIOS: Record<string, Scenario> = {
@@ -55,7 +59,12 @@ const SCENARIOS: Record<string, Scenario> = {
       Effect.gen(function* () {
         yield* session.loadCatalog
         yield* Stream.runHead(session.listDocs(''))
-        const created = yield* session.createThread({ cwd: workspace, projectId: null, title: null, settings: SETTINGS })
+        const created = yield* session.createThread({
+          cwd: workspace,
+          projectId: null,
+          title: null,
+          settings: SETTINGS,
+        })
         // Codex keeps no transcript until the first turn, so this records its real "no rollout" error.
         yield* Effect.exit(session.openThread(created.threadId))
         yield* session.releaseThread(created.threadId)
@@ -66,12 +75,24 @@ const SCENARIOS: Record<string, Scenario> = {
     sendsTurns: true,
     run: (session, events, workspace) =>
       Effect.gen(function* () {
-        const created = yield* session.createThread({ cwd: workspace, projectId: null, title: null, settings: SETTINGS })
+        const created = yield* session.createThread({
+          cwd: workspace,
+          projectId: null,
+          title: null,
+          settings: SETTINGS,
+        })
         for (const [index, text] of TURN_PROMPTS.entries()) {
           const ended = () => events.filter((event) => event.type === 'turnEnded').length
           const before = ended()
-          yield* session.send(created.threadId, { text, images: [], skill: null, clientId: `local-replay-${index + 1}` }, SETTINGS)
-          yield* Effect.sleep('200 millis').pipe(Effect.repeat({ until: () => ended() > before }), Effect.timeout('3 minutes'))
+          yield* session.send(
+            created.threadId,
+            { text, images: [], skill: null, clientId: `local-replay-${index + 1}` },
+            SETTINGS,
+          )
+          yield* Effect.sleep('200 millis').pipe(
+            Effect.repeat({ until: () => ended() > before }),
+            Effect.timeout('3 minutes'),
+          )
         }
         yield* session.openThread(created.threadId)
         yield* session.releaseThread(created.threadId)
@@ -88,9 +109,9 @@ const recordingConnect = (
   allowTurns: boolean,
 ): CodexAdapter.Connect =>
   Effect.gen(function* () {
-    const handle = yield* spawner.spawn(
-      ChildProcess.make(env.CODEX_BIN || 'codex', ['app-server'], { cwd, env, extendEnv: false }),
-    ).pipe(Effect.orDie)
+    const handle = yield* spawner
+      .spawn(ChildProcess.make(env.CODEX_BIN || 'codex', ['app-server'], { cwd, env, extendEnv: false }))
+      .pipe(Effect.orDie)
     const context = yield* Layer.build(CodexClient.layerChildProcess(handle, recordingOptions(entries, allowTurns)))
     return Context.get(context, CodexClient.CodexAppServerClient)
   })
@@ -132,9 +153,12 @@ async function main() {
     await Effect.runPromise(
       Effect.gen(function* () {
         const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-        const session = yield* CodexAdapter.make(recordingConnect(spawner, env, workspace, entries, allowTurns)).openSession
+        const session = yield* CodexAdapter.make(recordingConnect(spawner, env, workspace, entries, allowTurns))
+          .openSession
         const events: AdapterEvent[] = []
-        yield* Stream.runForEach(session.events, (event) => Effect.sync(() => events.push(event))).pipe(Effect.forkScoped)
+        yield* Stream.runForEach(session.events, (event) => Effect.sync(() => events.push(event))).pipe(
+          Effect.forkScoped,
+        )
         yield* scenario.run(session, events, workspace)
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
     )
@@ -153,10 +177,14 @@ async function main() {
       description: scenario.description,
       ...(scenario.sendsTurns ? { prompts: TURN_PROMPTS } : {}),
     },
-    entries: [...entries.map((entry) => scrub(entry, machine) as ReplayEntry), { type: 'runtime_exit', status: 'success' }],
+    entries: [
+      ...entries.map((entry) => scrub(entry, machine) as ReplayEntry),
+      { type: 'runtime_exit', status: 'success' },
+    ],
   })
   const found = leaks(text, machine)
-  if (found.length) throw new Error(`Scrubbing missed ${found.length} value(s); nothing was written. First: ${found[0]}`)
+  if (found.length)
+    throw new Error(`Scrubbing missed ${found.length} value(s); nothing was written. First: ${found[0]}`)
   const out = new URL(`../src/codex/fixtures/${name}.ndjson`, import.meta.url)
   writeFileSync(out, text)
   console.log(`Wrote ${entries.length} frames to ${out.pathname.replace(process.cwd() + '/', '')}`)

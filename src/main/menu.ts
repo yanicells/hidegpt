@@ -131,15 +131,14 @@ export function template(snap: Snapshot, handlers: MenuHandlers): Electron.MenuI
         { role: 'zoomOut' },
         { type: 'separator' },
         { role: 'togglefullscreen' },
-        ...(app.isPackaged ? [] : [{ type: 'separator' as const }, { role: 'reload' as const }, { role: 'toggleDevTools' as const }]),
+        ...(app.isPackaged
+          ? []
+          : [{ type: 'separator' as const }, { role: 'reload' as const }, { role: 'toggleDevTools' as const }]),
       ],
     },
     {
       label: 'Tools',
-      submenu: [
-        { label: 'Refresh', click: () => dispatch({ op: 'refresh' }) },
-        ...connectItems,
-      ],
+      submenu: [{ label: 'Refresh', click: () => dispatch({ op: 'refresh' }) }, ...connectItems],
     },
     { label: 'Account', submenu: accountItems(snap, handlers) },
     { role: 'help', submenu: [{ label: 'Report a problem…', click: handlers.reportProblem }] },

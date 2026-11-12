@@ -29,7 +29,9 @@ const WORKSPACE = '/tmp/replay-workspace'
 /** Opens a session over a recording; `finished` checks every recorded frame was used. */
 const replay = (name: string, options: CodexClient.CodexAppServerClientOptions = {}) =>
   Effect.gen(function* () {
-    const transcript = Schema.decodeUnknownSync(CodexReplay.CodexAppServerReplayTranscript)(readTranscript(fixture(name)))
+    const transcript = Schema.decodeUnknownSync(CodexReplay.CodexAppServerReplayTranscript)(
+      readTranscript(fixture(name)),
+    )
     const driver = yield* CodexReplay.makeReplayDriver(transcript)
     const connect: CodexAdapter.Connect = Layer.build(CodexReplay.layerReplayWithDriver(driver, options)).pipe(
       Effect.orDie,
@@ -72,7 +74,8 @@ describe('CodexAdapter replay', () => {
     }),
   )
 
-  const TURN_SKIP = 'needs src/codex/fixtures/turn.ndjson, which a person records with real prompts (docs/replay-fixtures.md)'
+  const TURN_SKIP =
+    'needs src/codex/fixtures/turn.ndjson, which a person records with real prompts (docs/replay-fixtures.md)'
   it.live.skipIf(!existsSync(fixture('turn')))(`turn: two real turns, then their history (${TURN_SKIP})`, () =>
     Effect.gen(function* () {
       const { session, events, transcript, finished } = yield* replay('turn')
@@ -82,8 +85,15 @@ describe('CodexAdapter replay', () => {
       for (const [index, text] of prompts.entries()) {
         const ended = () => events.filter((event) => event.type === 'turnEnded').length
         const before = ended()
-        yield* session.send(created.threadId, { text, images: [], skill: null, clientId: `local-replay-${index + 1}` }, SETTINGS)
-        yield* Effect.sleep('5 millis').pipe(Effect.repeat({ until: () => ended() > before }), Effect.timeout('5 seconds'))
+        yield* session.send(
+          created.threadId,
+          { text, images: [], skill: null, clientId: `local-replay-${index + 1}` },
+          SETTINGS,
+        )
+        yield* Effect.sleep('5 millis').pipe(
+          Effect.repeat({ until: () => ended() > before }),
+          Effect.timeout('5 seconds'),
+        )
       }
       expect(events.filter((event) => event.type === 'turnEnded' && event.error)).toEqual([])
       expect(events.some((event) => event.type === 'text' && event.delta)).toBe(true)
@@ -108,7 +118,9 @@ describe('CodexAdapter replay', () => {
       const created = yield* session.createThread({ cwd: WORKSPACE, projectId: null, title: null, settings: SETTINGS })
 
       // The thread is loaded, so a send goes straight to turn/start.
-      const sent = yield* Effect.exit(session.send(created.threadId, { text: 'Hi', images: [], skill: null, clientId: 'local-1' }, SETTINGS))
+      const sent = yield* Effect.exit(
+        session.send(created.threadId, { text: 'Hi', images: [], skill: null, clientId: 'local-1' }, SETTINGS),
+      )
       expect(sent._tag).toBe('Failure')
       expect(String(sent._tag === 'Failure' && sent.cause)).toContain('HIDEGPT_RECORD_TURNS=1')
 

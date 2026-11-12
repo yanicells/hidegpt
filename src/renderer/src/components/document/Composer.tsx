@@ -1,4 +1,13 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+  type KeyboardEvent,
+} from 'react'
 
 import type { Skill } from '../../../../shared/model'
 import { dispatch, showRequestError } from '../../session-bridge'
@@ -101,7 +110,9 @@ export const Composer = memo(function Composer({
     // failure goes on the banner (main's sentence, or a plain one when the file
     // could not be read or the request never reached main).
     const settled = await Promise.allSettled(
-      pictures.map(async (file) => window.hidegpt.saveImage({ bytes: new Uint8Array(await file.arrayBuffer()), mime: file.type })),
+      pictures.map(async (file) =>
+        window.hidegpt.saveImage({ bytes: new Uint8Array(await file.arrayBuffer()), mime: file.type }),
+      ),
     )
     const paths: string[] = []
     let failure: string | null = null
@@ -119,7 +130,12 @@ export const Composer = memo(function Composer({
   const submit = async () => {
     if (streaming || sending || (!draft.trim() && !images.length && !skill)) return
     setSending(true)
-    const result = await dispatch({ op: 'send', text: draft, ...(skill ? { skill } : {}), ...(images.length ? { images } : {}) })
+    const result = await dispatch({
+      op: 'send',
+      text: draft,
+      ...(skill ? { skill } : {}),
+      ...(images.length ? { images } : {}),
+    })
     setSending(false)
     if (!result.ok) return
     setDraft('')

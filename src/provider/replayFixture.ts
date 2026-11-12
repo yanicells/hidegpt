@@ -53,7 +53,9 @@ export const turnsAllowed = (env: NodeJS.ProcessEnv = process.env) => env.HIDEGP
 
 export class TurnRefusedError extends Error {
   constructor(what: string) {
-    super(`Refusing to ${what}: recording a turn sends a prompt to a real model. A person must set HIDEGPT_RECORD_TURNS=1.`)
+    super(
+      `Refusing to ${what}: recording a turn sends a prompt to a real model. A person must set HIDEGPT_RECORD_TURNS=1.`,
+    )
     this.name = 'TurnRefusedError'
   }
 }
@@ -79,7 +81,8 @@ const REPLAY_EMAIL = 'replay-user@example.com'
 const REDACTED = '<redacted>'
 
 /** Keys whose string values are secrets or per-install ids, whatever they hold. */
-const SECRET_KEYS = /^(?:.*token|.*secret|.*password|apikey|api_key|authorization|cookie|installationid|accountid|organizationid|orguuid|accountuuid)$/i
+const SECRET_KEYS =
+  /^(?:.*token|.*secret|.*password|apikey|api_key|authorization|cookie|installationid|accountid|organizationid|orguuid|accountuuid)$/i
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g
 /** JWTs and provider API keys. */
 const TOKEN = /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|\bsk-(?:ant-)?[A-Za-z0-9_-]{16,}/g
@@ -124,7 +127,9 @@ export function scrub(value: unknown, machine: RecordingMachine, key?: string): 
   if (typeof value === 'string') return scrubString(value, machine)
   if (Array.isArray(value)) return value.map((entry) => scrub(entry, machine))
   if (typeof value !== 'object' || value === null) return value
-  return Object.fromEntries(Object.entries(value).map(([entryKey, entry]) => [entryKey, scrub(entry, machine, entryKey)]))
+  return Object.fromEntries(
+    Object.entries(value).map(([entryKey, entry]) => [entryKey, scrub(entry, machine, entryKey)]),
+  )
 }
 
 /**
@@ -157,7 +162,11 @@ export function thisMachine(scratch: RecordingMachine['scratch'] = []): Recordin
   return {
     home: homedir(),
     people: [userInfo().username, ...run('git', ['config', 'user.name']).split(/\s+/)],
-    hosts: [host, host.split('.')[0] ?? '', process.platform === 'darwin' ? run('scutil', ['--get', 'ComputerName']) : ''],
+    hosts: [
+      host,
+      host.split('.')[0] ?? '',
+      process.platform === 'darwin' ? run('scutil', ['--get', 'ComputerName']) : '',
+    ],
     scratch,
   }
 }

@@ -10,10 +10,10 @@ after updating a CLI (see the end of this page).
 The recorders run the app's TypeScript directly with Node, so they need
 Node 22.18 or later (`engines` in package.json), as does the app.
 
-| Provider | Fixture | Recorder | Test |
-|---|---|---|---|
-| Codex | `src/codex/fixtures/<scenario>.ndjson` (JSON-RPC frames) | `pnpm record:codex <scenario>` | `src/codex/CodexAdapter.replay.test.ts` |
-| Claude | `src/claude/fixtures/<scenario>.ndjson` (Agent SDK calls, answers and messages) | `pnpm record:claude <scenario>` | `src/claude/ClaudeAdapter.replay.test.ts` |
+| Provider | Fixture                                                                         | Recorder                        | Test                                      |
+| -------- | ------------------------------------------------------------------------------- | ------------------------------- | ----------------------------------------- |
+| Codex    | `src/codex/fixtures/<scenario>.ndjson` (JSON-RPC frames)                        | `pnpm record:codex <scenario>`  | `src/codex/CodexAdapter.replay.test.ts`   |
+| Claude   | `src/claude/fixtures/<scenario>.ndjson` (Agent SDK calls, answers and messages) | `pnpm record:claude <scenario>` | `src/claude/ClaudeAdapter.replay.test.ts` |
 
 Each line of a fixture is one JSON record: a `transcript_start` header (CLI
 version, scenario), then `expect_outbound` (what Docs sent), `emit_inbound`

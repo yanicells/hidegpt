@@ -169,8 +169,12 @@ export function recoverRenderer(win: BrowserWindow, appUrl: string, now: () => n
 const ALLOWED_PERMISSIONS: ReadonlySet<string> = new Set(['clipboard-sanitized-write'])
 
 /** Denies every permission request and check except the ones above. */
-export function denyPermissions(session: Pick<Session, 'setPermissionRequestHandler' | 'setPermissionCheckHandler'>): void {
-  session.setPermissionRequestHandler((_webContents, permission, callback) => callback(ALLOWED_PERMISSIONS.has(permission)))
+export function denyPermissions(
+  session: Pick<Session, 'setPermissionRequestHandler' | 'setPermissionCheckHandler'>,
+): void {
+  session.setPermissionRequestHandler((_webContents, permission, callback) =>
+    callback(ALLOWED_PERMISSIONS.has(permission)),
+  )
   session.setPermissionCheckHandler((_webContents, permission) => ALLOWED_PERMISSIONS.has(permission))
 }
 

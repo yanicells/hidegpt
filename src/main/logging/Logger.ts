@@ -36,7 +36,10 @@ export const layer = (options: LoggingOptions) =>
       [
         Effect.gen(function* () {
           const path = yield* Path.Path
-          const sink = yield* makeRotatingFileSink({ ...MAIN_LOG, filePath: path.join(options.directory, MAIN_LOG.name) })
+          const sink = yield* makeRotatingFileSink({
+            ...MAIN_LOG,
+            filePath: path.join(options.directory, MAIN_LOG.name),
+          })
           return yield* Logger.batched(Logger.formatJson, {
             window: BATCH_WINDOW,
             flush: (lines) => Effect.ignore(sink.write(lines.map((line) => `${line}\n`).join(''))),

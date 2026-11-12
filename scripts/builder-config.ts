@@ -23,7 +23,10 @@ export const wantsNotarizing = (env: Env): boolean =>
     has(env, 'APPLE_KEYCHAIN', 'APPLE_KEYCHAIN_PROFILE'))
 
 /** The SDK's entry bundles its own dependencies, so it and its platform binary are all Claude needs. */
-const CLAUDE_FILES = ['node_modules/@anthropic-ai/claude-agent-sdk/**/*', 'node_modules/@anthropic-ai/claude-agent-sdk-*/**/*']
+const CLAUDE_FILES = [
+  'node_modules/@anthropic-ai/claude-agent-sdk/**/*',
+  'node_modules/@anthropic-ai/claude-agent-sdk-*/**/*',
+]
 const CLAUDE_BINARY = 'node_modules/@anthropic-ai/claude-agent-sdk-*/**/*'
 
 /** Everything electron-builder reads to sign or notarize. */

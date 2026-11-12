@@ -25,7 +25,9 @@ describe('verifyPreloadBundle', () => {
 
   it('rejects dynamic loading', () => {
     expect(() => verifyPreloadBundle(preload(API, 'import("electron");'))).toThrow(/dynamic import/)
-    expect(() => verifyPreloadBundle(preload(API, 'const name = "electron"; require(name);'))).toThrow(/dynamic require/)
+    expect(() => verifyPreloadBundle(preload(API, 'const name = "electron"; require(name);'))).toThrow(
+      /dynamic require/,
+    )
   })
 
   it('rejects a preload missing part of the API', () => {

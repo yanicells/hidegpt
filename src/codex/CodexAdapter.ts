@@ -108,7 +108,11 @@ function requestError(method: string, error: CodexError.CodexAppServerError): Pr
     return new ProviderRequestError({ provider: 'codex', operation: method, detail: formatCodexError(error.message) })
   }
   if (error._tag === 'CodexAppServerProtocolParseError') {
-    return new ProviderRequestError({ provider: 'codex', operation: method, detail: `Codex sent an unexpected reply to ${method}.` })
+    return new ProviderRequestError({
+      provider: 'codex',
+      operation: method,
+      detail: `Codex sent an unexpected reply to ${method}.`,
+    })
   }
   return exitError(error)
 }
@@ -210,14 +214,17 @@ export function make(connect: Connect): ProviderAdapter {
             if (elicitation) yield* background(rpc('thread/decrement_elicitation', { threadId }))
             return spec.response(params, reply)
           })
-      const handleApproval = <M extends ApprovalMethod>(method: M) => client.handleServerRequest(method, awaitApproval(method))
+      const handleApproval = <M extends ApprovalMethod>(method: M) =>
+        client.handleServerRequest(method, awaitApproval(method))
       yield* Effect.forEach(APPROVAL_METHODS, handleApproval, { discard: true })
 
       yield* rpc('initialize', {
         clientInfo: { name: 'hidegpt', title: 'Docs', version: '0.1.0' },
         capabilities: { experimentalApi: true },
       })
-      yield* client.notify('initialized', undefined).pipe(Effect.mapError((error) => requestError('initialized', error)))
+      yield* client
+        .notify('initialized', undefined)
+        .pipe(Effect.mapError((error) => requestError('initialized', error)))
 
       const listProjects = Effect.gen(function* () {
         const projects: Project[] = []
@@ -246,7 +253,11 @@ export function make(connect: Connect): ProviderAdapter {
           }
         }
         // Null inherits the thread's tier; a tier id applies to this turn only.
-        return { model: settings.model, effort: toReasoningEffort(settings.effort), serviceTierForTurn: settings.serviceTier }
+        return {
+          model: settings.model,
+          effort: toReasoningEffort(settings.effort),
+          serviceTierForTurn: settings.serviceTier,
+        }
       }
 
       const session: ProviderSession = {
@@ -274,7 +285,10 @@ export function make(connect: Connect): ProviderAdapter {
             models: (visible.length ? visible : models.data).map(toModelOption),
             modes: modes.map((mode) => ({ id: mode.name, label: mode.name })),
             defaultMode: modes[0]?.name ?? null,
-            projects: Option.getOrElse(Option.map(projects, (list) => list.map(toProject)), () => []),
+            projects: Option.getOrElse(
+              Option.map(projects, (list) => list.map(toProject)),
+              () => [],
+            ),
             tools: tools.data.map(toTool),
           } satisfies Catalog
         }),
@@ -289,12 +303,18 @@ export function make(connect: Connect): ProviderAdapter {
               searchTerm: search.trim() || null,
             }).pipe(
               Effect.map((listed) => {
-                const next = listed.nextCursor && page + 1 < MAX_DOC_PAGES ? Option.some({ cursor: listed.nextCursor, page: page + 1 }) : Option.none()
+                const next =
+                  listed.nextCursor && page + 1 < MAX_DOC_PAGES
+                    ? Option.some({ cursor: listed.nextCursor, page: page + 1 })
+                    : Option.none()
                 return [[listed.data.map(toDoc)], next] as const
               }),
             ),
           ).pipe(
-            Stream.scan((): ReadonlyArray<DocSummary> => [], (all, page: ReadonlyArray<DocSummary>) => [...all, ...page]),
+            Stream.scan(
+              (): ReadonlyArray<DocSummary> => [],
+              (all, page: ReadonlyArray<DocSummary>) => [...all, ...page],
+            ),
             Stream.drop(1),
           ),
 
@@ -410,7 +430,11 @@ export function make(connect: Connect): ProviderAdapter {
             return turnId
               ? Effect.asVoid(rpc('turn/interrupt', { threadId, turnId }))
               : Effect.fail(
-                  new ProviderRequestError({ provider: 'codex', operation: 'turn/interrupt', detail: 'Nothing is running in this document.' }),
+                  new ProviderRequestError({
+                    provider: 'codex',
+                    operation: 'turn/interrupt',
+                    detail: 'Nothing is running in this document.',
+                  }),
                 )
           }),
 
@@ -492,7 +516,9 @@ function registerNotifications(
           (cause) => !Cause.hasInterruptsOnly(cause),
           (cause) =>
             reportDefect(cause).pipe(
-              Effect.flatMap((reportId) => Deferred.fail(defect, new ProviderDefectError({ provider: 'codex', reportId }))),
+              Effect.flatMap((reportId) =>
+                Deferred.fail(defect, new ProviderDefectError({ provider: 'codex', reportId })),
+              ),
               Effect.asVoid,
             ),
         ),
@@ -515,18 +541,36 @@ function registerNotifications(
         },
       ]),
       on('turn/diff/updated', (p) => [
-        { type: 'block', threadId: p.threadId, block: { kind: 'callout', id: `diff-${p.turnId}`, title: 'Changes', body: p.diff } },
+        {
+          type: 'block',
+          threadId: p.threadId,
+          block: { kind: 'callout', id: `diff-${p.turnId}`, title: 'Changes', body: p.diff },
+        },
       ]),
       on('item/started', (p) => {
         const block = itemToBlock(p.item)
         // An agent message starts empty and grows by deltas; only its completed text replaces them.
         if (!block || (block.kind === 'agent' && !block.text)) return []
-        return [{ type: 'block', threadId: p.threadId, block, replaces: p.item.type === 'userMessage' ? p.item.clientId : null }]
+        return [
+          {
+            type: 'block',
+            threadId: p.threadId,
+            block,
+            replaces: p.item.type === 'userMessage' ? p.item.clientId : null,
+          },
+        ]
       }),
       on('item/completed', (p) => {
         const block = itemToBlock(p.item)
         if (!block) return []
-        return [{ type: 'block', threadId: p.threadId, block, replaces: p.item.type === 'userMessage' ? p.item.clientId : null }]
+        return [
+          {
+            type: 'block',
+            threadId: p.threadId,
+            block,
+            replaces: p.item.type === 'userMessage' ? p.item.clientId : null,
+          },
+        ]
       }),
       on('turn/started', (p) => {
         activeTurns.set(p.threadId, p.turn.id)
@@ -550,7 +594,9 @@ function registerNotifications(
       on('warning', (p) => (p.message ? [{ type: 'notice', message: p.message }] : [])),
       on('guardianWarning', (p) => (p.message ? [{ type: 'notice', message: p.message }] : [])),
       on('configWarning', (p) => (p.summary ? [{ type: 'notice', message: p.summary }] : [])),
-      on('thread/name/updated', (p) => (p.threadName ? [{ type: 'title', threadId: p.threadId, title: p.threadName }] : [])),
+      on('thread/name/updated', (p) =>
+        p.threadName ? [{ type: 'title', threadId: p.threadId, title: p.threadName }] : [],
+      ),
       // The server unloaded the thread; the next send resumes it.
       on('thread/closed', (p) => {
         loaded.delete(p.threadId)
@@ -566,11 +612,20 @@ function registerNotifications(
       }),
       on('thread/started', () => [docsChanged]),
       on('thread/unarchived', () => [docsChanged]),
-      on('account/updated', () => [{ type: 'loginUrl', url: null }, { type: 'invalidate', part: 'account' }]),
-      on('account/login/completed', () => [{ type: 'loginUrl', url: null }, { type: 'invalidate', part: 'account' }]),
+      on('account/updated', () => [
+        { type: 'loginUrl', url: null },
+        { type: 'invalidate', part: 'account' },
+      ]),
+      on('account/login/completed', () => [
+        { type: 'loginUrl', url: null },
+        { type: 'invalidate', part: 'account' },
+      ]),
       on('skills/changed', () => [{ type: 'invalidate', part: 'skills' }]),
       on('project/changed', () => [{ type: 'invalidate', part: 'projects' }]),
-      on('mcpServer/oauthLogin/completed', () => [{ type: 'loginUrl', url: null }, { type: 'invalidate', part: 'tools' }]),
+      on('mcpServer/oauthLogin/completed', () => [
+        { type: 'loginUrl', url: null },
+        { type: 'invalidate', part: 'tools' },
+      ]),
     ],
     { discard: true },
   )
@@ -581,7 +636,10 @@ function registerNotifications(
  * and main's log file keeps Debug lines, but frames hold prompts and answers.
  * Never turn these on.
  */
-export const CLIENT_OPTIONS = { logIncoming: false, logOutgoing: false } as const satisfies CodexClient.CodexAppServerClientOptions
+export const CLIENT_OPTIONS = {
+  logIncoming: false,
+  logOutgoing: false,
+} as const satisfies CodexClient.CodexAppServerClientOptions
 
 /** The real backend: `codex app-server`, spawned under the process supervisor. */
 export const spawnAppServer = (supervisor: ProcessSupervisor['Service']): Connect =>

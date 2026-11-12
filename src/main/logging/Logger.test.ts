@@ -42,7 +42,8 @@ describe('makeRotatingFileSink', () => {
   it.effect('drops backups beyond the limit when it opens', () =>
     Effect.gen(function* () {
       const dir = tempDir()
-      for (const name of ['main.ndjson', 'main.ndjson.1', 'main.ndjson.4', 'other.ndjson.9']) writeFileSync(join(dir, name), 'x\n')
+      for (const name of ['main.ndjson', 'main.ndjson.1', 'main.ndjson.4', 'other.ndjson.9'])
+        writeFileSync(join(dir, name), 'x\n')
       yield* makeRotatingFileSink({ filePath: join(dir, 'main.ndjson'), maxBytes: 100, maxFiles: 2 })
       expect(readdirSync(dir).sort()).toEqual(['main.ndjson', 'main.ndjson.1', 'other.ndjson.9'])
     }).pipe(Effect.provide(NodeServices.layer)),
@@ -58,7 +59,10 @@ describe('Logger.layer', () => {
         Effect.andThen(Effect.logDebug('Connected')),
         Effect.provide(Logging.layer({ directory: dir, console: false }).pipe(Layer.provide(NodeServices.layer))),
       )
-      const lines = readFileSync(join(dir, 'main.ndjson'), 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+      const lines = readFileSync(join(dir, 'main.ndjson'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line))
       expect(lines).toMatchObject([
         { level: 'WARN', message: 'Connection lost', annotations: { provider: 'codex' } },
         { level: 'DEBUG', message: 'Connected' },
@@ -66,4 +70,3 @@ describe('Logger.layer', () => {
     }),
   )
 })
-

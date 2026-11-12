@@ -236,10 +236,8 @@ export type SnapshotPatch = typeof SnapshotPatch.Type
 export const SequencedSnapshot = Schema.Struct({ snapshot: Snapshot, seq: Schema.Int })
 export type SequencedSnapshot = typeof SequencedSnapshot.Type
 
-const op = <const Op extends string, const Fields extends Schema.Struct.Fields = {}>(
-  name: Op,
-  fields?: Fields,
-) => Schema.Struct({ op: Schema.Literal(name), ...(fields ?? ({} as Fields)) })
+const op = <const Op extends string, const Fields extends Schema.Struct.Fields = {}>(name: Op, fields?: Fields) =>
+  Schema.Struct({ op: Schema.Literal(name), ...(fields ?? ({} as Fields)) })
 
 /** Everything the renderer can ask main to do. Decoded in main before it runs. */
 export const Command = Schema.Union([
@@ -323,7 +321,9 @@ const invokeSpec = <Payload, PayloadEncoded, Result, const Channel extends strin
 ) => spec
 
 /** Each row's `channel` must be the name `channels.ts` gives its key. */
-type ChannelRows<Channels extends Record<string, string>> = { readonly [K in keyof Channels]: { readonly channel: Channels[K] } }
+type ChannelRows<Channels extends Record<string, string>> = {
+  readonly [K in keyof Channels]: { readonly channel: Channels[K] }
+}
 
 /**
  * Every renderer → main request, keyed by its `window.hidegpt` method. Main

@@ -71,7 +71,14 @@ export function SparkIcon({ size = 24, mono = false }: { size?: number; mono?: b
           <path d={SPARK} />
         </clipPath>
         {glows.map((glow) => (
-          <radialGradient key={glow.key} id={`${id}-${glow.key}`} cx={glow.cx} cy={glow.cy} r="10" gradientUnits="userSpaceOnUse">
+          <radialGradient
+            key={glow.key}
+            id={`${id}-${glow.key}`}
+            cx={glow.cx}
+            cy={glow.cy}
+            r="10"
+            gradientUnits="userSpaceOnUse"
+          >
             <stop offset=".35" stopColor={glow.color} />
             <stop offset="1" stopColor={glow.color} stopOpacity="0" />
           </radialGradient>
@@ -91,7 +98,13 @@ export function SparkIcon({ size = 24, mono = false }: { size?: number; mono?: b
 export function PlaySparkIcon({ size = 20 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M14.07 4.27A8 8 0 1 0 19.73 9.93" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M14.07 4.27A8 8 0 1 0 19.73 9.93"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
       <path d="M10 8.5v7l5.5-3.5z" />
       <path d="M18.5 1.5c.3 1.8 1.7 3.2 3.5 3.5-1.8.3-3.2 1.7-3.5 3.5-.3-1.8-1.7-3.2-3.5-3.5 1.8-.3 3.2-1.7 3.5-3.5z" />
     </svg>
@@ -106,7 +119,15 @@ export function RailIcon({ app }: { app: 'calendar' | 'keep' | 'tasks' | 'contac
         <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
           <rect x="2" y="2" width="16" height="16" rx="3" fill="#4285F4" />
           <path fill="#8AB4F8" d="M5 2h10a3 3 0 0 1 3 3v.5H2V5a3 3 0 0 1 3-3z" />
-          <text x="10" y="14.6" textAnchor="middle" fontFamily="Roboto, Arial" fontSize="9" fontWeight="700" fill="#fff">
+          <text
+            x="10"
+            y="14.6"
+            textAnchor="middle"
+            fontFamily="Roboto, Arial"
+            fontSize="9"
+            fontWeight="700"
+            fill="#fff"
+          >
             31
           </text>
         </svg>

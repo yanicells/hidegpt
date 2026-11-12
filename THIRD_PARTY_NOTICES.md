@@ -95,13 +95,14 @@ projects below. Each copied or adapted file carries a header naming its source.
   - `src/renderer/src/components/ui/`: these Base UI wrappers, adapted from
     `apps/web/src/components/ui/` (each keeps a header pointing to its source):
 
-    | HideGPT file | Adapted from |
-    | --- | --- |
+    | HideGPT file             | Adapted from             |
+    | ------------------------ | ------------------------ |
     | `closing-positioner.tsx` | `closing-positioner.tsx` |
-    | `menu.tsx` | `menu.tsx` |
-    | `popover.tsx` | `popover.tsx` |
-    | `dialog.tsx` | `dialog.tsx` |
-    | `tooltip.tsx` | `tooltip.tsx` |
+    | `menu.tsx`               | `menu.tsx`               |
+    | `popover.tsx`            | `popover.tsx`            |
+    | `dialog.tsx`             | `dialog.tsx`             |
+    | `tooltip.tsx`            | `tooltip.tsx`            |
+
   - Tooling, adapted from T3 Code's repository root (commit 5c6f2f12):
     `.oxlintrc.json` from the `lint` block of `vite.config.ts`; `knip.jsonc`
     from `knip.jsonc`; `.github/workflows/ci.yml` from

@@ -48,7 +48,9 @@ export function FolderPicker({
       const path = await window.hidegpt.pickDirectory()
       if (!path) return
       await window.hidegpt.dispatch({ op: 'createProject', name: name.trim(), cwd: path })
-      const project = window.hidegpt.getSnapshot().snapshot.projects.find((item) => item.roots.some((root) => root.path === path))
+      const project = window.hidegpt
+        .getSnapshot()
+        .snapshot.projects.find((item) => item.roots.some((root) => root.path === path))
       if (!project) throw new Error('The folder could not be found. Refresh and try again.')
       onOpen(project.id)
     } catch (cause) {
@@ -158,10 +160,15 @@ export function FolderPicker({
               {shown.length === 0 ? <li className="picker-empty">{query ? 'No results' : 'No files here'}</li> : null}
             </ul>
             <div className="picker-foot">
-              <button type="button" className="outlined-button" data-testid="new-folder" onClick={() => {
+              <button
+                type="button"
+                className="outlined-button"
+                data-testid="new-folder"
+                onClick={() => {
                   setName(UNTITLED)
                   setCreating(true)
-                }}>
+                }}
+              >
                 <MIcon name="add" />
                 New folder
               </button>

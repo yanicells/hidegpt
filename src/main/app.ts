@@ -41,7 +41,10 @@ for (const stream of [process.stdout, process.stderr]) {
 }
 
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'docs', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
+  {
+    scheme: 'docs',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
+  },
 ])
 
 // GUI apps on macOS start with a bare PATH; find the provider CLIs the way a terminal would.
@@ -104,7 +107,9 @@ const program = Effect.gen(function* () {
   const run = (command: Command): Effect.Effect<CommandResult> =>
     (command.op === 'openFolder' ? openFolder : manager.dispatch(command)).pipe(
       Effect.as<CommandResult>({ ok: true }),
-      Effect.catchCause((cause) => Effect.map(describeFailure(cause), (error): CommandResult => ({ ok: false, error }))),
+      Effect.catchCause((cause) =>
+        Effect.map(describeFailure(cause), (error): CommandResult => ({ ok: false, error })),
+      ),
       Effect.annotateLogs({ command: command.op }),
     )
 
@@ -113,7 +118,11 @@ const program = Effect.gen(function* () {
     if (!win) return
     const current = yield* manager.snapshot
     const picked = yield* Effect.promise(() =>
-      dialog.showOpenDialog(win, { title: 'Open folder', properties: ['openDirectory'], defaultPath: current.cwd || undefined }),
+      dialog.showOpenDialog(win, {
+        title: 'Open folder',
+        properties: ['openDirectory'],
+        defaultPath: current.cwd || undefined,
+      }),
     )
     const folder = picked.canceled ? undefined : picked.filePaths[0]
     if (folder) yield* manager.setFolder(folder)
@@ -149,7 +158,9 @@ const program = Effect.gen(function* () {
   yield* handle(ipcMain, IpcInvoke.saveImage, ({ bytes, mime }) =>
     Effect.tryPromise(() => saveImage(bytes, mime)).pipe(
       Effect.map((path): SaveImageResult => ({ ok: true, path })),
-      Effect.catchCause((cause) => Effect.map(describeFailure(cause), (error): SaveImageResult => ({ ok: false, error }))),
+      Effect.catchCause((cause) =>
+        Effect.map(describeFailure(cause), (error): SaveImageResult => ({ ok: false, error })),
+      ),
     ),
   )
 

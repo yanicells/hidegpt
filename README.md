@@ -27,19 +27,19 @@ pnpm dev
 `pnpm install` also points Git at `.githooks/`, so each commit runs oxlint on the
 staged files and knip on the repo.
 
-| Script | What it does |
-|---|---|
-| `pnpm dev` | Electron app with Vite HMR |
-| `pnpm test` | Provider adapter, session manager, and renderer UI tests |
-| `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm lint` | oxlint, with T3 Code's rules |
-| `pnpm knip` | Unused files, exports, and dependencies |
-| `pnpm check` | Typecheck, lint, knip, and tests: what CI runs |
-| `pnpm fmt` | oxfmt (not yet applied repo-wide) |
-| `pnpm protocol` | Regenerate the Codex app-server schemas from the installed CLI |
-| `pnpm protocol --check` | Fail if the committed schemas no longer match the installed CLI |
-| `pnpm screenshot` | Home grid/list, folder picker, open menus, a streaming reply and a suggestion, and desktop/narrow editor PNGs using fictional content |
-| `pnpm dist` | Package a macOS `.dmg` and `.zip` into `dist/` (see [Packaging](#packaging)) |
+| Script                  | What it does                                                                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`              | Electron app with Vite HMR                                                                                                            |
+| `pnpm test`             | Provider adapter, session manager, and renderer UI tests                                                                              |
+| `pnpm typecheck`        | `tsc --noEmit`                                                                                                                        |
+| `pnpm lint`             | oxlint, with T3 Code's rules                                                                                                          |
+| `pnpm knip`             | Unused files, exports, and dependencies                                                                                               |
+| `pnpm check`            | Typecheck, lint, knip, and tests: what CI runs                                                                                        |
+| `pnpm fmt`              | oxfmt (not yet applied repo-wide)                                                                                                     |
+| `pnpm protocol`         | Regenerate the Codex app-server schemas from the installed CLI                                                                        |
+| `pnpm protocol --check` | Fail if the committed schemas no longer match the installed CLI                                                                       |
+| `pnpm screenshot`       | Home grid/list, folder picker, open menus, a streaming reply and a suggestion, and desktop/narrow editor PNGs using fictional content |
+| `pnpm dist`             | Package a macOS `.dmg` and `.zip` into `dist/` (see [Packaging](#packaging))                                                          |
 
 **Blank document** or a template creates an "Untitled document" right away, like Docs;
 rename it from the title field. Projects are folders. The folder icon (**Open file
@@ -109,10 +109,10 @@ app is ad-hoc signed: it opens on your own Mac, and on another Mac only after
 **Open Anyway** in System Settings → Privacy & Security (or
 `xattr -dr com.apple.quarantine Docs.app`).
 
-| Variables | Effect |
-|---|---|
-| `CSC_LINK` (a `.p12`) + `CSC_KEY_PASSWORD`, or `CSC_NAME` (a keychain identity) | Sign with a Developer ID, with the hardened runtime and `build/entitlements.mac.plist` |
-| `APPLE_API_KEY` + `APPLE_API_KEY_ID` + `APPLE_API_ISSUER`, or `APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID`, or `APPLE_KEYCHAIN` + `APPLE_KEYCHAIN_PROFILE` | Also notarize (only for a signed build) |
+| Variables                                                                                                                                                                  | Effect                                                                                 |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `CSC_LINK` (a `.p12`) + `CSC_KEY_PASSWORD`, or `CSC_NAME` (a keychain identity)                                                                                            | Sign with a Developer ID, with the hardened runtime and `build/entitlements.mac.plist` |
+| `APPLE_API_KEY` + `APPLE_API_KEY_ID` + `APPLE_API_ISSUER`, or `APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID`, or `APPLE_KEYCHAIN` + `APPLE_KEYCHAIN_PROFILE` | Also notarize (only for a signed build)                                                |
 
 Empty or blank variables count as unset. Without a certificate variable, every
 signing and notary variable is dropped before electron-builder runs, and the

@@ -20,14 +20,14 @@ renderer (React)  ──dispatch(Command)──►  main: ProviderSessionManager
 
 Main and the providers are written in [Effect](https://effect.website) 4, following T3 Code's server. The renderer stays plain React: the Home path ships no Effect runtime.
 
-| Piece | Effect shape |
-|---|---|
-| `ProcessSupervisor` (`src/provider/ProcessSupervisor.ts`) | A service over Effect's Node spawner. A child lives as long as the `Scope` that spawned it. |
-| `ProcessLedger` (`src/provider/ProcessLedger.ts`) | A service over Effect's `FileSystem`: the orphan ledger, schema-decoded and written atomically. |
-| `ProviderRegistry` (`src/main/ProviderRegistry.ts`) | A service that loads adapters with a dynamic `import()` on first use. `layerAdapters` swaps in fakes for tests and demo mode. |
-| `ProviderSessionManager` (`src/main/ProviderSessionManager.ts`) | A service that owns all UI state in a `Ref`. Its pure transitions are in `src/main/session/state.ts`. |
-| `SnapshotPublisher` (`src/main/SnapshotPublisher.ts`) | Turns state changes into IPC patches. |
-| IPC (`src/main/ipc.ts`) | Registers each channel from its row in the `Ipc*` tables in `contracts.ts`; a payload is decoded before its handler runs. |
+| Piece                                                           | Effect shape                                                                                                                  |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `ProcessSupervisor` (`src/provider/ProcessSupervisor.ts`)       | A service over Effect's Node spawner. A child lives as long as the `Scope` that spawned it.                                   |
+| `ProcessLedger` (`src/provider/ProcessLedger.ts`)               | A service over Effect's `FileSystem`: the orphan ledger, schema-decoded and written atomically.                               |
+| `ProviderRegistry` (`src/main/ProviderRegistry.ts`)             | A service that loads adapters with a dynamic `import()` on first use. `layerAdapters` swaps in fakes for tests and demo mode. |
+| `ProviderSessionManager` (`src/main/ProviderSessionManager.ts`) | A service that owns all UI state in a `Ref`. Its pure transitions are in `src/main/session/state.ts`.                         |
+| `SnapshotPublisher` (`src/main/SnapshotPublisher.ts`)           | Turns state changes into IPC patches.                                                                                         |
+| IPC (`src/main/ipc.ts`)                                         | Registers each channel from its row in the `Ipc*` tables in `contracts.ts`; a payload is decoded before its handler runs.     |
 
 The conventions:
 
@@ -54,20 +54,21 @@ The conventions:
 
 The renderer and the session manager only see these types:
 
-| Type | What it is |
-|---|---|
-| `DocSummary` | One document on Home: `id, name, preview, updatedAt, cwd, projectId` |
-| `ProjectSummary` | A folder group: `id, name, roots` |
-| `ModelOption` | `id, label, efforts[], defaultEffort, serviceTiers[], isDefault` |
-| `ModeOption` | A Codex collaboration mode or an OpenCode agent: `id, label` |
-| `AccountSummary` | `kind` + `label`, each from its own provider |
-| `ToolServer` | An MCP server, and whether it needs connecting |
-| `Block` | `agent` (optionally `commentary`), `user`, `callout`, or `approval` |
-| `ApprovalBlock` | `title, body, fields[], questions[], resolved, pending`, with no raw provider params |
-| `Capabilities` | Flags the UI reads instead of checking `provider === 'codex'` (`login`, `connectTools`, `createProjects`, `gitProjects`) |
-| `Snapshot` | Everything the window draws: the active library, the route, and the open document |
+| Type             | What it is                                                                                                               |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `DocSummary`     | One document on Home: `id, name, preview, updatedAt, cwd, projectId`                                                     |
+| `ProjectSummary` | A folder group: `id, name, roots`                                                                                        |
+| `ModelOption`    | `id, label, efforts[], defaultEffort, serviceTiers[], isDefault`                                                         |
+| `ModeOption`     | A Codex collaboration mode or an OpenCode agent: `id, label`                                                             |
+| `AccountSummary` | `kind` + `label`, each from its own provider                                                                             |
+| `ToolServer`     | An MCP server, and whether it needs connecting                                                                           |
+| `Block`          | `agent` (optionally `commentary`), `user`, `callout`, or `approval`                                                      |
+| `ApprovalBlock`  | `title, body, fields[], questions[], resolved, pending`, with no raw provider params                                     |
+| `Capabilities`   | Flags the UI reads instead of checking `provider === 'codex'` (`login`, `connectTools`, `createProjects`, `gitProjects`) |
+| `Snapshot`       | Everything the window draws: the active library, the route, and the open document                                        |
 
 Wire types stay inside their adapter:
+
 - Codex: the vendored client's generated schemas.
 - OpenCode: `@opencode-ai/sdk` types.
 - Claude: `sdk.d.ts` types.
@@ -155,9 +156,9 @@ Main sends `snapshot` patches on one channel:
 
 ```ts
 type SnapshotPatch = {
-  fields: Partial<Omit<Snapshot, 'blocks'>>   // changed top-level fields, by reference
+  fields: Partial<Omit<Snapshot, 'blocks'>> // changed top-level fields, by reference
   blocks?: { length: number; set?: [index, Block][]; append?: [index, text][] }
-  seq: number                 // counts up by one per patch
+  seq: number // counts up by one per patch
 }
 ```
 
@@ -203,11 +204,11 @@ A streamed delta should cost the same at 300 turns as at 3. Each rule below remo
 
 Tests use `@effect/vitest`, and `TestClock` drives deadlines and backoff. Each provider has a fake that replaces **only the process boundary**, so the real adapter, client, and schemas run:
 
-| Fake | Replaces |
-|---|---|
-| `src/codex/FakeCodex.ts` | `codex app-server`, speaking real JSON-RPC lines over in-memory stdio |
+| Fake                           | Replaces                                                                                                       |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `src/codex/FakeCodex.ts`       | `codex app-server`, speaking real JSON-RPC lines over in-memory stdio                                          |
 | `src/opencode/FakeOpenCode.ts` | `opencode serve`, as an injected `fetch` that serves the REST routes and the SSE stream to the real SDK client |
-| `src/claude/FakeClaude.ts` | the SDK's `query()` and session functions, answering with the frames Claude Code writes |
+| `src/claude/FakeClaude.ts`     | the SDK's `query()` and session functions, answering with the frames Claude Code writes                        |
 
 The suites cover the lifecycle, request timeouts, a crash and its restart, a dead or stalled event stream, a turn that keeps streaming after you go Home, approvals answered from another route, a failed approval reply, stop handling, and paging.
 

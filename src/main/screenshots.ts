@@ -85,7 +85,10 @@ export const captureScreenshots = (
         yield* pause(300)
       })
 
-    yield* manager.snapshots.pipe(Stream.filter((snapshot) => snapshot.status !== 'connecting'), Stream.runHead)
+    yield* manager.snapshots.pipe(
+      Stream.filter((snapshot) => snapshot.status !== 'connecting'),
+      Stream.runHead,
+    )
     // An occluded window stops painting and capturePage returns stale frames.
     win.webContents.setBackgroundThrottling(false)
     win.setAlwaysOnTop(true)

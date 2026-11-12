@@ -36,7 +36,10 @@ vi.mock('electron', () => ({
 }))
 
 // What main last published: the snapshot as of patch 4, which appended "lo".
-const published = { snapshot: { ...emptySnapshot('/docs'), blocks: [{ kind: 'agent' as const, id: 'a', text: 'Hello' }] }, seq: 4 }
+const published = {
+  snapshot: { ...emptySnapshot('/docs'), blocks: [{ kind: 'agent' as const, id: 'a', text: 'Hello' }] },
+  seq: 4,
+}
 let api: HideGptApi
 
 beforeAll(async () => {

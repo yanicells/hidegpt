@@ -86,7 +86,14 @@ export function DocMenus({
     edit: [
       { id: 'undo', label: 'Undo', icon: 'undo', shortcut: '⌘Z', run: () => document.execCommand('undo') },
       { id: 'redo', label: 'Redo', icon: 'redo', shortcut: '⌘Y', run: () => document.execCommand('redo') },
-      { id: 'cut', label: 'Cut', icon: 'content_cut', shortcut: '⌘X', divider: true, run: () => document.execCommand('cut') },
+      {
+        id: 'cut',
+        label: 'Cut',
+        icon: 'content_cut',
+        shortcut: '⌘X',
+        divider: true,
+        run: () => document.execCommand('cut'),
+      },
       { id: 'copy', label: 'Copy', icon: 'content_copy', shortcut: '⌘C', run: () => document.execCommand('copy') },
       row('Paste', { icon: 'content_paste', shortcut: '⌘V' }),
       row('Paste without formatting', { shortcut: '⌘⇧V' }),
@@ -108,7 +115,13 @@ export function DocMenus({
       row('Show tabs & outlines', { checked: true, shortcut: '⌘⌥A' }),
       row('Show equation toolbar', { checked: false }),
       // Tool activity is the document's non-printing scaffolding.
-      { id: 'output-only', label: 'Show non-printing characters', checked: !outputOnly, shortcut: '⌘⇧P', run: onToggleOutputOnly },
+      {
+        id: 'output-only',
+        label: 'Show non-printing characters',
+        checked: !outputOnly,
+        shortcut: '⌘⇧P',
+        run: onToggleOutputOnly,
+      },
       row('Full screen', { divider: true }),
     ],
     insert: [
@@ -144,7 +157,10 @@ export function DocMenus({
       row('Text', { icon: 'format_bold', submenu: [row('Bold'), row('Italic'), row('Underline')] }),
       row('Paragraph styles', { icon: 'text_fields', submenu: [row('Normal text'), row('Heading 1')] }),
       row('Align & indent', { icon: 'format_align_left', submenu: [row('Left'), row('Center'), row('Right')] }),
-      row('Line & paragraph spacing', { icon: 'format_line_spacing', submenu: [row('Single'), row('1.15'), row('Double')] }),
+      row('Line & paragraph spacing', {
+        icon: 'format_line_spacing',
+        submenu: [row('Single'), row('1.15'), row('Double')],
+      }),
       row('Columns', { icon: 'view_column', submenu: [row('More options')] }),
       row('Bullets & numbering', { icon: 'format_list_numbered', submenu: [row('List options')] }),
       row('Headers & footers', { divider: true }),
@@ -180,7 +196,11 @@ export function DocMenus({
         label: displayServerName(server.name),
         divider: index === 0,
         submenu: [
-          { id: `connect-${server.name}`, label: 'Connect', run: () => dispatch({ op: 'connectMcp', name: server.name }) },
+          {
+            id: `connect-${server.name}`,
+            label: 'Connect',
+            run: () => dispatch({ op: 'connectMcp', name: server.name }),
+          },
         ],
       })),
     ],

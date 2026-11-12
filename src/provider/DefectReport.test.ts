@@ -30,7 +30,11 @@ const failWith = (effect: Effect.Effect<unknown, unknown>) =>
 describe('describeFailure', () => {
   it.effect('keeps a tagged error’s sentence for the banner, but logs only its tag and operation', () =>
     Effect.gen(function* () {
-      const error = new ProviderRequestError({ provider: 'codex', operation: 'turn/start', detail: 'invalid input: Prompt-81aa' })
+      const error = new ProviderRequestError({
+        provider: 'codex',
+        operation: 'turn/start',
+        detail: 'invalid input: Prompt-81aa',
+      })
       const { message, logged } = yield* failWith(Effect.fail(error))
       expect(message).toBe('invalid input: Prompt-81aa')
       expect(logged).toEqual([{ level: 'Warn', text: expect.stringContaining('"operation":"turn/start"') }])
@@ -41,7 +45,9 @@ describe('describeFailure', () => {
 
   it.effect('does not log a request that simply could not happen', () =>
     Effect.gen(function* () {
-      const { message, logged } = yield* failWith(Effect.fail(new CommandRejectedError({ reason: 'Open a document first.' })))
+      const { message, logged } = yield* failWith(
+        Effect.fail(new CommandRejectedError({ reason: 'Open a document first.' })),
+      )
       expect(message).toBe('Open a document first.')
       expect(logged).toEqual([])
     }),
@@ -49,7 +55,9 @@ describe('describeFailure', () => {
 
   it.effect('hides a defect’s raw text behind a plain sentence and logs the cause', () =>
     Effect.gen(function* () {
-      const { message, logged } = yield* failWith(Effect.die(new TypeError("Cannot read properties of undefined (reading 'id')")))
+      const { message, logged } = yield* failWith(
+        Effect.die(new TypeError("Cannot read properties of undefined (reading 'id')")),
+      )
       expect(message).toBe(DEFECT_MESSAGE)
       expect(logged).toEqual([{ level: 'Error', text: expect.stringContaining("reading 'id'") }])
     }),
@@ -58,7 +66,9 @@ describe('describeFailure', () => {
   it.effect('reports a defect that arrives beside a tagged error, instead of showing only the tagged one', () =>
     Effect.gen(function* () {
       const tagged = new ProviderRequestError({ provider: 'codex', operation: 'turn/start', detail: 'Prompt-81aa' })
-      const { message, logged } = yield* failWith(Effect.failCause(Cause.combine(Cause.fail(tagged), Cause.die(new Error('bad frame')))))
+      const { message, logged } = yield* failWith(
+        Effect.failCause(Cause.combine(Cause.fail(tagged), Cause.die(new Error('bad frame')))),
+      )
       expect(message).toBe(DEFECT_MESSAGE)
       expect(logged).toEqual([{ level: 'Error', text: expect.stringContaining('bad frame') }])
       expect(logged[0]!.text).not.toContain('Prompt-81aa')
@@ -67,7 +77,9 @@ describe('describeFailure', () => {
 
   it.effect('treats a rejected promise as a defect, not as a sentence to show', () =>
     Effect.gen(function* () {
-      const { message, logged } = yield* failWith(Effect.tryPromise(() => Promise.reject(new Error('EACCES: /Users/x/images'))))
+      const { message, logged } = yield* failWith(
+        Effect.tryPromise(() => Promise.reject(new Error('EACCES: /Users/x/images'))),
+      )
       expect(message).toBe(DEFECT_MESSAGE)
       expect(logged).toEqual([{ level: 'Error', text: expect.stringContaining('EACCES') }])
     }),
@@ -99,7 +111,12 @@ describe('logDefects', () => {
 
 describe('errorLogFields', () => {
   it('says whether a stopped process explained itself, and how much, never what it printed', () => {
-    const exited = new ProcessExitedError({ provider: 'codex', code: 1, signal: null, stderr: 'panic near Prompt-81aa' })
+    const exited = new ProcessExitedError({
+      provider: 'codex',
+      code: 1,
+      signal: null,
+      stderr: 'panic near Prompt-81aa',
+    })
     const fields = errorLogFields(exited)
     expect(fields).toEqual({
       error: 'ProcessExitedError',

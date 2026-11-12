@@ -25,7 +25,14 @@ import {
 } from '../provider/errors'
 import { reportDefect } from '../provider/DefectReport'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
-import type { AdapterEvent, Catalog, OpenedThread, ProviderAdapter, ProviderSession, ThreadEvent } from '../provider/ProviderAdapter'
+import type {
+  AdapterEvent,
+  Catalog,
+  OpenedThread,
+  ProviderAdapter,
+  ProviderSession,
+  ThreadEvent,
+} from '../provider/ProviderAdapter'
 import {
   blocksFromMessages,
   defaultMode,
@@ -86,7 +93,10 @@ type Client = OpencodeClient
 const opts = (signal: AbortSignal) => ({ signal, throwOnError: true as const })
 
 /** The `cause` the SDK's `throwOnError` attaches to an error response; `status` is absent on other errors. */
-const ResponseFailure = Schema.Struct({ status: Schema.UndefinedOr(Schema.Number), body: Schema.optionalKey(Schema.Unknown) })
+const ResponseFailure = Schema.Struct({
+  status: Schema.UndefinedOr(Schema.Number),
+  body: Schema.optionalKey(Schema.Unknown),
+})
 /** OpenCode's error body: a named error with `data.message`, or a plain `message`. */
 const ErrorBody = Schema.Union([
   Schema.Struct({ data: Schema.Struct({ message: Schema.String }) }),
@@ -297,7 +307,9 @@ export function make(connect: Connect): ProviderAdapter {
         Effect.forEach(
           [...opened],
           (threadId) =>
-            Effect.all([messagesPage(threadId), isBusy(threadId), pendingFor(threadId)], { concurrency: 'unbounded' }).pipe(
+            Effect.all([messagesPage(threadId), isBusy(threadId), pendingFor(threadId)], {
+              concurrency: 'unbounded',
+            }).pipe(
               Effect.flatMap(([page, streaming, pending]) => {
                 live.delete(threadId)
                 seed(threadId, page.messages)
@@ -344,7 +356,12 @@ export function make(connect: Connect): ProviderAdapter {
         return text ? [{ type: 'block', threadId, block: { kind: 'agent', id: part.messageID, text } }] : []
       }
 
-      const onDelta = (sessionId: string, messageID: string, partID: string, delta: string): ReadonlyArray<AdapterEvent> => {
+      const onDelta = (
+        sessionId: string,
+        messageID: string,
+        partID: string,
+        delta: string,
+      ): ReadonlyArray<AdapterEvent> => {
         // Only an announced, visible text part streams; reasoning deltas share `field: 'text'` and never show.
         const texts = live.get(sessionId)?.texts.get(messageID)
         const previous = texts?.get(partID)
@@ -353,9 +370,16 @@ export function make(connect: Connect): ProviderAdapter {
         const last = [...texts.keys()].pop() === partID
         // The tail grows in place when this part already shows, or when it is the only text so far.
         const appends = last && (previous !== '' || [...texts].every(([id, text]) => id === partID || !text))
-        if (appends) return [{ type: 'text', threadId: sessionId, blockId: messageID, delta, create: { kind: 'agent' } }]
+        if (appends)
+          return [{ type: 'text', threadId: sessionId, blockId: messageID, delta, create: { kind: 'agent' } }]
         // A new paragraph (or an earlier part growing) changes more than the tail: send the whole block.
-        return [{ type: 'block', threadId: sessionId, block: { kind: 'agent', id: messageID, text: joinAgentText(texts.values()) } }]
+        return [
+          {
+            type: 'block',
+            threadId: sessionId,
+            block: { kind: 'agent', id: messageID, text: joinAgentText(texts.values()) },
+          },
+        ]
       }
 
       const onUserMessage = (sessionId: string, id: string) => {
@@ -385,7 +409,8 @@ export function make(connect: Connect): ProviderAdapter {
             subscribed = true
             return Deferred.succeed(connected, undefined).pipe(Effect.asVoid)
           case 'message.updated':
-            if (event.properties.info.role === 'user') onUserMessage(event.properties.sessionID, event.properties.info.id)
+            if (event.properties.info.role === 'user')
+              onUserMessage(event.properties.sessionID, event.properties.info.id)
             else liveOf(event.properties.sessionID).roles.set(event.properties.info.id, 'assistant')
             return Effect.void
           case 'message.part.updated':
@@ -421,7 +446,9 @@ export function make(connect: Connect): ProviderAdapter {
             return emit({ type: 'block', threadId: rootOf(request.sessionID), block: questionBlock(request) })
           }
           case 'permission.replied':
-            return emitAll(onReplied(event.properties.requestID, event.properties.reply === 'reject' ? 'skipped' : 'accepted'))
+            return emitAll(
+              onReplied(event.properties.requestID, event.properties.reply === 'reject' ? 'skipped' : 'accepted'),
+            )
           case 'question.replied':
             return emitAll(onReplied(event.properties.requestID, 'accepted'))
           case 'question.rejected':
@@ -469,7 +496,10 @@ export function make(connect: Connect): ProviderAdapter {
         }),
       ).pipe(
         Stream.concat(Stream.fail(streamLost('OpenCode closed its update stream'))),
-        Stream.timeoutOrElse({ duration: WATCHDOG, orElse: () => Stream.fail(streamLost('OpenCode stopped sending updates')) }),
+        Stream.timeoutOrElse({
+          duration: WATCHDOG,
+          orElse: () => Stream.fail(streamLost('OpenCode stopped sending updates')),
+        }),
         Stream.retry(RESUBSCRIBE),
       )
       const streamEnded = yield* Deferred.make<never, ProviderError>()
@@ -484,7 +514,9 @@ export function make(connect: Connect): ProviderAdapter {
                 // A defect (say, in toEvents) is logged under a report id; the banner gets a plain sentence.
                 onNone: () =>
                   reportDefect(cause).pipe(
-                    Effect.flatMap((reportId) => Deferred.fail(streamEnded, new ProviderDefectError({ provider, reportId }))),
+                    Effect.flatMap((reportId) =>
+                      Deferred.fail(streamEnded, new ProviderDefectError({ provider, reportId })),
+                    ),
                   ),
               }),
         ),
@@ -529,7 +561,12 @@ export function make(connect: Connect): ProviderAdapter {
           Stream.paginate({ cursor: undefined as number | undefined, page: 0 }, ({ cursor, page }) =>
             request('experimental.session.list', (signal) =>
               client.experimental.session.list(
-                { roots: true, limit: DOC_PAGE, ...(search.trim() ? { search: search.trim() } : {}), ...(cursor ? { cursor } : {}) },
+                {
+                  roots: true,
+                  limit: DOC_PAGE,
+                  ...(search.trim() ? { search: search.trim() } : {}),
+                  ...(cursor ? { cursor } : {}),
+                },
                 opts(signal),
               ),
             ).pipe(
@@ -544,7 +581,10 @@ export function make(connect: Connect): ProviderAdapter {
               }),
             ),
           ).pipe(
-            Stream.scan((): ReadonlyArray<DocSummary> => [], (all, page: ReadonlyArray<DocSummary>) => [...all, ...page]),
+            Stream.scan(
+              (): ReadonlyArray<DocSummary> => [],
+              (all, page: ReadonlyArray<DocSummary>) => [...all, ...page],
+            ),
             Stream.drop(1),
           ),
 
@@ -555,7 +595,11 @@ export function make(connect: Connect): ProviderAdapter {
               for (const skill of result.data) {
                 skillBodies.set(skill.name, { location: skill.location, content: skill.content })
                 if (!skills.has(skill.name)) {
-                  skills.set(skill.name, { name: skill.name, description: skill.description ?? '', path: skill.location })
+                  skills.set(skill.name, {
+                    name: skill.name,
+                    description: skill.description ?? '',
+                    path: skill.location,
+                  })
                 }
               }
               return [...skills.values()].sort((a, b) => a.name.localeCompare(b.name))
@@ -639,7 +683,13 @@ export function make(connect: Connect): ProviderAdapter {
               try: () => [
                 ...(input.text ? [{ type: 'text' as const, text: input.text }] : []),
                 ...(skill && input.skill
-                  ? [skillPart({ name: input.skill.name, location: skill.location, content: skill.content || readFileSync(skill.location, 'utf8') })]
+                  ? [
+                      skillPart({
+                        name: input.skill.name,
+                        location: skill.location,
+                        content: skill.content || readFileSync(skill.location, 'utf8'),
+                      }),
+                    ]
                   : []),
                 ...input.images.map(imagePart),
               ],
@@ -675,13 +725,16 @@ export function make(connect: Connect): ProviderAdapter {
 
         interrupt: (threadId) =>
           Effect.asVoid(
-            request('session.abort', (signal) => client.session.abort({ sessionID: threadId, directory: dir(threadId) }, opts(signal))),
+            request('session.abort', (signal) =>
+              client.session.abort({ sessionID: threadId, directory: dir(threadId) }, opts(signal)),
+            ),
           ),
 
         respond: (_threadId, approvalId, reply) =>
           Effect.gen(function* () {
             const pending = approvals.get(approvalId)
-            if (!pending) return yield* Effect.fail(rejected('respond', 'This request is no longer waiting for an answer.'))
+            if (!pending)
+              return yield* Effect.fail(rejected('respond', 'This request is no longer waiting for an answer.'))
             const directory = dir(pending.sessionId) ?? dir(rootOf(pending.sessionId))
             const requestID = pending.requestId
             answered.add(requestID)
@@ -692,11 +745,18 @@ export function make(connect: Connect): ProviderAdapter {
             const taken = yield* (
               pending.kind === 'permission'
                 ? request('permission.reply', (signal) =>
-                    client.permission.reply({ requestID, directory, reply: reply.accept ? 'once' : 'reject' }, opts(signal)),
+                    client.permission.reply(
+                      { requestID, directory, reply: reply.accept ? 'once' : 'reject' },
+                      opts(signal),
+                    ),
                   )
                 : reply.accept
-                  ? request('question.reply', (signal) => client.question.reply({ requestID, directory, answers }, opts(signal)))
-                  : request('question.reject', (signal) => client.question.reject({ requestID, directory }, opts(signal)))
+                  ? request('question.reply', (signal) =>
+                      client.question.reply({ requestID, directory, answers }, opts(signal)),
+                    )
+                  : request('question.reject', (signal) =>
+                      client.question.reject({ requestID, directory }, opts(signal)),
+                    )
             ).pipe(Effect.tapError(() => Effect.sync(() => answered.delete(requestID))))
             // The server answers `false` when the request already settled or never existed.
             if (taken.data !== true) {
@@ -709,7 +769,10 @@ export function make(connect: Connect): ProviderAdapter {
         rename: (threadId, name) =>
           request('session.update', (signal) =>
             client.session.update({ sessionID: threadId, directory: dir(threadId), title: name }, opts(signal)),
-          ).pipe(Effect.tap(() => Effect.sync(() => titles.set(threadId, name))), Effect.asVoid),
+          ).pipe(
+            Effect.tap(() => Effect.sync(() => titles.set(threadId, name))),
+            Effect.asVoid,
+          ),
 
         releaseThread: (threadId) =>
           Effect.sync(() => {
@@ -719,7 +782,9 @@ export function make(connect: Connect): ProviderAdapter {
 
         createProject: (name, cwd) =>
           Effect.gen(function* () {
-            const current = yield* request('project.current', (signal) => client.project.current({ directory: cwd }, opts(signal)))
+            const current = yield* request('project.current', (signal) =>
+              client.project.current({ directory: cwd }, opts(signal)),
+            )
             if (current.data.id === 'global') {
               return yield* Effect.fail(
                 rejected(

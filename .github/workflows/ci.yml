@@ -24,7 +24,7 @@ jobs:
     env:
       # Typecheck, lint, knip and the unit tests never launch Electron, so skip its
       # ~100 MB download in postinstall.
-      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - name: Checkout
         uses: actions/checkout@v6

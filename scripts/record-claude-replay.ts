@@ -39,7 +39,13 @@ const TURN_PROMPTS = ['Reply with one short sentence about tea.', 'Now say it ag
 /** No such session exists; opening it records Claude's "not found" path. */
 const MISSING_SESSION = '00000000-0000-4000-8000-000000000001'
 /** Variables that would hand Claude Code a login without its config folder. */
-const AUTH_VARIABLES = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX']
+const AUTH_VARIABLES = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+]
 
 type Scenario = {
   readonly description: string
@@ -54,7 +60,8 @@ type Scenario = {
 
 const SCENARIOS: Record<string, Scenario> = {
   library: {
-    description: 'Catalog probe with no login (Docs shows the sign-in hint), an empty document list, and a document that does not exist. No prompt.',
+    description:
+      'Catalog probe with no login (Docs shows the sign-in hint), an empty document list, and a document that does not exist. No prompt.',
     sendsTurns: false,
     run: (session, _events, _workspace, entries) =>
       Effect.gen(function* () {
@@ -62,7 +69,10 @@ const SCENARIOS: Record<string, Scenario> = {
         // Judged on Claude Code's own answer, not Docs' reading of it: any login source at all
         // means it found credentials after all, so stop before anything personal is written.
         const source = tokenSource(entries)
-        if (source !== 'none') return yield* Effect.die(new Error(`Claude Code reported token source "${source}" in the empty home; nothing was written.`))
+        if (source !== 'none')
+          return yield* Effect.die(
+            new Error(`Claude Code reported token source "${source}" in the empty home; nothing was written.`),
+          )
         yield* Stream.runHead(session.listDocs(''))
         yield* Effect.exit(session.openThread(MISSING_SESSION))
       }),
@@ -72,12 +82,24 @@ const SCENARIOS: Record<string, Scenario> = {
     sendsTurns: true,
     run: (session, events, workspace) =>
       Effect.gen(function* () {
-        const created = yield* session.createThread({ cwd: workspace, projectId: null, title: null, settings: SETTINGS })
+        const created = yield* session.createThread({
+          cwd: workspace,
+          projectId: null,
+          title: null,
+          settings: SETTINGS,
+        })
         for (const [index, text] of TURN_PROMPTS.entries()) {
           const ended = () => events.filter((event) => event.type === 'turnEnded').length
           const before = ended()
-          yield* session.send(created.threadId, { text, images: [], skill: null, clientId: `local-replay-${index + 1}` }, SETTINGS)
-          yield* Effect.sleep('200 millis').pipe(Effect.repeat({ until: () => ended() > before }), Effect.timeout('3 minutes'))
+          yield* session.send(
+            created.threadId,
+            { text, images: [], skill: null, clientId: `local-replay-${index + 1}` },
+            SETTINGS,
+          )
+          yield* Effect.sleep('200 millis').pipe(
+            Effect.repeat({ until: () => ended() > before }),
+            Effect.timeout('3 minutes'),
+          )
         }
         yield* session.openThread(created.threadId)
       }),
@@ -87,7 +109,8 @@ const SCENARIOS: Record<string, Scenario> = {
 /** `account.tokenSource` from the recorded probe answer, or "missing" when there is none. */
 function tokenSource(entries: ReadonlyArray<ReplayEntry>): string {
   const answer = entries.find((entry) => entry.type === 'emit_inbound' && entry.label === 'query.initializationResult')
-  const frame = answer?.type === 'emit_inbound' ? (answer.frame as { result?: { account?: { tokenSource?: unknown } } }) : undefined
+  const frame =
+    answer?.type === 'emit_inbound' ? (answer.frame as { result?: { account?: { tokenSource?: unknown } } }) : undefined
   const source = frame?.result?.account?.tokenSource
   return typeof source === 'string' ? source : 'missing'
 }
@@ -101,14 +124,18 @@ function withoutPersonalLists(entry: ReplayEntry): ReplayEntry {
   const frame = entry.frame as { message?: Record<string, unknown> }
   if (frame.message?.type !== 'system' || frame.message.subtype !== 'init') return entry
   const lists = ['mcp_servers', 'slash_commands', 'skills', 'plugins', 'agents', 'tools']
-  return { ...entry, frame: { ...frame, message: { ...frame.message, ...Object.fromEntries(lists.map((key) => [key, []])) } } }
+  return {
+    ...entry,
+    frame: { ...frame, message: { ...frame.message, ...Object.fromEntries(lists.map((key) => [key, []])) } },
+  }
 }
 
 function versionOf(entries: ReadonlyArray<ReplayEntry>): string {
   for (const entry of entries) {
     if (entry.type !== 'emit_inbound') continue
     const message = (entry.frame as { message?: { type?: string; claude_code_version?: unknown } } | undefined)?.message
-    if (message?.type === 'system' && typeof message.claude_code_version === 'string') return message.claude_code_version
+    if (message?.type === 'system' && typeof message.claude_code_version === 'string')
+      return message.claude_code_version
   }
   // A probe streams no messages; the SDK's own version is the next best thing.
   const sdk = new URL('../node_modules/@anthropic-ai/claude-agent-sdk/package.json', import.meta.url)
@@ -148,7 +175,9 @@ async function main() {
       Effect.gen(function* () {
         const session = yield* ClaudeAdapter.make(async () => sdk).openSession
         const events: AdapterEvent[] = []
-        yield* Stream.runForEach(session.events, (event) => Effect.sync(() => events.push(event))).pipe(Effect.forkScoped)
+        yield* Stream.runForEach(session.events, (event) => Effect.sync(() => events.push(event))).pipe(
+          Effect.forkScoped,
+        )
         yield* scenario.run(session, events, workspace, entries)
       }).pipe(Effect.scoped),
     )
@@ -173,7 +202,8 @@ async function main() {
     ],
   })
   const found = leaks(text, machine)
-  if (found.length) throw new Error(`Scrubbing missed ${found.length} value(s); nothing was written. First: ${found[0]}`)
+  if (found.length)
+    throw new Error(`Scrubbing missed ${found.length} value(s); nothing was written. First: ${found[0]}`)
   const out = new URL(`../src/claude/fixtures/${name}.ndjson`, import.meta.url)
   writeFileSync(out, text)
   console.log(`Wrote ${entries.length} entries to ${out.pathname.replace(process.cwd() + '/', '')}`)

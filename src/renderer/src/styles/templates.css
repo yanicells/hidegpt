@@ -89,8 +89,7 @@
   height: 58px;
   background:
     radial-gradient(circle at 70% 55%, #ffd5c2 0 14px, transparent 15px),
-    radial-gradient(circle at 30% 40%, #ffffff55 0 9px, transparent 10px),
-    linear-gradient(135deg, #f28b66, #e8566b);
+    radial-gradient(circle at 30% 40%, #ffffff55 0 9px, transparent 10px), linear-gradient(135deg, #f28b66, #e8566b);
 }
 
 .template-page-guide > strong {
@@ -111,8 +110,7 @@
   order: 2;
   background:
     linear-gradient(to top, #6b5b4b 0 30%, transparent 30%),
-    radial-gradient(ellipse at 50% 120%, #b5835a 0 40%, transparent 41%),
-    linear-gradient(#cfd6dc, #8c9aa5);
+    radial-gradient(ellipse at 50% 120%, #b5835a 0 40%, transparent 41%), linear-gradient(#cfd6dc, #8c9aa5);
 }
 
 .template-page-report > strong {
@@ -161,8 +159,7 @@
   height: 62px;
   background:
     radial-gradient(ellipse at 20% 110%, #1e6b4f 0 38%, transparent 39%),
-    radial-gradient(ellipse at 80% 0%, #2e8b62 0 42%, transparent 43%),
-    linear-gradient(160deg, #a8d8b9, #f4e3a1);
+    radial-gradient(ellipse at 80% 0%, #2e8b62 0 42%, transparent 43%), linear-gradient(160deg, #a8d8b9, #f4e3a1);
 }
 
 .template-page-proposal > strong {

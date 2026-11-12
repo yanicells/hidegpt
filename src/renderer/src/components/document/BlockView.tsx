@@ -24,7 +24,9 @@ export const BlockView = memo(
           {block.text || block.skills?.length ? (
             // Each question is the turn's Heading 1, as Docs would title a section.
             <h1 className="doc-question">
-              {block.skills?.map((name) => <SkillChip key={name} name={name} />)}
+              {block.skills?.map((name) => (
+                <SkillChip key={name} name={name} />
+              ))}
               {block.text}
             </h1>
           ) : null}

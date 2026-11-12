@@ -55,7 +55,12 @@ export function describeEvent(event: AdapterEvent): Record<string, unknown> | nu
     case 'resolved':
       return { type: event.type, threadId: event.threadId, blockId: event.blockId, resolved: event.resolved }
     case 'reset':
-      return { type: event.type, threadId: event.threadId, blocks: event.blocks.length, streaming: event.streaming ?? false }
+      return {
+        type: event.type,
+        threadId: event.threadId,
+        blocks: event.blocks.length,
+        streaming: event.streaming ?? false,
+      }
     case 'invalidate':
       return { type: event.type, part: event.part }
     case 'notice':
@@ -107,11 +112,7 @@ export const make = (directory: string) =>
       restore(Queue.takeAll(queue)).pipe(Effect.flatMap(write)),
     ).pipe(Effect.andThen(Effect.sleep(BATCH_WINDOW)), Effect.forever, Effect.forkScoped)
     yield* Effect.addFinalizer(() =>
-      Fiber.interrupt(writer).pipe(
-        Effect.andThen(Queue.clear(queue)),
-        Effect.flatMap(write),
-        Effect.ignore,
-      ),
+      Fiber.interrupt(writer).pipe(Effect.andThen(Queue.clear(queue)), Effect.flatMap(write), Effect.ignore),
     )
 
     return ProviderEventLog.of({

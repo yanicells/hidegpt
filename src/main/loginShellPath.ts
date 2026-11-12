@@ -20,7 +20,13 @@ const SHELL_TIMEOUT_MS = 2_000
 type ExecFileSyncLike = (
   file: string,
   args: ReadonlyArray<string>,
-  options: { encoding: 'utf8'; timeout: number; killSignal: 'SIGKILL'; detached: boolean; stdio: ['ignore', 'pipe', 'ignore'] },
+  options: {
+    encoding: 'utf8'
+    timeout: number
+    killSignal: 'SIGKILL'
+    detached: boolean
+    stdio: ['ignore', 'pipe', 'ignore']
+  },
 ) => string
 
 /** Prints PATH between markers, so a profile's own output (banners, motd) can't be mistaken for it. */
@@ -55,7 +61,10 @@ export function mergePaths(...paths: ReadonlyArray<string | undefined>): string 
 }
 
 /** The login shell's PATH, or undefined if the shell fails, prints nothing, or takes too long. */
-export function readLoginShellPath(shell: string, execFile: ExecFileSyncLike = execFileSync as ExecFileSyncLike): string | undefined {
+export function readLoginShellPath(
+  shell: string,
+  execFile: ExecFileSyncLike = execFileSync as ExecFileSyncLike,
+): string | undefined {
   try {
     // Interactive, so profiles that set PATH only for interactive shells run; detached,
     // so job control on an inherited terminal can't stop the probe.

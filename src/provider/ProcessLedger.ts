@@ -100,7 +100,11 @@ function isRecordedGroup(pid: number, entry: LedgerEntry, rows: ReadonlyArray<Pr
   if (!entry.started) return false
   const leader = rows.find((row) => row.pid === pid)
   if (leader) {
-    return leader.started === entry.started && leader.command.includes(entry.command) && (!entry.arg || leader.command.includes(entry.arg))
+    return (
+      leader.started === entry.started &&
+      leader.command.includes(entry.command) &&
+      (!entry.arg || leader.command.includes(entry.arg))
+    )
   }
   const since = startMillis(entry.started)
   const members = rows.filter((row) => row.pgid === pid)
@@ -146,7 +150,8 @@ export const layer = (filePath: string | null, owner: number = process.pid) =>
   Layer.effect(
     ProcessLedger,
     Effect.gen(function* () {
-      if (!filePath) return ProcessLedger.of({ record: () => Effect.void, forget: () => Effect.void, reap: Effect.succeed(0) })
+      if (!filePath)
+        return ProcessLedger.of({ record: () => Effect.void, forget: () => Effect.void, reap: Effect.succeed(0) })
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const ownerStarted = yield* startOf(owner)

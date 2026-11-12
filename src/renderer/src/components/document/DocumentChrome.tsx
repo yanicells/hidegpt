@@ -94,8 +94,15 @@ export function DocumentChrome({
             </Tip>
             <Tip label={snap.streaming ? 'Saving…' : 'All changes saved in Drive'}>
               <span className="save-state" role="status" aria-label={snap.streaming ? 'Saving…' : 'Saved to Drive'}>
-                <MIcon name={snap.streaming ? 'cloud_sync' : 'cloud_done'} className={snap.streaming ? 'cloud busy' : 'cloud'} />
-                {snap.streaming ? <span className="save-text">Saving…</span> : saved ? <span className="save-text">Saved to Drive</span> : null}
+                <MIcon
+                  name={snap.streaming ? 'cloud_sync' : 'cloud_done'}
+                  className={snap.streaming ? 'cloud busy' : 'cloud'}
+                />
+                {snap.streaming ? (
+                  <span className="save-text">Saving…</span>
+                ) : saved ? (
+                  <span className="save-text">Saved to Drive</span>
+                ) : null}
               </span>
             </Tip>
           </div>
