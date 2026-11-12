@@ -33,6 +33,17 @@ or adapted file carries a header naming its source.
     `before-quit`, close every scope, then quit; exit if shutdown stalls; open
     no window on activation meanwhile), from
     `apps/desktop/src/app/DesktopLifecycle.ts`.
+  - `src/provider/ProcessSupervisor.ts` and `src/provider/ProcessLedger.ts`:
+    Claude Code spawned in its own process group with stderr drained
+    (`spawnClaudeProcessGroup`) and pid plus start time from `ps`
+    (`parseClaudeProcessTable`), and recording a CLI's process tree to stop
+    only what is still the same process, after the CLI exits too
+    (`trackDescendants` and its `stop`, `claudeDescendants`), from
+    `apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts`; the
+    atomic ledger write (`packages/shared/src/atomicWrite.ts`), the hard
+    `ps` timeout (`apps/server/src/processRunner.ts`), and one app per
+    profile in `src/main/app.ts` (`apps/desktop/src/app/DesktopClerk.ts`), at
+    commit 5c6f2f12.
   - `src/main/ProviderSessionManager.ts` and `src/opencode/OpenCodeAdapter.ts`:
     handling a defect in a long-lived fiber with `Effect.catchCause` and
     re-interrupting on interruption, from
