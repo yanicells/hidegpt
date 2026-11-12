@@ -208,6 +208,8 @@ The same fakes back demo mode (`HIDEGPT_FAKE=1`), which serves the fictional lib
 
 Fixture shapes come from the installed CLIs (`codex app-server generate-ts`, OpenCode's `/doc` OpenAPI, the SDK's `sdk.d.ts`). No test sends a prompt to a real model.
 
+**Replay fixtures** add recordings from the real CLIs. `pnpm record:codex` and `pnpm record:claude` drive the real Codex and Claude adapters against the installed CLIs and write what passed between them to `src/<provider>/fixtures/*.ndjson`, scrubbed. The `*.replay.test.ts` suites then play those recordings back to the adapters: the vendored `replay.ts` for Codex, and `src/claude/replay.ts` for the Agent SDK. A replay pins what the adapter sends and how it handles real answers. It only reflects a newer CLI after someone re-records. The committed `library` recordings need no prompt and no login. The `turn` recordings send real prompts, so only the owner records them, with `HIDEGPT_RECORD_TURNS=1`. Until then their tests are skipped. See [replay-fixtures.md](replay-fixtures.md).
+
 ## 10. Adding a provider
 
 1. Add its id to `ProviderId` and `CAPABILITIES` (`src/shared/`), and its label in `src/shared/labels.ts`.

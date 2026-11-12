@@ -116,7 +116,9 @@ plain React.
 - Every IPC channel is a row in the `Ipc*` tables in `src/shared/contracts.ts`;
   main decodes its payload at the boundary and the preload's types derive from it.
 - Tests use `@effect/vitest` and `TestClock`, against fakes that replace only
-  the process boundary (`FakeCodex`, `FakeOpenCode`, `FakeClaude`).
+  the process boundary (`FakeCodex`, `FakeOpenCode`, `FakeClaude`), plus replay
+  fixtures recorded from the real CLIs (docs/replay-fixtures.md). Never set
+  `HIDEGPT_RECORD_TURNS=1`: only the owner records turns.
 - Don't mix styles: new main/provider code is Effect, not promise chains.
 
 ## Project structure
@@ -198,6 +200,7 @@ pnpm knip         # unused files, exports, dependencies
 pnpm check        # typecheck + lint + knip + test, as CI runs it
 pnpm protocol     # regenerate the vendored Codex schemas from the installed CLI
 pnpm protocol --check  # fail if the committed schemas drift from the installed CLI
+pnpm record:codex library   # re-record a no-prompt replay fixture (also record:claude)
 pnpm screenshot   # PNGs of home + document with a fake session
 pnpm dist         # package dist/Docs-*.dmg; HIDEGPT_PERSONAL=1 adds Claude, in dist/personal/
 ```
