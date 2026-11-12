@@ -58,9 +58,11 @@ or adapted file carries a header naming its source.
     from `knip.jsonc`; `tsconfig.effect.json` (trimmed) and
     `tsconfig.effect-strict.json` (whole) from `tsconfig.effect.json`, run
     with `effect-tsgo tsrs` as in `apps/server/package.json`; `.github/workflows/ci.yml` from
-    `.github/workflows/ci.yml`; and `lint-staged.config.js` with
+    `.github/workflows/ci.yml`; `lint-staged.config.js` with
     `.githooks/pre-commit` from the `staged` block of `vite.config.ts` and
-    `.vite-hooks/pre-commit`.
+    `.vite-hooks/pre-commit`; and `.vscode/settings.json`,
+    `.vscode/extensions.json` and the `.vscode/tsdk/tsgo` language-server shim
+    from `.vscode/`.
 - License: MIT
 
 ```
