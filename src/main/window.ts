@@ -38,7 +38,6 @@ function initialBounds(): { width: number; height: number; x?: number; y?: numbe
 }
 
 export function createWindow(opts: { onDidFinishLoad: () => void }): BrowserWindow {
-  const isMac = process.platform === 'darwin'
   const win = new BrowserWindow({
     ...initialBounds(),
     minWidth: 720,
@@ -46,8 +45,10 @@ export function createWindow(opts: { onDidFinishLoad: () => void }): BrowserWind
     title: 'Docs',
     backgroundColor: '#ffffff',
     show: false,
-    titleBarStyle: isMac ? 'hiddenInset' : 'default',
-    trafficLightPosition: isMac ? { x: 16, y: 22 } : undefined,
+    // An installed Docs app window: the system title bar shows the title and
+    // drags the window, so the page needs no drag region and nothing sits on
+    // top of the Docs logo.
+    titleBarStyle: 'default',
     webPreferences: {
       preload: resolvePreload(),
       sandbox: true,
@@ -61,6 +62,7 @@ export function createWindow(opts: { onDidFinishLoad: () => void }): BrowserWind
   win.on('closed', () => {
     if (window === win) window = null
   })
+  keepMainTitle(win)
   const appUrl = process.env.ELECTRON_RENDERER_URL ?? APP_URL
   // Links in answers open in the browser; the window itself never leaves the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -81,6 +83,15 @@ export function createWindow(opts: { onDidFinishLoad: () => void }): BrowserWind
 
   void win.loadURL(appUrl)
   return win
+}
+
+/**
+ * The title bar shows only what main sets with `win.setTitle`. Without this,
+ * every load and reload would swap in the page's own `<title>` until the next
+ * snapshot set it back.
+ */
+export function keepMainTitle(win: Pick<BrowserWindow, 'on'>): void {
+  win.on('page-title-updated', (event) => event.preventDefault())
 }
 
 const APP_URL = 'docs://app/index.html'
