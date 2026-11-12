@@ -20,7 +20,7 @@ import * as ProviderRegistry from './ProviderRegistry'
 import { ProviderSessionManager, layer as managerLayer } from './ProviderSessionManager'
 import { captureScreenshots } from './screenshots'
 import { makeSnapshotPublisher } from './SnapshotPublisher'
-import { createWindow, getWindow, openExternal, registerDocsProtocol, saveImage } from './window'
+import { createWindow, documentHasImage, getWindow, openExternal, registerDocsProtocol, saveImage } from './window'
 
 // A closed terminal must not crash main through console writes (EPIPE), as in T3 Code's desktop main.
 for (const stream of [process.stdout, process.stderr]) {
@@ -65,7 +65,6 @@ const decodeFailed: CommandResult = { ok: false, error: 'Docs could not read tha
 /** The app: IPC, the window, the menu, and the first library's connection. Runs until quit. */
 const program = Effect.gen(function* () {
   yield* Effect.promise(() => app.whenReady())
-  registerDocsProtocol()
   const supervisor = yield* ProcessSupervisor.ProcessSupervisor
   const reaped = yield* supervisor.reapOrphans
   if (reaped > 0) console.warn(`Stopped ${reaped} provider process(es) left by the last run.`)
@@ -142,6 +141,9 @@ const program = Effect.gen(function* () {
   ipcMain.on('snapshot-now', (event) => {
     event.returnValue = publisher.delivered()
   })
+
+  // Local images load only if the window was handed them: the open document's, or pasted ones.
+  registerDocsProtocol((ref) => documentHasImage(publisher.delivered(), ref))
 
   const open = () => createWindow({ onDidFinishLoad: publisher.resync })
   const win = open()
