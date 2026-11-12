@@ -291,18 +291,33 @@ export function resultError(message: SDKResultMessage): string | undefined {
   return text || RESULT_ERRORS[message.subtype] || 'Claude stopped before finishing.'
 }
 
-const PREVIEW_KEYS = ['command', 'file_path', 'path', 'url', 'pattern', 'description'] as const
+// The input field that best shows what a tool will touch, first match wins.
+const PREVIEW_KEYS = ['command', 'file_path', 'notebook_path', 'path', 'url', 'query', 'pattern', 'prompt', 'description'] as const
 
 export const permissionBlockId = (toolUseId: string) => `approval-${toolUseId}`
 
-/** A tool Claude wants to run; `title` is the SDK's own prompt sentence when it sends one. */
-export function permissionBlock(id: string, tool: string, input: Record<string, unknown>, title: string | undefined): ApprovalBlock {
+const MENTIONS_VENDOR = /claude|anthropic/i
+
+/**
+ * A short name for the tool, never the SDK's own sentences: its `title` and
+ * `description` speak as the assistant ("Claude wants to search the web"),
+ * which the page must never show. MCP tools drop their `mcp__server__` prefix,
+ * since a server key such as `claude_ai_Notion` names the vendor too.
+ */
+export function toolLabel(tool: string, displayName: string | undefined): string {
+  if (displayName && !MENTIONS_VENDOR.test(displayName)) return displayName
+  const mcp = /^mcp__.+?__(.+)$/.exec(tool)
+  return mcp ? mcp[1]!.replace(/_/g, ' ') : tool
+}
+
+/** A tool Claude wants to run, as a suggestion card asking to allow it. */
+export function permissionBlock(id: string, tool: string, input: Record<string, unknown>, displayName: string | undefined): ApprovalBlock {
   const preview = PREVIEW_KEYS.map((key) => input[key]).find((value): value is string => typeof value === 'string')
   return {
     kind: 'approval',
     id,
     suggestion: 'add',
-    title: title || `Allow ${tool}?`,
+    title: `Allow ${toolLabel(tool, displayName)}?`,
     body: preview ?? '',
     fields: [],
     questions: [],

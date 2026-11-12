@@ -261,6 +261,28 @@ describe('ClaudeAdapter', () => {
     }),
   )
 
+  it.effect('never puts the SDK\'s own prompt sentences, or a vendor-named MCP server, on the card', () =>
+    Effect.gen(function* () {
+      const { fake, session, events } = yield* open({ reply: null })
+      yield* send(session, DOC, 'Look it up')
+      yield* until(() => fake.queries[0]?.prompts.length === 1)
+      const prompt = {
+        title: 'Claude wants to search the web',
+        description: 'Claude will have access to the web',
+        decisionReason: 'Claude Code asks before searching',
+      }
+      fake.queries[0]!.askTool('WebSearch', { query: 'week 3 readings' }, 'toolu_w', { ...prompt, displayName: 'Search the web' })
+      fake.queries[0]!.askTool('mcp__claude_ai_Notion__notion-search', { query: 'notes' }, 'toolu_m', { ...prompt, displayName: 'Claude: search Notion' })
+      yield* until(() => events.filter((event) => event.type === 'block').length === 2)
+      const cards = events.flatMap((event) => (event.type === 'block' && event.block.kind === 'approval' ? [event.block] : []))
+      expect(cards.map((card) => [card.title, card.body])).toEqual([
+        ['Allow Search the web?', 'week 3 readings'],
+        ['Allow notion-search?', 'notes'],
+      ])
+      for (const card of cards) expect(JSON.stringify(card)).not.toMatch(/claude|anthropic/i)
+    }),
+  )
+
   it.effect('answers AskUserQuestion by question text, and withdraws a request when the turn stops', () =>
     Effect.gen(function* () {
       const { fake, session, events } = yield* open({ reply: null })
