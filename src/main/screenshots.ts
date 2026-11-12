@@ -22,7 +22,9 @@ const PASTED_PNG =
   'iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAIAAABvFaqvAAAAH0lEQVR42mNwav1CFcQwatCoQaMGjRo0atCoQQNvEAD/F+TuO4//gwAAAABJRU5ErkJggg=='
 
 /**
- * `HIDEGPT_SCREENSHOT=<dir>` (with `HIDEGPT_FAKE=1`): walks Home and its
+ * `HIDEGPT_SCREENSHOT=<dir>` (with `HIDEGPT_FAKE=1`): with `HIDEGPT_PHASE` set,
+ * runs that fidelity phase in a hidden window (`src/main/fidelity/harness.ts`,
+ * loaded only then; `pnpm fidelity:shots`). Otherwise walks Home and its
  * menus, the folder picker, a new document, a document (across a page break,
  * streaming, and with a pending suggestion), every toolbar and header menu,
  * the narrow layouts, and the library switch, saving a PNG of each plus the
@@ -36,6 +38,11 @@ export const captureScreenshots = (
   dir: string,
 ) =>
   Effect.gen(function* () {
+    const phase = process.env.HIDEGPT_PHASE
+    if (phase) {
+      const { runPhase } = yield* Effect.promise(() => import('./fidelity/harness'))
+      return yield* runPhase(phase, win, manager, stage, dir)
+    }
     mkdirSync(dir, { recursive: true })
     // A page that never answers (a hung or gone renderer) must fail the step, not hang the run.
     const answered = <A>(what: string, ask: () => Promise<A>) =>

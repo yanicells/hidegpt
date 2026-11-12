@@ -203,6 +203,7 @@ pnpm protocol     # regenerate the vendored Codex schemas from the installed CLI
 pnpm protocol --check  # fail if the committed schemas drift from the installed CLI
 pnpm record:codex library   # re-record a no-prompt replay fixture (also record:claude)
 pnpm screenshot   # PNGs of home + document with a fake session
+pnpm fidelity:shots && pnpm fidelity:check   # hidden captures scored against Docs (README)
 pnpm dist         # package dist/Docs-*.dmg; HIDEGPT_PERSONAL=1 adds Claude, in dist/personal/
 ```
 
@@ -224,5 +225,6 @@ through `PERSONAL_BUILD` in `src/shared/labels.ts`). Runs from source set it;
 - No ChatGPT.com scraping, no protocol guessing. If a method isn't in the
   generated schemas (Codex), the served OpenAPI / SDK types (OpenCode), or
   `sdk.d.ts` (Claude), it doesn't exist.
-- After changes: `pnpm check`, plus `pnpm screenshot` for UI changes. Suppress a
+- After changes: `pnpm check`, plus `pnpm screenshot` for UI changes
+  (`pnpm fidelity:shots` and `pnpm fidelity:check` when matching Docs). Suppress a
   lint rule only with a reason: `// oxlint-disable-next-line <rule> -- <why>`.

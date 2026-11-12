@@ -56,7 +56,8 @@ export function createWindow(opts: { onDidFinishLoad: () => void }): BrowserWind
     },
   })
   window = win
-  win.on('ready-to-show', () => win.show())
+  // A hidden fidelity capture never shows its window (src/main/fidelity/boot.ts).
+  if (process.env.HIDEGPT_HIDDEN !== '1') win.on('ready-to-show', () => win.show())
   win.on('closed', () => {
     if (window === win) window = null
   })

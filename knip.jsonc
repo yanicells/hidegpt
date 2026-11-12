@@ -4,8 +4,8 @@
   "rules": { "types": "off", "nsTypes": "off" },
   // electron-vite builds main and preload from src/<name>/index.ts, which knip finds
   // through its electron-vite config; the renderer's entry is its index.html.
-  // Scripts run on their own (pnpm dist, record:*, the preload check).
-  "entry": ["src/renderer/index.html", "scripts/*.ts"],
+  // Scripts run on their own (pnpm dist, record:*, fidelity:shots, the preload check).
+  "entry": ["src/renderer/index.html", "scripts/*.ts", "scripts/fidelity/*.ts"],
   "project": ["src/**/*.{ts,tsx}", "scripts/**/*.ts", "*.ts"],
   // Exports a file also uses itself are its public surface, often kept for tests.
   "ignoreExportsUsedInFile": true,
@@ -17,6 +17,8 @@
     // The tsconfig plugin name; @effect/tsgo bundles it.
     "@effect/language-service",
   ],
+  // The fidelity check and diff tools are Python, run through uv (README, Fidelity checks).
+  "ignoreBinaries": ["uv"],
   "ignoreIssues": {
     // Vendored from T3 Code and kept whole, so it stays easy to re-sync.
     "src/vendor/**": ["files", "exports"],
