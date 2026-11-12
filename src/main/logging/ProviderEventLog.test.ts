@@ -43,8 +43,15 @@ describe('ProviderEventLog', () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   )
 
-  it('keeps sign-in links and titles out of the log', () => {
+  it('keeps sign-in links, titles, and error or notice text out of the log', () => {
     expect(describeEvent({ type: 'loginUrl', url: 'https://auth.example/?state=secret' })).toEqual({ type: 'loginUrl', pending: true })
     expect(describeEvent({ type: 'title', threadId: 't1', title: 'My private essay' })).toEqual({ type: 'title', threadId: 't1' })
+    // A provider can quote what was sent in its error ("invalid input: <prompt>").
+    expect(describeEvent({ type: 'turnEnded', threadId: 't1', error: 'invalid input: my essay' })).toEqual({
+      type: 'turnEnded',
+      threadId: 't1',
+      failed: true,
+    })
+    expect(describeEvent({ type: 'notice', message: 'Could not read my essay' })).toEqual({ type: 'notice' })
   })
 })

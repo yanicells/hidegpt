@@ -15,15 +15,14 @@ import { makeRotatingFileSink, type RotatingFileSink } from './rotatingFileSink'
 /** `logs/providers/<provider>.ndjson`: 5 MB, plus three rotated files each. */
 export const PROVIDER_LOG = { maxBytes: 5 * 1024 * 1024, maxFiles: 3 } as const
 const BATCH_WINDOW = '500 millis'
-/** Error and notice sentences are cut here; they are for diagnosis, not reading. */
-const MAX_DETAIL = 500
 
 /**
  * What a provider reported, one JSON line per event, so "the answer stopped"
- * can be debugged after the fact. It never holds what anyone wrote: no prompt
- * text, no answer text (streamed `text` deltas are skipped entirely), no
- * titles, no sign-in links. A record keeps the event type, the thread and
- * block ids, and error or notice sentences.
+ * can be debugged after the fact. It never holds text: no prompt or answer
+ * (streamed `text` deltas are skipped entirely), no titles, no sign-in links,
+ * and no error or notice sentences, which a provider may build from what was
+ * sent. A record keeps the event type, the thread and block ids, and whether
+ * a turn failed.
  */
 export interface ProviderEventLogShape {
   readonly record: (provider: ProviderId, event: AdapterEvent) => Effect.Effect<void>
@@ -33,8 +32,6 @@ export interface ProviderEventLogShape {
 export const ProviderEventLog = Context.Reference<ProviderEventLogShape>('hidegpt/ProviderEventLog', {
   defaultValue: () => ({ record: () => Effect.void }),
 })
-
-const cut = (text: string) => (text.length > MAX_DETAIL ? `${text.slice(0, MAX_DETAIL)}…` : text)
 
 /** The loggable part of an event, or null for events not worth a line. Exported for tests. */
 export function describeEvent(event: AdapterEvent): Record<string, unknown> | null {
@@ -46,7 +43,7 @@ export function describeEvent(event: AdapterEvent): Record<string, unknown> | nu
     case 'title':
       return { type: event.type, threadId: event.threadId }
     case 'turnEnded':
-      return { type: event.type, threadId: event.threadId, ...(event.error ? { error: cut(event.error) } : {}) }
+      return { type: event.type, threadId: event.threadId, failed: event.error !== undefined }
     case 'block':
       return {
         type: event.type,
@@ -62,7 +59,7 @@ export function describeEvent(event: AdapterEvent): Record<string, unknown> | nu
     case 'invalidate':
       return { type: event.type, part: event.part }
     case 'notice':
-      return { type: event.type, message: cut(event.message) }
+      return { type: event.type }
     case 'loginUrl':
       return { type: event.type, pending: event.url !== null }
   }
