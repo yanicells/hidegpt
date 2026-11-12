@@ -59,6 +59,8 @@ const MainLayer = managerLayer({
 const runtime = ManagedRuntime.make(MainLayer)
 /** Where a quit is: `waiting` while scopes close and providers stop, then `allowed` for the real quit. */
 let quitPhase: 'running' | 'waiting' | 'allowed' = 'running'
+/** The code Docs exits with once shutdown ends; a failed screenshot walk sets 1. */
+let exitCode = 0
 
 const decodeFailed: CommandResult = { ok: false, error: 'Docs could not read that request.' }
 
@@ -158,7 +160,7 @@ const program = Effect.gen(function* () {
       Effect.catchCause((cause) =>
         Effect.sync(() => {
           console.error('Screenshots failed:', cause)
-          process.exitCode = 1
+          exitCode = 1
         }),
       ),
     )
@@ -200,7 +202,7 @@ app.on('before-quit', (event) => {
   quitPhase = 'waiting'
   const stalled = setTimeout(() => {
     console.error('Docs did not shut down in time; exiting without it.')
-    app.exit(0)
+    app.exit(exitCode)
   }, SHUTDOWN_DEADLINE_MS)
   void runtime
     .runPromise(Fiber.interrupt(main))
@@ -209,6 +211,9 @@ app.on('before-quit', (event) => {
     .finally(() => {
       clearTimeout(stalled)
       quitPhase = 'allowed'
-      app.quit()
+      // Electron ignores process.exitCode, so a failed run exits explicitly; a normal
+      // quit goes through app.quit so windows still close the usual way.
+      if (exitCode === 0) app.quit()
+      else app.exit(exitCode)
     })
 })
