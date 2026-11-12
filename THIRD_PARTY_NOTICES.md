@@ -17,6 +17,10 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
   - `src/vendor/effect-codex-app-server/*.test.ts` and `_internal/*.test.ts`:
     the package's own tests, plus the newer `_internal/stdio.ts` that keeps a
     launcher error ahead of an exit summary, from commit 5c6f2f12.
+  - Local change, not in T3: `src/vendor/effect-codex-app-server/protocol.ts`
+    ends the protocol on a defect in its reader or writer, as on a transport
+    error, and answers a request handler's defect with an internal error
+    (marked `HideGPT:`; tested in `protocol.defect.test.ts`).
   - Replay fixtures, from commit 5c6f2f12: `scripts/record-codex-replay.ts`
     and `src/codex/replay.ts` (the recording protocol logger), from
     `apps/server/scripts/record-codex-app-server-replay-fixture.ts`;
