@@ -37,6 +37,7 @@ staged files and knip on the repo.
 | `pnpm check` | Typecheck, lint, knip, and tests: what CI runs |
 | `pnpm fmt` | oxfmt (not yet applied repo-wide) |
 | `pnpm protocol` | Regenerate the Codex app-server schemas from the installed CLI |
+| `pnpm protocol --check` | Fail if the committed schemas no longer match the installed CLI |
 | `pnpm screenshot` | Home grid/list, folder picker, open menus, a streaming reply and a suggestion, and desktop/narrow editor PNGs using fictional content |
 
 **Blank document** or a template creates an "Untitled document" right away, like Docs;

@@ -12,6 +12,11 @@ projects below. Each copied or adapted file carries a header naming its source.
   `src/provider/` and `src/main/` (provider adapters, session manager,
   process supervision, replay tests). Smaller adaptations, each marked in
   place:
+  - `src/vendor/effect-codex-app-server/*.test.ts` and `_internal/*.test.ts`:
+    the package's own tests, plus the newer `_internal/stdio.ts` that keeps a
+    launcher error ahead of an exit summary, from commit 5c6f2f12.
+  - `src/provider/randomUuid.ts`: v4 UUIDs drawn from Effect's `Random`, from
+    `packages/provider-core/src/server/randomUuid.ts` (commit 5c6f2f12).
   - `src/opencode/OpenCodeAdapter.ts`: message ids in OpenCode's format
     (`makeMessageIds`) and a set of busy sessions like `busySessionIds`, used
     here so a repeated busy status starts no new turn, both from

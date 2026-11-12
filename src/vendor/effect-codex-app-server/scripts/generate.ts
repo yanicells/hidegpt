@@ -20,6 +20,11 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 // schemas always match the binary the app talks to.
 const CODEX_BIN = process.env.CODEX_BIN ?? "codex";
 
+// HideGPT: `--check` regenerates in memory and fails if any generated file differs from
+// what is committed, without writing. It only runs the schema dumps above, which never
+// start a thread, a turn or a model call.
+const CHECK = process.argv.includes("--check");
+
 interface GithubContentEntry {
   readonly name: string;
   readonly path: string;
@@ -684,7 +689,7 @@ function rewriteExternalRefs(
 }
 
 const generateFiles = Effect.fn("generateFiles")(function* () {
-  yield* ensureGeneratedDir();
+  if (!CHECK) yield* ensureGeneratedDir();
 
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -905,12 +910,29 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
 
   const { metaOutputPath, namespacesOutputPath, schemaOutputPath } =
     yield* getGeneratedPaths();
-  yield* fs.writeFileString(schemaOutputPath, schemaOutput);
-  yield* fs.writeFileString(metaOutputPath, metaOutput);
-  yield* fs.writeFileString(namespacesOutputPath, namespacesOutput);
+  const outputs: ReadonlyArray<readonly [string, string]> = [
+    [schemaOutputPath, schemaOutput],
+    [metaOutputPath, metaOutput],
+    [namespacesOutputPath, namespacesOutput],
+  ];
 
+  if (CHECK) {
+    const drifted: Array<string> = [];
+    for (const [filePath, expected] of outputs) {
+      const current = yield* fs.readFileString(filePath).pipe(Effect.orElseSucceed(() => ""));
+      if (current !== expected) drifted.push(path.relative(process.cwd(), filePath));
+    }
+    if (drifted.length > 0) {
+      return yield* new GeneratorError({
+        detail: `Codex protocol schemas are stale for ${UPSTREAM_REF}: ${drifted.join(", ")}. Run \`pnpm protocol\`.`,
+      });
+    }
+    yield* Effect.log(`Codex App Server schemas match ${UPSTREAM_REF}`);
+    return;
+  }
+
+  for (const [filePath, contents] of outputs) yield* fs.writeFileString(filePath, contents);
   yield* Effect.log(`Generated Codex App Server schemas from ${UPSTREAM_REF}`);
-
 });
 
 generateFiles().pipe(
