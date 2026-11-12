@@ -23,6 +23,7 @@ Main and the providers are written in [Effect](https://effect.website) 4, follow
 | Piece | Effect shape |
 |---|---|
 | `ProcessSupervisor` (`src/provider/ProcessSupervisor.ts`) | A service over Effect's Node spawner. A child lives as long as the `Scope` that spawned it. |
+| `ProcessLedger` (`src/provider/ProcessLedger.ts`) | A service over Effect's `FileSystem`: the orphan ledger, schema-decoded and written atomically. |
 | `ProviderRegistry` (`src/main/ProviderRegistry.ts`) | A service that loads adapters with a dynamic `import()` on first use. `layerAdapters` swaps in fakes for tests and demo mode. |
 | `ProviderSessionManager` (`src/main/ProviderSessionManager.ts`) | A service that owns all UI state in a `Ref`. Its pure transitions are in `src/main/session/state.ts`. |
 | `SnapshotPublisher` (`src/main/SnapshotPublisher.ts`) | Turns state changes into IPC patches. |
@@ -136,13 +137,15 @@ Rules it enforces:
 
 ## 5. Processes (`src/provider/ProcessSupervisor.ts`)
 
-Codex and OpenCode run as child processes. Effect's Node spawner gives each child its own process group. When the session scope closes, it sends SIGTERM to the group, then SIGKILL after 2 s, so a CLI's own children die with it. The supervisor adds:
+Codex, OpenCode and Claude Code run as child processes. Effect's Node spawner gives each child its own process group. When the session scope closes, it sends SIGTERM to the group, then SIGKILL after 2 s, so a CLI's own children die with it. The supervisor adds:
 
 - `BinaryMissingError` when the CLI is not on PATH, and a `ProviderRequestError` saying what failed for any other spawn error;
 - an 8 KiB stderr tail on every `ProcessExitedError`, so "exited (1)" comes with the reason;
-- **an orphan ledger** (`userData/provider-processes.json`). If main is hard-killed and no finalizers run, the next launch kills a recorded pid, but only if its command line still matches what was spawned.
+- **an orphan ledger** (`ProcessLedger`, `userData/provider-processes.json`). If main is hard-killed and no finalizers run, the next launch reaps what it left. A pid alone proves nothing after a crash, so each entry keeps the process's `ps` start time, the command as spawned (a full path for Claude Code, so another app's Claude Code never matches) and its owner (main's pid and start time). An entry whose owner still runs (another instance) is kept. Otherwise its group is killed only when the leader runs with the recorded start time and command, or the leader is gone but members remain (MCP servers) that all started after it. Anything else, such as a reused pid, is dropped without a kill. Writes go through a temp file and a rename, keep other owners' entries, and a file that does not decode counts as empty.
 
-The Claude SDK spawns its own Claude Code processes. Each `query()` is closed when its document is released, its library closes, or the app quits.
+The Claude SDK starts Claude Code itself, so the adapter hands it `spawnClaudeCodeProcess` from `callbackSpawner`, after T3 Code's `spawnClaudeProcessGroup`. Each process leads its own group, sits in the ledger while it runs, has its stderr drained (the last line explains a failed start), and its group is killed when it exits or when the library's scope closes. The SDK's env is passed through untouched; Docs never reads it. Each `query()` is also closed when its document is released.
+
+Only one Docs runs per profile (`app.requestSingleInstanceLock`, as in T3 Code's `DesktopClerk`). The lock is taken at the top of `app.ts`, before the runtime runs, so a second launch builds nothing and quits. The first one focuses its window; a launch that arrives during startup is remembered and focuses the window once it exists. Demo mode keeps no ledger and skips the lock, so `pnpm screenshot` runs beside the real app.
 
 Quitting follows T3 Code's desktop lifecycle. The first `before-quit` is cancelled, every scope closes (so the processes above get their SIGTERM), and then the app quits for real. Activation opens no window while that shutdown runs. A shutdown that takes longer than 5 s exits anyway, and the ledger cleans up on the next launch.
 

@@ -1,10 +1,9 @@
-import { execFileSync } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { basename, dirname } from 'node:path'
+import { spawn as spawnChild, type ChildProcessWithoutNullStreams } from 'node:child_process'
 
 import * as Context from 'effect/Context'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
+import * as Fiber from 'effect/Fiber'
 import * as Layer from 'effect/Layer'
 import * as PlatformError from 'effect/PlatformError'
 import * as Ref from 'effect/Ref'
@@ -16,6 +15,7 @@ import type { ProviderId } from '../shared/model'
 import { appendStderrTail, stderrExcerpt } from '../vendor/effect-codex-app-server/_internal/stdio'
 import { BinaryMissingError, ProcessExitedError, ProviderRequestError } from './errors'
 import { providerLabel } from '../shared/labels'
+import * as ProcessLedger from './ProcessLedger'
 
 /**
  * Starts provider processes. Effect's Node spawner already gives each child
@@ -26,6 +26,9 @@ import { providerLabel } from '../shared/labels'
  * hard-killed Electron main (no finalizers ran) does not leave servers behind:
  * the next launch reaps them. (T3 Code gets the same guarantee by having its
  * server watch its launcher; HideGPT's main *is* the launcher.)
+ *
+ * SDKs that start their own CLI through a callback (Claude Code) use
+ * `callbackSpawner`, which gives the same guarantees synchronously.
  */
 
 export type SpawnOptions = {
@@ -45,6 +48,19 @@ export interface SupervisedProcess {
 /** SIGTERM first; a server that ignores it gets SIGKILL after this long. */
 export const FORCE_KILL_AFTER = Duration.seconds(2)
 
+/** What an SDK hands its spawn callback (Claude Code's `SpawnOptions`), plus where stderr goes. */
+export type CallbackSpawnOptions = {
+  readonly command: string
+  readonly args: ReadonlyArray<string>
+  readonly cwd?: string | undefined
+  /** Passed to the child exactly as given: never merged, read or logged. */
+  readonly env: Record<string, string | undefined>
+  readonly signal?: AbortSignal | undefined
+  readonly onStderr?: (text: string) => void
+}
+
+export type CallbackSpawn = (options: CallbackSpawnOptions) => ChildProcessWithoutNullStreams
+
 export class ProcessSupervisor extends Context.Service<
   ProcessSupervisor,
   {
@@ -53,6 +69,13 @@ export class ProcessSupervisor extends Context.Service<
       options: SpawnOptions,
       tailStderr?: boolean,
     ) => Effect.Effect<SupervisedProcess, BinaryMissingError | ProviderRequestError, Scope.Scope>
+    /**
+     * A synchronous spawn for SDK callbacks. Each child leads its own process group, is in
+     * the ledger while it runs, has its stderr drained, and its group is killed when it
+     * exits (taking its own children, such as MCP servers, along) or when the caller's
+     * scope closes (SIGTERM, then SIGKILL after `FORCE_KILL_AFTER`).
+     */
+    readonly callbackSpawner: Effect.Effect<CallbackSpawn, never, Scope.Scope>
     /** Kills servers a previous, crashed run left behind. */
     readonly reapOrphans: Effect.Effect<number>
   }
@@ -64,7 +87,29 @@ const signalFrom = (error: PlatformError.PlatformError): string | null =>
 const isNotFound = (error: PlatformError.PlatformError) =>
   error.reason._tag === 'NotFound' || /ENOENT/.test(error.message)
 
-const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledger: ProcessLedger) =>
+const signalGroup = (pid: number, signal: NodeJS.Signals) => {
+  try {
+    process.kill(-pid, signal)
+  } catch {
+    // already gone
+  }
+}
+
+const hasExited = (child: ChildProcessWithoutNullStreams) => child.exitCode !== null || child.signalCode !== null
+
+/** SIGTERM to the group, then SIGKILL if the leader has not exited in time. */
+const stopGroup = (child: ChildProcessWithoutNullStreams, pid: number) =>
+  Effect.callback<void>((resume) => {
+    if (hasExited(child)) return resume(Effect.void)
+    const done = () => resume(Effect.void)
+    child.once('exit', done)
+    signalGroup(pid, 'SIGTERM')
+    return Effect.sync(() => child.off('exit', done))
+  }).pipe(
+    Effect.timeoutOrElse({ duration: FORCE_KILL_AFTER, orElse: () => Effect.sync(() => signalGroup(pid, 'SIGKILL')) }),
+  )
+
+const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledger: ProcessLedger.ProcessLedger['Service']) =>
   ProcessSupervisor.of({
     spawn: Effect.fn('ProcessSupervisor.spawn')(function* (options, tailStderr = false) {
       const command = ChildProcess.make(options.command, [...options.args], {
@@ -84,10 +129,8 @@ const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledge
               }),
         ),
       )
-      const signature = `${basename(options.command)} ${options.args[0] ?? ''}`.trim()
-      yield* Effect.acquireRelease(
-        Effect.sync(() => ledger.record(handle.pid, signature)),
-        () => Effect.sync(() => ledger.forget(handle.pid)),
+      yield* Effect.acquireRelease(ledger.record(handle.pid, options.command, options.args[0] ?? ''), () =>
+        ledger.forget(handle.pid),
       )
 
       const tail = yield* Ref.make('')
@@ -114,74 +157,53 @@ const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledge
       )
       return { handle, awaitExit }
     }),
-    reapOrphans: Effect.sync(() => ledger.reap()),
-  })
-
-/**
- * PIDs of running provider servers, on disk. A PID is only killed on the next
- * launch when its command line still matches what was spawned, so a reused
- * PID never takes down an unrelated process.
- */
-export class ProcessLedger {
-  private readonly entries = new Map<number, string>()
-
-  constructor(private readonly path: string | null) {}
-
-  record(pid: number, signature: string) {
-    this.entries.set(pid, signature)
-    this.save()
-  }
-
-  forget(pid: number) {
-    if (this.entries.delete(pid)) this.save()
-  }
-
-  /** Kills ledger entries from a previous run whose command still matches. Returns how many. */
-  reap(): number {
-    if (!this.path) return 0
-    let previous: Record<string, string> = {}
-    try {
-      previous = JSON.parse(readFileSync(this.path, 'utf8')) as Record<string, string>
-    } catch {
-      return 0
-    }
-    let killed = 0
-    for (const [pidText, signature] of Object.entries(previous)) {
-      const pid = Number(pidText)
-      if (!Number.isSafeInteger(pid) || pid <= 1 || this.entries.has(pid)) continue
-      if (!commandMatches(pid, signature)) continue
-      try {
-        process.kill(-pid, 'SIGKILL')
-        killed += 1
-      } catch {
-        // already gone
+    /**
+     * Adapted from T3 Code (apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts,
+     * `spawnClaudeProcessGroup`) at commit 5c6f2f12.
+     * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+     */
+    callbackSpawner: Effect.gen(function* () {
+      const running = new Map<ChildProcessWithoutNullStreams, number>()
+      let closed = false
+      yield* Effect.addFinalizer(() =>
+        Effect.suspend(() => {
+          closed = true
+          return Effect.forEach(running, ([child, pid]) => stopGroup(child, pid), { concurrency: 'unbounded', discard: true })
+        }),
+      )
+      return (options: CallbackSpawnOptions) => {
+        const child = spawnChild(options.command, [...options.args], {
+          cwd: options.cwd,
+          env: options.env,
+          signal: options.signal,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          detached: true,
+        })
+        // Always drained, so a chatty CLI never blocks on a full stderr pipe.
+        child.stderr.setEncoding('utf8').on('data', (text: string) => options.onStderr?.(text))
+        // A failed spawn or an aborted `signal` emits "error"; the caller learns of it from the
+        // exit (or listens itself), and an unheard "error" would crash main.
+        child.on('error', () => {})
+        const pid = child.pid
+        // A spawn that fails has no pid and emits only "error", which the SDK reports.
+        if (pid === undefined) return child
+        if (closed) {
+          signalGroup(pid, 'SIGKILL')
+          return child
+        }
+        running.set(child, pid)
+        // The full command path, so another app's copy of the same CLI never matches.
+        const recorded = Effect.runFork(ledger.record(pid, options.command, options.args[0] ?? ''))
+        child.once('exit', () => {
+          running.delete(child)
+          signalGroup(pid, 'SIGKILL')
+          Effect.runFork(Fiber.join(recorded).pipe(Effect.andThen(ledger.forget(pid))))
+        })
+        return child
       }
-    }
-    this.save()
-    return killed
-  }
-
-  private save() {
-    if (!this.path) return
-    try {
-      mkdirSync(dirname(this.path), { recursive: true })
-      writeFileSync(this.path, JSON.stringify(Object.fromEntries(this.entries)))
-    } catch {
-      // the ledger is best effort
-    }
-  }
-}
-
-function commandMatches(pid: number, signature: string): boolean {
-  if (process.platform === 'win32') return false
-  try {
-    const command = execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).trim()
-    const [binary, sub] = signature.split(' ')
-    return command.includes(binary ?? '') && (!sub || command.includes(sub))
-  } catch {
-    return false
-  }
-}
+    }),
+    reapOrphans: ledger.reap,
+  })
 
 /** The supervisor over Effect's Node spawner; `ledgerPath` null disables the ledger (tests). */
 export const layer = (ledgerPath: string | null) =>
@@ -189,6 +211,6 @@ export const layer = (ledgerPath: string | null) =>
     ProcessSupervisor,
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-      return make(spawner, new ProcessLedger(ledgerPath))
+      return make(spawner, yield* ProcessLedger.ProcessLedger)
     }),
-  )
+  ).pipe(Layer.provide(ProcessLedger.layer(ledgerPath)))

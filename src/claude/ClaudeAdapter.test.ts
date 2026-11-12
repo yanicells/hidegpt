@@ -1,11 +1,19 @@
-import { describe, expect, it } from '@effect/vitest'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import * as NodeServices from '@effect/platform-node/NodeServices'
+import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
+import * as Exit from 'effect/Exit'
 import * as Fiber from 'effect/Fiber'
 import * as Logger from 'effect/Logger'
+import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
+import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import { DEFECT_MESSAGE } from '../provider/errors'
 import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
 import * as ClaudeAdapter from './ClaudeAdapter'
@@ -326,4 +334,60 @@ describe('ClaudeAdapter', () => {
       expect(events.find((event) => event.type === 'resolved')).toMatchObject({ blockId: 'approval-toolu_2', resolved: 'skipped' })
     }),
   )
+
+  describe('under the process supervisor', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'hidegpt-claude-'))
+    afterAll(() => rmSync(dir, { recursive: true, force: true }))
+    const groupAlive = (pid: number) => {
+      try {
+        process.kill(-pid, 0)
+        return true
+      } catch {
+        return false
+      }
+    }
+    const ledgerAt = (path: string): Record<string, { owner: number }> => {
+      try {
+        return JSON.parse(readFileSync(path, 'utf8'))
+      } catch {
+        return {}
+      }
+    }
+    const waitFor = (check: () => boolean) =>
+      Effect.gen(function* () {
+        for (let i = 0; i < 150 && !check(); i += 1) yield* Effect.sleep('20 millis')
+        expect(check()).toBe(true)
+      })
+
+    it.live('spawns Claude Code through the supervisor: in the ledger while it runs, its group killed by the library’s scope', () =>
+      Effect.gen(function* () {
+        const ledger = join(dir, 'provider-processes.json')
+        // `sleep` stands in for the CLI, with a grandchild in its group; no prompt reaches any model. It ignores
+        // SIGTERM, so closing the query (which aborts the spawn signal) cannot end it: only the supervisor's
+        // scope finalizer can, by escalating to SIGKILL on the whole group.
+        const fake = makeFakeClaude({
+          ...HISTORY,
+          reply: null,
+          process: { command: '/bin/sh', args: ['-c', "trap '' TERM; sleep 30 & wait"] },
+        })
+        const supervisor = yield* ProcessSupervisor.ProcessSupervisor
+        const scope = yield* Scope.make()
+        const session = yield* ClaudeAdapter.make(() => Promise.resolve(fake.sdk), supervisor).openSession.pipe(Scope.provide(scope))
+        yield* send(session, DOC, 'Summarise week 4')
+        const pid = fake.queries[0]?.child?.pid ?? 0
+        expect(pid).toBeGreaterThan(0)
+        expect(fake.queries[0]?.options.stderr).toBeUndefined()
+        yield* waitFor(() => ledgerAt(ledger)[pid]?.owner === process.pid)
+        expect(groupAlive(pid)).toBe(true)
+
+        yield* Scope.close(scope, Exit.void)
+        // Scope.close returns once the finalizer has sent SIGKILL (after FORCE_KILL_AFTER).
+        yield* waitFor(() => !groupAlive(pid))
+        yield* waitFor(() => ledgerAt(ledger)[pid] === undefined)
+      }).pipe(
+        Effect.provide(ProcessSupervisor.layer(join(dir, 'provider-processes.json'))),
+        Effect.provide(NodeServices.layer),
+      ),
+    )
+  })
 })
