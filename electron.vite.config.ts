@@ -16,11 +16,16 @@ export default defineConfig({
     // dependencies: one file loads faster than hundreds of package modules. The Claude
     // SDK stays external because it starts the CLI that ships inside its package.
     plugins: [externalizeDepsPlugin({ exclude: ['effect', '@effect/platform-node', '@opencode-ai/sdk'] })],
+    // Less to read and parse at launch. `keepNames` keeps function and class names, so
+    // stack traces in defect reports stay readable.
+    esbuild: { keepNames: true },
+    build: { minify: 'esbuild' },
   },
   preload: {
     define,
     plugins: [externalizeDepsPlugin()],
     build: {
+      minify: 'esbuild',
       rollupOptions: {
         output: {
           format: 'cjs',

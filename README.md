@@ -41,7 +41,7 @@ you had set, in the Git config that every worktree of this repository shares.
 | `pnpm protocol` | Regenerate the Codex app-server schemas from the installed CLI |
 | `pnpm protocol --check` | Fail if the committed schemas no longer match the installed CLI |
 | `pnpm screenshot` | Home grid/list, folder picker, open menus, a streaming reply and a suggestion, and desktop/narrow editor PNGs using fictional content |
-| `pnpm dist` | Package a macOS `.dmg` and `.zip` into `dist/` (see [Packaging](#packaging)) |
+| `pnpm dist` | Package a macOS `.dmg` into `dist/` (see [Packaging](#packaging)) |
 
 **Blank document** or a template creates an "Untitled document" right away, like Docs;
 rename it from the title field. Projects are folders. The folder icon (**Open file
@@ -76,7 +76,7 @@ request has a deadline, so nothing stays on "Working…". See
 ## Packaging
 
 `pnpm dist` builds the app and packages it as **Docs** (`Docs-<version>-<arch>.dmg`
-and `.zip` in `dist/`), with a plain document icon and the bundle id
+in `dist/`), with a plain document icon and the bundle id
 `app.docs.desktop`. It needs Node 22.18 or later. Before packaging it checks
 that the preload loads in Electron's sandbox (`scripts/verify-preload-bundle.ts`).
 
