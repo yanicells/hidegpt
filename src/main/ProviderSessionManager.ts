@@ -134,7 +134,7 @@ export const make = (options: ManagerOptions) =>
           Stream.map((current) => current.libraries[id]),
           Stream.filter((lib) => lib.status === 'error' || (lib.status === 'ready' && sessions.has(id))),
           Stream.runHead,
-          Effect.timeoutOrElse({ duration: READY_DEADLINE, orElse: () => Effect.succeed(Option.none()) }),
+          Effect.timeoutOrElse({ duration: READY_DEADLINE, orElse: () => Effect.succeedNone }),
         )
         const session = sessions.get(id)
         if (Option.isSome(lib) && lib.value.status === 'ready' && session) return session

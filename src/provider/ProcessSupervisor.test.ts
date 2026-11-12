@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import * as NodeServices from '@effect/platform-node/NodeServices'
 import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
+import * as Layer from 'effect/Layer'
 
 import { ProcessSupervisor, layer } from './ProcessSupervisor'
 
@@ -19,7 +20,7 @@ const withSupervisor = <A, E>(
 ) =>
   Effect.gen(function* () {
     return yield* use(yield* ProcessSupervisor)
-  }).pipe(Effect.provide(layer(ledgerPath)), Effect.provide(NodeServices.layer))
+  }).pipe(Effect.provide(layer(ledgerPath).pipe(Layer.provideMerge(NodeServices.layer))))
 
 /** Like an MCP server that daemonizes with setsid: a group kill alone misses it. */
 const WITH_DAEMON = `/usr/bin/perl -MPOSIX -e 'POSIX::setsid(); sleep 30' & wait`

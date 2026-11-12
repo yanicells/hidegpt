@@ -1,0 +1,47 @@
+{
+  // Effect language service diagnostics, run by `effect-tsgo tsrs` (the typecheck script).
+  // Trimmed from T3 Code's tsconfig.effect.json: its correctness and anti-pattern rules
+  // are errors here, while its house-style rules (effectFnOpportunity, nodeBuiltinImport,
+  // globalDate, ...) stay off until a cleanup pass. See `pnpm typecheck:effect-strict`.
+  "compilerOptions": {
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "namespaceImportPackages": ["@effect/platform-node", "effect"],
+        "diagnosticSeverity": {
+          // Effects that are built but never run.
+          "floatingEffect": "error",
+          "floatingEffectInVitest": "error",
+          "missingStarInYieldEffectGen": "error",
+          "effectInVoidSuccess": "error",
+          "promiseInEffectSuccess": "error",
+          "lazyPromiseInEffectSync": "error",
+          // T3 Code's correctness and anti-pattern errors.
+          "abortControllerInEffect": "error",
+          "runEffectInsideEffect": "error",
+          "tryCatchInEffectGen": "error",
+          "catchUnfailableEffect": "error",
+          "returnEffectInGen": "off",
+          "anyUnknownInErrorContext": "error",
+          "unsafeEffectTypeAssertion": "error",
+          "strictEffectProvide": "off",
+          "unstableApiUsage": "off",
+          "experimentalApiUsage": "off",
+          "missingEffectServiceDependency": "error",
+          "leakingRequirements": "error",
+          "globalErrorInEffectCatch": "error",
+          "globalErrorInEffectFailure": "error",
+          "unknownInEffectCatch": "error",
+          "effectTryWithoutCatch": "error",
+          "errorPayloadShadowsName": "error",
+          "redundantOrDie": "error",
+          "preferSucceedSomeOrNone": "error",
+          // Style suggestions that never fail the check; typecheck:effect-strict lists them.
+          "schemaClassMissingBrand": "off",
+          "schemaNumber": "off",
+          "unnecessaryFailYieldableError": "off"
+        }
+      }
+    ]
+  }
+}

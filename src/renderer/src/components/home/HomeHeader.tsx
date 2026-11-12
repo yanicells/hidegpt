@@ -14,7 +14,7 @@ export function HomeHeader({ snap }: { snap: Snapshot }) {
       if (timer.current) {
         clearTimeout(timer.current)
         timer.current = null
-        dispatch({ op: 'applySearch' })
+        void dispatch({ op: 'applySearch' })
       }
     },
     [],
@@ -38,11 +38,11 @@ export function HomeHeader({ snap }: { snap: Snapshot }) {
           aria-label="Search documents"
           onChange={(event) => {
             setQuery(event.target.value)
-            dispatch({ op: 'setSearch', value: event.target.value })
+            void dispatch({ op: 'setSearch', value: event.target.value })
             if (timer.current) clearTimeout(timer.current)
             timer.current = setTimeout(() => {
               timer.current = null
-              dispatch({ op: 'applySearch' })
+              void dispatch({ op: 'applySearch' })
             }, 300)
           }}
           onKeyDown={(event) => {
@@ -51,7 +51,7 @@ export function HomeHeader({ snap }: { snap: Snapshot }) {
                 clearTimeout(timer.current)
                 timer.current = null
               }
-              dispatch({ op: 'applySearch' })
+              void dispatch({ op: 'applySearch' })
             }
           }}
         />

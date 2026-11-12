@@ -1,4 +1,5 @@
 {
+  "extends": "./tsconfig.effect.json",
   "compilerOptions": {
     "target": "ES2023",
     "lib": ["ES2023", "DOM"],
@@ -12,7 +13,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node"],
+    "types": ["node", "vite/client"],
     "isolatedModules": true,
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true
@@ -22,8 +23,7 @@
     "vitest.config.ts",
     "scripts/**/*.ts",
     "src/**/*.ts",
-    "src/**/*.tsx",
-    "scripts/**/*.ts"
+    "src/**/*.tsx"
   ],
   "exclude": ["node_modules", "out", "dist"]
 }

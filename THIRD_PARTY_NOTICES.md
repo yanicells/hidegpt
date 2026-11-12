@@ -113,7 +113,9 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
 
   - Tooling, adapted from T3 Code's repository root (commit 5c6f2f12):
     `.oxlintrc.json` from the `lint` block of `vite.config.ts`; `knip.jsonc`
-    from `knip.jsonc`; `.github/workflows/ci.yml` from
+    from `knip.jsonc`; `tsconfig.effect.json` (trimmed) and
+    `tsconfig.effect-strict.json` (whole) from `tsconfig.effect.json`, run
+    with `effect-tsgo tsrs` as in `apps/server/package.json`; `.github/workflows/ci.yml` from
     `.github/workflows/ci.yml`; and `lint-staged.config.js` with
     `.githooks/pre-commit` from the `staged` block of `vite.config.ts` and
     `.vite-hooks/pre-commit`.
