@@ -119,22 +119,42 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /**
- * Compares a recorded outbound frame with what the adapter sent. The adapter
- * mints new document ids with `randomUUID`, so a recorded UUID matches any UUID
- * the first time and binds to it after that.
+ * Recorded UUIDs and the ones the replayed adapter used instead. The adapter
+ * mints a new document's id with `randomUUID`, so the first time Docs sends a
+ * recorded UUID that Claude never gave it, that UUID binds to what Docs sent.
+ * A UUID Claude gave Docs (in any earlier answer) must come back unchanged, a
+ * bound one must stay the same, and two recorded UUIDs never bind to one id.
  */
-function same(expected: unknown, actual: unknown, ids: Map<string, string>): boolean {
+type Bindings = {
+  readonly ids: Map<string, string>
+  readonly taken: Set<string>
+  /** UUIDs in the answers delivered so far. */
+  readonly known: Set<string>
+}
+
+const UUID_ANYWHERE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
+
+function bindUuid(expected: string, actual: string, bindings: Bindings): boolean {
+  const bound = bindings.ids.get(expected)
+  if (bound !== undefined) return bound === actual
+  if (bindings.known.has(expected)) return expected === actual
+  if (bindings.taken.has(actual)) return false
+  bindings.ids.set(expected, actual)
+  bindings.taken.add(actual)
+  return true
+}
+
+/** Compares a recorded outbound frame with what the adapter sent. */
+function same(expected: unknown, actual: unknown, bindings: Bindings): boolean {
   if (typeof expected === 'string' && typeof actual === 'string' && UUID.test(expected) && UUID.test(actual)) {
-    const bound = ids.get(expected)
-    if (bound === undefined) ids.set(expected, actual)
-    return (bound ?? actual) === actual
+    return bindUuid(expected, actual, bindings)
   }
   if (Array.isArray(expected)) {
-    return Array.isArray(actual) && expected.length === actual.length && expected.every((entry, i) => same(entry, actual[i], ids))
+    return Array.isArray(actual) && expected.length === actual.length && expected.every((entry, i) => same(entry, actual[i], bindings))
   }
   if (isRecord(expected) && isRecord(actual)) {
     const keys = new Set([...Object.keys(expected), ...Object.keys(actual)].filter((key) => !IGNORED_KEYS.has(key)))
-    return [...keys].every((key) => same(expected[key], actual[key], ids))
+    return [...keys].every((key) => same(expected[key], actual[key], bindings))
   }
   return expected === actual
 }
@@ -194,7 +214,7 @@ export type ClaudeReplay = {
 /** An SDK that answers from a recording, in order. */
 export function replaySdk(transcript: ReplayTranscript): ClaudeReplay {
   const entries = transcript.entries
-  const ids = new Map<string, string>()
+  const bindings: Bindings = { ids: new Map(), taken: new Set(), known: new Set() }
   const pending = new Map<string, Array<{ resolve: (value: unknown) => void; reject: (error: Error) => void }>>()
   const inboxes = new Map<number, Inbox>()
   let cursor = 0
@@ -219,7 +239,10 @@ export function replaySdk(transcript: ReplayTranscript): ClaudeReplay {
         for (const inbox of inboxes.values()) inbox.end()
         continue
       }
-      const frame = rebind(entry.frame, ids) as InboundFrame
+      for (const [uuid] of JSON.stringify(entry.frame).matchAll(UUID_ANYWHERE)) {
+        if (!bindings.ids.has(uuid)) bindings.known.add(uuid)
+      }
+      const frame = rebind(entry.frame, bindings.ids) as InboundFrame
       if ('message' in frame) {
         inboxes.get(frame.query)?.push(frame.message)
         continue
@@ -241,7 +264,7 @@ export function replaySdk(transcript: ReplayTranscript): ClaudeReplay {
       fail(`Docs sent ${JSON.stringify(actual)} at entry ${cursor}, but the recording has ${entry ? entry.type : 'ended'}.`)
       return false
     }
-    if (!same(entry.frame, actual, ids)) {
+    if (!same(entry.frame, actual, bindings)) {
       fail(`Entry ${cursor} expected ${JSON.stringify(entry.frame)}, but Docs sent ${JSON.stringify(actual)}.`)
       return false
     }
