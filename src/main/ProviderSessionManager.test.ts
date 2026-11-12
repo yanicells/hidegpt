@@ -130,6 +130,31 @@ describe('ProviderSessionManager', () => {
     }),
   )
 
+  it.effect('loads older turns in the same snapshot that ends loading', () =>
+    Effect.gen(function* () {
+      const { manager } = yield* setup({
+        turns: [stubTurn('t1', [userItem('u1', 'Recent'), agentItem('a1', 'Answer.')])],
+        olderTurns: [stubTurn('t0', [userItem('u0', 'First')])],
+      })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* until(manager, (snapshot) => snapshot.hasOlder && snapshot.blocks.length === 2)
+      // The window restores your place when loading ends, so the blocks must already be there.
+      const loaded = yield* Effect.forkScoped(
+        manager.snapshots.pipe(
+          Stream.dropWhile((snapshot) => !snapshot.loadingOlder),
+          Stream.filter((snapshot) => !snapshot.loadingOlder),
+          Stream.runHead,
+          Effect.map(Option.getOrThrow),
+        ),
+      )
+      yield* settle
+      yield* manager.dispatch({ op: 'loadOlderTurns' })
+      const done = yield* Fiber.join(loaded)
+      expect(done.blocks.map((block) => block.id)).toEqual(['u0', 'u1', 'a1'])
+      expect(done.hasOlder).toBe(false)
+    }),
+  )
+
   it.effect('refuses an empty send so the composer keeps the draft', () =>
     Effect.gen(function* () {
       const { manager } = yield* setup()

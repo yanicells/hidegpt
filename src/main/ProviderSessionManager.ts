@@ -522,15 +522,20 @@ export const make = (options: ManagerOptions) =>
         if (!runtime?.olderCursor || runtime.loadingOlder || !session) return
         const key = S.keyOf(id, runtime.threadId)
         yield* update((current) => S.updateRuntime(current, key, (item) => ({ ...item, loadingOlder: true })))
-        const page = yield* session.loadOlder(runtime.threadId, runtime.olderCursor).pipe(
-          Effect.ensuring(update((current) => S.updateRuntime(current, key, (item) => ({ ...item, loadingOlder: false })))),
-        )
-        yield* update((current) =>
-          S.updateRuntime(current, key, (item) => ({
-            ...item,
-            blocks: mergeOlderBlocks(page.blocks, item.blocks),
-            olderCursor: page.cursor,
-          })),
+        // The older blocks and the end of loading go out in one snapshot, so the window
+        // keeps your place in the same render that adds them above you.
+        yield* session.loadOlder(runtime.threadId, runtime.olderCursor).pipe(
+          Effect.flatMap((page) =>
+            update((current) =>
+              S.updateRuntime(current, key, (item) => ({
+                ...item,
+                blocks: mergeOlderBlocks(page.blocks, item.blocks),
+                olderCursor: page.cursor,
+                loadingOlder: false,
+              })),
+            ),
+          ),
+          Effect.onError(() => update((current) => S.updateRuntime(current, key, (item) => ({ ...item, loadingOlder: false })))),
         )
       })
 
