@@ -11,6 +11,7 @@ import { projectFolders } from './projects'
 export async function createDocument(snap: Snapshot, projectId?: string, template?: Template): Promise<void> {
   const folder = projectId ? projectFolders(snap).find((item) => item.id === projectId) : undefined
   setPendingDraft(template?.prompt ?? '')
-  const result = await dispatch({ op: 'newDocument', projectId: folder?.id ?? null, cwd: folder?.cwd })
+  // IPC keeps an `undefined` cwd as a key, which the command schema rejects; leave it out instead.
+  const result = await dispatch({ op: 'newDocument', projectId: folder?.id ?? null, ...(folder ? { cwd: folder.cwd } : {}) })
   if (!result.ok) setPendingDraft('')
 }

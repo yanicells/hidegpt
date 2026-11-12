@@ -138,7 +138,8 @@ describe('docs home', () => {
     await user.click(await screen.findByTestId('action-new'))
     // The submenu ignores pointer events until it finishes opening, so click it directly.
     fireEvent.click(await screen.findByTestId('action-new-document'))
-    expect(calls).toContainEqual({ op: 'newDocument', projectId: null, cwd: undefined })
+    // Strict: main's schema rejects a cwd key holding undefined, so it must be absent.
+    expect(calls.find((call) => call.op === 'newDocument')).toStrictEqual({ op: 'newDocument', projectId: null })
   })
 
   it('shows a pending approval as a Docs suggestion card', async () => {
@@ -185,7 +186,8 @@ describe('docs home', () => {
     // Like Docs, Blank document creates right away with no naming step.
     await user.click(screen.getByTestId('new-doc'))
     expect(screen.queryByRole('dialog')).toBeNull()
-    expect(calls).toContainEqual({ op: 'newDocument', projectId: null, cwd: undefined })
+    // Strict: main's schema rejects a cwd key holding undefined, so it must be absent.
+    expect(calls.find((call) => call.op === 'newDocument')).toStrictEqual({ op: 'newDocument', projectId: null })
   })
 })
 
@@ -274,7 +276,8 @@ describe('document page', () => {
     expect(screen.getByTestId('outline')).toHaveTextContent('Document tabs')
     await user.click(screen.getByTestId('outline-u1'))
     await user.click(screen.getByLabelText('Add tab'))
-    expect(calls).toContainEqual({ op: 'newDocument', projectId: null, cwd: undefined })
+    // Strict: main's schema rejects a cwd key holding undefined, so it must be absent.
+    expect(calls.find((call) => call.op === 'newDocument')).toStrictEqual({ op: 'newDocument', projectId: null })
     await user.click(screen.getByLabelText('Hide tabs & outlines'))
     expect(screen.queryByTestId('outline-u1')).toBeNull()
     await user.click(screen.getByLabelText('Show tabs & outlines'))
@@ -479,7 +482,8 @@ describe('project navigation and creation', () => {
     await user.click(await screen.findByTestId('owner-anyone'))
     expect(screen.getByTestId('recent-title')).toHaveTextContent('Recent documents')
     await user.click(screen.getByTestId('template-essay'))
-    expect(calls).toContainEqual({ op: 'newDocument', projectId: null, cwd: undefined })
+    // Strict: main's schema rejects a cwd key holding undefined, so it must be absent.
+    expect(calls.find((call) => call.op === 'newDocument')).toStrictEqual({ op: 'newDocument', projectId: null })
   })
 
   it('searches folders in the file picker', async () => {
