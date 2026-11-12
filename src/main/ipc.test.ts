@@ -2,7 +2,10 @@
 // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import { describe, expect, it } from '@effect/vitest'
+import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
+import * as Logger from 'effect/Logger'
+import * as References from 'effect/References'
 import * as Schema from 'effect/Schema'
 
 import { IpcInvoke, IpcSnapshotNow, MAX_IMAGE_BYTES, type SaveImageResult } from '../shared/contracts'
@@ -117,4 +120,30 @@ describe('ipc', () => {
       expect(sync.size).toBe(0)
     }),
   )
+
+  it.effect('reports a handler that dies, and still rejects the invoke', () => {
+    const logged: Array<{ readonly cause: string; readonly annotations: Record<string, unknown> }> = []
+    const capture = Logger.make(({ cause, fiber, logLevel }) => {
+      if (logLevel === 'Error')
+        logged.push({ cause: Cause.pretty(cause), annotations: fiber.getRef(References.CurrentLogAnnotations) })
+    })
+    return Effect.gen(function* () {
+      const { ipc, invoke } = fakeIpc()
+      yield* ipc.handle(IpcInvoke.pickDirectory, () => Effect.die(new Error('handler bug')))
+      const listener = invoke.get(IpcInvoke.pickDirectory.channel)!
+      const result = yield* Effect.promise(() =>
+        Promise.resolve(listener({ sender: { id: APP } } as IpcMainInvokeEvent, undefined)).then(
+          () => 'resolved',
+          () => 'rejected',
+        ),
+      )
+      expect(result).toBe('rejected')
+      expect(logged).toEqual([
+        {
+          cause: expect.stringContaining('handler bug'),
+          annotations: { reportId: expect.stringMatching(/^[0-9a-f]{8}$/) },
+        },
+      ])
+    }).pipe(Effect.scoped, Effect.provide(Logger.layer([capture])))
+  })
 })

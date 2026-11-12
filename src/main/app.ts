@@ -18,7 +18,7 @@ import {
   type SaveImageResult,
 } from '../shared/contracts'
 import type { ProviderId } from '../shared/model'
-import { describeFailure, logDefects, reportDefect } from '../provider/DefectReport'
+import { describeFailure, logDefects } from '../provider/DefectReport'
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import * as Demo from './demo'
 import { makeIpc, type SenderGuard } from './ipc'
@@ -29,7 +29,7 @@ import { makeMenu } from './menu'
 import * as ProviderRegistry from './ProviderRegistry'
 import { ProviderSessionManager, layer as managerLayer } from './ProviderSessionManager'
 import { captureScreenshots } from './screenshots'
-import { makeSnapshotPublisher } from './SnapshotPublisher'
+import { makeSnapshotPublisher, reportingThrows } from './SnapshotPublisher'
 import { createWindow, documentHasImage, getWindow, openExternal, registerDocsProtocol, saveImage } from './window'
 
 // A closed terminal must not crash main through console writes (EPIPE), as in T3 Code's desktop main.
@@ -178,21 +178,15 @@ const program = Effect.gen(function* () {
       ),
   })
 
-  /** Runs `part` outside any fiber's error handling: a throw is reported under its name and goes no further. */
-  const reportingThrows = (part: string, run: () => void) => {
-    try {
-      run()
-    } catch (error) {
-      runtime.runFork(reportDefect(Cause.die(error)).pipe(Effect.annotateLogs({ part })))
-    }
-  }
+  /** Runs `part` from a callback outside any fiber; a throw is reported under its name and goes no further. */
+  const guarded = (part: string, run: () => void) => reportingThrows((report) => runtime.runFork(report), part, run)
 
   const publisher = makeSnapshotPublisher(manager.snapshots, (patch, snapshot) => {
     const win = getWindow()
     // The title and the menu are extras: a bug in either costs only that part, never the page.
-    reportingThrows('title', () => win?.setTitle(snapshot.route.kind === 'home' ? 'Docs' : snapshot.title || 'Docs'))
+    guarded('title', () => win?.setTitle(snapshot.route.kind === 'home' ? 'Docs' : snapshot.title || 'Docs'))
     win?.webContents.send(IpcEvents.onSnapshot.channel, patch)
-    reportingThrows('menu', () => updateMenu(snapshot))
+    guarded('menu', () => updateMenu(snapshot))
   })
   // A defect is reported inside `run`, which then starts over.
   yield* Effect.forkScoped(publisher.run)
@@ -204,7 +198,7 @@ const program = Effect.gen(function* () {
 
   // Runs in an Electron event, outside any fiber. On a throw the publisher has already
   // forgotten what the window has, so its next patch is whole.
-  const open = () => createWindow({ onDidFinishLoad: () => reportingThrows('resync', publisher.resync) })
+  const open = () => createWindow({ onDidFinishLoad: () => guarded('resync', publisher.resync) })
   const win = open()
   // While a quit waits on shutdown, activation opens nothing (T3 Code's DesktopLifecycle).
   app.on('activate', () => {
