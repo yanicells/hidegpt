@@ -99,7 +99,7 @@ describe('ProcessSupervisor.callbackSpawner', () => {
   it.live('records the full command path and start time, so another app’s copy of the CLI never matches', () =>
     Effect.gen(function* () {
       const ledgerPath = join(dir, 'callback-ledger.json')
-      const entries = () => JSON.parse(readFileSync(ledgerPath, 'utf8')) as Record<string, { command: string; arg: string; started: string }>
+      const entries = () => JSON.parse(readFileSync(ledgerPath, 'utf8')) as Record<string, { command: string; arg: string; started: number }>
       yield* withSupervisor(
         (supervisor) =>
           Effect.scoped(
@@ -113,7 +113,7 @@ describe('ProcessSupervisor.callbackSpawner', () => {
                   return false
                 }
               })
-              expect(entries()[pid]).toMatchObject({ arg: '30', started: expect.stringMatching(/\d{4}$/) })
+              expect(entries()[pid]).toMatchObject({ arg: '30', started: expect.any(Number) })
             }),
           ),
         ledgerPath,

@@ -1,11 +1,14 @@
 import { execFile } from 'node:child_process'
+import { readFile } from 'node:fs'
 
 import * as Context from 'effect/Context'
+import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 import * as FileSystem from 'effect/FileSystem'
 import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
+import * as Schedule from 'effect/Schedule'
 import * as Schema from 'effect/Schema'
 import * as Semaphore from 'effect/Semaphore'
 
@@ -13,30 +16,40 @@ import * as Semaphore from 'effect/Semaphore'
  * PIDs of running provider processes, on disk, so a hard-killed main (no
  * finalizers ran) does not leave servers behind: the next launch reaps them.
  *
- * A pid alone proves nothing after a crash, so every entry carries the start
- * time `ps` reported for it and the command as spawned, and names its owner
- * (the main process, by pid and start time). Reaping skips entries whose owner
- * still runs (another instance's live providers) and kills a group only when
- * it is provably the one recorded:
- * - its leader runs with the recorded start time and command line, or
- * - its leader is gone but members remain (a CLI's MCP servers), all started
- *   no earlier than the leader was. A pid is never reused while a group with
- *   that id exists, so the group can only be the recorded one.
- * Anything else (a reused pid, an unreadable start time) is dropped unkilled.
+ * A pid alone proves nothing after a crash, so a process is only ever killed
+ * when it is still provably the one recorded: the same pid *and* the same start
+ * time (epoch ms, from `ps` in UTC). Each entry keeps
+ * - its leader (the spawned CLI): pid, start time, and the command as spawned (a
+ *   full path for SDK-spawned CLIs, so another app's copy never matches);
+ * - its members: the leader's process tree (MCP servers, tools), re-read every
+ *   `TRACK_EVERY` while it runs, as T3 Code tracks a CLI's descendants;
+ * - its owner: the main process, by pid and start time.
  *
- * Writes are atomic and keep other owners' entries; a file that does not
- * decode counts as empty.
+ * Reaping keeps entries whose owner still runs (another instance's providers),
+ * drops entries from before the last boot, kills the leader's group when the
+ * leader still runs with its recorded start time and command, and kills each
+ * recorded member that still runs. A group whose leader is gone is never killed
+ * as a group: its pid may since have been reused by an unrelated program whose
+ * own children outlive it. Members that started after the last re-read leak.
+ *
+ * Writes are atomic and keep other owners' entries; a file that does not decode
+ * counts as empty, and a `ps` that fails leaves the file as it is.
  */
 
+/** How often each live entry's process tree is re-read. */
+const TRACK_EVERY = Duration.seconds(5)
+
+const Member = Schema.Struct({ pid: Schema.Number, started: Schema.Number })
 const Entry = Schema.Struct({
-  /** The command as spawned (a full path for SDK-spawned CLIs) and its first argument. */
+  /** The command as spawned and its first argument, matched against the leader's command line. */
   command: Schema.String,
   arg: Schema.String,
-  /** `ps` start time of the process; empty when it could not be read (never reaped). */
-  started: Schema.String,
+  /** Start time in epoch ms; 0 when it could not be read (never killed). */
+  started: Schema.Number,
   /** The main process that spawned it, by pid and start time. */
   owner: Schema.Number,
-  ownerStarted: Schema.String,
+  ownerStarted: Schema.Number,
+  members: Schema.Array(Member),
 })
 export type LedgerEntry = typeof Entry.Type
 
@@ -48,73 +61,115 @@ export class ProcessLedger extends Context.Service<
   {
     readonly record: (pid: number, command: string, arg: string) => Effect.Effect<void>
     readonly forget: (pid: number) => Effect.Effect<void>
-    /** Kills groups left by owners that are gone, when provably the recorded ones. Returns how many. */
+    /** Re-reads the process tree of every live entry; also runs on its own every `TRACK_EVERY`. */
+    readonly track: Effect.Effect<void>
+    /** Kills what crashed owners left, when provably the recorded processes. Returns how many entries. */
     readonly reap: Effect.Effect<number>
   }
 >()('hidegpt/ProcessLedger') {}
 
 /**
- * One row of `ps -A -o pid=,pgid=,lstart=,command=`; pid plus start time tells a
- * process from a reused pid.
+ * One row of `ps -A -o pid=,ppid=,pgid=,lstart=,command=`.
  * Adapted from T3 Code (apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts,
- * `parseClaudeProcessTable`) at commit 5c6f2f12.
+ * `parseClaudeProcessTable`, `claudeDescendants`, `trackDescendants`) at commit 5c6f2f12.
  * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
  */
-type ProcessRow = { readonly pid: number; readonly pgid: number; readonly started: string; readonly command: string }
+export type ProcessRow = {
+  readonly pid: number
+  readonly ppid: number
+  readonly pgid: number
+  /** Epoch ms; 0 when unreadable. */
+  readonly started: number
+  readonly command: string
+}
 
-// lstart is always five fields in the C locale: "Thu Nov 12 14:39:47 2026".
-const ROW = /^\s*(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s+(.*)$/
+// lstart is always five fields in the C locale: "Thu Nov 12 14:39:47 2026", here in UTC.
+const ROW = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s+(.*)$/
 
-const normalizeStart = (text: string) => text.trim().split(/\s+/).join(' ')
+/** A UTC `lstart` as epoch ms (exact to the second), or 0. */
+const lstartMillis = (text: string) => {
+  const [, month, day, time, year] = text.trim().split(/\s+/)
+  const ms = Date.parse(`${month} ${day} ${year} ${time} UTC`)
+  return Number.isNaN(ms) ? 0 : ms
+}
 
 export function parseProcessTable(table: string): ReadonlyArray<ProcessRow> {
   return table.split('\n').flatMap((line) => {
     const match = ROW.exec(line)
     if (!match) return []
-    const [, pid, pgid, started, command] = match
-    return [{ pid: Number(pid), pgid: Number(pgid), started: normalizeStart(started ?? ''), command: command ?? '' }]
+    const [, pid, ppid, pgid, started, command] = match
+    return [{ pid: Number(pid), ppid: Number(ppid), pgid: Number(pgid), started: lstartMillis(started ?? ''), command: command ?? '' }]
   })
 }
 
-/** "Thu Nov 12 14:39:47 2026" as epoch ms (local time), or NaN. */
-const startMillis = (started: string) => {
-  const [, month, day, time, year] = started.split(' ')
-  return Date.parse(`${month} ${day} ${year} ${time}`)
-}
-
-/** `ps` output, or empty when it fails (no such pid, or no `ps`). */
-const ps = (args: ReadonlyArray<string>) =>
-  Effect.callback<string>((resume) => {
-    execFile('ps', [...args], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }, (error, stdout) =>
-      resume(Effect.succeed(error ? '' : stdout)),
+/** A command's stdout, or none when it fails. */
+const run = (command: string, args: ReadonlyArray<string>) =>
+  Effect.callback<Option.Option<string>>((resume) => {
+    execFile(
+      command,
+      [...args],
+      // C locale and UTC, so start times parse the same on every machine; a big table must fit.
+      { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' }, maxBuffer: 16 * 1024 * 1024 },
+      (error, stdout) => resume(Effect.succeed(error ? Option.none() : Option.some(stdout))),
     )
   })
 
-/** The `ps` start time of `pid`, normalized; empty when it is gone. */
-export const startOf = (pid: number) => Effect.map(ps(['-o', 'lstart=', '-p', String(pid)]), normalizeStart)
+/** The start time of `pid` in epoch ms; 0 when it is gone. */
+export const startOf = (pid: number) =>
+  Effect.map(run('ps', ['-o', 'lstart=', '-p', String(pid)]), (out) => Option.match(out, { onNone: () => 0, onSome: lstartMillis }))
 
-const processTable = Effect.map(ps(['-A', '-o', 'pid=,pgid=,lstart=,command=']), parseProcessTable)
+/** Every process, or none when `ps` fails or lists nothing. */
+const readProcessTable = Effect.map(run('ps', ['-A', '-o', 'pid=,ppid=,pgid=,lstart=,command=']), (out) =>
+  Option.filter(Option.map(out, parseProcessTable), (rows) => rows.length > 0),
+)
 
-/** Whether `entry`'s group is provably the one recorded (see the module comment). */
-function isRecordedGroup(pid: number, entry: LedgerEntry, rows: ReadonlyArray<ProcessRow>): boolean {
-  if (!entry.started) return false
-  const leader = rows.find((row) => row.pid === pid)
-  if (leader) {
-    return leader.started === entry.started && leader.command.includes(entry.command) && (!entry.arg || leader.command.includes(entry.arg))
+/** When this machine booted, in epoch ms; 0 when unknown (nothing is dropped for it). */
+const readBootTime = Effect.gen(function* () {
+  if (process.platform === 'darwin') {
+    const out = yield* run('sysctl', ['-n', 'kern.boottime'])
+    const sec = Option.getOrUndefined(out)?.match(/sec = (\d+)/)?.[1]
+    return sec ? Number(sec) * 1000 : 0
   }
-  const since = startMillis(entry.started)
-  const members = rows.filter((row) => row.pgid === pid)
-  return members.length > 0 && !Number.isNaN(since) && members.every((row) => startMillis(row.started) >= since)
+  if (process.platform !== 'linux') return 0
+  const stat = yield* Effect.callback<string>((resume) => readFile('/proc/stat', 'utf8', (error, text) => resume(Effect.succeed(error ? '' : text))))
+  const sec = /^btime (\d+)$/m.exec(stat)?.[1]
+  return sec ? Number(sec) * 1000 : 0
+})
+
+const identity = (proc: { readonly pid: number; readonly started: number }) => `${proc.pid}@${proc.started}`
+
+/** Processes under `roots`, by parent pid. */
+function descendants(rows: ReadonlyArray<ProcessRow>, roots: ReadonlyArray<number>): ReadonlyArray<ProcessRow> {
+  const children = new Map<number, ProcessRow[]>()
+  for (const row of rows) {
+    const siblings = children.get(row.ppid)
+    if (siblings) siblings.push(row)
+    else children.set(row.ppid, [row])
+  }
+  const found: ProcessRow[] = []
+  const seen = new Set<number>(roots)
+  const pending = [...roots]
+  for (let parent = pending.pop(); parent !== undefined; parent = pending.pop()) {
+    for (const child of children.get(parent) ?? []) {
+      if (seen.has(child.pid)) continue
+      seen.add(child.pid)
+      found.push(child)
+      pending.push(child.pid)
+    }
+  }
+  return found
 }
 
-const killGroup = (pid: number) => {
+const signal = (target: number) => {
   try {
-    process.kill(-pid, 'SIGKILL')
+    process.kill(target, 'SIGKILL')
     return true
   } catch {
     return false
   }
 }
+/** A member that leads its own group takes the processes it started with it (as in T3 Code). */
+const killRow = (row: ProcessRow) => signal(row.pgid === row.pid ? -row.pid : row.pid)
 
 /**
  * Writes through a temp file in the same folder, then renames it over the
@@ -138,17 +193,26 @@ const writeFileStringAtomically = (fs: FileSystem.FileSystem, path: Path.Path, f
     }),
   )
 
-/**
- * The ledger at `filePath`; null keeps nothing (tests, demo mode). `owner` is
- * this main process; tests pass another to stand in for a second instance.
- */
-export const layer = (filePath: string | null, owner: number = process.pid) =>
+export type LedgerOptions = {
+  /** This main process; tests pass another to stand in for a second instance. */
+  readonly owner?: number
+  /** Tests stand in for `ps` and the boot clock. */
+  readonly processTable?: Effect.Effect<Option.Option<ReadonlyArray<ProcessRow>>>
+  readonly bootTime?: number
+}
+
+/** The ledger at `filePath`; null keeps nothing (tests, demo mode). */
+export const layer = (filePath: string | null, options: LedgerOptions = {}) =>
   Layer.effect(
     ProcessLedger,
     Effect.gen(function* () {
-      if (!filePath) return ProcessLedger.of({ record: () => Effect.void, forget: () => Effect.void, reap: Effect.succeed(0) })
+      if (!filePath) {
+        return ProcessLedger.of({ record: () => Effect.void, forget: () => Effect.void, track: Effect.void, reap: Effect.succeed(0) })
+      }
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
+      const owner = options.owner ?? process.pid
+      const processTable = options.processTable ?? readProcessTable
       const ownerStarted = yield* startOf(owner)
       const isOurs = (entry: LedgerEntry) => entry.owner === owner && entry.ownerStarted === ownerStarted
       const ours = new Map<number, LedgerEntry>()
@@ -167,26 +231,70 @@ export const layer = (filePath: string | null, owner: number = process.pid) =>
       // The ledger is best effort: a failed write never fails a spawn.
       const save = lock.withPermits(1)(Effect.ignore(Effect.flatMap(read, (onDisk) => write(othersOn(onDisk)))))
 
+      const track = Effect.gen(function* () {
+        if (ours.size === 0) return
+        const table = yield* processTable
+        if (Option.isNone(table)) return
+        const running = new Set(table.value.map(identity))
+        let changed = false
+        for (const [pid, entry] of ours) {
+          const leaderRuns = entry.started > 0 && running.has(identity({ pid, started: entry.started }))
+          const still = entry.members.filter((member) => running.has(identity(member)))
+          // After the leader exits its pid may belong to an unrelated process, so only tracked members are roots.
+          const roots = [...(leaderRuns ? [pid] : []), ...still.map((member) => member.pid)]
+          const found = descendants(table.value, roots).filter((row) => row.started > 0)
+          const members = [...new Map([...still, ...found].map((row) => [identity(row), { pid: row.pid, started: row.started }])).values()]
+          const before = entry.members.map(identity).sort().join()
+          // A process forgotten meanwhile stays forgotten.
+          if (members.map(identity).sort().join() === before || ours.get(pid) !== entry) continue
+          ours.set(pid, { ...entry, members })
+          changed = true
+        }
+        if (changed) yield* save
+      })
+      yield* Effect.forkScoped(Effect.repeat(track, Schedule.spaced(TRACK_EVERY)))
+
       return ProcessLedger.of({
         record: (pid, command, arg) =>
           Effect.flatMap(startOf(pid), (started) => {
-            ours.set(pid, { command, arg, started, owner, ownerStarted })
+            ours.set(pid, { command, arg, started, owner, ownerStarted, members: [] })
             return save
           }),
         forget: (pid) => Effect.suspend(() => (ours.delete(pid) ? save : Effect.void)),
+        track,
         reap: lock.withPermits(1)(
           Effect.gen(function* () {
-            const rows = yield* processTable
+            const table = yield* processTable
+            // Without a process table nothing can be checked, so the ledger stays as it is.
+            if (Option.isNone(table)) return 0
+            const bootTime = options.bootTime ?? (yield* readBootTime)
+            const byPid = new Map(table.value.map((row) => [row.pid, row]))
+            const runningAs = (pid: number, started: number) => {
+              const row = byPid.get(pid)
+              return started > 0 && row?.started === started ? row : undefined
+            }
             // An owner runs while its pid does with the same start time; an unknown start time counts as running.
             const ownerRuns = (entry: LedgerEntry) =>
-              rows.some((row) => row.pid === entry.owner && (!entry.ownerStarted || row.started === entry.ownerStarted))
+              entry.ownerStarted > 0 ? runningAs(entry.owner, entry.ownerStarted) !== undefined : byPid.has(entry.owner)
             const kept: Record<string, LedgerEntry> = {}
             let killed = 0
             for (const [pidText, entry] of Object.entries(yield* read)) {
               const pid = Number(pidText)
               if (!Number.isSafeInteger(pid) || pid <= 1 || isOurs(entry)) continue
-              if (ownerRuns(entry)) kept[pidText] = entry
-              else if (isRecordedGroup(pid, entry, rows) && killGroup(pid)) killed += 1
+              // Recorded before this boot: every pid in it now names something else.
+              if (bootTime > 0 && entry.started < bootTime) continue
+              if (ownerRuns(entry)) {
+                kept[pidText] = entry
+                continue
+              }
+              const leader = runningAs(pid, entry.started)
+              const leaderMatches = leader !== undefined && leader.command.includes(entry.command) && (!entry.arg || leader.command.includes(entry.arg))
+              let hit = leaderMatches && signal(-pid)
+              for (const member of entry.members) {
+                const row = runningAs(member.pid, member.started)
+                if (row && killRow(row)) hit = true
+              }
+              if (hit) killed += 1
             }
             yield* Effect.ignore(write(kept))
             return killed
