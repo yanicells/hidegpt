@@ -282,6 +282,29 @@ describe('ClaudeAdapter', () => {
     }),
   )
 
+  it.effect('refuses a tool whose request Docs cannot show, and logs the cause through the session’s logger', () =>
+    Effect.gen(function* () {
+      const logged: string[] = []
+      const capture = Logger.make(({ cause, logLevel }) => {
+        if (logLevel === 'Error') logged.push(Cause.pretty(cause))
+      })
+      yield* Effect.gen(function* () {
+        const { fake, session } = yield* open({ reply: null })
+        yield* send(session, DOC, 'Run it')
+        yield* until(() => fake.queries[0]?.prompts.length === 1)
+        const input = Object.defineProperty({}, 'command', {
+          enumerable: true,
+          get: () => {
+            throw new Error('preview bug')
+          },
+        })
+        const asked = fake.queries[0]!.askTool('Bash', input, 'toolu_1')
+        expect(yield* Effect.promise(() => asked.result)).toEqual({ behavior: 'deny', message: DEFECT_MESSAGE })
+      }).pipe(Effect.provide(Logger.layer([capture])))
+      expect(logged).toEqual([expect.stringContaining('preview bug')])
+    }),
+  )
+
   it.effect('answers AskUserQuestion by question text, and withdraws a request when the turn stops', () =>
     Effect.gen(function* () {
       const { fake, session, events } = yield* open({ reply: null })

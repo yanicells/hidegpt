@@ -23,7 +23,7 @@ import * as Queue from 'effect/Queue'
 import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
 
-import { reportDefect } from '../provider/DefectReport'
+import { logDefects, reportDefect } from '../provider/DefectReport'
 import {
   BinaryMissingError,
   DEFECT_MESSAGE,
@@ -175,7 +175,9 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
       yield* Effect.addFinalizer(() => Queue.shutdown(events))
       const emit = (event: AdapterEvent) => Queue.offer(events, event).pipe(Effect.asVoid)
       const scope = yield* Scope.Scope
-      const fork = <A, E>(effect: Effect.Effect<A, E>) => Effect.asVoid(Effect.forkIn(Effect.ignore(effect), scope))
+      const fork = <A, E>(effect: Effect.Effect<A, E>) => Effect.asVoid(Effect.forkIn(logDefects(Effect.ignore(effect)), scope))
+      // SDK callbacks run with this session's services (its logger and log annotations).
+      const runPromise = Effect.runPromiseWith(yield* Effect.context<never>())
 
       const threads = new Map<string, ThreadInfo>()
       const lives = new Map<string, Live>()
@@ -394,7 +396,16 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
                 ...(settings.model ? { model: settings.model } : {}),
                 ...(effort ? { effort } : {}),
                 includePartialMessages: true,
-                canUseTool: (tool, input, options) => Effect.runPromise(askPermission(threadId, tool, input, options)),
+                canUseTool: (tool, input, options) =>
+                  runPromise(
+                    askPermission(threadId, tool, input, options).pipe(
+                      // A Docs bug building the request: report it and refuse the tool, so the turn goes on.
+                      Effect.catchCauseIf(
+                        (cause) => !Cause.hasInterruptsOnly(cause),
+                        (cause) => Effect.as(reportDefect(cause), deny(DEFECT_MESSAGE)),
+                      ),
+                    ),
+                  ),
                 stderr: (data) => {
                   live.stderr = lastLine(data) ?? live.stderr
                 },
