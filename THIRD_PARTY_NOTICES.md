@@ -167,6 +167,9 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     PATH, and not blocking launch on it, from `packages/shared/src/shell.ts`,
     `apps/server/src/os-jank.ts` and
     `apps/desktop/src/shell/DesktopShellEnvironment.ts` (commit 5c6f2f12).
+    Caching that PATH in `userData` keyed by `$SHELL`, written through a temp
+    file and a rename, and refreshing it in the background, from the same
+    `DesktopShellEnvironment.ts` (commit 5c6f2f12).
 - License: MIT
 
 ```

@@ -47,8 +47,10 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 // GUI apps on macOS start with a bare PATH; find the provider CLIs the way a terminal
-// would. The login-shell lookup runs while the window paints; providers wait for it.
-const pathReady = process.platform === 'darwin' ? hydratePath(process.env, app.isPackaged) : Promise.resolve()
+// would. The login-shell lookup runs while the window paints; providers wait for it,
+// or only for its cached answer from the last launch.
+const pathReady =
+  process.platform === 'darwin' ? hydratePath(process.env, app.isPackaged, app.getPath('userData')) : Promise.resolve()
 app.on('will-quit', killLoginShellProbe)
 
 const demo = process.env.HIDEGPT_FAKE === '1'
