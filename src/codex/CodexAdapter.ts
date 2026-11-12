@@ -589,8 +589,10 @@ function registerNotifications(
       on('item/completed', blockEvents),
       on('turn/started', (p) => {
         activeTurns.set(p.threadId, p.turn.id)
-        failures.delete(p.threadId)
-        return lineage.isChild(p.threadId) ? [] : [{ type: 'turnStarted', threadId: p.threadId }]
+        if (lineage.isChild(p.threadId)) return []
+        // A new turn replaces a stopped one whose end was still held for its subagents.
+        heldEnds.delete(p.threadId)
+        return [{ type: 'turnStarted', threadId: p.threadId }]
       }),
       on('turn/completed', (p) => {
         if (activeTurns.get(p.threadId) === p.turn.id) activeTurns.delete(p.threadId)

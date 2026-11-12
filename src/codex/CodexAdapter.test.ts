@@ -425,6 +425,26 @@ describe('CodexAdapter', () => {
     }),
   )
 
+  it.effect('a held end is dropped once the document starts its next turn', () =>
+    Effect.gen(function* () {
+      const { peer, events } = yield* open()
+      const item = { type: 'subAgentActivity' as const, id: 's1', agentPath: 'helper', agentThreadId: 'thr_child', kind: 'started' as const }
+      yield* peer.notify('item/started', { threadId: 'thr_1', turnId: 'turn_1', item, startedAtMs: 1 })
+      yield* peer.notify('turn/started', { threadId: 'thr_1', turn: stubTurn('turn_1', [], 'inProgress') })
+      yield* peer.notify('turn/started', { threadId: 'thr_child', turn: stubTurn('turn_c', [], 'inProgress') })
+      yield* peer.notify('turn/completed', { threadId: 'thr_1', turn: stubTurn('turn_1', [], 'interrupted') })
+      // The person sends again before the subagent settles.
+      yield* peer.notify('turn/started', { threadId: 'thr_1', turn: stubTurn('turn_2', [], 'inProgress') })
+      yield* peer.notify('turn/completed', { threadId: 'thr_child', turn: stubTurn('turn_c', [], 'interrupted') })
+      yield* settle
+      const turnEvents = () => events.filter((event) => event.type === 'turnStarted' || event.type === 'turnEnded').map((event) => event.type)
+      expect(turnEvents()).toEqual(['turnStarted', 'turnStarted'])
+      yield* peer.notify('turn/completed', { threadId: 'thr_1', turn: stubTurn('turn_2', [], 'completed') })
+      yield* settle
+      expect(turnEvents()).toEqual(['turnStarted', 'turnStarted', 'turnEnded'])
+    }),
+  )
+
   it.effect('Stop still interrupts the other turns when one has already ended', () =>
     Effect.gen(function* () {
       const child = { ...stubThread('thr_child', ''), source: { subAgent: { thread_spawn: { parent_thread_id: 'thr_1', depth: 1 } } } }
@@ -467,6 +487,24 @@ describe('CodexAdapter', () => {
         { type: 'turnEnded', threadId: 'thr_1' },
         { type: 'turnEnded', threadId: 'thr_1' },
       ])
+    }),
+  )
+
+  it.effect('a late error for a finished turn does not replace the running turn\'s failure', () =>
+    Effect.gen(function* () {
+      const { peer, events } = yield* open()
+      const raw = { additionalDetails: null, misalignment: null }
+      yield* peer.notify('turn/started', { threadId: 'thr_1', turn: stubTurn('turn_1', [], 'inProgress') })
+      yield* peer.notify('error', {
+        error: { ...raw, message: 'Unauthorized', codexErrorInfo: 'unauthorized' },
+        willRetry: false,
+        threadId: 'thr_1',
+        turnId: 'turn_1',
+      })
+      yield* peer.notify('error', { error: { ...raw, message: 'old', codexErrorInfo: 'other' }, willRetry: false, threadId: 'thr_1', turnId: 'turn_0' })
+      yield* peer.notify('turn/completed', { threadId: 'thr_1', turn: stubTurn('turn_1', [], 'failed') })
+      yield* settle
+      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1', error: 'Sign in again to continue.' })
     }),
   )
 
