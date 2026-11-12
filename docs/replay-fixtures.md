@@ -20,6 +20,9 @@ version, scenario), then `expect_outbound` (what Docs sent), `emit_inbound`
 (what the CLI answered) and a closing `runtime_exit`. This is the T3 Code
 transcript format, so the Codex fixtures play through the vendored
 `replay.ts`. Replay fails as soon as Docs sends anything the recording didn't.
+Folders count too: the recorder writes them as placeholders (`/home/replay-user`,
+`/tmp/replay-workspace`), and the Claude replay maps the test machine's folders
+to the same placeholders before comparing.
 
 ## Scenarios
 
