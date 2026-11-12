@@ -13,8 +13,8 @@ or adapted file carries a header naming its source.
   process supervision, replay tests). Smaller adaptations, each marked in
   place:
   - `src/opencode/OpenCodeAdapter.ts`: message ids in OpenCode's format
-    (`makeMessageIds`) and the set of busy sessions, so a repeated busy status
-    starts no new turn (`busySessionIds`), both from
+    (`makeMessageIds`) and a set of busy sessions like `busySessionIds`, used
+    here so a repeated busy status starts no new turn, both from
     `packages/provider-opencode/src/server/adapter.ts`; and reading the
     server's "listening" line (`parseServerUrl`, from
     `packages/provider-opencode/src/server/OpenCodeRuntime.ts`).

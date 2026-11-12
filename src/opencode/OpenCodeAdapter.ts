@@ -184,8 +184,8 @@ export function make(connect: Connect): ProviderAdapter {
       /** Documents this connection opened (resynced after a re-subscribe). */
       const opened = new Set<string>()
       const live = new Map<string, Live>()
-      // Sessions mid-turn. OpenCode repeats busy and retry during a turn; only the first starts one
-      // (as T3 Code's busySessionIds in packages/provider-opencode/src/server/adapter.ts).
+      // Sessions mid-turn: a busy set like T3 Code's busySessionIds (packages/provider-opencode/src/server/adapter.ts),
+      // used here to start each turn once. OpenCode repeats busy and retry during a turn.
       const busy = new Set<string>()
       const approvals = new Map<string, PendingApproval>()
       /** Requests Docs answered itself; their `replied` event is not news. */
