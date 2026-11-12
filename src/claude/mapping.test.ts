@@ -91,6 +91,12 @@ describe('tool callouts', () => {
       'notes',
     ],
     ['mcp__claude__claude_search', { query: 'notes' }, 'A connected app · search', 'A connected app · search', 'notes'],
+    // Banned words hide in digits and capitals too; a part that carries one is dropped whole.
+    ['mcp__gpt5__x', {}, 'A connected app · x', 'A connected app · x', ''],
+    ['mcp__ChatGPTPlus__GPT4o_run', {}, 'A connected app · run', 'A connected app · run', ''],
+    ['mcp__srv__AIsearch', {}, 'Srv', 'Srv', ''],
+    ['mcp__myBot__findTokens', {}, 'A connected app', 'A connected app', ''],
+    ['mcp__Maintainers__Botanical_list', {}, 'Maintainers · Botanical list', 'Maintainers · Botanical list', ''],
     ['SomeNewTool', { flag: true, nested: { a: 1 } }, 'Doing a step', 'Did a step', ''],
   ]
   const hidden = ['TodoWrite', 'TaskStop', 'ToolSearch', 'SendMessage', 'Monitor', 'AskUserQuestion', 'ExitPlanMode']
@@ -121,6 +127,25 @@ describe('tool callouts', () => {
     }
   })
 
+  it("keeps a subtask to its description, never its report or Claude Code's continuation note", () => {
+    const blocks = blocksFromSessionMessages([
+      assistant('a1', {
+        id: 'msg_1',
+        content: [{ type: 'tool_use', id: 'toolu_a', name: 'Agent', input: { description: 'Find readings' } }],
+      }),
+      user('u1', {
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'toolu_a',
+            content: [{ type: 'text', text: "Found 3.\nagentId: a1 (use SendMessage to continue this agent's work)" }],
+          },
+        ],
+      }),
+    ])
+    expect(blocks).toEqual([{ kind: 'callout', id: 'toolu_a', title: 'Background task', body: 'Find readings' }])
+  })
+
   it('draws no callout for bookkeeping tools, or for the question and plan tools whose card shows them', () => {
     expect(
       transcript(
@@ -132,20 +157,24 @@ describe('tool callouts', () => {
 })
 
 describe('readMessage with a Claude Code notice', () => {
-  it('clears text streamed under its id and classes the turn by its error', () => {
+  it('draws nothing, streamed or final, and classes the turn by its error', () => {
     const state = emptyStreamState()
-    readMessage(state, streamEvent({ type: 'message_start', message: { id: 'msg_n' } }))
-    readMessage(
-      state,
-      streamEvent({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'API Error' } }),
-    )
+    expect(
+      readMessage(state, streamEvent({ type: 'message_start', message: { id: 'msg_n', model: '<synthetic>' } })),
+    ).toEqual([])
+    expect(
+      readMessage(
+        state,
+        streamEvent({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'API Error' } }),
+      ),
+    ).toEqual([])
     const text = [{ type: 'text', text: 'API Error: 529 overloaded' }]
     const synthetic = {
       ...assistantFrame('msg_n', text),
       message: { id: 'msg_n', role: 'assistant', model: '<synthetic>', content: text },
       error: 'overloaded',
     } as never
-    expect(readMessage(state, synthetic)).toEqual([{ type: 'block', block: { kind: 'agent', id: 'msg_n', text: '' } }])
+    expect(readMessage(state, synthetic)).toEqual([])
     expect(readMessage(state, resultFrame({ is_error: true, result: 'API Error: 529 overloaded' }))).toEqual([
       { type: 'result', failure: { kind: 'provider_error', detail: 'API Error: 529 overloaded' } },
     ])

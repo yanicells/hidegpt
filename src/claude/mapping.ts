@@ -12,7 +12,7 @@ import type {
 import * as Option from 'effect/Option'
 import * as Schema from 'effect/Schema'
 
-import { finishedTitle, toolTitle, type ToolKind } from '../provider/toolTitles'
+import { finishedTitle, requestTitle, toolTitle, type ToolKind } from '../provider/toolTitles'
 import type { TurnFailure, TurnFailureKind } from '../provider/turnFailure'
 import type { ApprovalBlock, Block, CalloutBlock, DocSummary, ModelOption, Skill, UserBlock } from '../shared/model'
 
@@ -226,22 +226,31 @@ function resultText(content: unknown): string {
     .join('\n')
 }
 
+/** A tool call on the page: its callout, and the kind that decides how it finishes. */
+type ToolCall = { readonly block: CalloutBlock; readonly kind: ToolKind }
+
 /** A running tool's callout, or null for a tool the page does not show. */
-function toolCallout(part: ContentBlock): CalloutBlock | null {
+function toolCall(part: ContentBlock): ToolCall | null {
   const name = part.name ?? ''
   const kind = toolKind(name)
   if (!kind) return null
-  return { kind: 'callout', id: part.id ?? '', title: toolTitle(kind, false, name), body: toolBody(kind, part.input) }
+  const block: CalloutBlock = {
+    kind: 'callout',
+    id: part.id ?? '',
+    title: toolTitle(kind, false, name),
+    body: toolBody(kind, part.input),
+  }
+  return { block, kind }
 }
 
-/** The callout once its tool finished, with the output under the command. */
-function finishedCallout(callout: CalloutBlock, result: ContentBlock): CalloutBlock {
-  const output = resultText(result.content).trim().slice(0, 2000)
-  return {
-    ...callout,
-    title: finishedTitle(callout.title),
-    body: output ? `${callout.body}\n${output}` : callout.body,
-  }
+/**
+ * The callout once its tool finished, with the output under the command. A
+ * subtask's output is its whole report (with Claude Code's own continuation
+ * notes), so it keeps only its description.
+ */
+function finishedCallout({ block, kind }: ToolCall, result: ContentBlock): CalloutBlock {
+  const output = kind === 'subagent' ? '' : resultText(result.content).trim().slice(0, 2000)
+  return { ...block, title: finishedTitle(block.title), body: output ? `${block.body}\n${output}` : block.body }
 }
 
 /** A person's turn: typed text, pasted images, and any skill invoked with /name. */
@@ -271,6 +280,7 @@ function userTurn(id: string, parts: ReadonlyArray<ContentBlock>): UserBlock | n
 export function blocksFromSessionMessages(messages: ReadonlyArray<SessionMessage>): Block[] {
   const blocks: Block[] = []
   const index = new Map<string, number>()
+  const calls = new Map<string, ToolCall>()
   const put = (block: Block) => {
     const at = index.get(block.id)
     if (at === undefined) {
@@ -283,9 +293,8 @@ export function blocksFromSessionMessages(messages: ReadonlyArray<SessionMessage
     const parts = partsOf(message.message)
     if (message.type === 'user') {
       for (const part of parts) {
-        const at = part.type === 'tool_result' && part.tool_use_id ? index.get(part.tool_use_id) : undefined
-        const callout = at === undefined ? undefined : blocks[at]
-        if (callout?.kind === 'callout') put(finishedCallout(callout, part))
+        const call = part.type === 'tool_result' && part.tool_use_id ? calls.get(part.tool_use_id) : undefined
+        if (call) put(finishedCallout(call, part))
       }
       const turn = userTurn(message.uuid, parts)
       if (turn) put(turn)
@@ -296,8 +305,11 @@ export function blocksFromSessionMessages(messages: ReadonlyArray<SessionMessage
     if (decoded.model === SYNTHETIC_MODEL) continue
     const id = decoded.id ?? message.uuid
     for (const part of parts) {
-      const callout = part.type === 'tool_use' && part.id ? toolCallout(part) : null
-      if (callout) put(callout)
+      const call = part.type === 'tool_use' && part.id ? toolCall(part) : null
+      if (call) {
+        calls.set(call.block.id, call)
+        put(call.block)
+      }
       if (part.type === 'text' && part.text) {
         const at = index.get(id)
         const current = at === undefined ? undefined : blocks[at]
@@ -319,7 +331,7 @@ export type StreamState = {
   /** Messages whose text arrived as deltas, so the final frame is not drawn twice. */
   readonly streamed: Set<string>
   readonly texts: Map<string, string>
-  readonly callouts: Map<string, CalloutBlock>
+  readonly callouts: Map<string, ToolCall>
   /** The error of the turn's last Claude Code notice, which classes the turn's failure. */
   notice: SDKAssistantMessageError | null
 }
@@ -344,7 +356,9 @@ export function readMessage(state: StreamState, message: SDKMessage): Emission[]
   switch (message.type) {
     case 'stream_event': {
       const event = message.event
-      if (event.type === 'message_start') state.messageId = event.message.id
+      // A Claude Code notice never streams onto the page; its final frame classes the turn.
+      if (event.type === 'message_start')
+        state.messageId = event.message.model === SYNTHETIC_MODEL ? null : event.message.id
       const id = state.messageId
       if (!id) return []
       if (event.type === 'content_block_start' && event.content_block.type === 'text' && state.texts.get(id)) {
@@ -359,16 +373,16 @@ export function readMessage(state: StreamState, message: SDKMessage): Emission[]
     case 'assistant': {
       const id = message.message.id
       if (message.message.model === SYNTHETIC_MODEL) {
-        // Kept as data for the result; any text already streamed under its id is cleared.
+        // Kept as data for the result, never drawn.
         state.notice = message.error ?? state.notice
-        return state.streamed.has(id) ? [{ type: 'block', block: { kind: 'agent', id, text: '' } }] : []
+        return []
       }
       const out: Emission[] = []
       for (const part of partsOf(message.message)) {
-        const callout = part.type === 'tool_use' && part.id ? toolCallout(part) : null
-        if (callout) {
-          state.callouts.set(callout.id, callout)
-          out.push({ type: 'block', block: callout })
+        const call = part.type === 'tool_use' && part.id ? toolCall(part) : null
+        if (call) {
+          state.callouts.set(call.block.id, call)
+          out.push({ type: 'block', block: call.block })
         }
         // With partial messages on, the deltas already drew this text.
         if (part.type === 'text' && part.text && !state.streamed.has(id)) {
@@ -383,11 +397,10 @@ export function readMessage(state: StreamState, message: SDKMessage): Emission[]
     case 'user': {
       const out: Emission[] = []
       for (const part of partsOf(message.message)) {
-        const callout =
-          part.type === 'tool_result' && part.tool_use_id ? state.callouts.get(part.tool_use_id) : undefined
-        if (!callout) continue
-        state.callouts.delete(callout.id)
-        out.push({ type: 'block', block: finishedCallout(callout, part) })
+        const call = part.type === 'tool_result' && part.tool_use_id ? state.callouts.get(part.tool_use_id) : undefined
+        if (!call) continue
+        state.callouts.delete(call.block.id)
+        out.push({ type: 'block', block: finishedCallout(call, part) })
       }
       return out
     }
@@ -468,39 +481,19 @@ export function resultError(
 
 export const permissionBlockId = (toolUseId: string) => `approval-${toolUseId}`
 
-const MENTIONS_VENDOR = /claude|anthropic/i
-
 /**
- * A short name for the tool, never the SDK's own sentences: its `title` and
- * `description` speak as the assistant ("Claude wants to search the web"),
- * which the page must never show. MCP tools drop their `mcp__server__` prefix,
- * since a server key such as `claude_ai_Notion` names the vendor too. Null when
- * even the final name mentions the vendor (`mcp__x__claude_search`).
+ * A tool Claude wants to run, as a suggestion card asking by the tool's kind
+ * (never its name, or the SDK's `title` and `displayName`, which can name the
+ * vendor or another product). The plan tool's card shows the whole plan, since
+ * that is what the person approves.
  */
-export function toolLabel(tool: string, displayName: string | undefined): string | null {
-  if (displayName && !MENTIONS_VENDOR.test(displayName)) return displayName
-  const mcp = /^mcp__.+?__(.+)$/.exec(tool)
-  const label = mcp ? mcp[1]!.replace(/_/g, ' ') : tool
-  return MENTIONS_VENDOR.test(label) ? null : label
-}
-
-/**
- * A tool Claude wants to run, as a suggestion card asking to allow it. The plan
- * tool's card shows the whole plan, since that is what the person approves.
- */
-export function permissionBlock(
-  id: string,
-  tool: string,
-  input: Record<string, unknown>,
-  displayName: string | undefined,
-): ApprovalBlock {
+export function permissionBlock(id: string, tool: string, input: Record<string, unknown>): ApprovalBlock {
   const card = { kind: 'approval', id, suggestion: 'add', fields: [], questions: [], resolved: null } as const
   if (tool === 'ExitPlanMode') {
     return { ...card, title: 'Review the plan?', body: typeof input.plan === 'string' ? input.plan : '' }
   }
   const preview = firstString(input, PREVIEW_KEYS)
-  const label = toolLabel(tool, displayName)
-  return { ...card, title: label ? `Allow ${label}?` : 'Allow this tool?', body: preview ? clip(preview) : '' }
+  return { ...card, title: requestTitle(toolKind(tool) ?? 'other', tool), body: preview ? clip(preview) : '' }
 }
 
 export type AskedQuestion = {

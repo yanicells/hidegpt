@@ -317,7 +317,7 @@ export function make(
           const questions = tool === 'AskUserQuestion' ? askedQuestions(input) : null
           const decision = yield* Deferred.make<PermissionResult>()
           approvals.set(id, { threadId, input, questions, decision })
-          const block = questions ? questionBlock(id, questions) : permissionBlock(id, tool, input, options.displayName)
+          const block = questions ? questionBlock(id, questions) : permissionBlock(id, tool, input)
           yield* emit({ type: 'block', threadId, block })
           // Claude Code withdraws the request when the turn stops.
           const withdrawn = Effect.callback<PermissionResult>((resume) => {
