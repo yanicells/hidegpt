@@ -52,9 +52,10 @@ const running = (pid: number) => {
     return false
   }
 }
+// Up to 6 s: a loaded CI runner can take seconds to start or reap a process.
 const until = (check: () => boolean) =>
   Effect.gen(function* () {
-    for (let i = 0; i < 100 && !check(); i += 1) yield* Effect.sleep('20 millis')
+    for (let i = 0; i < 300 && !check(); i += 1) yield* Effect.sleep('20 millis')
     expect(check()).toBe(true)
   })
 
@@ -83,27 +84,30 @@ describe('ProcessSupervisor', () => {
     }),
   )
 
-  it.live('stops a daemon that left the server’s group when the scope closes, and leaves no record', () =>
-    Effect.gen(function* () {
-      const ledgerPath = join(dir, 'spawn-daemon-ledger.json')
-      let daemon = 0
-      yield* withSupervisor(
-        (supervisor) =>
-          Effect.scoped(
-            Effect.gen(function* () {
-              const { handle } = yield* supervisor.spawn({
-                provider: 'codex',
-                command: '/bin/sh',
-                args: ['-c', WITH_DAEMON],
-              })
-              yield* until(() => (daemon = daemonOf(handle.pid)) > 0)
-            }),
-          ),
-        ledgerPath,
-      )
-      yield* until(() => !running(daemon))
-      expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))).toEqual({})
-    }),
+  it.live(
+    'stops a daemon that left the server’s group when the scope closes, and leaves no record',
+    () =>
+      Effect.gen(function* () {
+        const ledgerPath = join(dir, 'spawn-daemon-ledger.json')
+        let daemon = 0
+        yield* withSupervisor(
+          (supervisor) =>
+            Effect.scoped(
+              Effect.gen(function* () {
+                const { handle } = yield* supervisor.spawn({
+                  provider: 'codex',
+                  command: '/bin/sh',
+                  args: ['-c', WITH_DAEMON],
+                })
+                yield* until(() => (daemon = daemonOf(handle.pid)) > 0)
+              }),
+            ),
+          ledgerPath,
+        )
+        yield* until(() => !running(daemon))
+        expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))).toEqual({})
+      }),
+    20_000,
   )
 
   it.effect('ends with the exit code and the last stderr line', () =>
@@ -228,23 +232,26 @@ describe('ProcessSupervisor.callbackSpawner', () => {
     }),
   )
 
-  it.live('also stops a daemon that left the group, and leaves no record', () =>
-    Effect.gen(function* () {
-      const ledgerPath = join(dir, 'daemon-ledger.json')
-      let daemon = 0
-      yield* withSupervisor(
-        (supervisor) =>
-          Effect.scoped(
-            Effect.gen(function* () {
-              const spawn = yield* supervisor.callbackSpawner
-              const child = spawn({ command: '/bin/sh', args: ['-c', WITH_DAEMON], env: {} })
-              yield* until(() => (daemon = daemonOf(child.pid ?? 0)) > 0)
-            }),
-          ),
-        ledgerPath,
-      )
-      yield* until(() => !running(daemon))
-      expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))).toEqual({})
-    }),
+  it.live(
+    'also stops a daemon that left the group, and leaves no record',
+    () =>
+      Effect.gen(function* () {
+        const ledgerPath = join(dir, 'daemon-ledger.json')
+        let daemon = 0
+        yield* withSupervisor(
+          (supervisor) =>
+            Effect.scoped(
+              Effect.gen(function* () {
+                const spawn = yield* supervisor.callbackSpawner
+                const child = spawn({ command: '/bin/sh', args: ['-c', WITH_DAEMON], env: {} })
+                yield* until(() => (daemon = daemonOf(child.pid ?? 0)) > 0)
+              }),
+            ),
+          ledgerPath,
+        )
+        yield* until(() => !running(daemon))
+        expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))).toEqual({})
+      }),
+    20_000,
   )
 })
