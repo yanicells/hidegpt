@@ -175,6 +175,12 @@ export function make(connect: Connect): ProviderAdapter {
       /**
        * `client.handleServerRequest`, with a die reported and the session ended. The error
        * reply is only for the types: the connection closes, and the restarted Codex starts over.
+       *
+       * Why restart rather than answer `internalError` and carry on: a die is a Docs bug partway
+       * through a handler, so Docs' side may be half-updated (an approval block on the page with
+       * no pending entry behind it, an elicitation counter raised but never lowered). A restart
+       * reloads the document from Codex's own transcript and shows the banner; carrying on would
+       * leave the page out of step with Codex and say nothing.
        */
       const handle = <M extends CodexRpc.ServerRequestMethod>(
         method: M,

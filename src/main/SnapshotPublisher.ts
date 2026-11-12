@@ -1,8 +1,11 @@
+import * as Cause from 'effect/Cause'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 import * as FiberHandle from 'effect/FiberHandle'
+import * as Schedule from 'effect/Schedule'
 import * as Stream from 'effect/Stream'
 
+import { reportDefect } from '../provider/DefectReport'
 import type { SequencedSnapshot, Snapshot, SnapshotDiff, SnapshotPatch } from '../shared/contracts'
 import { diffSnapshot, isEmptyPatch } from '../shared/snapshot-patch'
 
@@ -15,9 +18,16 @@ import { diffSnapshot, isEmptyPatch } from '../shared/snapshot-patch'
  * carrying the waiting text with it.
  */
 export const STREAM_FRAME = Duration.millis(32)
+/** After a defect the publisher starts over, a second apart, at most this many times. */
+export const MAX_RESTARTS = 5
 
 export interface SnapshotPublisher {
-  /** Runs until the snapshot stream ends (or the fiber is interrupted). */
+  /**
+   * Runs until the snapshot stream ends (or the fiber is interrupted). A defect
+   * (say, sending to the window threw) is reported and the publisher starts over:
+   * it forgets what the window has and subscribes again, so the next patch holds
+   * the whole current snapshot.
+   */
   readonly run: Effect.Effect<void>
   /**
    * The window reloaded: sends it the whole of the newest snapshot this
@@ -61,18 +71,36 @@ export function makeSnapshotPublisher(
     deliver(pending)
     return Effect.sleep(STREAM_FRAME).pipe(Effect.andThen(frame))
   })
+  const once = Effect.scoped(
+    Effect.gen(function* () {
+      const frames = yield* FiberHandle.make<void, never>()
+      yield* Stream.runForEach(snapshots, (snapshot) => {
+        if (delivered !== null && delivered.streaming && snapshot.streaming && sameShape(delivered, snapshot)) {
+          pending = snapshot
+          return FiberHandle.run(frames, frame, { onlyIfMissing: true })
+        }
+        return FiberHandle.clear(frames).pipe(Effect.andThen(Effect.sync(() => deliver(snapshot))))
+        // A frame runs in its own fiber; a defect there stops this run too.
+      }).pipe(Effect.raceFirst(FiberHandle.join(frames)))
+    }),
+  )
   return {
-    run: Effect.scoped(
-      Effect.gen(function* () {
-        const frames = yield* FiberHandle.make<void, never>()
-        yield* Stream.runForEach(snapshots, (snapshot) => {
-          if (delivered !== null && delivered.streaming && snapshot.streaming && sameShape(delivered, snapshot)) {
-            pending = snapshot
-            return FiberHandle.run(frames, frame, { onlyIfMissing: true })
-          }
-          return FiberHandle.clear(frames).pipe(Effect.andThen(Effect.sync(() => deliver(snapshot))))
-        })
-      }),
+    run: once.pipe(
+      Effect.catchCauseIf(Cause.hasDies, (cause) =>
+        reportDefect(cause).pipe(
+          // `diffSnapshot(null, …)` is the whole snapshot, and a new subscription starts with the current one.
+          Effect.andThen(
+            Effect.sync(() => {
+              delivered = null
+              pending = null
+            }),
+          ),
+          Effect.andThen(Effect.fail('restart' as const)),
+        ),
+      ),
+      Effect.retry({ schedule: Schedule.spaced('1 second'), times: MAX_RESTARTS }),
+      // Out of restarts: the defects are all in the log.
+      Effect.ignore,
     ),
     resync: () => {
       const latest = pending ?? delivered

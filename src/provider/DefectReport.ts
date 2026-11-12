@@ -24,9 +24,9 @@ export const reportDefect = (cause: Cause.Cause<unknown>): Effect.Effect<string>
     return reportId
   })
 
-/** Logs a defect in `effect` (work nobody awaits, which would otherwise die silently) and keeps it. */
+/** Logs every defect in `effect` (work nobody awaits, which would otherwise die silently) and keeps them. */
 export const logDefects = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
-  Effect.tapDefect(effect, (defect) => reportDefect(Cause.die(defect)))
+  Effect.tapCause(effect, (cause) => (Cause.hasDies(cause) ? reportDefect(cause) : Effect.void))
 
 /**
  * What a tagged error may put in the log: its tag and structural fields.

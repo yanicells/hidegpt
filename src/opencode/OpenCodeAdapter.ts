@@ -847,6 +847,8 @@ export const spawnServer = (supervisor: ProcessSupervisor['Service']): Connect =
         }),
       ),
       Effect.ignore,
+      // A defect here is logged; the wait below then ends with the serve timeout.
+      logDefects,
       Effect.forkScoped,
     )
     const url = yield* Deferred.await(ready).pipe(

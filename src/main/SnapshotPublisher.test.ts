@@ -1,5 +1,7 @@
 import { describe, expect, it } from '@effect/vitest'
+import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
+import * as Logger from 'effect/Logger'
 import * as SubscriptionRef from 'effect/SubscriptionRef'
 import * as TestClock from 'effect/testing/TestClock'
 
@@ -127,5 +129,75 @@ describe('SnapshotPublisher', () => {
       yield* settle
       expect(sent.at(-1)?.snapshot.blocks).toEqual([{ kind: 'agent', id: 'a', text: 'one two three ' }])
     }),
+  )
+
+  it.effect('starts over after a send throws, and the next snapshot arrives whole', () => {
+    const logged: string[] = []
+    const capture = Logger.make(({ cause, logLevel }) => {
+      if (logLevel === 'Error') logged.push(Cause.pretty(cause))
+    })
+    return Effect.gen(function* () {
+      const state = yield* SubscriptionRef.make<Snapshot>({ ...emptySnapshot(), status: 'ready' })
+      const sent: SnapshotPatch[] = []
+      let broken = false
+      const publisher = makeSnapshotPublisher(SubscriptionRef.changes(state), (patch) => {
+        if (broken) {
+          broken = false
+          throw new Error('window gone')
+        }
+        sent.push(patch)
+      })
+      yield* Effect.forkScoped(publisher.run)
+      yield* settle
+      expect(sent).toHaveLength(1)
+
+      broken = true
+      yield* SubscriptionRef.update(state, (s) => ({ ...s, title: 'Lost' }))
+      yield* settle
+      expect(sent).toHaveLength(1)
+      expect(logged).toEqual([expect.stringContaining('window gone')])
+      expect(publisher.delivered()).toBeNull()
+
+      // A second later it subscribes again: the current snapshot goes out whole, the lost title included.
+      yield* TestClock.adjust('1 second')
+      yield* settle
+      expect(sent).toHaveLength(2)
+      expect(sent[1]!.fields).toMatchObject({ title: 'Lost', status: 'ready', blocks: [] })
+      yield* SubscriptionRef.update(state, (s) => ({ ...s, title: 'Back' }))
+      yield* settle
+      expect(sent[2]).toEqual({ fields: { title: 'Back' } })
+    }).pipe(Effect.provide(Logger.layer([capture])))
+  })
+
+  it.effect('a send that throws mid-stream, inside a frame, starts it over too', () =>
+    Effect.gen(function* () {
+      const start: Snapshot = {
+        ...emptySnapshot(),
+        status: 'ready',
+        route: { kind: 'doc', threadId: 't' },
+        streaming: true,
+        blocks: [{ kind: 'agent', id: 'a', text: '' }],
+      }
+      const state = yield* SubscriptionRef.make(start)
+      const sent: Array<{ patch: SnapshotPatch; snapshot: Snapshot }> = []
+      let broken = false
+      const publisher = makeSnapshotPublisher(SubscriptionRef.changes(state), (patch, snapshot) => {
+        if (broken) {
+          broken = false
+          throw new Error('window gone')
+        }
+        sent.push({ patch, snapshot })
+      })
+      yield* Effect.forkScoped(publisher.run)
+      yield* settle
+      broken = true
+      yield* SubscriptionRef.update(state, (s) => ({ ...s, blocks: [{ kind: 'agent' as const, id: 'a', text: 'lost ' }] }))
+      yield* settle
+      expect(sent).toHaveLength(1)
+      yield* TestClock.adjust('1 second')
+      yield* settle
+      expect(sent).toHaveLength(2)
+      expect(sent[1]!.patch.fields).toMatchObject({ blocks: [{ kind: 'agent', id: 'a', text: 'lost ' }] })
+    }).pipe(Effect.provide(Logger.layer([]))),
   )
 })
