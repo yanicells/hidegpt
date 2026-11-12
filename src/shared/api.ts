@@ -16,6 +16,8 @@ type Events = typeof IpcEvents
 
 /** What the renderer sends on an invoke channel (main decodes it). */
 export type InvokePayload<K extends keyof Invoke> = Invoke[K]['payload']['Encoded']
+/** What main's handler receives once the payload is decoded. */
+export type InvokeInput<K extends keyof Invoke> = Invoke[K]['payload']['Type']
 /** What main answers on an invoke channel. */
 export type InvokeResult<K extends keyof Invoke> = Invoke[K]['result']['Type']
 /** What main pushes on an event channel. */

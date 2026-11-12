@@ -328,7 +328,8 @@ type ChannelRows<Channels extends Record<string, string>> = { readonly [K in key
  * decodes `payload` before the handler runs and answers `invalid` when it does
  * not decode; the handler must answer with `result`. `HideGptApi` and the
  * preload are derived from this table, so adding a channel is: a row here, a
- * name in `INVOKE_CHANNELS`, a `handle` call in main, and a preload member.
+ * name in `INVOKE_CHANNELS`, a handler in main's `handleAll` map (typecheck
+ * fails without one), and a preload member.
  */
 export const IpcInvoke = {
   dispatch: invokeSpec({
@@ -358,4 +359,9 @@ export const IpcEvents = {
 } satisfies ChannelRows<typeof EVENT_CHANNELS> & Record<keyof typeof EVENT_CHANNELS, { value: Schema.Top }>
 
 /** The synchronous read: what main last published and its `seq`, or null before anything was. */
-export const IpcSnapshotNow = { channel: SNAPSHOT_NOW_CHANNEL, result: Schema.NullOr(SequencedSnapshot) }
+export const IpcSnapshotNow = {
+  channel: SNAPSHOT_NOW_CHANNEL,
+  result: Schema.NullOr(SequencedSnapshot),
+  /** The answer to a sender main does not trust. */
+  invalid: null,
+}

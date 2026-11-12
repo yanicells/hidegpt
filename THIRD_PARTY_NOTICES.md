@@ -46,8 +46,9 @@ or adapted file carries a header naming its source.
   - `src/renderer/src/session-bridge.ts`: selector subscriptions that skip
     streamed text, after `packages/client-runtime/src/state/threadDetail.ts`.
   - `src/shared/channels.ts`, the IPC tables in `src/shared/contracts.ts`,
-    `src/main/ipc.ts` (with its test) and `src/preload/index.ts`: channel
-    names, typed invoke and sync channels, and the preload bridge, from
+    `src/main/ipc.ts` (with its test), the sender guard in `src/main/app.ts`
+    and `src/preload/index.ts`: channel names, typed invoke and sync channels
+    with result encoding and the trusted-sender check, and the preload bridge, from
     `apps/desktop/src/ipc/channels.ts`, `apps/desktop/src/ipc/DesktopIpc.ts`,
     `packages/contracts/src/ipc.ts` and `apps/desktop/src/preload.ts` (commit
     5c6f2f12).
