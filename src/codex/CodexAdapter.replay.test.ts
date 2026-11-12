@@ -27,11 +27,11 @@ const SETTINGS: TurnSettings = { model: null, effort: null, serviceTier: null, m
 const WORKSPACE = '/tmp/replay-workspace'
 
 /** Opens a session over a recording; `finished` checks every recorded frame was used. */
-const replay = (name: string) =>
+const replay = (name: string, options: CodexClient.CodexAppServerClientOptions = {}) =>
   Effect.gen(function* () {
     const transcript = Schema.decodeUnknownSync(CodexReplay.CodexAppServerReplayTranscript)(readTranscript(fixture(name)))
     const driver = yield* CodexReplay.makeReplayDriver(transcript)
-    const connect: CodexAdapter.Connect = Layer.build(CodexReplay.layerReplayWithDriver(driver)).pipe(
+    const connect: CodexAdapter.Connect = Layer.build(CodexReplay.layerReplayWithDriver(driver, options)).pipe(
       Effect.orDie,
       Effect.map((context) => Context.get(context, CodexClient.CodexAppServerClient)),
     )
@@ -41,7 +41,7 @@ const replay = (name: string) =>
     const finished = Ref.get(driver.state).pipe(
       Effect.map((state) => ({ failure: state.failure, unused: transcript.entries.length - state.cursor })),
     )
-    return { session, events, transcript, finished }
+    return { session, events, transcript, driver, finished }
   })
 
 describe('CodexAdapter replay', () => {
@@ -99,18 +99,25 @@ describe('CodexAdapter replay', () => {
     }),
   )
 
-  it.effect('without the turn gate, the recorder dies before turn/start is written, and records the rest', () =>
+  it.effect('without the turn gate, the recorder stops turn/start before it reaches Codex', () =>
     Effect.gen(function* () {
       const entries: ReplayEntry[] = []
-      const log = recordingOptions(entries, false).logger!
-      yield* log({ direction: 'outgoing', stage: 'decoded', payload: { id: 1, method: 'thread/list', params: {} } })
-      yield* log({ direction: 'incoming', stage: 'decoded', payload: { id: 1, result: { data: [] } } })
-      const refused = yield* Effect.exit(log({ direction: 'outgoing', stage: 'decoded', payload: { id: 2, method: 'turn/start', params: {} } }))
-      expect(refused._tag).toBe('Failure')
-      expect(entries.map((entry) => [entry.type, 'label' in entry ? entry.label : null])).toEqual([
-        ['expect_outbound', 'thread/list'],
-        ['emit_inbound', 'thread/list'],
-      ])
+      const { session, transcript, driver } = yield* replay('library', recordingOptions(entries, false))
+      yield* session.loadCatalog
+      yield* Stream.runHead(session.listDocs(''))
+      const created = yield* session.createThread({ cwd: WORKSPACE, projectId: null, title: null, settings: SETTINGS })
+
+      // The thread is loaded, so a send goes straight to turn/start.
+      const sent = yield* Effect.exit(session.send(created.threadId, { text: 'Hi', images: [], skill: null, clientId: 'local-1' }, SETTINGS))
+      expect(sent._tag).toBe('Failure')
+      expect(String(sent._tag === 'Failure' && sent.cause)).toContain('HIDEGPT_RECORD_TURNS=1')
+
+      // Codex (the replay driver) saw nothing after thread/start: no mismatch, still waiting on the next recorded frame.
+      const state = yield* Ref.get(driver.state)
+      expect(state.failure).toBeNull()
+      expect(transcript.entries[state.cursor]).toMatchObject({ type: 'expect_outbound', label: 'thread/resume' })
+      expect(entries.map((entry) => ('label' in entry ? entry.label : null))).not.toContain('turn/start')
+      expect(entries.at(-1)).toMatchObject({ type: 'emit_inbound', label: 'thread/start' })
     }),
   )
 })
