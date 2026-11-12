@@ -164,7 +164,7 @@ pnpm test         # vitest: session/protocol + renderer UI tests
 pnpm typecheck    # tsc --noEmit
 pnpm protocol     # regenerate the vendored Codex schemas from the installed CLI
 pnpm screenshot   # PNGs of home + document with a fake session
-pnpm dist         # package dist/Docs-*.dmg; Claude only with HIDEGPT_PERSONAL=1
+pnpm dist         # package dist/Docs-*.dmg; HIDEGPT_PERSONAL=1 adds Claude, in dist/personal/
 ```
 
 `HIDEGPT_FAKE=1` runs every library's real adapter against its in-process
@@ -175,7 +175,7 @@ screenshots and the bench.
 through `PERSONAL_BUILD` in `src/shared/labels.ts`). Runs from source set it;
 `pnpm dist` clears it unless `HIDEGPT_PERSONAL=1`, which drops Claude from
 `PROVIDERS` and from the bundle. Gate any new Claude import on it the same way
-`ProviderRegistry.ts` does, or the shared build check fails.
+`ProviderRegistry.ts` does, or the shared build check (`scripts/shared-build-guard.ts`) fails.
 
 ## Working agreements
 
