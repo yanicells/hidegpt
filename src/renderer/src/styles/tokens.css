@@ -44,4 +44,7 @@
   --paper-margin: 96px;
   --rail-width: 56px;
   --scrollbar-w: 14px;
+  /* UI-02, for UI-06: ruler ticks over the page margins and over the content zone. */
+  --ruler-tick-margin: #747775;
+  --ruler-tick-content: #c4c7c5;
 }
