@@ -264,6 +264,38 @@ describe('ProviderSessionManager', () => {
     }),
   )
 
+  it.effect('logs a defect in the skills refresh an open starts, which nobody waits on', () => {
+    const { logged, layer } = captureErrorLogs()
+    return Effect.gen(function* () {
+      const peer = makeFakeCodex()
+      const codex = CodexAdapter.make(peer.connect)
+      let armed = false
+      const flaky: ProviderAdapter = {
+        ...codex,
+        openSession: Effect.map(codex.openSession, (session) => ({
+          ...session,
+          listSkills: (cwd: string) => (armed ? Effect.die(new Error('skills bug')) : session.listSkills(cwd)),
+        })),
+      }
+      const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
+        Effect.provide(layerAdapters({ codex: flaky })),
+      )
+      yield* manager.start('codex')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready')
+      yield* settle
+      armed = true
+      // Opening a document refreshes the skills of its folder.
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* settle
+      // So does choosing a folder on Home.
+      yield* manager.dispatch({ op: 'goHome' })
+      yield* manager.setFolder('/tmp/elsewhere')
+      yield* settle
+      const report = { cause: expect.stringContaining('skills bug'), annotations: expect.objectContaining({ reportId: expect.any(String) }) }
+      expect(logged).toEqual([report, report])
+    }).pipe(Effect.provide(layer))
+  })
+
   it.effect('keeps sweeping idle documents after one release hits a defect, and logs it', () => {
     const { logged, layer } = captureErrorLogs()
     return Effect.gen(function* () {

@@ -10,7 +10,6 @@ import * as FiberMap from 'effect/FiberMap'
 import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as Schedule from 'effect/Schedule'
-import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
 import * as SubscriptionRef from 'effect/SubscriptionRef'
 
@@ -106,9 +105,6 @@ export const make = (options: ManagerOptions) =>
   Effect.gen(function* () {
     const registry = yield* ProviderRegistry
     const eventLog = yield* ProviderEventLog
-    /** The layer's scope: background work started by commands outlives the command. Nobody awaits it, so its defects are logged here. */
-    const scope = yield* Scope.Scope
-    const background = <E>(effect: Effect.Effect<void, E>) => Effect.asVoid(Effect.forkIn(Effect.ignore(logDefects(effect)), scope))
     const idleMs = Duration.toMillis(Duration.fromInputUnsafe(options.idleRelease ?? IDLE_RELEASE))
     const state = yield* SubscriptionRef.make(S.initialState('codex', options.defaultCwd))
     /** Live sessions by provider; set while a connection is up. */
@@ -247,7 +243,10 @@ export const make = (options: ManagerOptions) =>
 
     // ---- catalog ---------------------------------------------------------------
 
-    /** Runs `effect` as the only refresh of its kind; a newer one interrupts it. */
+    /**
+     * Runs `effect` as the only refresh of its kind; a newer one interrupts it. The fiber
+     * is not joined unless the caller does so, so a refresh nobody joins goes in `logDefects`.
+     */
     const refreshing = <E>(id: ProviderId, part: string, effect: Effect.Effect<void, E>) =>
       FiberMap.run(refreshes, `${id}:${part}`, effect)
 
@@ -409,7 +408,7 @@ export const make = (options: ManagerOptions) =>
           const shown = S.showThread(adopted, id, opened.threadId)
           return S.updateLibrary(shown, id, (lib) => ({ ...lib, settings: S.adoptSettings(lib.settings, opened.settings) }))
         })
-        yield* background(refreshing(id, 'skills', refreshSkills(id, opened.cwd)))
+        yield* refreshing(id, 'skills', logDefects(refreshSkills(id, opened.cwd)))
       })
 
     const openThread = (id: ProviderId, threadId: string) =>
@@ -423,7 +422,7 @@ export const make = (options: ManagerOptions) =>
           yield* update((current) =>
             S.showThread(S.updateRuntime(current, S.keyOf(id, threadId), (item) => ({ ...item, touchedAt: at })), id, threadId),
           )
-          yield* refreshing(id, 'skills', refreshSkills(id, cached.cwd))
+          yield* refreshing(id, 'skills', logDefects(refreshSkills(id, cached.cwd)))
           return
         }
         yield* updateLibrary(id, (lib) => ({ ...lib, opening: threadId, error: null }))
@@ -711,7 +710,7 @@ export const make = (options: ManagerOptions) =>
         Effect.gen(function* () {
           const id = yield* active
           yield* updateLibrary(id, (lib) => ({ ...lib, cwd }))
-          if ((yield* read).libraries[id].route.kind === 'home') yield* refreshing(id, 'skills', refreshSkills(id, cwd))
+          if ((yield* read).libraries[id].route.kind === 'home') yield* refreshing(id, 'skills', logDefects(refreshSkills(id, cwd)))
         }),
       notify: (message) => Effect.flatMap(active, (id) => setError(id, message)),
       runtimeCount: Effect.map(read, (current) => current.runtimes.size),
