@@ -34,17 +34,6 @@ function sameDay(date: Date, now: Date): boolean {
   )
 }
 
-/** Docs shows a time for today, month + day this year, and a full date otherwise. */
-export function formatOpened(unixSeconds: number | null | undefined, now = new Date()): string {
-  if (!unixSeconds) return ''
-  const date = new Date(unixSeconds * 1000)
-  if (sameDay(date, now)) return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  if (date.getFullYear() === now.getFullYear()) {
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  }
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
 /** List view shows a time for today and a full date otherwise, like Docs. */
 export function formatListDate(unixSeconds: number | null | undefined, now = new Date()): string {
   if (!unixSeconds) return ''
