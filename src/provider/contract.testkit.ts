@@ -111,8 +111,9 @@ export interface ContractScript {
   /** The provider process, or its stream, dies mid-turn. */
   readonly exit: Effect.Effect<void>
   /**
-   * A terminal that is not the new turn's: a late one for an older turn, or a background task's
-   * bookkeeping. Sent while the new turn's start is held, so it races the turn's admission.
+   * A terminal that is not the new turn's: a late one for the turn stopped just before, or a
+   * background task's bookkeeping. Sent while the new turn's start is held, so it races the
+   * turn's admission.
    */
   readonly foreignTerminal: Effect.Effect<void>
   /** With no turn open, the provider starts one itself (a background task waking it) and streams `text`. */
@@ -508,8 +509,12 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
   // The terminal lands while the new turn is being admitted (T3's admission, PAR-C item 2).
   foreign_terminal: (run) =>
     Effect.gen(function* () {
+      // Stop, then a quick resend: the stopped turn's late terminal can land during the resend.
+      const stopped = yield* begin(run, 'Run the long job')
+      yield* run.session.interrupt(run.threadId, stopped)
+      yield* awaitEnd(run, stopped)
       const hold = yield* run.script.holdStart
-      const sending = yield* run.send('Run the long job').pipe(Effect.forkScoped)
+      const sending = yield* run.send('Run it again').pipe(Effect.forkScoped)
       yield* hold.reached
       const late = yield* run.script.foreignTerminal.pipe(Effect.forkScoped)
       yield* settle

@@ -1,4 +1,4 @@
-import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
+import type { SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import * as Effect from 'effect/Effect'
 
 import {
@@ -46,21 +46,33 @@ const driver: ContractDriver = {
     let hold: { reached: () => void; release: Promise<void> } | null = null
     const live = () => fake.queries.at(-1)
     const running = () => (live()?.prompts.length ?? 0) + selfStarted - results
+    /** Waits on the scenario's hold, if it set one; whichever start step comes first takes it. */
+    const holding = async () => {
+      const held = hold
+      hold = null
+      if (held) {
+        held.reached()
+        await held.release
+      }
+    }
+    /** The prompts as Claude Code reads them: a held start keeps the next one unread. */
+    async function* heldPrompts(source: AsyncIterable<SDKUserMessage>) {
+      for await (const message of source) {
+        await holding()
+        yield message
+      }
+    }
 
     const sdk: ClaudeAdapter.ClaudeSdk = {
       ...fake.sdk,
       // A new document's first send asks whether a transcript exists before Claude Code starts.
       getSessionInfo: async (...args) => {
-        const held = hold
-        hold = null
-        if (held) {
-          held.reached()
-          await held.release
-        }
+        await holding()
         return fake.sdk.getSessionInfo(...args)
       },
       query: (params) => {
-        const query = fake.sdk.query(params)
+        const prompt = typeof params.prompt === 'string' ? params.prompt : heldPrompts(params.prompt)
+        const query = fake.sdk.query({ ...params, prompt })
         const record = fake.queries.at(-1)!
         const interrupt = query.interrupt.bind(query)
         query.interrupt = async () => {
@@ -284,8 +296,8 @@ contractSuite('Claude', driver, {
     fails: 'provider notices stay off the answer',
   },
   passthrough_tools: {
-    why: 'Raw tool and MCP names title the callouts (C-3).',
-    fails: leakMessage(['callout.title: Using ZZPROVTool', 'callout.title: Using mcp__ZZPROV_server__ZZPROV_search']),
+    why: 'A raw tool name titles its callout (C-3).',
+    fails: leakMessage(['callout.title: Using ZZPROVTool']),
   },
   passthrough_requests: {
     why: "The permission's `displayName` titles the card.",

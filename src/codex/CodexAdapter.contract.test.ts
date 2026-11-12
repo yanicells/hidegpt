@@ -40,6 +40,8 @@ const driver: ContractDriver = {
     let starts = 0
     /** The native turn the scripts act on: the newest `turn/start`, or one Codex started itself. */
     let native: string | null = null
+    /** The native turn before it. */
+    let previous: string | null = null
 
     const peer = makeFakeCodex({
       reply: null,
@@ -51,6 +53,7 @@ const driver: ContractDriver = {
           if (method !== 'turn/start') return
           // The handler numbers turns in the order they arrive, as this count does.
           starts += 1
+          previous = native
           native = `turn_${starts}`
           const held = hold
           if (!held) return
@@ -217,11 +220,13 @@ const driver: ContractDriver = {
           }),
         usageResetAt: RESETS_AT,
         exit: peer.exit(1, 'thread panicked'),
-        // A late terminal for an earlier turn, as after a Stop and a quick resend.
-        foreignTerminal: peer.notify('turn/completed', {
-          threadId: THREAD,
-          turn: { id: 'turn_earlier', items: [], status: 'interrupted' },
-        }),
+        // The stopped turn's late terminal, as after a Stop and a quick resend.
+        foreignTerminal: Effect.suspend(() =>
+          peer.notify('turn/completed', {
+            threadId: THREAD,
+            turn: { id: previous ?? '', items: [], status: 'interrupted' },
+          }),
+        ),
         selfStart: (text) =>
           Effect.gen(function* () {
             native = 'turn_woken'
@@ -261,10 +266,6 @@ contractSuite('Codex', driver, {
     why: "A request still open when its turn ends stays answerable, and the late reply reaches Codex: nothing expires the turn's requests at the terminal.",
     fails: "a reply to an expired request is refused: expected 'taken'",
   },
-  foreign_terminal: {
-    why: 'A late `turn/completed` for an earlier turn ends the one being admitted: the legacy path drops the native turn id (#50 finding 1 adds it).',
-    fails: "a terminal that is not this turn's leaves it running",
-  },
   subagent_request: {
     why: 'An approval from a subagent thread the adapter never opened never reaches the page. T3 Code allows approvals from subagents (`approvalsCanOriginateFromSubagents`) and routes them by turn.',
     fails: 'Timed out waiting until a request is open on the page',
@@ -274,13 +275,11 @@ contractSuite('Codex', driver, {
     fails: 'Stop reaches the busy subagent',
   },
   passthrough_tools: {
-    why: 'MCP, dynamic and function tool names and namespaces, the subagent tool enum, and the MCP tool error reach callouts.',
+    why: 'Dynamic and function tool names and namespaces title or fill callouts; the MCP server and tool names and the MCP tool error fill its body.',
     fails: leakMessage([
-      'callout.body: ZZPROV tool error',
       'callout.body: ZZPROV_functions',
-      'callout.title: Subtask · spawnAgent',
+      'callout.body: ZZPROV_server · ZZPROV_search\nZZPROV tool error',
       'callout.title: ZZPROV_function',
-      'callout.title: ZZPROV_server · ZZPROV_search',
       'callout.title: ZZPROV_space · ZZPROV_dynamic',
     ]),
   },
