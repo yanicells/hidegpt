@@ -2,7 +2,7 @@ import type { Block, SnapshotDiff } from '../../shared/contracts'
 
 /** The page content of the Google Docs reference captures (`references/google-docs/`), as blocks. */
 export const referenceDocument: SnapshotDiff = {
-  fields: { streaming: false, title: 'HideGPT reference - photosynthesis notes' },
+  fields: { streaming: false, title: 'THEO 12' },
   blocks: {
     length: 2,
     set: [

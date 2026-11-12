@@ -5,11 +5,13 @@ import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
 /**
- * `pnpm fidelity:shots [--phase core,states,motion] [--out dir] [--no-build]`:
+ * `pnpm fidelity:shots [--phase core,states,motion] [--out dir] [--no-build] [--timeout s]`:
  * builds the app and runs each fidelity phase (src/main/fidelity) in its own
  * hidden Electron, all at once, with the fake providers. No window is shown and
  * no Dock icon appears; on macOS `open -g -n -W` also keeps the app from
  * activating. Screens land in `<out>/<phase>/<viewport>/<screen>.png|json`.
+ * A phase still running after `--timeout` seconds (default 600), or any phase
+ * on Ctrl-C, is killed by the PID its Electron wrote at boot.
  */
 
 const PHASES = ['core', 'states', 'motion']
@@ -18,6 +20,7 @@ const { values } = parseArgs({
     phase: { type: 'string', default: 'core,states' },
     out: { type: 'string', default: 'screenshots/fidelity' },
     'no-build': { type: 'boolean', default: false },
+    timeout: { type: 'string', default: '600' },
   },
 })
 const phases = values.phase.split(',').filter(Boolean)
@@ -31,6 +34,27 @@ const targets = join(repo, 'scripts/fidelity/targets.json')
 const electron = createRequire(import.meta.url)('electron') as unknown as string
 
 type Manifest = { shots: unknown[]; failures: Array<{ step: string; error: string }> }
+
+/** Phase directories whose Electron may still be running. */
+const running = new Set<string>()
+
+/**
+ * Kills a phase's Electron by the PID it wrote at boot (src/main/fidelity/boot.ts).
+ * On macOS the child here is `open -W`, so killing the child alone would leave
+ * the hidden app running.
+ */
+const killPhase = (dir: string) => {
+  try {
+    process.kill(Number(readFileSync(join(dir, 'electron.pid'), 'utf8')), 'SIGKILL')
+  } catch {
+    // It never booted, or it has already quit.
+  }
+}
+
+process.on('SIGINT', () => {
+  for (const dir of running) killPhase(dir)
+  process.exit(130)
+})
 
 /** Runs one phase to completion; resolves with its manifest, or null when it never wrote one. */
 const runPhase = (phase: string): Promise<Manifest | null> => {
@@ -70,9 +94,19 @@ const runPhase = (phase: string): Promise<Manifest | null> => {
           { stdio: 'inherit' },
         )
       : spawn(electron, appArgs, { env: { ...process.env, ...env }, stdio: 'inherit' })
+  running.add(dir)
+  const deadline = setTimeout(
+    () => {
+      console.log(`${phase}: still running after ${values.timeout}s; killing it`)
+      killPhase(dir)
+    },
+    Number(values.timeout) * 1000,
+  )
   return new Promise((done, fail) => {
     child.on('error', fail)
     child.on('exit', () => {
+      clearTimeout(deadline)
+      running.delete(dir)
       const file = join(dir, 'manifest.json')
       done(existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Manifest) : null)
     })

@@ -59,6 +59,6 @@ export const runPhase = (
     const d = yield* makeDriver(win, root, phase, readProbes())
     const nav = yield* makeNav(d, manager, stage)
     const run = phase === 'core' ? core(d, nav, manager) : phase === 'states' ? states(d, nav, manager) : motion(d, nav)
-    yield* d.step(phase, run)
-    yield* d.finish()
+    // The manifest is written even when a hung page ends the phase early.
+    yield* d.step(phase, run).pipe(Effect.ensuring(d.finish()))
   })
