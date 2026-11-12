@@ -18,6 +18,12 @@ tester.run('hidegpt/no-unobserved-effect', rule, {
     // A name shared with Effect but imported from elsewhere, or not imported at all.
     "import { ignore } from './lists'\nexport const e = ignore([1])",
     'export const e = (forkChild: () => void) => forkChild()',
+    // Destructured, re-exported or read by a string key, but not banned.
+    `${header}const { succeed } = Effect\nexport const s = succeed(1)`,
+    "export { succeed } from 'effect/Effect'",
+    `${header}export const s = Effect['succeed'](1)`,
+    // A computed key that is not a string literal is not followed.
+    `${header}const key = 'succeed'\nexport const s = Effect[key](1)`,
     // Not a banned name, even one every object inherits.
     `${header}export const s = Effect.constructor`,
     // Not Effect's: a unified processor's sync run.
@@ -62,6 +68,31 @@ tester.run('hidegpt/no-unobserved-effect', rule, {
       code: "import { runFork } from 'effect/Effect'\nexport const r = (e: never) => runFork(e)",
       errors: [{ message: /^Effect\.runFork: start work from a callback/ }],
     },
+    // String keys, destructuring and re-exports.
+    {
+      code: `${header}export const f = Effect['forkDetach'](Effect.void)`,
+      errors: [{ message: /^Effect\.forkDetach: fork through forkObserved/ }],
+    },
+    {
+      code: "import * as effect from 'effect'\nexport const f = effect['Effect'].forkChild(effect.Effect.void)",
+      errors: [{ message: /^Effect\.forkChild:/ }],
+    },
+    {
+      code: `${header}const { forkScoped: fork, runPromise } = Effect\nexport const f = Effect.void.pipe(fork)\nexport const r = () => runPromise(Effect.void)`,
+      errors: [{ message: /^Effect\.forkScoped:/ }, { message: /^Effect\.runPromise:/ }],
+    },
+    {
+      code: "export { forkDaemon, succeed, runSync as run } from 'effect/Effect'",
+      errors: [{ message: /^Effect\.forkDaemon:/ }, { message: /^Effect\.runSync:/ }],
+    },
+    {
+      code: "export * from 'effect/Effect'",
+      errors: [{ message: /^export \* from 'effect\/Effect'/ }],
+    },
+    {
+      code: "export * as Fx from 'effect/Effect'",
+      errors: [{ message: /^export \* from 'effect\/Effect'/ }],
+    },
     {
       code: `${header}export const i = Effect.ignore(Effect.void)`,
       errors: [{ message: /^Effect\.ignore: a Die passes straight through it/ }],
@@ -73,7 +104,7 @@ tester.run('hidegpt/no-unobserved-effect', rule, {
     },
     {
       code: `${header}export const i = Effect.ignoreCause(Effect.void)`,
-      errors: [{ message: /^Effect\.ignoreCause: drops even a defect/ }],
+      errors: [{ message: /^Effect\.ignoreCause: drops a defect, or with \{ log \} logs it without a report id/ }],
     },
     {
       code: `${header}export const t = Effect.void.pipe(Effect.tapError(() => Effect.void))`,
