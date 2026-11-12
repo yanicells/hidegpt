@@ -96,7 +96,7 @@ describe('CodexAdapter', () => {
       const text = events.flatMap((event) => (event.type === 'text' ? [event.delta] : [])).join('')
       expect(text).toBe('Hello there.')
       expect(events.at(-2)).toMatchObject({ type: 'block', block: { kind: 'agent', text: 'Hello there.' } })
-      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1' })
+      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1', nativeTurnId: 'turn_1' })
     }),
   )
 
@@ -110,7 +110,7 @@ describe('CodexAdapter', () => {
       const { session, events } = yield* open({ reply: () => 'Answer-5e2a about leaves.' })
       yield* send(session, 'Prompt-9c3f why are leaves green?')
       yield* settle
-      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1' })
+      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1', nativeTurnId: 'turn_1' })
       expect(logged.join('\n')).not.toMatch(/Prompt-9c3f|Answer-5e2a/)
     }).pipe(Effect.provide(Logger.layer([capture])), Effect.provideService(References.MinimumLogLevel, 'Debug'))
   })
@@ -124,7 +124,7 @@ describe('CodexAdapter', () => {
       yield* settle
       const interrupt = peer.calls.find((call) => call.method === 'turn/interrupt')
       expect(interrupt?.params).toEqual({ threadId: 'thr_1', turnId: 'turn_1' })
-      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1' })
+      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1', nativeTurnId: 'turn_1' })
     }),
   )
 
@@ -379,7 +379,7 @@ describe('CodexAdapter', () => {
       }
       yield* peer.notify('error', { error, willRetry: false, threadId: 'thr_1', turnId: 'turn_1' })
       yield* settle
-      expect(events).toEqual([{ type: 'turnEnded', threadId: 'thr_1', error: 'rate limited' }])
+      expect(events).toEqual([{ type: 'turnEnded', threadId: 'thr_1', nativeTurnId: 'turn_1', error: 'rate limited' }])
     }),
   )
 

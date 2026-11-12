@@ -38,10 +38,15 @@ import { makeTurnTracker, type TurnTracker } from './turnTracker'
 
 export type TextTarget = { readonly kind: 'agent' } | { readonly kind: 'callout'; readonly title: string }
 
+/**
+ * `nativeTurnId`, when the provider names its turn (Codex), lets the tracker drop a late event
+ * from a turn that already ended. Claude and OpenCode leave it out: one of their late events
+ * can still reach the next turn, until ARCH-4b and ARCH-4c move them onto the tracker.
+ */
 export type LegacyThreadEvent =
-  | { readonly type: 'turnStarted'; readonly threadId: string }
-  /** Terminal: always ends the "Working…" state. */
-  | { readonly type: 'turnEnded'; readonly threadId: string; readonly error?: string }
+  | { readonly type: 'turnStarted'; readonly threadId: string; readonly nativeTurnId?: string }
+  /** The turn's end. The tracker drops it when it names a turn that is not the open one. */
+  | { readonly type: 'turnEnded'; readonly threadId: string; readonly error?: string; readonly nativeTurnId?: string }
   /** Insert or replace by id; `replaces` names the optimistic echo a server user message confirms. */
   | { readonly type: 'block'; readonly threadId: string; readonly block: Block; readonly replaces?: string | null }
   | {
@@ -97,7 +102,12 @@ export interface LegacyProviderSession {
   readonly createThread: (options: CreateThreadOptions) => Effect.Effect<LegacyOpenedThread, ProviderError>
   readonly loadOlder: (threadId: string, cursor: string) => Effect.Effect<LegacyOlderPage, ProviderError>
   readonly messageId: () => string
-  readonly send: (threadId: string, input: TurnInput, settings: TurnSettings) => Effect.Effect<void, ProviderError>
+  /** Codex returns the native turn id from its start response, so the turn knows it before any event. */
+  readonly send: (
+    threadId: string,
+    input: TurnInput,
+    settings: TurnSettings,
+  ) => Effect.Effect<string | void, ProviderError>
   readonly interrupt: (threadId: string) => Effect.Effect<void, ProviderError>
   readonly respond: ProviderSession['respond']
   readonly rename: ProviderSession['rename']
@@ -225,9 +235,12 @@ const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession) =>
       send: (threadId, turnId, input, settings) =>
         Effect.gen(function* () {
           yield* tracker.begin(threadId, turnId)
-          yield* legacy.send(threadId, input, settings).pipe(Effect.onError(() => tracker.abandon(threadId, turnId)))
+          const nativeTurnId = yield* legacy
+            .send(threadId, input, settings)
+            .pipe(Effect.onError(() => tracker.abandon(threadId, turnId)))
+
           // The provider accepted it, so it knows the turn. Only this turn: it may already have ended.
-          yield* tracker.started(threadId, null, turnId)
+          yield* tracker.started(threadId, typeof nativeTurnId === 'string' ? nativeTurnId : null, turnId)
         }),
       interrupt: (threadId, turnId) =>
         Effect.gen(function* () {
@@ -275,16 +288,16 @@ type Translation = {
 function translate(event: LegacyAdapterEvent, { tracker, emit, toItems, openRequests }: Translation) {
   switch (event.type) {
     case 'turnStarted':
-      return tracker.started(event.threadId, null)
+      return tracker.started(event.threadId, event.nativeTurnId ?? null)
     case 'turnEnded':
       return Effect.sync(() => openRequests.forget(event.threadId)).pipe(
         Effect.andThen(
-          tracker.end(
-            event.threadId,
-            event.error === undefined
+          tracker.end(event.threadId, {
+            ...(event.error === undefined
               ? { status: 'completed', failure: null }
-              : { status: 'failed', failure: classify({ message: event.error }) },
-          ),
+              : { status: 'failed', failure: classify({ message: event.error }) }),
+            nativeTurnId: event.nativeTurnId ?? null,
+          }),
         ),
       )
     case 'block': {

@@ -44,8 +44,10 @@ import * as S from './session/state'
  * newer open interrupts a slower one; refreshes, debounced invalidations,
  * stop timers, and connections run in `FiberMap`s keyed by what they update,
  * so a newer run replaces the older one and nothing stale ever lands. Turns
- * carry an app id the manager allocates before sending, so an event from an
- * older turn can never end a newer one.
+ * carry an app id the manager allocates before sending, and the manager ignores
+ * an event for any turn but the open one. Which turn a provider's event belongs
+ * to is the adapter's call (its `TurnTracker`): Codex names its native turns, so
+ * its late events are dropped; Claude and OpenCode don't yet (ARCH-4b, ARCH-4c).
  */
 
 export type ManagerError = ProviderError | CommandRejectedError
