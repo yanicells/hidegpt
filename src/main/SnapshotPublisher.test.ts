@@ -168,7 +168,7 @@ describe('SnapshotPublisher', () => {
     }).pipe(Effect.provide(Logger.layer([]))),
   )
 
-  it.effect('restarts with backoff, starts the count over after a stable minute, and logs Fatal when it gives up', () => {
+  it.effect('restarts with backoff, starts the count over after a stable minute, and past Fatal keeps trying each minute', () => {
     const levels: string[] = []
     const capture = Logger.make(({ logLevel }) => void levels.push(logLevel))
     return Effect.gen(function* () {
@@ -204,6 +204,18 @@ describe('SnapshotPublisher', () => {
       yield* settle
       expect(levels.filter((level) => level === 'Error')).toHaveLength(1 + 1 + 1 + 5)
       expect(levels.at(-1)).toBe('Fatal')
+
+      // It keeps trying once a minute, without another Fatal, and recovers once sending works.
+      yield* TestClock.adjust('1 minute')
+      yield* settle
+      expect(levels.filter((level) => level === 'Error')).toHaveLength(9)
+      const before = sent.length
+      failures = 0
+      yield* TestClock.adjust('1 minute')
+      yield* settle
+      expect(sent).toHaveLength(before + 1)
+      expect(sent.at(-1)!.fields).toMatchObject({ title: 'Two', status: 'ready', blocks: [] })
+      expect(levels.filter((level) => level === 'Fatal')).toHaveLength(1)
     }).pipe(Effect.provide(Logger.layer([capture])))
   })
 

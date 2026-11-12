@@ -21,9 +21,11 @@ import { diffSnapshot, isEmptyPatch } from '../shared/snapshot-patch'
 export const STREAM_FRAME = Duration.millis(32)
 /**
  * After a defect the publisher starts over: 1 s, doubling, five times (31 s in all). A run
- * that lasted a minute starts the count over, as the session manager's restarts do.
+ * that lasted a minute starts the count over, as the session manager's restarts do. Past
+ * that it logs at Fatal once and keeps trying every minute, so the page can come back.
  */
 const RESTART_SCHEDULE = Schedule.exponential('1 second').pipe(Schedule.upTo({ times: 5 }))
+const SLOW_RETRY = Duration.minutes(1)
 const STABLE_AFTER = Duration.seconds(60)
 
 export interface SnapshotPublisher {
@@ -31,7 +33,8 @@ export interface SnapshotPublisher {
    * Runs until the snapshot stream ends (or the fiber is interrupted). A defect
    * (say, sending to the window threw) is reported and the publisher starts over:
    * it forgets what the window has and subscribes again, so the next patch holds
-   * the whole current snapshot. Out of restarts, it logs at Fatal and stops.
+   * the whole current snapshot. Out of quick restarts, it logs at Fatal and then
+   * tries once a minute.
    */
   readonly run: Effect.Effect<void>
   /**
@@ -99,11 +102,20 @@ export function makeSnapshotPublisher(
       ),
     )
   })
+  const restarting = attempt.pipe(
+    Effect.retry(RESTART_SCHEDULE),
+    Effect.catch(() =>
+      Effect.logFatal('The window stopped getting updates after repeated defects').pipe(
+        // Then once a minute, for good, so a reload or a reopened window can recover.
+        // It retries forever, so `orDie` never fires; it only drops the error type.
+        Effect.andThen(Effect.sleep(SLOW_RETRY)),
+        Effect.andThen(attempt.pipe(Effect.retry(Schedule.spaced(SLOW_RETRY)), Effect.orDie)),
+      ),
+    ),
+  )
   return {
-    run: attempt.pipe(
-      Effect.retry(RESTART_SCHEDULE),
+    run: restarting.pipe(
       Effect.repeat({ while: (again) => again }),
-      Effect.catch(() => Effect.logFatal('The window stopped getting updates after repeated defects')),
       Effect.asVoid,
     ),
     resync: () => {
