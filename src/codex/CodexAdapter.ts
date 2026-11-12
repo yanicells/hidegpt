@@ -1,5 +1,4 @@
-import { randomUUID } from 'node:crypto'
-
+import * as Clock from 'effect/Clock'
 import * as Context from 'effect/Context'
 import * as Deferred from 'effect/Deferred'
 import * as Duration from 'effect/Duration'
@@ -11,7 +10,7 @@ import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
 
 import { CAPABILITIES } from '../shared/model'
-import type { AccountSummary, ApprovalReply, DocSummary, ModelOption, ProjectSummary, Skill, ToolServer } from '../shared/model'
+import type { ApprovalReply, DocSummary, Skill } from '../shared/model'
 import {
   type BinaryMissingError,
   ProcessExitedError,
@@ -20,6 +19,7 @@ import {
   ProviderTimeoutError,
 } from '../provider/errors'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
+import { randomUuidV4 } from '../provider/randomUuid'
 import type {
   AdapterEvent,
   Catalog,
@@ -31,14 +31,29 @@ import type {
 import * as CodexClient from '../vendor/effect-codex-app-server/client.ts'
 import * as CodexError from '../vendor/effect-codex-app-server/errors.ts'
 import type * as CodexRpc from '../vendor/effect-codex-app-server/rpc.ts'
-import { APPROVAL_METHODS, APPROVALS, type ApprovalMethod } from './approvals'
-import { blocksFromTurns, itemToBlock } from './items'
+import {
+  APPROVAL_METHODS,
+  APPROVALS,
+  type ApprovalMethod,
+  blocksFromTurns,
+  formatCodexError,
+  itemToBlock,
+  type McpServer,
+  type Project,
+  toAccount,
+  toDoc,
+  toModelOption,
+  toProject,
+  toReasoningEffort,
+  toTool,
+} from './mapping'
 
 /**
  * Codex `app-server` (JSON-RPC over stdio) as a `ProviderAdapter`. One process
  * serves every thread. The typed client is vendored from T3 Code
  * (`effect-codex-app-server`); this module maps it onto HideGPT's events and
  * blocks, the way T3's `CodexAdapterV2` maps it onto orchestration events.
+ * The wire-to-model mapping itself lives in `./mapping`.
  */
 
 export type Client = CodexClient.CodexAppServerClient['Service']
@@ -47,12 +62,7 @@ type Params<M extends Method> = CodexRpc.ClientRequestParamsByMethod[M]
 type Result<M extends Method> = CodexRpc.ClientRequestResponsesByMethod[M]
 type Notification<M extends CodexRpc.ServerNotificationMethod> = CodexRpc.ServerNotificationParamsByMethod[M]
 
-type Thread = Result<'thread/list'>['data'][number]
-type Model = Result<'model/list'>['data'][number]
-type Project = Result<'project/list'>['data'][number]
 type Mode = Result<'collaborationMode/list'>['data'][number]
-type McpServer = Result<'mcpServerStatus/list'>['data'][number]
-type Account = Result<'account/read'>['account']
 type UserInput = Params<'turn/start'>['input'][number]
 
 /** Opens a connected client in the caller's scope: the real process, or a fake peer in tests and demo mode. */
@@ -72,13 +82,6 @@ const INTERACTIVE_SOURCES: Params<'thread/list'>['sourceKinds'] = ['cli', 'vscod
 const PAGE = 30
 const DOC_PAGE = 50
 const MAX_DOC_PAGES = 20
-
-export function formatCodexError(message: string): string {
-  if (/active writer|thread-store conflict/i.test(message)) {
-    return 'This document is open in ChatGPT or another window. Close it there, then open it here.'
-  }
-  return message
-}
 
 const signalOf = (error: unknown): string | null =>
   /signal: '([A-Z0-9]+)'/.exec(error instanceof Error ? error.message : String(error))?.[1] ?? null
@@ -133,6 +136,7 @@ export function make(connect: Connect): ProviderAdapter {
     capabilities: CAPABILITIES.codex,
     openSession: Effect.gen(function* () {
       const client = yield* connect
+      const services = yield* Effect.context<never>()
       const rpc = call(client)
       const events = yield* Queue.unbounded<AdapterEvent>()
       yield* Effect.addFinalizer(() => Queue.shutdown(events))
@@ -152,7 +156,7 @@ export function make(connect: Connect): ProviderAdapter {
       yield* registerNotifications(client, emit, { loaded, activeTurns })
 
       yield* client.handleServerRequest('currentTime/read', () =>
-        Effect.succeed({ currentTimeAt: Math.floor(Date.now() / 1000) }),
+        Effect.map(Clock.currentTimeMillis, (millis) => ({ currentTimeAt: Math.floor(millis / 1000) })),
       )
       yield* client.handleServerRequest('item/tool/call', () =>
         Effect.succeed({
@@ -184,7 +188,7 @@ export function make(connect: Connect): ProviderAdapter {
           Effect.gen(function* () {
             const spec = APPROVALS[method]
             const threadId = spec.threadId(params)
-            const blockId = `approval-${randomUUID()}`
+            const blockId = `approval-${yield* randomUuidV4}`
             const answer = yield* Deferred.make<ApprovalReply>()
             approvals.set(blockId, { threadId, answer })
             yield* emit({ type: 'block', threadId, block: spec.block(blockId, params) })
@@ -237,7 +241,7 @@ export function make(connect: Connect): ProviderAdapter {
           }
         }
         // Null inherits the thread's tier; a tier id applies to this turn only.
-        return { model: settings.model, effort: settings.effort, serviceTierForTurn: settings.serviceTier }
+        return { model: settings.model, effort: toReasoningEffort(settings.effort), serviceTierForTurn: settings.serviceTier }
       }
 
       const session: ProviderSession = {
@@ -371,7 +375,8 @@ export function make(connect: Connect): ProviderAdapter {
             })),
           ),
 
-        messageId: () => `local-${randomUUID()}`,
+        // Sync by contract, so it runs on the session's services (a seeded `Random` in tests).
+        messageId: () => `local-${Effect.runSyncWith(services)(randomUuidV4)}`,
 
         send: (threadId, input, settings) =>
           Effect.gen(function* () {
@@ -385,13 +390,12 @@ export function make(connect: Connect): ProviderAdapter {
               ...input.images.map((path) => ({ type: 'localImage' as const, path })),
               ...(input.skill ? [{ type: 'skill' as const, name: input.skill.name, path: input.skill.path }] : []),
             ]
-            // `collaborationMode` is accepted by the vendored client's turn/start codec but not in the generated type.
             const started = yield* rpc('turn/start', {
               threadId,
               input: items,
               clientUserMessageId: input.clientId,
               ...turnOverrides(settings),
-            } as Params<'turn/start'>)
+            })
             activeTurns.set(threadId, started.turn.id)
           }),
 
@@ -428,7 +432,10 @@ export function make(connect: Connect): ProviderAdapter {
           ),
 
         createProject: (name, cwd) =>
-          Effect.asVoid(rpc('project/create', { name, roots: [{ path: cwd }], idempotencyKey: randomUUID() })),
+          randomUuidV4.pipe(
+            Effect.flatMap((idempotencyKey) => rpc('project/create', { name, roots: [{ path: cwd }], idempotencyKey })),
+            Effect.asVoid,
+          ),
 
         login: rpc('account/login/start', { type: 'chatgpt', appBrand: 'chatgpt' }).pipe(
           Effect.flatMap((result) =>
@@ -543,49 +550,6 @@ function registerNotifications(
     ],
     { discard: true },
   )
-}
-
-export function toDoc(thread: Thread): DocSummary {
-  return {
-    id: thread.id,
-    name: thread.name ?? null,
-    preview: thread.preview,
-    updatedAt: thread.recencyAt ?? thread.updatedAt,
-    cwd: thread.cwd,
-    projectId: thread.projectId ?? null,
-  }
-}
-
-export function toModelOption(model: Model): ModelOption {
-  return {
-    id: model.model,
-    label: model.displayName,
-    efforts: model.supportedReasoningEfforts.map((item) => item.reasoningEffort),
-    defaultEffort: model.defaultReasoningEffort ?? null,
-    serviceTiers: (model.serviceTiers ?? []).map((tier) => ({ id: tier.id, name: tier.name })),
-    isDefault: model.isDefault,
-  }
-}
-
-export function toProject(project: Project): ProjectSummary {
-  return { id: project.id, name: project.name, roots: project.roots.map((root) => ({ path: root.path })) }
-}
-
-export function toTool(server: McpServer): ToolServer {
-  return {
-    name: server.name,
-    needsConnect:
-      server.authStatus === 'notLoggedIn' ||
-      server.runtimeStatus === 'authenticationRequired' ||
-      server.runtimeStatus === 'failed',
-  }
-}
-
-export function toAccount(account: Account): AccountSummary | null {
-  if (!account) return null
-  if (account.type === 'chatgpt') return { kind: 'chatgpt', label: account.email ?? 'ChatGPT' }
-  if (account.type === 'apiKey') return { kind: 'apiKey', label: 'API key' }
-  return { kind: 'other', label: 'Account' }
 }
 
 /** The real backend: `codex app-server`, spawned under the process supervisor. */

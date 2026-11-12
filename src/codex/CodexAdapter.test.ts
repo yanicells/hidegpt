@@ -3,6 +3,7 @@ import * as Deferred from 'effect/Deferred'
 import * as Effect from 'effect/Effect'
 import * as Exit from 'effect/Exit'
 import * as Fiber from 'effect/Fiber'
+import * as Random from 'effect/Random'
 import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
@@ -265,6 +266,30 @@ describe('CodexAdapter', () => {
     }),
   )
 
+  it.effect('sends a chosen effort, and inherits the thread\'s effort for one Codex would reject', () =>
+    Effect.gen(function* () {
+      const { peer, session } = yield* open()
+      const input = { text: 'Hi', images: [], skill: null, clientId: 'local-1' }
+      yield* session.send('thr_1', input, { ...SETTINGS, effort: 'high' })
+      yield* session.send('thr_1', { ...input, clientId: 'local-2' }, { ...SETTINGS, effort: '' })
+      expect(paramsOf(peer, 'turn/start').map((params) => (params as { effort?: unknown }).effort)).toEqual(['high', null])
+    }),
+  )
+
+  it.effect('draws message ids from Effect Random, so a seed pins them', () =>
+    Effect.gen(function* () {
+      const idWith = (seed: string) =>
+        open().pipe(
+          Effect.map(({ session }) => session.messageId()),
+          Random.withSeed(seed),
+        )
+      const first = yield* idWith('pinned')
+      expect(first).toMatch(/^local-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+      expect(yield* idWith('pinned')).toBe(first)
+      expect(yield* idWith('other')).not.toBe(first)
+    }),
+  )
+
   it.effect('two identical messages each confirm their own draft', () =>
     Effect.gen(function* () {
       const { session, events } = yield* open()
@@ -314,8 +339,9 @@ describe('CodexAdapter', () => {
   it.effect('answers the current time and declines tools Docs does not host', () =>
     Effect.gen(function* () {
       const { peer } = yield* open()
+      yield* TestClock.setTime(1_700_000_000_500)
       const time = yield* peer.request('currentTime/read', { threadId: 'thr_1' })
-      expect((time as { currentTimeAt: number }).currentTimeAt).toBeCloseTo(Date.now() / 1000, -1)
+      expect(time).toEqual({ currentTimeAt: 1_700_000_000 })
       const tool = yield* peer.request('item/tool/call', {
         threadId: 'thr_1',
         turnId: 'turn_1',
