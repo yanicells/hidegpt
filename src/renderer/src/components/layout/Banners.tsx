@@ -43,7 +43,9 @@ export function Banners({ snap }: { snap: Snapshot }) {
       ) : null}
       {errors.map((error) => (
         <div key={error} className="banner danger" role="alert">
-          <span data-testid="error-banner">{error}</span>
+          {/* Docs' own wording; the raw message can name the provider, so it waits behind Details. */}
+          <span data-testid="error-banner">Something went wrong. Try again.</span>
+          <ErrorDetails message={error} />
           <button
             type="button"
             data-testid="error-refresh"
@@ -61,5 +63,19 @@ export function Banners({ snap }: { snap: Snapshot }) {
         </div>
       ))}
     </div>
+  )
+}
+
+/**
+ * Raw errors can name the provider or model, so they wait behind a click,
+ * the same way names wait inside menus.
+ */
+function ErrorDetails({ message }: { message: string }) {
+  const [open, setOpen] = useState(false)
+  if (open) return <span className="error-details">{message}</span>
+  return (
+    <button type="button" className="error-details-toggle" onClick={() => setOpen(true)}>
+      Details
+    </button>
   )
 }

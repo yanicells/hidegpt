@@ -196,7 +196,7 @@ export const Composer = memo(function Composer({
           data-testid="composer"
           aria-label="Ask a question"
           value={draft}
-          placeholder={streaming ? 'Working…' : 'Type a question'}
+          placeholder="Type @ to insert"
           rows={1}
           onChange={(event) => {
             setDraft(event.target.value)

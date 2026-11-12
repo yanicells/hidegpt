@@ -1,7 +1,8 @@
 import { formatListDate, ownerLabel, threadTitle } from '../../../../shared/labels'
 import type { Snapshot } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
-import { DocFileIcon, MIcon } from '../ui/MaterialIcon'
+import { DocFileIcon } from '../ui/Icons'
+import { MIcon } from '../ui/MaterialIcon'
 import type { Thread } from './grouping'
 
 /** Docs' list view rows; column labels live in the section header above. */
@@ -17,13 +18,13 @@ export function ListView({ snap, threads }: { snap: Snapshot; threads: Thread[] 
             onClick={() => dispatch({ op: 'openThread', threadId: thread.id })}
           >
             <span className="list-name">
-              <DocFileIcon size={22} />
+              <DocFileIcon size={24} />
               <span>{threadTitle(thread)}</span>
             </span>
             <span className="list-owner">{ownerLabel(snap.account)}</span>
             <span className="list-date">{formatListDate(thread.updatedAt)}</span>
             <span className="list-more" aria-hidden="true">
-              <MIcon name="more" />
+              <MIcon name="more_vert" size={24} />
             </span>
           </button>
         </li>

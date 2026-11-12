@@ -24,6 +24,7 @@ export type {
   Route,
   Skill,
   Snapshot,
+  SuggestionKind,
   ToolServer,
   UserBlock,
 } from './contracts'

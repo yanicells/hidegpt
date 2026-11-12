@@ -6,6 +6,7 @@ import * as S from './state'
 const approval = (id: string, resolved: ApprovalBlock['resolved'] = null): ApprovalBlock => ({
   kind: 'approval',
   id,
+  suggestion: 'add',
   title: 'Run command?',
   body: 'ls',
   fields: [],

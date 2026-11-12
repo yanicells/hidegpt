@@ -111,12 +111,21 @@ export const ApprovalQuestion = Schema.Struct({
 export type ApprovalQuestion = typeof ApprovalQuestion.Type
 
 /**
+ * What accepting a request does, in Docs' suggestion terms: `add` runs
+ * something (the body is the thing itself), `replace` changes files, `format`
+ * grants access, and `question` asks for answers.
+ */
+export const SuggestionKind = Schema.Literals(['add', 'replace', 'format', 'question'])
+export type SuggestionKind = typeof SuggestionKind.Type
+
+/**
  * A question the agent is waiting on. Display data only: the adapter keeps
  * the raw request (ids, params, resolver) and builds the reply itself.
  */
 export const ApprovalBlock = Schema.Struct({
   kind: Schema.Literal('approval'),
   id: Schema.String,
+  suggestion: SuggestionKind,
   title: Schema.String,
   body: Schema.String,
   fields: Schema.Array(ApprovalField),

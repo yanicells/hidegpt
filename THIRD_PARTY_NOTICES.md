@@ -1,7 +1,7 @@
 # Third-party notices
 
-HideGPT includes code copied or adapted from the projects below. Each copied
-or adapted file carries a header naming its source.
+HideGPT includes code copied or adapted from, or assets bundled from, the
+projects below. Each copied or adapted file carries a header naming its source.
 
 ## T3 Code
 
@@ -53,6 +53,16 @@ or adapted file carries a header naming its source.
     box scrolls, and on any other upward scroll (the upward-scroll detector),
     from `apps/web/src/components/chat/timelineViewport.ts` and
     `timelineScrollTarget.ts`.
+  - `src/renderer/src/components/ui/`: these Base UI wrappers, adapted from
+    `apps/web/src/components/ui/` (each keeps a header pointing to its source):
+
+    | HideGPT file | Adapted from |
+    | --- | --- |
+    | `closing-positioner.tsx` | `closing-positioner.tsx` |
+    | `menu.tsx` | `menu.tsx` |
+    | `popover.tsx` | `popover.tsx` |
+    | `dialog.tsx` | `dialog.tsx` |
+    | `tooltip.tsx` | `tooltip.tsx` |
 - License: MIT
 
 ```
@@ -78,3 +88,20 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Material Symbols (Apache-2.0)
+
+https://github.com/google/material-design-icons
+
+`src/renderer/src/components/ui/symbols.ts` holds outlines that
+`scripts/material-symbols.py` extracts from the Material Symbols Outlined font.
+The full license text is in `src/renderer/src/components/ui/symbols.LICENSE.txt`.
+
+## Fonts (SIL Open Font License 1.1)
+
+Google Sans Flex (`@fontsource-variable/google-sans-flex`) and Roboto
+(`@fontsource/roboto`) are installed as npm packages and bundled at build time.
+So are the unmodified faces the font menu previews (`src/renderer/src/fonts.ts`):
+Amatic SC, Caladea, Carlito, Caveat, Comfortaa, EB Garamond, Lexend, Lobster,
+Lora, Merriweather, Montserrat, Nunito, Open Sans, Oswald, Pacifico, Playfair
+Display, Roboto Mono and Spectral. Each package ships its license as `LICENSE`.

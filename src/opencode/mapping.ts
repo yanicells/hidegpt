@@ -156,6 +156,7 @@ export function permissionBlock(request: PermissionRequest): ApprovalBlock {
   return {
     kind: 'approval',
     id: permissionBlockId(request.id),
+    suggestion: 'format',
     title: `Allow ${request.permission}${patterns}?`,
     body: 'The assistant is asking for extra access.',
     fields: [],
@@ -170,6 +171,7 @@ export function questionBlock(request: QuestionRequest): ApprovalBlock {
   return {
     kind: 'approval',
     id: permissionBlockId(request.id),
+    suggestion: 'question',
     title: 'The assistant needs input',
     body:
       request.questions

@@ -301,6 +301,7 @@ export function permissionBlock(id: string, tool: string, input: Record<string, 
   return {
     kind: 'approval',
     id,
+    suggestion: 'add',
     title: title || `Allow ${tool}?`,
     body: preview ?? '',
     fields: [],
@@ -334,6 +335,7 @@ export function questionBlock(id: string, questions: ReadonlyArray<AskedQuestion
   return {
     kind: 'approval',
     id,
+    suggestion: 'question',
     title: 'Claude needs input',
     body: questions.map((item) => item.question).join('\n') || 'Continue?',
     fields: [],

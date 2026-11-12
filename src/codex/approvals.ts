@@ -1,6 +1,6 @@
 import type * as CodexRpc from '../vendor/effect-codex-app-server/rpc.ts'
 
-import type { ApprovalBlock, ApprovalReply } from '../shared/model'
+import type { ApprovalBlock, ApprovalReply, SuggestionKind } from '../shared/model'
 
 /**
  * Codex server requests that wait on the person, as Docs approval blocks.
@@ -29,10 +29,11 @@ export type ApprovalSpec<M extends ApprovalMethod> = {
 
 const block = (
   id: string,
+  suggestion: SuggestionKind,
   title: string,
   body: string,
   extra: Partial<Pick<ApprovalBlock, 'fields' | 'questions'>> = {},
-): ApprovalBlock => ({ kind: 'approval', id, title, body, fields: [], questions: [], resolved: null, ...extra })
+): ApprovalBlock => ({ kind: 'approval', id, suggestion, title, body, fields: [], questions: [], resolved: null, ...extra })
 
 const legacyDecision = (reply: ApprovalReply) =>
   reply.accept ? ('approved' as const) : { denied: { rejection: 'skipped' } }
@@ -56,27 +57,27 @@ function elicitationFields(params: ElicitationParams) {
 export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {
   'item/commandExecution/requestApproval': {
     threadId: (params) => params.threadId,
-    block: (id, params) => block(id, 'Run command?', params.command ?? params.reason ?? 'Command'),
+    block: (id, params) => block(id, 'add', 'Run command?', params.command ?? params.reason ?? 'Command'),
     response: (_params, reply) => ({ decision: reply.accept ? 'accept' : 'decline' }),
   },
   execCommandApproval: {
     threadId: (params) => params.conversationId,
-    block: (id, params) => block(id, 'Run command?', params.command.join(' ') || params.reason || 'Command'),
+    block: (id, params) => block(id, 'add', 'Run command?', params.command.join(' ') || params.reason || 'Command'),
     response: (_params, reply) => ({ decision: legacyDecision(reply) }),
   },
   'item/fileChange/requestApproval': {
     threadId: (params) => params.threadId,
-    block: (id, params) => block(id, 'Apply file changes?', params.reason ?? 'The assistant wants to edit files.'),
+    block: (id, params) => block(id, 'replace', 'Apply file changes?', params.reason ?? 'The assistant wants to edit files.'),
     response: (_params, reply) => ({ decision: reply.accept ? 'accept' : 'decline' }),
   },
   applyPatchApproval: {
     threadId: (params) => params.conversationId,
-    block: (id, params) => block(id, 'Apply file changes?', params.reason ?? 'The assistant wants to edit files.'),
+    block: (id, params) => block(id, 'replace', 'Apply file changes?', params.reason ?? 'The assistant wants to edit files.'),
     response: (_params, reply) => ({ decision: legacyDecision(reply) }),
   },
   'item/permissions/requestApproval': {
     threadId: (params) => params.threadId,
-    block: (id, params) => block(id, 'Grant extra access?', params.reason ?? 'The assistant needs more permissions.'),
+    block: (id, params) => block(id, 'format', 'Grant extra access?', params.reason ?? 'The assistant needs more permissions.'),
     response: (params, reply) => ({
       permissions: reply.accept
         ? {
@@ -92,6 +93,7 @@ export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {
     block: (id, params) =>
       block(
         id,
+        'add',
         `Continue with ${params.serverName}?`,
         params.mode === 'openai/userVerification' ? params.description || params.title : params.message,
         { fields: elicitationFields(params) },
@@ -104,7 +106,7 @@ export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {
   'item/tool/requestUserInput': {
     threadId: (params) => params.threadId,
     block: (id, params) =>
-      block(id, 'The assistant needs input', params.questions.map((q) => q.question).filter(Boolean).join('\n') || 'Continue?', {
+      block(id, 'question', 'The assistant needs input', params.questions.map((q) => q.question).filter(Boolean).join('\n') || 'Continue?', {
         questions: params.questions.map((question) => ({
           id: question.id,
           question: question.question,
