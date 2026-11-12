@@ -44,6 +44,23 @@ function prependPath() {
 prependPath()
 
 const demo = process.env.HIDEGPT_FAKE === '1'
+/** Where a quit is: `waiting` while scopes close and providers stop, then `allowed` for the real quit. */
+let quitPhase: 'running' | 'waiting' | 'allowed' = 'running'
+
+// One app per profile: a second one would share the process ledger. The lock is taken before
+// the runtime exists, so a second instance builds nothing, forks no program and just quits
+// (bottom of this file); the first one focuses its window. Demo mode keeps no ledger, so
+// `pnpm screenshot` still runs beside the real app.
+// Adapted from T3 Code (apps/desktop/src/app/DesktopClerk.ts) at commit 5c6f2f12.
+// Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+const primary = demo || app.requestSingleInstanceLock()
+/** Set once the program has a window; until then a second launch is remembered, not lost. */
+let focusWindow: (() => void) | null = null
+let focusPending = false
+app.on('second-instance', () => {
+  if (focusWindow) focusWindow()
+  else focusPending = true
+})
 const home = () => process.env.HOME ?? process.env.USERPROFILE ?? process.cwd()
 // Codex files a new document without a folder under its own threads directory.
 const defaultCwd = (id: ProviderId) => (id === 'codex' ? `${home()}/.codex/threads` : home())
@@ -57,22 +74,11 @@ const MainLayer = managerLayer({
   Layer.provideMerge(NodeServices.layer),
 )
 const runtime = ManagedRuntime.make(MainLayer)
-/** Where a quit is: `waiting` while scopes close and providers stop, then `allowed` for the real quit. */
-let quitPhase: 'running' | 'waiting' | 'allowed' = 'running'
 
 const decodeFailed: CommandResult = { ok: false, error: 'Docs could not read that request.' }
 
 /** The app: IPC, the window, the menu, and the first library's connection. Runs until quit. */
 const program = Effect.gen(function* () {
-  // One app per profile: a second one would share the process ledger. It hands off to this
-  // one (focus below) and quits before it starts anything. Demo mode keeps no ledger, so
-  // `pnpm screenshot` still runs beside the real app.
-  // Adapted from T3 Code (apps/desktop/src/app/DesktopClerk.ts) at commit 5c6f2f12.
-  // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
-  if (!demo && !app.requestSingleInstanceLock()) {
-    app.quit()
-    return yield* Effect.never
-  }
   yield* Effect.promise(() => app.whenReady())
   registerDocsProtocol()
   const supervisor = yield* ProcessSupervisor.ProcessSupervisor
@@ -158,13 +164,14 @@ const program = Effect.gen(function* () {
   app.on('activate', () => {
     if (quitPhase === 'running' && BrowserWindow.getAllWindows().length === 0) open()
   })
-  app.on('second-instance', () => {
+  focusWindow = () => {
     if (quitPhase !== 'running') return
     const current = getWindow()
     if (!current) return void open()
     if (current.isMinimized()) current.restore()
     current.focus()
-  })
+  }
+  if (focusPending) focusWindow()
 
   yield* manager.start('codex')
   const shots = process.env.HIDEGPT_SCREENSHOT
@@ -184,8 +191,10 @@ function causeError(cause: import('effect/Cause').Cause<unknown>): unknown {
   return null
 }
 
-const main = runtime.runFork(program)
-main.addObserver((exit) => {
+// A second instance quits here, before ready: no runtime, no program, nothing to shut down.
+if (!primary) app.quit()
+const main = primary ? runtime.runFork(program) : null
+main?.addObserver((exit) => {
   if (exit._tag === 'Failure' && !app.isReady()) console.error(exit.cause)
 })
 
@@ -202,7 +211,7 @@ const SHUTDOWN_DEADLINE_MS = 5_000
 // before Electron exits: the first before-quit is cancelled, shutdown runs, then the
 // app quits for real. (Cancelling will-quit instead leaves macOS unable to quit again.)
 app.on('before-quit', (event) => {
-  if (quitPhase === 'allowed') return
+  if (quitPhase === 'allowed' || !main) return
   event.preventDefault()
   if (quitPhase === 'waiting') return
   quitPhase = 'waiting'
