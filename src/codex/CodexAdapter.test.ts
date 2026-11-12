@@ -490,6 +490,20 @@ describe('CodexAdapter', () => {
     }),
   )
 
+  it.effect('an error that arrives before its turn/started still ends that turn', () =>
+    Effect.gen(function* () {
+      const { peer, events } = yield* open()
+      yield* peer.notify('turn/started', { threadId: 'thr_1', turn: stubTurn('turn_1', [], 'inProgress') })
+      yield* peer.notify('turn/completed', { threadId: 'thr_1', turn: stubTurn('turn_1', [], 'completed') })
+      const error = { message: 'Unauthorized', codexErrorInfo: 'unauthorized' as const, additionalDetails: null, misalignment: null }
+      yield* peer.notify('error', { error, willRetry: false, threadId: 'thr_1', turnId: 'turn_2' })
+      yield* peer.notify('turn/started', { threadId: 'thr_1', turn: stubTurn('turn_2', [], 'inProgress') })
+      yield* peer.notify('turn/completed', { threadId: 'thr_1', turn: stubTurn('turn_2', [], 'failed') })
+      yield* settle
+      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1', error: 'Sign in again to continue.' })
+    }),
+  )
+
   it.effect('a late error for a finished turn does not replace the running turn\'s failure', () =>
     Effect.gen(function* () {
       const { peer, events } = yield* open()

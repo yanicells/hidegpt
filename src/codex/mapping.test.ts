@@ -120,7 +120,10 @@ describe('connector approvals', () => {
   })
 
   it('a choice the person fills in must be one of the options', () => {
-    const params = form({ size: { type: 'string', title: 'Size', enum: ['small', 'large'], enumNames: ['Small', 'Large'] } }, ['size'])
+    const params = form(
+      { size: { type: 'string', title: 'Size', enum: ['small', 'large', 'gpt5'], enumNames: ['Small', 'Large', 'GPT-5'] } },
+      ['size'],
+    )
     expect(elicitationFields(params)).toEqual([{ id: 'size', label: 'Size (Small, Large)' }])
     expect(elicitationResponse(params, { accept: true, answers: { size: 'Large' } })).toMatchObject({ content: { size: 'large' } })
     expect(elicitationResponse(params, { accept: true, answers: { size: 'huge' } })).toMatchObject({ action: 'decline' })
@@ -129,7 +132,13 @@ describe('connector approvals', () => {
 
 describe('docsSafe', () => {
   it('catches provider names run into other words', () => {
-    for (const text of ['gpt5', 'GPT4o', 'ChatGPTPlus', 'OpenAIAPI', 'codex_helper', 'askClaude']) expect(docsSafe(text)).toBeNull()
+    for (const text of ['gpt5', 'GPT4o', 'ChatGPTPlus', 'OpenAIAPI', 'xOPENAIAPI', 'codex_helper', 'askClaude']) expect(docsSafe(text)).toBeNull()
+  })
+
+  it('catches plurals, including ones the acronym split would break up', () => {
+    const plurals = ['LLMs', 'Summarize with LLMs', 'AIs', 'GPTs', 'Search custom GPTs', 'Copilots']
+    const others = ['models', 'prompts', 'tokens', 'agents', 'assistants', 'bots', 'subagents', 'providers', 'SDKs', 'CLIs']
+    for (const text of [...plurals, ...others]) expect(docsSafe(text)).toBeNull()
   })
 
   it('splits acronyms and trailing digits off generic words', () => {

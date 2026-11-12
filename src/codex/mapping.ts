@@ -43,7 +43,7 @@ export type RateLimits = CodexRpc.ServerNotificationParamsByMethod['account/rate
 // These helpers are the only way provider text gets there; ARCH-5 moves them into `present.ts`.
 
 const PROVIDER_WORDS =
-  /\b(ai|assistants?|agents?|models?|prompts?|llms?|tokens?|claude|codex|opencode|chatgpt|anthropic|openai|gpt|copilot|bots?)\b/i
+  /\b(ais?|assistants?|agents?|subagents?|models?|prompts?|llms?|tokens?|providers?|sdks?|clis?|claude|codex|opencode|chatgpt|anthropic|openai|gpts?|copilots?|bots?)\b/i
 /**
  * A product name at the start of a word, ending the word or followed by a capital or digit:
  * catches `OpenAIAPI`, `ChatGPTPlus` and `gpt5`, but not "philanthropic" or "Claudette".
@@ -66,9 +66,10 @@ const LINK = /\b(?:https?:\/\/|www\.)\S+/gi
 export function docsSafe(text: string | null | undefined): string | null {
   const cleaned = (text ?? '').replace(LINK, '').replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ').trim()
   const split = words(cleaned)
-  // Product names are checked in both the raw and the split words, so `askClaude` and `OpenAIAPI` both count.
+  // Banned words are checked in the raw text too: the acronym split turns "LLMs" into "LL Ms".
+  // Product names are checked in the split words too, for one run into an all-caps word (`xOPENAIAPI`).
   const namesProduct = [...cleaned.split(/[^A-Za-z0-9]+/), ...split.split(/[^A-Za-z0-9]+/)].some(startsWithProduct)
-  return cleaned && !PROVIDER_WORDS.test(split) && !namesProduct ? cleaned : null
+  return cleaned && !PROVIDER_WORDS.test(cleaned) && !PROVIDER_WORDS.test(split) && !namesProduct ? cleaned : null
 }
 
 /** Codex's request error text, reworded where Docs can say what to do. */
