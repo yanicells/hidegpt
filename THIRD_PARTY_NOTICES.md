@@ -44,7 +44,8 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     files (commit 8a14762c).
   - `src/main/index.ts`: booting through a small entry that turns on Node's
     compile cache before the app loads, from `apps/desktop/src/boot.ts` and
-    `apps/desktop/src/compileCache.ts` (commit 8a14762c).
+    `apps/desktop/src/compileCache.ts` (commit 8a14762c); and the About panel
+    options, from `apps/desktop/src/app/DesktopAppIdentity.ts` (commit 5c6f2f12).
   - `src/main/app.ts`: quitting after shutdown (cancel the first
     `before-quit`, close every scope, then quit; exit if shutdown stalls; open
     no window on activation meanwhile), from
