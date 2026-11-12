@@ -458,6 +458,7 @@ export function make(connect: Connect): ProviderAdapter {
               ...turnOverrides(settings),
             })
             activeTurns.set(threadId, started.turn.id)
+            return started.turn.id
           }),
 
         interrupt: (threadId) =>
@@ -603,7 +604,7 @@ function registerNotifications(
       }),
       on('turn/started', (p) => {
         activeTurns.set(p.threadId, p.turn.id)
-        return [{ type: 'turnStarted', threadId: p.threadId }]
+        return [{ type: 'turnStarted', threadId: p.threadId, nativeTurnId: p.turn.id }]
       }),
       on('turn/completed', (p) => {
         if (activeTurns.get(p.threadId) === p.turn.id) activeTurns.delete(p.threadId)
@@ -611,6 +612,7 @@ function registerNotifications(
           {
             type: 'turnEnded',
             threadId: p.threadId,
+            nativeTurnId: p.turn.id,
             ...(p.turn.status === 'failed' && p.turn.error ? { error: p.turn.error.message } : {}),
           },
         ]
@@ -618,7 +620,7 @@ function registerNotifications(
       on('error', (p) =>
         p.willRetry
           ? [{ type: 'notice', message: p.error.message }]
-          : [{ type: 'turnEnded', threadId: p.threadId, error: p.error.message }],
+          : [{ type: 'turnEnded', threadId: p.threadId, nativeTurnId: p.turnId, error: p.error.message }],
       ),
       on('warning', (p) => (p.message ? [{ type: 'notice', message: p.message }] : [])),
       on('guardianWarning', (p) => (p.message ? [{ type: 'notice', message: p.message }] : [])),
