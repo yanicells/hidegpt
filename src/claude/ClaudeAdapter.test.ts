@@ -189,6 +189,38 @@ describe('ClaudeAdapter', () => {
     }),
   )
 
+  it.effect('closes a Claude Code that accepts the stop but never ends the turn, so the next send works', () =>
+    Effect.gen(function* () {
+      const { fake, session, events } = yield* open({ reply: null })
+      yield* send(session, DOC, 'Long answer')
+      yield* until(() => fake.queries[0]?.prompts.length === 1)
+      yield* session.interrupt(DOC)
+      expect(ended(events)).toEqual([])
+      yield* TestClock.adjust(`${ClaudeAdapter.INTERRUPT_SECONDS + 1} seconds`)
+      yield* until(() => ended(events).length === 1)
+      expect(fake.queries[0]?.closed).toBe(true)
+      expect(ended(events)).toEqual([{ type: 'turnEnded', threadId: DOC }])
+
+      yield* send(session, DOC, 'Again')
+      yield* until(() => fake.queries[1]?.prompts.length === 1)
+    }),
+  )
+
+  it.effect('resumes a new document whose Claude Code exited before answering but kept the transcript', () =>
+    Effect.gen(function* () {
+      const { fake, session, events } = yield* open({ reply: null })
+      const created = yield* session.createThread({ cwd: '/tmp', projectId: null, title: null, settings: SETTINGS })
+      yield* send(session, created.threadId, 'First')
+      yield* until(() => fake.queries[0]?.prompts.length === 1)
+      fake.queries[0]?.exit()
+      yield* until(() => ended(events).length === 1)
+
+      yield* send(session, created.threadId, 'Again')
+      yield* until(() => fake.queries[1]?.prompts.length === 1)
+      expect(fake.queries[1]?.options).toMatchObject({ resume: created.threadId })
+    }),
+  )
+
   it.effect('asks before a tool runs and passes the answer back', () =>
     Effect.gen(function* () {
       const { fake, session, events } = yield* open({ reply: null })

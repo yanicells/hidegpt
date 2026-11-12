@@ -342,6 +342,15 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
       const startLive = (threadId: string, settings: TurnSettings) =>
         Effect.gen(function* () {
           const info = infoOf(threadId)
+          // A process that exited before any answer may still have written the transcript;
+          // starting it again under the same id would then fail, so resume it instead.
+          if (!info.saved) {
+            const existing = yield* Effect.orElseSucceed(
+              request('getSessionInfo', () => sdk.getSessionInfo(threadId, dirOption(threadId)), 10),
+              () => undefined,
+            )
+            if (existing) info.saved = true
+          }
           const prompts = yield* Queue.unbounded<SDKUserMessage, Cause.Done>()
           const effort = settings.effort && EFFORTS.has(settings.effort) ? (settings.effort as EffortLevel) : null
           const live: Live = {
@@ -521,12 +530,20 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             yield* emit({ type: 'turnStarted', threadId })
           }),
 
-        /** Asks Claude Code to stop; one that does not answer in time is closed, which settles the turn. */
+        /**
+         * Asks Claude Code to stop. One that does not end the turn in time (no answer, or an
+         * answer but no result frame) is closed, which settles the turn so the next send works.
+         */
         interrupt: (threadId) =>
           Effect.gen(function* () {
             const live = lives.get(threadId)
             if (!live?.turn) return
             live.stopping = true
+            yield* fork(
+              Effect.sleep(Duration.seconds(INTERRUPT_SECONDS)).pipe(
+                Effect.andThen(Effect.suspend(() => (live.turn && live.stopping ? settle(live, undefined) : Effect.void))),
+              ),
+            )
             yield* request('interrupt', () => live.query.interrupt(), INTERRUPT_SECONDS).pipe(
               Effect.catch(() => settle(live, undefined)),
               Effect.asVoid,
