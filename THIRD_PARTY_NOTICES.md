@@ -71,6 +71,11 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     handling a defect in a long-lived fiber with `Effect.catchCause` and
     re-interrupting on interruption, from
     `packages/provider-opencode/src/server/adapter.ts` (commit 8a14762c).
+  - `src/main/session/TurnController.ts` (commit 5c6f2f12): commands that name
+    their document and act there or refuse, a stop whose result is checked,
+    and the unresponsive-stop case, from
+    `apps/server/src/orchestration-v2/ProviderTurnControlService.ts`,
+    `ProviderTurnStartService.ts` and `RuntimeRequestService.ts`.
   - `src/renderer/src/session-bridge.ts` and `components/document/Approval.tsx`:
     failed commands kept as a local error and replies tracked while they are
     on their way, from `apps/web/src/components/chat/usePendingThreadRequests.ts`
