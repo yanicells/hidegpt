@@ -37,7 +37,7 @@ export const DocCard = memo(function DocCard({ thread }: { thread: Thread }) {
           <DocFileIcon size={20} />
           {/* Docs' cards give the year even for this year ("Opened Nov 4, 2026"), like the list view. */}
           <span className="card-date">Opened {formatListDate(thread.updatedAt)}</span>
-          <DocMenu thread={thread} className="card-more" size={20} />
+          <DocMenu thread={thread} className="card-more" size={24} />
         </span>
       </div>
     </div>

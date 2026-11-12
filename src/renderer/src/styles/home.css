@@ -151,7 +151,7 @@
   /* Large libraries: skip layout and paint for cards scrolled out of view. */
   content-visibility: auto;
   contain-intrinsic-size: auto 340px;
-  border: 1px solid var(--outline);
+  border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
   transition: border-color 120ms;
@@ -178,7 +178,7 @@
 .thumb {
   height: 264px;
   background: var(--surface);
-  border-bottom: 1px solid var(--outline);
+  border-bottom: 1px solid var(--line);
   @apply overflow-hidden relative;
 }
 
@@ -310,13 +310,15 @@
 /* Docs centres the owner filter and column label 3.5px, and the tools 5px, above the title. */
 .recent-head .owned-by-button,
 .list-col-label {
-  margin-bottom: 7px;
+  @apply relative;
+  top: -3.5px;
 }
 
 .recent-controls {
-  @apply flex items-center justify-end;
+  @apply relative flex items-center justify-end;
+  top: -5px;
   gap: 2px;
-  margin: 0 5px 10px 0;
+  margin-right: 5px;
 }
 
 .list {
@@ -346,7 +348,7 @@
 
 .list-name {
   @apply flex items-center min-w-0;
-  gap: 26px;
+  gap: 30px;
 }
 
 .list-open {
@@ -442,7 +444,6 @@
 }
 
 .list-col-label {
-  padding-left: 16px;
   font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.1px;
@@ -475,7 +476,7 @@
 .gallery-caption {
   @apply inline-flex items-center;
   gap: 8px;
-  padding: 0 12px;
+  padding: 0 8px 0 12px;
   height: 36px;
   /* Docs sets the label 1.5px above the row's centre line. */
   padding-bottom: 3px;
@@ -492,6 +493,7 @@
 .gallery-divider {
   height: 32px;
   width: 1px;
+  margin: 0 -1px 0 1px;
   background: #d8dcdf;
 }
 
