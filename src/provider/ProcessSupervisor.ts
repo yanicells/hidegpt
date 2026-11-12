@@ -109,7 +109,10 @@ const stopGroup = (child: ChildProcessWithoutNullStreams, pid: number) =>
     Effect.timeoutOrElse({ duration: FORCE_KILL_AFTER, orElse: () => Effect.sync(() => signalGroup(pid, 'SIGKILL')) }),
   )
 
-const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledger: ProcessLedger.ProcessLedger['Service']) =>
+const make = (
+  spawner: ChildProcessSpawner.ChildProcessSpawner['Service'],
+  ledger: ProcessLedger.ProcessLedger['Service'],
+) =>
   ProcessSupervisor.of({
     spawn: Effect.fn('ProcessSupervisor.spawn')(function* (options, tailStderr = false) {
       const command = ChildProcess.make(options.command, [...options.args], {
@@ -168,10 +171,14 @@ const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledge
      * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
      */
     callbackSpawner: Effect.gen(function* () {
-      const running = new Map<ChildProcessWithoutNullStreams, { readonly pid: number; readonly recorded: Fiber.Fiber<void> }>()
+      const running = new Map<
+        ChildProcessWithoutNullStreams,
+        { readonly pid: number; readonly recorded: Fiber.Fiber<void> }
+      >()
       // Ledger stops forked by exits; a closing scope waits for them, so a quit never leaves a record.
       const stopping = new Set<Fiber.Fiber<void>>()
-      const stopTree = (pid: number, recorded: Fiber.Fiber<void>) => Fiber.join(recorded).pipe(Effect.andThen(ledger.stop(pid)))
+      const stopTree = (pid: number, recorded: Fiber.Fiber<void>) =>
+        Fiber.join(recorded).pipe(Effect.andThen(ledger.stop(pid)))
       let closed = false
       // Trees are read while the CLIs still run, then each group is stopped, then what left it.
       yield* Effect.addFinalizer(() =>

@@ -115,7 +115,15 @@ export function parseProcessTable(table: string): ReadonlyArray<ProcessRow> {
     const match = ROW.exec(line)
     if (!match) return []
     const [, pid, ppid, pgid, started, command] = match
-    return [{ pid: Number(pid), ppid: Number(ppid), pgid: Number(pgid), started: lstartMillis(started ?? ''), command: command ?? '' }]
+    return [
+      {
+        pid: Number(pid),
+        ppid: Number(ppid),
+        pgid: Number(pgid),
+        started: lstartMillis(started ?? ''),
+        command: command ?? '',
+      },
+    ]
   })
 }
 
@@ -133,7 +141,9 @@ const run = (command: string, args: ReadonlyArray<string>) =>
 
 /** The start time of `pid` in epoch ms; 0 when it is gone. */
 export const startOf = (pid: number) =>
-  Effect.map(run('ps', ['-o', 'lstart=', '-p', String(pid)]), (out) => Option.match(out, { onNone: () => 0, onSome: lstartMillis }))
+  Effect.map(run('ps', ['-o', 'lstart=', '-p', String(pid)]), (out) =>
+    Option.match(out, { onNone: () => 0, onSome: lstartMillis }),
+  )
 
 /** Every process, or none when `ps` fails or lists nothing. Command lines only when asked: they are most of the output. */
 const readProcessTable = (withCommands: boolean) =>
@@ -149,7 +159,9 @@ const readBootTime = Effect.gen(function* () {
     return sec ? Number(sec) * 1000 : 0
   }
   if (process.platform !== 'linux') return 0
-  const stat = yield* Effect.callback<string>((resume) => readFile('/proc/stat', 'utf8', (error, text) => resume(Effect.succeed(error ? '' : text))))
+  const stat = yield* Effect.callback<string>((resume) =>
+    readFile('/proc/stat', 'utf8', (error, text) => resume(Effect.succeed(error ? '' : text))),
+  )
   const sec = /^btime (\d+)$/m.exec(stat)?.[1]
   return sec ? Number(sec) * 1000 : 0
 })
@@ -162,13 +174,19 @@ const identity = (proc: { readonly pid: number; readonly started: number }) => `
  * leader exits its pid may belong to an unrelated process, so only tracked
  * members are roots then.
  */
-function refreshMembers(pid: number, entry: LedgerEntry, rows: ReadonlyArray<ProcessRow>): ReadonlyArray<typeof Member.Type> {
+function refreshMembers(
+  pid: number,
+  entry: LedgerEntry,
+  rows: ReadonlyArray<ProcessRow>,
+): ReadonlyArray<typeof Member.Type> {
   const running = new Set(rows.map(identity))
   const leaderRuns = entry.started > 0 && running.has(identity({ pid, started: entry.started }))
   const still = entry.members.filter((member) => running.has(identity(member)))
   const roots = [...(leaderRuns ? [pid] : []), ...still.map((member) => member.pid)]
   const found = descendants(rows, roots).filter((row) => row.started > 0)
-  return [...new Map([...still, ...found].map((row) => [identity(row), { pid: row.pid, started: row.started }])).values()]
+  return [
+    ...new Map([...still, ...found].map((row) => [identity(row), { pid: row.pid, started: row.started }])).values(),
+  ]
 }
 
 /** Processes under `roots`, by parent pid. */
@@ -240,7 +258,13 @@ export const layer = (filePath: string | null, options: LedgerOptions = {}) =>
     ProcessLedger,
     Effect.gen(function* () {
       if (!filePath) {
-        return ProcessLedger.of({ record: () => Effect.void, forget: () => Effect.void, stop: () => Effect.void, track: Effect.void, reap: Effect.succeed(0) })
+        return ProcessLedger.of({
+          record: () => Effect.void,
+          forget: () => Effect.void,
+          stop: () => Effect.void,
+          track: Effect.void,
+          reap: Effect.succeed(0),
+        })
       }
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
@@ -340,7 +364,10 @@ export const layer = (filePath: string | null, options: LedgerOptions = {}) =>
                 continue
               }
               const leader = runningAs(pid, entry.started)
-              const leaderMatches = leader !== undefined && leader.command.includes(entry.command) && (!entry.arg || leader.command.includes(entry.arg))
+              const leaderMatches =
+                leader !== undefined &&
+                leader.command.includes(entry.command) &&
+                (!entry.arg || leader.command.includes(entry.arg))
               let hit = leaderMatches && signal(-pid)
               for (const member of entry.members) {
                 const row = runningAs(member.pid, member.started)

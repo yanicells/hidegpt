@@ -90,7 +90,11 @@ describe('ProcessSupervisor', () => {
         (supervisor) =>
           Effect.scoped(
             Effect.gen(function* () {
-              const { handle } = yield* supervisor.spawn({ provider: 'codex', command: '/bin/sh', args: ['-c', WITH_DAEMON] })
+              const { handle } = yield* supervisor.spawn({
+                provider: 'codex',
+                command: '/bin/sh',
+                args: ['-c', WITH_DAEMON],
+              })
               yield* until(() => (daemon = daemonOf(handle.pid)) > 0)
             }),
           ),
