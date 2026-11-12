@@ -205,4 +205,78 @@ describe('SnapshotPublisher', () => {
       expect(sent[1]!.patch.blocks).toEqual({ length: 1, set: [[0, { kind: 'agent', id: 'a', text: 'lost ' }]] })
     }).pipe(Effect.provide(Logger.layer([]))),
   )
+
+  it.effect('restarts with backoff, starts the count over after a stable minute, and past Fatal keeps trying each minute', () => {
+    const levels: string[] = []
+    const capture = Logger.make(({ logLevel }) => void levels.push(logLevel))
+    return Effect.gen(function* () {
+      const state = yield* SubscriptionRef.make<Snapshot>({ ...emptySnapshot(), status: 'ready' })
+      let failures = 0
+      const sent: SnapshotPatch[] = []
+      const publisher = makeSnapshotPublisher(SubscriptionRef.changes(state), (patch) => {
+        if (failures > 0) {
+          failures -= 1
+          throw new Error('window gone')
+        }
+        sent.push(patch)
+      })
+      yield* Effect.forkScoped(publisher.run)
+      yield* settle
+      // One defect, then a minute of quiet: that run counts as stable.
+      failures = 1
+      yield* SubscriptionRef.update(state, (s) => ({ ...s, title: 'One' }))
+      yield* TestClock.adjust('1 second')
+      yield* settle
+      expect(sent).toHaveLength(2)
+      yield* TestClock.adjust('61 seconds')
+
+      // Now every send fails. The full budget is there again: it restarts at once, then
+      // after 1, 2, 4, 8 and 16 seconds, and only then gives up.
+      failures = Infinity
+      yield* SubscriptionRef.update(state, (s) => ({ ...s, title: 'Two' }))
+      yield* settle
+      yield* TestClock.adjust('30 seconds')
+      yield* settle
+      expect(levels.filter((level) => level === 'Fatal')).toEqual([])
+      yield* TestClock.adjust('1 second')
+      yield* settle
+      expect(levels.filter((level) => level === 'Error')).toHaveLength(1 + 1 + 1 + 5)
+      expect(levels.at(-1)).toBe('Fatal')
+
+      // It keeps trying once a minute, without another Fatal, and recovers once sending works.
+      yield* TestClock.adjust('1 minute')
+      yield* settle
+      expect(levels.filter((level) => level === 'Error')).toHaveLength(9)
+      const before = sent.length
+      failures = 0
+      yield* TestClock.adjust('1 minute')
+      yield* settle
+      expect(sent).toHaveLength(before + 1)
+      expect(sent.at(-1)).toMatchObject({ fields: { title: 'Two', status: 'ready' }, blocks: { length: 0 } })
+      expect(levels.filter((level) => level === 'Fatal')).toHaveLength(1)
+    }).pipe(Effect.provide(Logger.layer([capture])))
+  })
+
+  it.effect('a resync whose send throws rethrows, and the next patch is whole', () =>
+    Effect.gen(function* () {
+      const state = yield* SubscriptionRef.make<Snapshot>({ ...emptySnapshot(), status: 'ready' })
+      let broken = false
+      const sent: SnapshotPatch[] = []
+      const publisher = makeSnapshotPublisher(SubscriptionRef.changes(state), (patch) => {
+        if (broken) {
+          broken = false
+          throw new Error('window gone')
+        }
+        sent.push(patch)
+      })
+      yield* Effect.forkScoped(publisher.run)
+      yield* settle
+      broken = true
+      expect(() => publisher.resync()).toThrow('window gone')
+      expect(publisher.delivered()).toBeNull()
+      yield* SubscriptionRef.update(state, (s) => ({ ...s, title: 'After' }))
+      yield* settle
+      expect(sent.at(-1)).toMatchObject({ fields: { title: 'After', status: 'ready' }, blocks: { length: 0 } })
+    }),
+  )
 })
