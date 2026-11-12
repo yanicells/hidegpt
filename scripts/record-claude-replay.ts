@@ -23,7 +23,7 @@ import * as Effect from 'effect/Effect'
 import * as Stream from 'effect/Stream'
 
 import * as ClaudeAdapter from '../src/claude/ClaudeAdapter.ts'
-import { recordingSdk } from '../src/claude/replay.ts'
+import { recordingSdk, withoutPersonalDetails } from '../src/claude/replay.ts'
 import { SCENARIOS } from '../src/claude/replayScenarios.ts'
 import type { AdapterEvent } from '../src/provider/ProviderAdapter.ts'
 import {
@@ -46,18 +46,6 @@ function tokenSource(entries: ReadonlyArray<ReplayEntry>): string {
   const frame = answer?.type === 'emit_inbound' ? (answer.frame as { result?: { account?: { tokenSource?: unknown } } }) : undefined
   const source = frame?.result?.account?.tokenSource
   return typeof source === 'string' ? source : 'missing'
-}
-
-/**
- * Claude Code's start-up message lists the person's MCP servers, skills, plugins
- * and agents. Docs reads none of them, so the fixture keeps the shape and drops the names.
- */
-function withoutPersonalLists(entry: ReplayEntry): ReplayEntry {
-  if (entry.type !== 'emit_inbound') return entry
-  const frame = entry.frame as { message?: Record<string, unknown> }
-  if (frame.message?.type !== 'system' || frame.message.subtype !== 'init') return entry
-  const lists = ['mcp_servers', 'slash_commands', 'skills', 'plugins', 'agents', 'tools']
-  return { ...entry, frame: { ...frame, message: { ...frame.message, ...Object.fromEntries(lists.map((key) => [key, []])) } } }
 }
 
 function versionOf(entries: ReadonlyArray<ReplayEntry>): string {
@@ -139,7 +127,7 @@ async function main() {
       ...(sendsTurns ? { prompts: scenario.prompts } : {}),
     },
     entries: [
-      ...entries.map((entry) => scrub(withoutPersonalLists(entry), machine) as ReplayEntry),
+      ...entries.map((entry) => scrub(withoutPersonalDetails(entry), machine) as ReplayEntry),
       { type: 'runtime_exit', status: 'success' },
     ],
   })
