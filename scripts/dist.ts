@@ -6,46 +6,51 @@ import { join } from 'node:path'
 
 import { build } from 'electron-builder'
 
-import { builderConfig, isPersonal, wantsNotarizing, wantsSigning } from './builder-config.ts'
+import { builderConfig, builderEnv, isPersonal, outputDir, wantsNotarizing, wantsSigning } from './builder-config.ts'
+import { assertNoClaude, packagedArchives } from './shared-build-guard.ts'
 import { verifyPreloadBundle } from './verify-preload-bundle.ts'
 
 /**
- * `pnpm dist`: builds the app, checks the bundle, and packages a macOS `.dmg`
- * and `.zip` into `dist/`. With no env vars it makes an unsigned, Claude-free
- * build. `HIDEGPT_PERSONAL=1` keeps Claude; `CSC_LINK`/`CSC_NAME` sign it; the
- * `APPLE_*` notary vars notarize a signed build (see README, "Packaging").
+ * `pnpm dist`: builds the app, checks the preload, packages a macOS `.dmg` and
+ * `.zip`, and checks the shipped archive. With no env vars it makes an unsigned,
+ * Claude-free build in `dist/`. `HIDEGPT_PERSONAL=1` keeps Claude and writes
+ * `dist/personal/*-personal.dmg`; `CSC_LINK`/`CSC_NAME` sign it; the `APPLE_*`
+ * notary vars notarize a signed build (see README, "Packaging").
  */
 
-// electron-builder treats an empty signing variable as set (as T3 Code notes), so drop empty ones.
-for (const [key, value] of Object.entries(process.env)) {
-  if (value === '') delete process.env[key]
-}
-const personal = isPersonal(process.env)
-if (!wantsSigning(process.env)) {
-  // Never pick up a certificate from the keychain unless asked to.
-  process.env.CSC_IDENTITY_AUTO_DISCOVERY = 'false'
-}
+// electron-builder reads signing settings from process.env, so scrub it in place.
+const env = builderEnv(process.env)
+for (const key of Object.keys(process.env)) if (!(key in env)) delete process.env[key]
+Object.assign(process.env, env)
+const personal = isPersonal(env)
 
 console.log(
   `Building Docs: ${personal ? 'personal (with Claude)' : 'shared (no Claude)'}, ` +
-    `${wantsSigning(process.env) ? 'signed' : 'unsigned'}, ${wantsNotarizing(process.env) ? 'notarized' : 'not notarized'}`,
+    `${wantsSigning(env) ? 'signed' : 'unsigned'}, ${wantsNotarizing(env) ? 'notarized' : 'not notarized'}`,
 )
 
 rmSync('out', { recursive: true, force: true })
 execFileSync('pnpm', ['exec', 'electron-vite', 'build'], {
   stdio: 'inherit',
-  env: { ...process.env, HIDEGPT_PERSONAL: personal ? '1' : '0' },
+  env: { ...env, HIDEGPT_PERSONAL: personal ? '1' : '0' },
 })
 
 verifyPreloadBundle(readFileSync('out/preload/index.cjs', 'utf8'))
 
-if (!personal) {
-  // The build-time flag should have dropped every Claude chunk; fail loudly if one survived.
-  const leaks = readdirSync('out/main').filter((file) => {
-    const source = readFileSync(join('out/main', file), 'utf8')
-    return /claude/i.test(file) || source.includes('claude-agent-sdk')
-  })
-  if (leaks.length > 0) throw new Error(`A shared build still contains Claude code: ${leaks.join(', ')}`)
-}
+await build({ config: builderConfig(env), publish: 'never' })
 
-await build({ config: builderConfig(process.env), publish: 'never' })
+if (!personal) {
+  // Check what actually ships: the build-time flag should have left no Claude code in the app.
+  const dir = outputDir(env)
+  try {
+    const archives = packagedArchives(dir)
+    if (archives.length === 0) throw new Error(`No packaged app found in ${dir}/ to check`)
+    archives.forEach(assertNoClaude)
+  } catch (error) {
+    // Leave nothing shareable behind; a personal build in dist/personal/ is kept.
+    for (const entry of readdirSync(dir)) {
+      if (entry !== 'personal') rmSync(join(dir, entry), { recursive: true, force: true })
+    }
+    throw error
+  }
+}

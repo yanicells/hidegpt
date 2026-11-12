@@ -57,6 +57,9 @@ importers:
       '@effect/vitest':
         specifier: 4.1.2
         version: 4.1.2(effect@4.1.2)(vitest@5.1.0(@types/node@26.4.1)(jsdom@30.0.1(@noble/hashes@1.8.0))(vite@7.3.6(@types/node@26.4.1)(jiti@2.7.0)(lightningcss@1.32.0)))
+      '@electron/asar':
+        specifier: 3.4.1
+        version: 3.4.1
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@7.3.6(@types/node@26.4.1)(jiti@2.7.0)(lightningcss@1.32.0))
