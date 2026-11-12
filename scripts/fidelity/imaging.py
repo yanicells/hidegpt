@@ -57,14 +57,25 @@ def pixel(image, x, y):
     return hex_colour(a[int(y * scale) + top, int(x * scale)])
 
 
-def hex_colour(rgb):
-    return '#%02x%02x%02x' % tuple(int(v) for v in rgb[:3])
+def hex_colour(colour):
+    """(r, g, b) or (r, g, b, a) -> '#rrggbb', with 'aa' appended when not opaque."""
+    channels = [int(v) for v in colour[:4]]
+    if len(channels) == 4 and channels[3] == 255:
+        channels = channels[:3]
+    return '#' + ''.join('%02x' % v for v in channels)
 
 
 def parse_colour(value):
-    """'#rrggbb', 'rgb(r, g, b)' or 'rgba(r, g, b, a)' -> (r, g, b)."""
+    """'#rrggbb[aa]', 'rgb(r, g, b)' or 'rgba(r, g, b, a)' -> (r, g, b, a), a in 0-255.
+
+    Alpha counts as a fourth channel, so a transparent colour never matches an
+    opaque target.
+    """
     value = value.strip()
     if value.startswith('#'):
-        return tuple(int(value[i:i + 2], 16) for i in (1, 3, 5))
-    inner = value[value.index('(') + 1:value.index(')')]
-    return tuple(round(float(v)) for v in inner.replace('/', ',').split(',')[:3])
+        channels = [int(value[i:i + 2], 16) for i in range(1, len(value), 2)]
+        return tuple(channels + [255] * (4 - len(channels)))
+    parts = [v.strip() for v in value[value.index('(') + 1:value.index(')')].replace('/', ',').split(',')]
+    alpha = parts[3] if len(parts) > 3 else '1'
+    alpha = float(alpha[:-1]) / 100 if alpha.endswith('%') else float(alpha)
+    return tuple(round(float(v)) for v in parts[:3]) + (round(alpha * 255),)

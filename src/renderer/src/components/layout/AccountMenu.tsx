@@ -93,7 +93,7 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
             run={
               snap.capabilities.login && !snap.account
                 ? () => {
-                    dispatch({ op: 'login' })
+                    void dispatch({ op: 'login' })
                     setOpen(false)
                   }
                 : undefined
@@ -105,7 +105,7 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
               icon="logout"
               label="Sign out"
               run={() => {
-                dispatch({ op: 'logout' })
+                void dispatch({ op: 'logout' })
                 setOpen(false)
               }}
             />

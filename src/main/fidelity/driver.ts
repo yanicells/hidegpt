@@ -4,9 +4,12 @@ import { join } from 'node:path'
 
 import * as Effect from 'effect/Effect'
 
-import { clockScript } from './clock'
+import { clockScript, nextMinute } from './clock'
 
 type Point = { x: number; y: number }
+
+/** How long one page script, CDP command or capture may take before the phase gives up. */
+const PAGE_TIMEOUT = '15 seconds'
 
 /** CSS selector -> the computed properties `pnpm fidelity:check` reads from it (`targets.json`). */
 export type Probes = Readonly<Record<string, ReadonlyArray<string>>>
@@ -75,10 +78,11 @@ const markFonts = `(() => {
 /**
  * Settles the page the way Playwright's screenshot options do (`animations:
  * 'disabled'`): fonts loaded, finite animations and transitions at their end,
- * infinite ones stopped at their first frame. It then repaints the whole
- * view (a one-frame root background change), so every shot is rastered from a
- * full invalidation; partial repaints left 1-6 levels of antialiasing noise on
- * a few icons from run to run.
+ * infinite ones stopped at their first frame. It then changes the root
+ * background for one frame, which repaints the root layer (not separately
+ * composited layers), so the page content is rastered from a full invalidation;
+ * partial repaints left 1-6 levels of antialiasing noise on a few icons from
+ * run to run.
  */
 const settleScript = `document.fonts.ready.then(async () => {
   for (const animation of document.getAnimations()) {
@@ -111,22 +115,34 @@ const captureStyle = `(() => {
  */
 export const makeDriver = (win: BrowserWindow, root: string, phase: string, probes: Probes) =>
   Effect.gen(function* () {
-    const started = Date.now()
+    // Wall time, not the pinned `Date`, which jumps forward at each step.
+    const started = performance.now()
     const manifest: Manifest = { phase, shots: [], failures: [], ms: 0 }
     mkdirSync(root, { recursive: true })
     const dbg = win.webContents.debugger
     dbg.attach('1.3')
 
+    // A page that never answers (a hung or gone renderer) ends the phase rather than the
+    // whole walk timing out step by step, as the stock walk's PAGE_TIMEOUT does (screenshots.ts).
+    let hung = false
+    const answered = <A>(what: string, ask: () => Promise<A>) =>
+      Effect.promise(ask).pipe(
+        Effect.timeoutOrElse({
+          duration: PAGE_TIMEOUT,
+          orElse: () =>
+            Effect.suspend(() => {
+              hung = true
+              return Effect.die(new Error(`The page did not answer in time: ${what}`))
+            }),
+        }),
+      )
     const cdp = <A = unknown>(method: string, params: Record<string, unknown> = {}) =>
-      Effect.promise(() => {
-        let timer: NodeJS.Timeout | undefined
-        const timeout = new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error(`CDP ${method} timed out`)), 15_000)
-        })
-        return Promise.race([dbg.sendCommand(method, params) as Promise<A>, timeout]).finally(() => clearTimeout(timer))
-      })
+      answered(`CDP ${method}`, () => dbg.sendCommand(method, params) as Promise<A>)
     const js = <A = unknown>(script: string) =>
-      Effect.promise(() => win.webContents.executeJavaScript(script) as Promise<A>)
+      answered(
+        script.replace(/\s+/g, ' ').trim().slice(0, 80),
+        () => win.webContents.executeJavaScript(script) as Promise<A>,
+      )
     const pause = (ms = 150) => Effect.sleep(`${ms} millis`)
 
     const waitUntil = (condition: string, what: string) =>
@@ -162,16 +178,18 @@ export const makeDriver = (win: BrowserWindow, root: string, phase: string, prob
 
     // Before the first shot: a pinned clock, time zone, locale and colour scheme
     // (as T3 Code's preview manager pins media over its CDP session), then a reload
-    // so the page starts on the pinned clock.
+    // so the page starts on the pinned clock. The closest T3 analogue to this whole
+    // driver is apps/server/src/htmlRender/headlessChrome.ts, which renders HTML in
+    // headless Chrome over CDP; nothing is copied from it.
     yield* cdp('Page.enable')
     yield* cdp('DOM.enable')
     yield* cdp('CSS.enable')
-    yield* cdp('Page.addScriptToEvaluateOnNewDocument', { source: clockScript() })
     yield* cdp('Emulation.setFocusEmulationEnabled', { enabled: true })
     yield* cdp('Emulation.setTimezoneOverride', { timezoneId: 'UTC' })
     yield* cdp('Emulation.setLocaleOverride', { locale: 'en-US' })
     yield* cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] })
     yield* emulate(1402, 877)
+    yield* cdp('Page.addScriptToEvaluateOnNewDocument', { source: clockScript() })
     yield* cdp('Page.reload', { ignoreCache: true })
     yield* pause(300)
     yield* waitFor('[data-testid="app"]', 'The app')
@@ -268,21 +286,26 @@ export const makeDriver = (win: BrowserWindow, root: string, phase: string, prob
     const typeText = (text: string) => cdp('Input.insertText', { text })
     const blur = () => js('document.activeElement && document.activeElement.blur()')
 
-    /** Runs one step; a failure is logged and recorded, and the phase carries on. */
+    /**
+     * Runs one step from the next whole minute (`nextMinute`). A failure is recorded and
+     * the next step runs, unless the page stopped answering.
+     */
     const step = <A, E>(name: string, effect: Effect.Effect<A, E>) =>
-      effect.pipe(
+      Effect.suspend(() => js(nextMinute())).pipe(
+        Effect.andThen(effect),
         Effect.asVoid,
         Effect.catchCause((cause) =>
-          Effect.sync(() => {
+          Effect.suspend(() => {
             const error = String(cause).slice(0, 400)
             console.error(`step failed: ${name}: ${error}`)
             manifest.failures.push({ step: name, error })
+            return hung ? Effect.failCause(cause) : Effect.void
           }),
         ),
       )
     const finish = () =>
       Effect.sync(() => {
-        manifest.ms = Date.now() - started
+        manifest.ms = Math.round(performance.now() - started)
         writeFileSync(join(root, 'manifest.json'), JSON.stringify(manifest, null, 2))
         dbg.detach()
       })
