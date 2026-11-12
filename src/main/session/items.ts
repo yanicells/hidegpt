@@ -115,3 +115,16 @@ export function expireRequests(items: Items): Items {
     item.kind === 'request' && !isFinalRequestStatus(item.status) ? { ...item, status: 'expired' } : item,
   )
 }
+
+const isRetrying = (item: Item): boolean => item.kind === 'notice' && item.notice === 'retrying'
+
+/**
+ * The turn moved on (new content, or its end), so a "Trying again" notice from it is stale.
+ * Only the current turn can hold one, so the scan stops at its user message.
+ */
+export function clearRetrying(items: Items): Items {
+  for (let index = items.length - 1; index >= 0 && items[index]!.kind !== 'user'; index -= 1) {
+    if (isRetrying(items[index]!)) return items.filter((item) => !isRetrying(item))
+  }
+  return items
+}
