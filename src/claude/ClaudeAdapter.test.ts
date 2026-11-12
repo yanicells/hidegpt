@@ -206,6 +206,30 @@ describe('ClaudeAdapter', () => {
     }),
   )
 
+  it.effect('a stop timer left from an earlier turn does not close a later one', () =>
+    Effect.gen(function* () {
+      const { fake, session, events } = yield* open({ reply: null })
+      yield* send(session, DOC, 'First')
+      yield* until(() => fake.queries[0]?.prompts.length === 1)
+      yield* session.interrupt(DOC)
+      fake.queries[0]?.push(resultFrame({ subtype: 'error_during_execution', is_error: true, errors: ['Request was aborted.'] }))
+      yield* until(() => ended(events).length === 1)
+
+      // A new turn, stopped later: only its own timer may close Claude Code.
+      yield* TestClock.adjust(`${ClaudeAdapter.INTERRUPT_SECONDS - 2} seconds`)
+      yield* send(session, DOC, 'Second')
+      yield* until(() => fake.queries[0]?.prompts.length === 2)
+      yield* session.interrupt(DOC)
+      yield* TestClock.adjust('3 seconds')
+      yield* tick
+      expect(fake.queries[0]?.closed).toBe(false)
+      expect(ended(events)).toHaveLength(1)
+      yield* TestClock.adjust(`${ClaudeAdapter.INTERRUPT_SECONDS} seconds`)
+      yield* until(() => ended(events).length === 2)
+      expect(fake.queries[0]?.closed).toBe(true)
+    }),
+  )
+
   it.effect('resumes a new document whose Claude Code exited before answering but kept the transcript', () =>
     Effect.gen(function* () {
       const { fake, session, events } = yield* open({ reply: null })

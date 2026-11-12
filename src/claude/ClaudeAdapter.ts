@@ -129,6 +129,8 @@ type Live = {
   model: string | null
   effort: string | null
   turn: boolean
+  /** Counts sends, so a stop timer only settles the turn it was started for. */
+  turns: number
   stopping: boolean
   settled: boolean
   stderr: string | undefined
@@ -360,6 +362,7 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             model: settings.model,
             effort,
             turn: false,
+            turns: 0,
             stopping: false,
             settled: false,
             stderr: undefined,
@@ -521,6 +524,7 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             const live = running && !running.settled ? running : yield* startLive(threadId, settings)
             if (live === running) yield* applySettings(live, settings)
             live.turn = true
+            live.turns += 1
             live.stopping = false
             const queued = yield* Queue.offer(live.prompts, { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null })
             if (!queued) {
@@ -539,9 +543,12 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             const live = lives.get(threadId)
             if (!live?.turn) return
             live.stopping = true
+            // Keyed to this turn (as T3 Code keys interrupted turns by id): a turn that ends on
+            // its own and a new one stopped later must not be closed by this timer.
+            const turn = live.turns
             yield* fork(
               Effect.sleep(Duration.seconds(INTERRUPT_SECONDS)).pipe(
-                Effect.andThen(Effect.suspend(() => (live.turn && live.stopping ? settle(live, undefined) : Effect.void))),
+                Effect.andThen(Effect.suspend(() => (live.turns === turn && live.turn && live.stopping ? settle(live, undefined) : Effect.void))),
               ),
             )
             yield* request('interrupt', () => live.query.interrupt(), INTERRUPT_SECONDS).pipe(
