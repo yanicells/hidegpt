@@ -351,18 +351,11 @@ export function resultError(message: SDKResultMessage): string | undefined {
   return text || RESULT_ERRORS[message.subtype] || 'Claude stopped before finishing.'
 }
 
-// The input field that best shows what a tool will touch, first match wins.
-const PREVIEW_KEYS = [
-  'command',
-  'file_path',
-  'notebook_path',
-  'path',
-  'url',
-  'query',
-  'pattern',
-  'prompt',
-  'description',
-] as const
+// The input field that best shows what a tool will touch, first match wins. A Task's
+// short `description` comes before its `prompt`, which is the whole subagent brief.
+const PREVIEW_KEYS = ['command', 'file_path', 'notebook_path', 'path', 'url', 'query', 'pattern', 'description', 'prompt'] as const
+/** A card shows a glimpse of the input, not all of it. */
+const PREVIEW_MAX = 200
 
 export const permissionBlockId = (toolUseId: string) => `approval-${toolUseId}`
 
@@ -372,13 +365,17 @@ const MENTIONS_VENDOR = /claude|anthropic/i
  * A short name for the tool, never the SDK's own sentences: its `title` and
  * `description` speak as the assistant ("Claude wants to search the web"),
  * which the page must never show. MCP tools drop their `mcp__server__` prefix,
- * since a server key such as `claude_ai_Notion` names the vendor too.
+ * since a server key such as `claude_ai_Notion` names the vendor too. Null when
+ * even the final name mentions the vendor (`mcp__x__claude_search`).
  */
-export function toolLabel(tool: string, displayName: string | undefined): string {
+export function toolLabel(tool: string, displayName: string | undefined): string | null {
   if (displayName && !MENTIONS_VENDOR.test(displayName)) return displayName
   const mcp = /^mcp__.+?__(.+)$/.exec(tool)
-  return mcp ? mcp[1]!.replace(/_/g, ' ') : tool
+  const label = mcp ? mcp[1]!.replace(/_/g, ' ') : tool
+  return MENTIONS_VENDOR.test(label) ? null : label
 }
+
+const clip = (text: string) => (text.length > PREVIEW_MAX ? `${text.slice(0, PREVIEW_MAX - 1).trimEnd()}…` : text)
 
 /** A tool Claude wants to run, as a suggestion card asking to allow it. */
 export function permissionBlock(
@@ -388,12 +385,13 @@ export function permissionBlock(
   displayName: string | undefined,
 ): ApprovalBlock {
   const preview = PREVIEW_KEYS.map((key) => input[key]).find((value): value is string => typeof value === 'string')
+  const label = toolLabel(tool, displayName)
   return {
     kind: 'approval',
     id,
     suggestion: 'add',
-    title: `Allow ${toolLabel(tool, displayName)}?`,
-    body: preview ?? '',
+    title: label ? `Allow ${label}?` : 'Allow this tool?',
+    body: preview ? clip(preview) : '',
     fields: [],
     questions: [],
     resolved: null,
