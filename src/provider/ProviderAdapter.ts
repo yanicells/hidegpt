@@ -58,35 +58,13 @@ export interface ProviderSession {
   /** Drops server-side resources for an idle, off-screen thread. Never fails. */
   readonly releaseThread: (threadId: string) => Effect.Effect<void>
 
-  // Optional: present exactly when the matching `Capabilities` flag is on (see `CAPABILITY_METHODS`).
+  // Optional: present exactly when the matching `Capabilities` flag is on (checked by `capabilities.test.ts`).
   readonly createProject?: (name: string, cwd: string) => Effect.Effect<void, ProviderError>
   /** Returns the URL to finish signing in. */
   readonly login?: Effect.Effect<string, ProviderError>
   readonly logout?: Effect.Effect<void, ProviderError>
   /** Returns the OAuth URL for an MCP server. */
   readonly connectTool?: (name: string) => Effect.Effect<string, ProviderError>
-}
-
-/**
- * The optional session methods each capability flag promises. The renderer reads the
- * flag (from `CAPABILITIES`) and the manager calls the method, so the two must agree;
- * a test checks every adapter with `capabilityMismatches`. `gitProjects` names no method.
- */
-export const CAPABILITY_METHODS: ReadonlyArray<readonly [keyof Capabilities, keyof ProviderSession]> = [
-  ['login', 'login'],
-  ['login', 'logout'],
-  ['connectTools', 'connectTool'],
-  ['createProjects', 'createProject'],
-]
-
-/** Each flag/method pair that disagrees, e.g. `login: true but logout is missing`; empty when they agree. */
-export function capabilityMismatches(capabilities: Capabilities, session: ProviderSession): string[] {
-  return CAPABILITY_METHODS.flatMap(([flag, method]) => {
-    const present = session[method] !== undefined
-    return present === capabilities[flag]
-      ? []
-      : [`${flag}: ${capabilities[flag]} but ${method} is ${present ? 'present' : 'missing'}`]
-  })
 }
 
 export type Catalog = {
