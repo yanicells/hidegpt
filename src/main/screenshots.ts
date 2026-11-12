@@ -19,7 +19,9 @@ export const SCREENSHOT_SIZE = { width: 1280, height: 840 } as const
  * menus, the folder picker, a new document, a document (across a page break,
  * streaming, and with a pending suggestion), every toolbar and header menu,
  * the narrow layouts, and the library switch, saving a PNG of each plus the
- * fonts that loaded, then returns. A smoke test of the real app.
+ * fonts that loaded, then returns. On the way it checks, frame by frame, that
+ * pagination keeps text out of page gaps on a long document. A smoke test of
+ * the real app.
  */
 export const captureScreenshots = (win: BrowserWindow, manager: ProviderSessionManager['Service'], dir: string) =>
   Effect.gen(function* () {
@@ -159,6 +161,7 @@ export const captureScreenshots = (win: BrowserWindow, manager: ProviderSessionM
       return true
     })()`)
     yield* pause(300)
+    yield* checkPagination(js)
 
     // States the fake session never reaches: a reply streaming in (with a code
     // block), then a pending suggestion. They are screenshot-only snapshot
@@ -269,4 +272,89 @@ export const captureScreenshots = (win: BrowserWindow, manager: ProviderSessionM
     yield* pause(300)
     const returnedHome = yield* js<boolean>(`!!document.querySelector('.route-home .home')`)
     if (!returnedHome) return yield* Effect.die(new Error('Switching back to Codex did not return to its library'))
+  })
+
+/**
+ * Pagination on a long document, frame by frame: blocks copied (screenshot-only, removed
+ * after) to about 300, a jump to the middle onto blocks never rendered, small scrolls up,
+ * then a block near the top grows while those are off-screen and the walk jumps back.
+ * Dies if any frame shows a rendered line in a page's margins or the gap between sheets.
+ */
+const checkPagination = (js: <A = unknown>(script: string) => Effect.Effect<A>) =>
+  Effect.gen(function* () {
+    const misplaced = yield* js<string[]>(`new Promise((resolve) => {
+      const workspace = document.querySelector('[data-testid="document"]')
+      const paper = document.querySelector('.paper')
+      const flow = paper.querySelector('.paper-flow')
+      const composer = flow.querySelector('.composer-wrap')
+      const real = Array.from(flow.querySelectorAll('.doc-block'))
+      for (let copied = real.length; copied < 300; copied += real.length) {
+        for (const block of real) {
+          const copy = block.cloneNode(true)
+          copy.dataset.screenshotCopy = ''
+          flow.insertBefore(copy, composer)
+        }
+      }
+      const blocks = Array.from(flow.querySelectorAll('.doc-block'))
+      const frame = () => new Promise((next) => requestAnimationFrame(next))
+      const frames = async (n) => { for (let i = 0; i < n; i++) await frame() }
+      const jumpTo = (block) => {
+        workspace.scrollTop += block.getBoundingClientRect().top - workspace.getBoundingClientRect().top
+      }
+      // Lines of rendered text outside every page's text area, as painted last frame.
+      const offPage = () => {
+        const view = workspace.getBoundingClientRect()
+        const box = paper.getBoundingClientRect()
+        const scale = box.width / parseFloat(getComputedStyle(paper).width)
+        let count = 0
+        for (const block of blocks) {
+          if (!block.firstElementChild?.checkVisibility({ contentVisibilityAuto: true })) continue
+          for (const el of block.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6')) {
+            // Only something taller than a page's text area may cross a break.
+            if (el.getBoundingClientRect().height / scale > 864) continue
+            const range = document.createRange()
+            range.selectNodeContents(el)
+            for (const line of range.getClientRects()) {
+              if (!line.height || line.bottom < view.top || line.top > view.bottom) continue
+              const top = (line.top - box.top) / scale
+              const page = Math.floor(top / 1072) * 1072
+              if (top - page < 93 || (line.bottom - box.top) / scale - page > 963) count++
+            }
+          }
+        }
+        return count
+      }
+      const bad = []
+      const watch = async (step, n) => {
+        for (let i = 0; i < n; i++) {
+          await frame()
+          const count = offPage()
+          if (count) bad.push(step + ', frame ' + (i + 1) + ': ' + count + ' lines')
+        }
+      }
+      ;(async () => {
+        await frames(30)
+        const middle = blocks[Math.floor(blocks.length / 2)]
+        jumpTo(middle)
+        await watch('jump to the middle', 6)
+        for (let i = 0; i < 12; i++) {
+          workspace.scrollTop -= 300
+          await watch('scroll up ' + (i + 1), 1)
+        }
+        workspace.scrollTop = 0
+        await frames(10)
+        const grown = blocks.find((block) => block.dataset.screenshotCopy !== undefined && block.querySelector('.doc-body p'))
+        grown?.querySelector('.doc-body p')?.append(' The worked examples follow the same layout.'.repeat(20))
+        await frames(10)
+        jumpTo(middle)
+        await watch('jump after a block above grew', 6)
+        flow.querySelectorAll('[data-screenshot-copy]').forEach((node) => node.remove())
+        workspace.scrollTop = 0
+        await frames(10)
+        resolve(bad)
+      })()
+    })`)
+    if (misplaced.length) {
+      return yield* Effect.die(new Error(`Pagination left text in a page gap: ${misplaced.join('; ')}`))
+    }
   })
