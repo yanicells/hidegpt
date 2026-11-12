@@ -304,18 +304,19 @@ function translate(event: LegacyAdapterEvent, { tracker, emit, toItems, openRequ
     case 'turnStarted':
       return tracker.started(event.threadId, event.nativeTurnId ?? null)
     case 'turnEnded':
-      return Effect.sync(() => openRequests.forget(event.threadId)).pipe(
-        Effect.andThen(
-          tracker.end(event.threadId, {
-            ...(event.failure
-              ? { status: 'failed', failure: event.failure }
-              : event.error === undefined
-                ? { status: 'completed', failure: null }
-                : { status: 'failed', failure: classify({ message: event.error }) }),
-            nativeTurnId: event.nativeTurnId ?? null,
-          }),
-        ),
-      )
+      return tracker
+        .end(event.threadId, {
+          ...(event.failure
+            ? { status: 'failed', failure: event.failure }
+            : event.error === undefined
+              ? { status: 'completed', failure: null }
+              : { status: 'failed', failure: classify({ message: event.error }) }),
+          nativeTurnId: event.nativeTurnId ?? null,
+        })
+        .pipe(
+          // Only a turn that really ended takes its approvals along; a dropped stale end is not one.
+          Effect.tap((closed) => (closed ? Effect.sync(() => openRequests.forget(event.threadId)) : Effect.void)),
+        )
     case 'block': {
       const [item] = toItems(event.threadId, [event.block])
       return emit({

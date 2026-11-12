@@ -73,6 +73,15 @@ describe('toolCallout', () => {
 
   it("shows a subtask's description only, never its report or session id", () => {
     const report = 'Found 3 readings.\n\n<task_metadata>\nsession_id: ses_1\n</task_metadata>'
+    const task = part('task', {
+      status: 'completed',
+      input: { description: 'Find readings', prompt: 'Search every folder for week 3' },
+      output: report,
+      title: '',
+      metadata: {},
+      time: { start: 1, end: 2 },
+    })
+    expect(view(toolCallout(task))).toEqual(['Background task', 'Find readings'])
     expect(view(toolCallout(completed('task', report)))).toEqual(['Background task', ''])
   })
 

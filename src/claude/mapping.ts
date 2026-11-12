@@ -37,6 +37,7 @@ type ContentBlock = {
   readonly input?: Readonly<Record<string, unknown>> | undefined
   readonly tool_use_id?: string | undefined
   readonly content?: unknown
+  readonly is_error?: boolean | undefined
   readonly source?:
     | {
         readonly type?: string | undefined
@@ -67,6 +68,7 @@ function decodeBlock(value: unknown): ContentBlock | undefined {
     input: asRecord(part.input),
     tool_use_id: asString(part.tool_use_id),
     content: part.content,
+    is_error: part.is_error === true,
     source: source && {
       type: asString(source.type),
       media_type: asString(source.media_type),
@@ -247,9 +249,11 @@ function toolCall(part: ContentBlock): ToolCall | null {
 /**
  * The callout once its tool finished, with the output under the command. A
  * subtask's output is its whole report (with Claude Code's own continuation
- * notes), so it keeps only its description.
+ * notes), so it keeps only its description. A failed tool says so in Docs'
+ * words and never shows its error text.
  */
 function finishedCallout({ block, kind, name }: ToolCall, result: ContentBlock): CalloutBlock {
+  if (result.is_error) return { ...block, title: toolTitle(kind, 'failed', name) }
   const output = kind === 'subagent' ? '' : resultText(result.content).trim().slice(0, 2000)
   const title = toolTitle(kind, 'completed', name)
   return { ...block, title, body: output ? `${block.body}\n${output}` : block.body }

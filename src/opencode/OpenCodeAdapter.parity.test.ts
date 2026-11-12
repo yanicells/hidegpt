@@ -176,9 +176,10 @@ describe('OpenCodeAdapter parity with T3 Code', () => {
       yield* until(() => callouts(events).length === 2)
       // T3 types each tool (toolItems.ts:36-63) and keeps running apart from completed (adapter.ts:737-758).
       // The kind's own wording (STL-2), never the tool's name; "task" in "Background task" is the English word.
+      // A subtask shows its description, as Claude's does, never its prompt.
       expect(callouts(events).map((callout) => [callout.title, callout.body])).toEqual([
         ['Running a command', ''],
-        ['Background task', ''],
+        ['Background task', 'Find readings'],
       ])
     }),
   )

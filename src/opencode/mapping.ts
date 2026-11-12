@@ -193,6 +193,9 @@ function readOutput(output: string): string {
   return envelope === null ? output : envelope[1] + body.slice(envelope[0].length)
 }
 
+/** A subtask's description, cut short like a Claude card's preview. */
+const clip = (text: string) => (text.length > 200 ? `${text.slice(0, 199).trimEnd()}…` : text)
+
 /**
  * A tool part as a callout, or null for a tool the page does not show. A pending or
  * running step says so and shows nothing yet; a finished one shows its output, and a
@@ -203,14 +206,15 @@ export function toolCallout(part: ToolPart): CalloutBlock | null {
   if (!kind) return null
   const state = part.state
   const status = state.status === 'completed' ? 'completed' : state.status === 'error' ? 'failed' : 'running'
-  // A subtask's output is its whole report, with OpenCode's `<task_metadata>` session id.
-  const output =
-    state.status !== 'completed' || kind === 'subagent'
-      ? ''
-      : kind === 'file_read'
-        ? readOutput(state.output)
-        : state.output
-  return { kind: 'callout', id: part.id, title: toolTitle(kind, status, part.tool), body: output.slice(0, 2000) }
+  const title = toolTitle(kind, status, part.tool)
+  // A subtask shows its short description, never its brief or its report (which carries
+  // OpenCode's `<task_metadata>` session id), as on Claude.
+  if (kind === 'subagent') {
+    const description = state.input.description
+    return { kind: 'callout', id: part.id, title, body: typeof description === 'string' ? clip(description) : '' }
+  }
+  const output = state.status !== 'completed' ? '' : kind === 'file_read' ? readOutput(state.output) : state.output
+  return { kind: 'callout', id: part.id, title, body: output.slice(0, 2000) }
 }
 
 export function blocksFromMessages(messages: ReadonlyArray<MessageWithParts>): Block[] {
