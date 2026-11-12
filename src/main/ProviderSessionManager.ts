@@ -460,7 +460,11 @@ export const make = (options: ManagerOptions) =>
           }).pipe(
             // The sentence only: whoever ran the command logs a defect once, under its report id.
             undoOnFailure((cause) =>
-              updateLibrary(id, (lib) => ({ ...lib, opening: null, error: bannerMessage(Cause.squash(cause)) })),
+              updateLibrary(id, (lib) => ({
+                ...lib,
+                opening: null,
+                error: Cause.hasDies(cause) ? DEFECT_MESSAGE : bannerMessage(Cause.squash(cause)),
+              })),
             ),
             Effect.onInterrupt(() =>
               updateLibrary(id, (lib) => (lib.opening === threadId ? { ...lib, opening: null } : lib)),

@@ -42,7 +42,7 @@ export const observed = <A, E, R>(effect: Effect.Effect<A, E, R>, options: Obser
         Effect.flatMap((reportId) => options.onDefect?.(reportId) ?? Effect.void),
       )
     }
-    if (options.quiet !== undefined || !isExpectedError(fail.error)) return Effect.void
+    if (options.quiet !== undefined) return Effect.void
     return Effect.logWarning('Background work failed').pipe(
       Effect.annotateLogs({ ...errorLogFields(fail.error), where: options.name }),
     )
