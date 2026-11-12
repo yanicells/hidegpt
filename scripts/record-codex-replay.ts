@@ -84,8 +84,8 @@ async function main() {
   const allowTurns = turnsAllowed()
   if (sendsTurns && !allowTurns) throw new TurnRefusedError(`record the "${name}" scenario`)
 
-  const workspace = realpathSync(mkdtempSync(join(tmpdir(), 'hidegpt-replay-workspace-')))
-  const codexHome = realpathSync(mkdtempSync(join(tmpdir(), 'hidegpt-replay-codex-')))
+  const workspace = realpathSync(mkdtempSync(join(tmpdir(), 'docs-replay-workspace-')))
+  const codexHome = realpathSync(mkdtempSync(join(tmpdir(), 'docs-replay-codex-')))
   const { OPENAI_API_KEY: _openai, CODEX_API_KEY: _codex, ...inherited } = process.env
   // No-prompt runs get an empty Codex home: signed out, with none of the person's documents.
   // Turn runs keep the person's own Codex login, which Codex reads itself.
