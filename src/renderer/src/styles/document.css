@@ -1,96 +1,248 @@
-/* ---------- Page ---------- */
+/* ---------- Editor canvas ----------
+ * Layout follows live Docs: a 16px vertical ruler, the 280px tabs panel, and
+ * the 816px page. The page centres in the window but never slides under the
+ * panel (page left = max(centred, panel right + 5px)); narrow windows scroll.
+ */
 
-.doc-layout {
-  @apply grid;
-  grid-template-columns: 260px minmax(0, 1fr) min(260px, max(0px, calc(100vw - 1124px)));
-  @apply items-start min-h-full;
-}
-
-.paper-col {
-  flex: 1 1 auto;
-  @apply min-w-0 flex flex-col items-center;
+/* Registered so it computes to a plain number here and inherits unchanged into the zoomed page. */
+@property --card-room {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
 }
 
 .workspace {
-  @apply flex-1 min-h-0 overflow-auto;
+  @apply relative flex-1 min-h-0 overflow-auto;
+  /* Lets the layout below measure the canvas (cqw) for the suggestion card. */
+  container-type: inline-size;
   background: var(--canvas);
-  @apply relative;
+  margin-right: var(--rail-width);
+  --page-w: calc(var(--paper-width) * var(--page-zoom, 1));
+  --tabs-w: 280px;
+  /* The page's left edge in the window: centred, but clear of the ruler, the panel and a 5px gap. */
+  --page-left: max(calc(21px + var(--tabs-w)), calc((100vw - var(--rail-width) - var(--page-w)) / 2));
 }
 
+/* Docs draws its own always-visible thin scrollbars over the canvas. */
+.workspace::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+
+.workspace::-webkit-scrollbar-thumb {
+  min-height: 40px;
+  border: 3px solid transparent;
+  border-radius: 7px;
+  background: #dadce0 padding-box;
+}
+
+.workspace::-webkit-scrollbar-thumb:hover {
+  background-color: #bdc1c6;
+}
+
+.workspace::-webkit-scrollbar-track,
+.workspace::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.doc-layout {
+  @apply relative flex items-start min-h-full;
+  min-width: max-content;
+  /*
+   * CSS px left between the page's right edge and the 14px scrollbar, minus
+   * what a suggestion card needs there at this zoom (24px gap, 256px card,
+   * 16px air); approvals.css puts the card in the margin when it is positive.
+   */
+  --card-room: calc((100cqw - 14px - var(--page-left) - var(--page-w)) / 1px - (24 + 256 + 16) * var(--page-zoom, 1));
+}
+
+.workspace:has(.tabs.collapsed) {
+  --tabs-w: 64px;
+}
+
+.paper-col {
+  @apply flex flex-col items-start;
+  flex: 1 0 auto;
+  /* The ruler and panel already sit to the page's left. */
+  padding-left: calc(var(--page-left) - 16px - var(--tabs-w));
+  padding-right: 24px;
+}
+
+/* Horizontal ruler: the page's width, numbered in inches from the left margin. */
 .ruler {
   @apply sticky;
   top: 0;
-  z-index: 2;
-  width: min(var(--paper-width), calc(100% - 48px));
-  @apply h-5;
+  z-index: 3;
+  padding: 2px 0 0;
   background: var(--canvas);
-  border-bottom: 1px solid var(--line);
-  background-image: repeating-linear-gradient(90deg, #9aa0a6 0 1px, transparent 1px 12px);
-  background-size: 100% 5px;
-  background-position: bottom;
-  background-repeat: no-repeat;
-  font-family: var(--font-ui);
+}
+
+.ruler-track {
+  @apply relative;
+  width: var(--paper-width);
+  height: 18px;
+  zoom: var(--page-zoom, 1);
+  border-bottom: 1px solid #c7c7c7;
+  font-family: var(--font-text);
   font-size: 10px;
-  color: var(--faint);
+  line-height: 1;
+  color: var(--text-2);
+}
+
+/*
+ * Docs' ticks run the full width, margins included: an 8px tick at each half
+ * inch and a 4px tick every eighth. Inch numbers sit above their tick.
+ */
+.ruler-track::before {
+  content: '';
+  @apply absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 8px;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 47px, var(--ruler-tick) 47px 48px, transparent 48px 96px) 0 0 / 100%
+      8px no-repeat,
+    repeating-linear-gradient(90deg, var(--ruler-tick) 0 1px, transparent 1px 12px) 0 4px / 100% 4px no-repeat;
 }
 
 .ruler-num {
   @apply absolute;
-  top: 1px;
+  top: 3px;
   transform: translateX(-50%);
 }
 
-.ruler-num::after {
-  content: '';
-  @apply absolute;
-  left: 50%;
-  top: 11px;
-  @apply w-0.25 h-2;
-  background: var(--faint);
-}
-
-.ruler-tab {
+/* Docs' blue indent markers: a down-pointing triangle at each margin. */
+.ruler-indent {
   @apply absolute;
   top: 0;
   width: 0;
   height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
   border-top: 7px solid var(--docs-blue);
-}
-
-.ruler-tab-left {
-  left: var(--paper-margin);
   transform: translateX(-50%);
 }
 
-.ruler-tab-right {
-  right: var(--paper-margin);
-  transform: translateX(50%);
+/* The left one carries the first-line indent bar on top, a 1px gap apart. */
+.ruler-indent-left {
+  top: 4px;
+  left: var(--paper-margin);
 }
 
+.ruler-indent-left::after {
+  content: '';
+  @apply absolute;
+  left: -6px;
+  top: -11px;
+  width: 12px;
+  height: 3px;
+  background: var(--docs-blue);
+}
+
+.ruler-indent-right {
+  left: calc(100% - var(--paper-margin));
+}
+
+.vruler {
+  @apply sticky shrink-0;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  width: 16px;
+  height: 100vh;
+  /* Starts level with the page top (ruler 20 + page gap 16), so "1" sits 1in below the top margin. */
+  margin-top: 36px;
+  border-right: 1px solid #dadce0;
+  background: var(--canvas);
+  font-family: var(--font-text);
+  font-size: 10px;
+  color: var(--text-2);
+  zoom: var(--page-zoom, 1);
+  overflow: hidden;
+}
+
+/* The same ticks, running down the ruler's right edge. */
+.vruler::before {
+  content: '';
+  @apply absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 47px, var(--ruler-tick) 47px 48px, transparent 48px 96px) 100% 0 /
+      8px 100% no-repeat,
+    repeating-linear-gradient(180deg, var(--ruler-tick) 0 1px, transparent 1px 12px) 100% 0 / 4px 100% no-repeat;
+}
+
+.vruler-num {
+  @apply absolute;
+  left: 0;
+  right: 6px;
+  text-align: center;
+  transform: translateY(-50%) rotate(-90deg);
+}
+
+/* ---------- The page ---------- */
+
+/* US Letter at 96dpi with 1in margins; Arial 11pt, Docs' 1.15 spacing (~19.8px pitch). */
 .paper {
-  width: min(var(--paper-width), calc(100% - 48px));
+  @apply relative;
+  isolation: isolate;
+  width: var(--paper-width);
   min-height: 1056px;
-  margin: 14px 0 96px;
-  padding: 96px min(11.7%, 96px);
-  background: var(--surface);
-  box-shadow: var(--shadow-page);
+  margin: 16px 0 96px;
+  padding: var(--paper-margin);
+  zoom: var(--page-zoom, 1);
   font-family: var(--font-page);
   font-size: 11pt;
-  line-height: 1.2;
+  line-height: 1.35;
   color: #000;
 }
 
-.load-older {
-  @apply block;
-  margin: 0 0 16px;
-  font-family: var(--font-ui);
-  font-size: 13px;
-  color: var(--blue);
+/* One white, shadowed sheet per page with Docs' 16px gap; components/document/pages.ts sets the breaks. */
+.page-sheets {
+  @apply absolute inset-0 pointer-events-none;
+  z-index: -1;
 }
 
-.load-older:hover {
+/* A unit pushed onto the next page; print lets the printer break pages instead. */
+@media screen {
+  [data-page-break] {
+    margin-top: var(--page-break) !important;
+  }
+
+  /*
+   * A paragraph broken between lines: an empty full-width float whose shape
+   * starts at the first line that didn't fit, so only the lines from there on
+   * flow below it, onto the next page.
+   */
+  [data-page-split]::before {
+    content: '';
+    float: left;
+    width: 100%;
+    height: var(--split-end);
+    shape-outside: inset(var(--split-start) 0 0 0);
+  }
+}
+
+.page-sheet {
+  @apply absolute;
+  left: 0;
+  right: 0;
+  height: 1056px;
+  background: var(--surface);
+  box-shadow: var(--shadow-page);
+}
+
+/* Earlier turns load from a line of page text styled as a Docs hyperlink (#1155cc, underlined). */
+.load-older {
+  @apply block;
+  margin: 0 0 12pt;
+  font-family: var(--font-page);
+  font-size: 11pt;
+  color: #1155cc;
   text-decoration: underline;
 }
 
@@ -99,20 +251,14 @@
   text-decoration: none;
 }
 
-/* A question is a document section at body scale, separated from the last. */
+/* A question is the turn's Heading 1: Arial 20pt regular, 20pt before, 6pt after. */
 .doc-question {
-  margin: 0 0 6pt;
-  font-size: 11pt;
-  line-height: 1.3;
-  @apply font-bold;
+  margin: 20pt 0 6pt;
+  font-size: 20pt;
+  font-weight: 400;
+  line-height: 1.2;
   color: #000;
   overflow-wrap: anywhere;
-}
-
-.doc-block.turn-start {
-  margin-top: 16pt;
-  padding-top: 14pt;
-  border-top: 1px solid var(--hairline);
 }
 
 .doc-body {
@@ -127,142 +273,205 @@
   margin-bottom: 0;
 }
 
+/* Normal text: no space before, one blank line's worth after. */
 .doc-body p {
-  margin: 0 0 10pt;
+  margin: 0 0 1lh;
 }
 
-.doc-body h1,
-.doc-body h2,
-.doc-body h3,
-.doc-body h4,
-.doc-body h5,
-.doc-body h6 {
+/*
+ * The question is the only Heading 1, so answer headings start at Heading 2.
+ * Models open sections with `#`, `##` or `###` depending on habit, so all three
+ * are Heading 2 (16pt black, like Docs' section headings); `####` is Heading 3,
+ * `#####` Heading 4 and `######` Heading 5.
+ */
+.doc-body :is(h1, h2, h3, h4, h5, h6) {
+  font-weight: 400;
   line-height: 1.2;
-  margin: 18pt 0 6pt;
 }
 
-.doc-body h1 {
-  @apply font-normal;
+.doc-body :is(h1, h2, h3) {
+  margin: 18pt 0 6pt;
   font-size: 16pt;
 }
 
-.doc-body h2 {
+.doc-body h4 {
+  margin: 16pt 0 4pt;
   font-size: 14pt;
-  @apply font-bold;
   color: #434343;
 }
 
-.doc-body h3,
-.doc-body h4,
-.doc-body h5,
-.doc-body h6 {
+.doc-body h5 {
+  margin: 14pt 0 4pt;
   font-size: 12pt;
-  @apply font-bold;
+  color: #666;
+}
+
+.doc-body h6 {
+  margin: 12pt 0 4pt;
+  font-size: 11pt;
   color: #666;
 }
 
 .doc-body a {
   color: #1155cc;
+  text-decoration: underline;
 }
 
 .doc-body strong {
   @apply font-bold;
 }
 
-.doc-body ul,
+/* Lists: marker at 0.25in, text at 0.5in; nesting adds 0.5in. */
+.doc-body :is(ul, ol) {
+  margin: 0 0 1lh;
+  padding: 0 0 0 48px;
+  list-style: none;
+}
+
+.doc-body :is(li ul, li ol) {
+  margin: 0;
+}
+
 .doc-body ol {
-  margin: 0 0 10pt;
-  @apply pl-9;
+  counter-reset: item;
 }
 
 .doc-body li {
-  margin: 0 0 2pt;
+  @apply relative;
 }
 
 .doc-body li > p {
   @apply m-0;
 }
 
+.doc-body ul > li::before {
+  content: '●';
+  @apply absolute;
+  left: -24px;
+  font-size: 0.75em;
+  line-height: 1.8;
+}
+
+.doc-body ul ul > li::before {
+  content: '○';
+}
+
+.doc-body ul ul ul > li::before {
+  content: '■';
+  font-size: 0.6em;
+  line-height: 2.25;
+}
+
+.doc-body ol > li {
+  counter-increment: item;
+}
+
+.doc-body ol > li::before {
+  content: counter(item) '.';
+  @apply absolute;
+  left: -24px;
+}
+
+.doc-body ol ol > li::before {
+  content: counter(item, lower-alpha) '.';
+}
+
+.doc-body ol ol ol > li::before {
+  content: counter(item, lower-roman) '.';
+}
+
+/* Docs has no quote style; a quote is simply indented text. */
 .doc-body blockquote {
-  margin: 0 0 10pt;
-  padding: 0 0 0 12px;
-  border-left: 3px solid var(--line);
-  color: var(--text-2);
+  margin: 0 0 1lh;
+  padding: 0 0 0 48px;
 }
 
 .doc-body hr {
   @apply border-0;
-  border-top: 1px solid var(--line);
-  margin: 12pt 0;
+  border-top: 1px solid #000;
+  margin: 0 0 1lh;
 }
 
 .doc-body code {
   font-family: var(--font-mono);
-  font-size: 10pt;
-  background: var(--band);
-  padding: 1px 4px;
-  border-radius: 3px;
 }
 
+/* Docs' code block building block: a square, light grey box whose lines wrap like any page text. */
 .doc-body pre {
-  margin: 0 0 10pt;
-  padding: 10px 12px;
-  border: 1px solid var(--hairline);
-  @apply rounded;
+  margin: 0 0 1lh;
+  padding: 8px 12px;
   background: #f8f9fa;
-  @apply overflow-auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 10pt;
   line-height: 1.4;
-}
-
-.doc-body pre code {
-  background: none;
-  @apply p-0;
 }
 
 .doc-body table {
   border-collapse: collapse;
-  margin: 0 0 10pt;
+  margin: 0 0 1lh;
   @apply w-full;
 }
 
-.doc-body th,
-.doc-body td {
-  border: 1px solid #b7b7b7;
-  padding: 4px 8px;
+.doc-body :is(th, td) {
+  border: 1px solid #000;
+  padding: 5pt;
   @apply text-left;
   vertical-align: top;
 }
 
 .doc-body th {
-  @apply font-bold;
+  font-weight: 400;
 }
 
 .doc-body img {
   max-width: 100%;
 }
 
+/* Off-screen blocks skip style, layout and paint, so a streamed delta costs
+   the same at 300 turns as at 3. `auto` remembers each block's real height
+   once it has been on screen. A contained block keeps its children's edge
+   margins inside instead of collapsing them with its neighbours'; the page's
+   blocks carry no margin of their own and answers drop their outer margins,
+   so the spacing is the same. */
 .doc-block {
-  margin-bottom: 10pt;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 480px;
+}
+.doc-block[data-turn] {
+  contain-intrinsic-size: auto 48px;
+}
+/* A tool step shows as one collapsed line. */
+.doc-block:has(> .callout) {
+  contain-intrinsic-size: auto 24px;
+}
+/* The streamed block is always on screen, so skipping never applies, and
+   containment there cost about 10% more raster work per delta in traces.
+   A suggestion's card hangs into the margin, which paint containment would clip. */
+.doc-block[data-streaming],
+.doc-block:has(> .suggestion-row) {
+  content-visibility: visible;
 }
 
 .streaming .doc-body > :last-child {
   display: inline;
 }
 
+/* ---------- Non-printing scaffolding (View > Show non-printing characters) ---------- */
+
 .callout {
-  margin: 2pt 0;
+  margin: 0 0 4pt;
   font-family: var(--font-ui);
 }
 
 .callout summary {
-  @apply inline-flex items-center gap-1 h-6;
-  padding: 0 10px 0 4px;
-  border: 1px solid #dadce0;
-  @apply rounded-xl;
-  background: var(--surface);
-  font-size: 13px;
+  @apply inline-flex items-center gap-1 cursor-pointer list-none select-none;
+  height: 22px;
+  padding: 0 8px 0 2px;
+  border-radius: 11px;
+  background: #f1f3f4;
+  font-size: 12px;
   color: var(--text-2);
-  @apply cursor-pointer list-none select-none;
 }
 
 .callout summary::-webkit-details-marker {
@@ -270,409 +479,36 @@
 }
 
 .callout summary:hover {
-  background: var(--hover-soft);
+  background: #e8eaed;
 }
 
-.callout summary svg {
-  color: var(--muted);
-  transform: rotate(-90deg);
+.callout-arrow {
+  color: var(--text-2);
   transition: transform 120ms;
 }
 
-.callout[open] summary svg {
-  transform: none;
+.callout[open] .callout-arrow {
+  transform: rotate(90deg);
 }
 
 .callout pre {
-  margin: 6px 0 4px;
+  margin: 4px 0;
   padding: 8px 12px;
-  border: 1px solid var(--hairline);
-  @apply rounded;
-  background: #f8f9fa;
-  @apply whitespace-pre-wrap;
+  border-left: 2px solid #dadce0;
+  @apply whitespace-pre-wrap overflow-auto;
   overflow-wrap: anywhere;
+  max-height: 320px;
   font-family: var(--font-mono);
-  @apply text-xs;
+  font-size: 12px;
   line-height: 1.45;
   color: var(--text-2);
-  max-height: 320px;
-  @apply overflow-auto;
 }
 
-.approval {
-  margin: 6pt 0;
-  padding: 12px 16px 14px;
-  border: 1px solid var(--line);
-  border-left: 4px solid var(--green);
-  @apply rounded-lg;
-  background: var(--surface);
-  font-family: var(--font-ui);
-}
-
-.approval.done {
-  border-left-color: var(--line);
-}
-
-.approval-eyebrow {
-  @apply block text-xs font-medium;
-  color: var(--green);
-}
-
-.approval.done .approval-eyebrow {
+/* A block that couldn't render: a quiet grey note in its place on the page. */
+.render-error {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: var(--band);
   color: var(--muted);
-}
-
-.approval h3 {
-  margin: 2px 0 4px;
-  @apply text-sm font-medium;
-  color: var(--text);
-}
-
-.approval p {
-  margin: 0 0 10px;
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--text-2);
-  @apply whitespace-pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.field {
-  @apply flex flex-col gap-1.5;
-  margin: 0 0 10px;
-  @apply text-xs;
-  color: var(--muted);
-}
-
-.approval input {
-  @apply w-full;
-  border: 1px solid var(--line);
-  @apply rounded;
-  padding: 7px 10px;
-  font-size: 13px;
-  color: var(--text);
-  background: var(--surface);
-}
-
-.approval input:focus {
-  border-color: var(--blue);
-  box-shadow: 0 0 0 1px var(--blue);
-}
-
-.choices {
-  @apply flex flex-wrap gap-2;
-}
-
-.choice {
-  @apply h-7;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  @apply rounded-lg;
-  font-size: 13px;
-  color: var(--text);
-}
-
-.choice:hover {
-  background: var(--hover-soft);
-}
-
-.choice.on {
-  background: var(--blue-soft);
-  border-color: transparent;
-  color: var(--blue-dark);
-}
-
-.actions {
-  @apply flex items-center gap-2 mt-1;
-}
-
-.accept,
-.skip {
-  @apply h-9;
-  padding: 0 20px;
-  border-radius: 18px;
-  @apply text-sm font-medium;
-}
-
-.accept {
-  background: var(--blue);
-  color: #fff;
-}
-
-.accept:hover {
-  background: var(--blue-dark);
-}
-
-.skip {
-  color: var(--blue);
-}
-
-.skip:hover {
-  background: var(--blue-tint);
-}
-
-.resolved {
-  @apply text-xs;
-  color: var(--muted);
-}
-
-.composer {
-  @apply block w-full;
-  field-sizing: content;
-  min-height: 1.2em;
-  @apply border-0;
-  resize: none;
-  @apply bg-transparent;
-  font: inherit;
-  line-height: inherit;
-  color: inherit;
-  caret-color: #000;
-  @apply p-0 overflow-hidden;
-}
-
-.composer::placeholder {
-  color: var(--faint);
-}
-
-.pending {
-  margin: 0 0 10pt;
-  min-height: 1.2em;
-}
-
-.caret {
-  display: inline-block;
-  width: 1.5px;
-  height: 1em;
-  margin-left: 1px;
-  background: #000;
-  vertical-align: text-bottom;
-  animation: blink 1s step-end infinite;
-}
-
-@keyframes blink {
-  50% {
-    opacity: 0;
-  }
-}
-
-.stop-wrap {
-  @apply sticky;
-  bottom: 0;
-  @apply flex justify-center pb-6;
-  margin-top: -80px;
-  @apply pointer-events-none;
-}
-
-.stop {
-  pointer-events: auto;
-  @apply inline-flex items-center gap-2.5 h-10;
-  padding: 0 20px 0 14px;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  background: var(--surface);
-  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.25);
-  font-family: var(--font-ui);
-  @apply text-sm font-medium;
-  color: var(--text);
-}
-
-.stop:hover {
-  background: var(--hover-soft);
-}
-
-.stop-square {
-  @apply w-3 h-3;
-  border-radius: 2px;
-  background: var(--red);
-}
-
-@keyframes pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-
-.opening-document {
-  @apply flex-1 min-h-0 overflow-hidden;
-  background: var(--canvas);
-}
-.opening-status {
-  @apply flex items-center justify-center gap-3 p-5;
-  color: var(--muted);
-}
-.opening-paper {
-  margin: 0 auto;
-}
-.opening-paper .sk-text {
-  @apply h-2.5;
-  margin-bottom: 18px;
-  border-radius: 2px;
-}
-.opening-paper .sk-text:nth-child(3n) {
-  @apply mb-9;
-}
-@media print {
-  .composer-wrap {
-    @apply hidden;
-  }
-}
-
-@media (max-width: 960px) {
-  .doc-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-/* Composer attachments: images sit on the page like inserted images, skills as smart chips. */
-.composer-wrap {
-  position: relative;
-}
-
-.composer-line {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-}
-
-.composer-line .composer {
-  flex: 1;
-  min-width: 0;
-}
-
-.smart-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 20px;
-  margin-right: 4px;
-  padding: 0 6px 0 4px;
-  border-radius: 10px;
-  background: #f1f3f4;
-  color: #1f1f1f;
-  font-family: var(--font-page);
-  font-size: 10.5pt;
-  font-weight: 400;
-  line-height: 20px;
-  vertical-align: 1px;
-  white-space: nowrap;
-}
-
-.smart-chip .chip-icon {
-  width: 14px;
-  height: 14px;
-  color: var(--docs-blue);
-}
-
-.smart-chip-remove {
-  margin-left: 2px;
-  padding: 0;
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1;
-}
-
-.smart-chip-remove:hover {
-  color: var(--text);
-}
-
-.chip-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 30;
-  width: 340px;
-  max-height: 320px;
-  overflow-y: auto;
-  padding: 8px 0;
-  border-radius: 8px;
-  background: var(--surface);
-  box-shadow: var(--shadow-menu);
-  font-family: var(--font-ui);
-  font-size: 14px;
-}
-
-.chip-menu.up {
-  top: auto;
-  bottom: calc(100% + 4px);
-}
-
-.chip-menu-head {
-  padding: 4px 16px 8px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.chip-menu-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  width: 100%;
-  padding: 6px 16px;
-  text-align: left;
-}
-
-.chip-menu-item.active {
-  background: var(--hover-soft);
-}
-
-.chip-menu-item .chip-icon {
-  flex: none;
-  margin-top: 2px;
-  color: var(--docs-blue);
-}
-
-.chip-menu-text {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-}
-
-.chip-menu-name {
-  color: var(--text);
-}
-
-.chip-menu-desc {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.doc-images {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0 0 8pt;
-}
-
-.doc-image {
-  position: relative;
-  display: inline-block;
-}
-
-.doc-image img {
-  display: block;
-  max-width: 100%;
-  max-height: 240px;
-}
-
-.doc-image-remove {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  display: none;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: rgba(32, 33, 36, 0.72);
-  color: #fff;
-  font-size: 15px;
-  line-height: 22px;
-}
-
-.doc-image:hover .doc-image-remove,
-.doc-image-remove:focus-visible {
-  display: block;
 }

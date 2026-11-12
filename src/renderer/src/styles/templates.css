@@ -1,0 +1,173 @@
+/* ---------- Template thumbnails ---------- */
+
+.template-page {
+  align-self: stretch;
+  @apply relative text-left overflow-hidden;
+  padding: 16px 13px;
+  font-family: Arial, sans-serif;
+  color: #444746;
+}
+
+.template-page > strong {
+  @apply block;
+  font-size: 10px;
+  line-height: 1.2;
+  color: #253858;
+}
+
+.template-page > small {
+  @apply block;
+  font-size: 4px;
+  margin: 4px 0 10px;
+}
+
+.template-page h3 {
+  font-size: 5px;
+  margin: 7px 0 2px;
+  color: #2674ae;
+}
+
+.template-page p {
+  font-size: 3.6px;
+  line-height: 1.5;
+  margin: 1px 0;
+}
+
+.template-hero {
+  @apply block;
+  height: 54px;
+  margin: 0 0 8px;
+}
+
+/* Essay: centered serif title page, like "Paperback". */
+.template-page-essay {
+  background: #fdf8f0;
+  text-align: center;
+}
+
+.template-page-essay > strong {
+  margin-top: 26px;
+  font-family: Georgia, serif;
+  font-size: 13px;
+  color: #3c2a1e;
+}
+
+.template-page-essay h3 {
+  color: #8a5a2b;
+}
+
+.template-page-essay p {
+  text-align: left;
+}
+
+/* Notes: spearmint band with the title knocked out. */
+.template-page-notes {
+  padding-top: 0;
+}
+
+.template-page-notes > strong {
+  margin: 0 -13px;
+  padding: 18px 13px 6px;
+  background: #4f9e86;
+  color: #fff;
+}
+
+.template-page-notes > small {
+  margin: 0 -13px 10px;
+  padding: 0 13px 8px;
+  background: #4f9e86;
+  color: #e6f4ef;
+}
+
+.template-page-notes h3 {
+  color: #2f7a63;
+}
+
+/* Study guide: coral header and an illustration block. */
+.template-page-guide .template-hero {
+  margin: -16px -13px 8px;
+  height: 58px;
+  background:
+    radial-gradient(circle at 70% 55%, #ffd5c2 0 14px, transparent 15px),
+    radial-gradient(circle at 30% 40%, #ffffff55 0 9px, transparent 10px), linear-gradient(135deg, #f28b66, #e8566b);
+}
+
+.template-page-guide > strong {
+  color: #c8463b;
+}
+
+.template-page-guide h3 {
+  color: #e8566b;
+}
+
+/* Lab report: "Luxe"-style photo under the title rule. */
+.template-page-report {
+  display: flex;
+  flex-direction: column;
+}
+
+.template-page-report .template-hero {
+  order: 2;
+  background:
+    linear-gradient(to top, #6b5b4b 0 30%, transparent 30%),
+    radial-gradient(ellipse at 50% 120%, #b5835a 0 40%, transparent 41%), linear-gradient(#cfd6dc, #8c9aa5);
+}
+
+.template-page-report > strong {
+  order: 0;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #3c3c3c;
+}
+
+.template-page-report > small {
+  order: 1;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #c89b64;
+}
+
+.template-page-report > section {
+  order: 3;
+}
+
+.template-page-report h3 {
+  color: #3c3c3c;
+}
+
+/* Letter: serif name with a spearmint rule. */
+.template-page-letter > strong {
+  font-family: Georgia, serif;
+  font-size: 12px;
+  color: #1f1f1f;
+}
+
+.template-page-letter > small {
+  padding-bottom: 6px;
+  border-bottom: 1.5px solid #34a37f;
+}
+
+.template-page-letter h3 {
+  color: #1f1f1f;
+  font-weight: 400;
+}
+
+/* Proposal: "Tropic" leaf photo over a bold green title. */
+.template-page-proposal .template-hero {
+  margin: -16px -13px 10px;
+  height: 62px;
+  background:
+    radial-gradient(ellipse at 20% 110%, #1e6b4f 0 38%, transparent 39%),
+    radial-gradient(ellipse at 80% 0%, #2e8b62 0 42%, transparent 43%), linear-gradient(160deg, #a8d8b9, #f4e3a1);
+}
+
+.template-page-proposal > strong {
+  font-size: 12px;
+  font-weight: 700;
+  color: #16523a;
+}
+
+.template-page-proposal h3 {
+  color: #1e7a52;
+}

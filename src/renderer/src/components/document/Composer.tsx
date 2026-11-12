@@ -1,12 +1,20 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+  type KeyboardEvent,
+} from 'react'
 
-import type { Skill } from '../../../../codex/types'
-import { dispatch } from '../../session-bridge'
+import { IMAGE_MIME_TYPES, isImageMime, type Skill } from '../../../../shared/model'
+import { dispatch, showRequestError } from '../../session-bridge'
 import { takePendingDraft } from '../../templates'
 import { imageSrc } from '../ui/imageSrc'
 import { SkillChip, SkillMenu } from './SmartChips'
 
-const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 const IMAGE_INPUT_ID = 'insert-image'
 
 let lastConsumedThreadId: string | null = null
@@ -38,10 +46,19 @@ export function startSmartChip(): void {
  * The document's last paragraph. Enter sends; "@" opens the skill menu;
  * pasted, dropped, or inserted images attach to the next question.
  */
-export function Composer({ threadId, streaming, skills }: { threadId: string; streaming: boolean; skills: Skill[] }) {
+export const Composer = memo(function Composer({
+  threadId,
+  streaming,
+  skills,
+}: {
+  threadId: string
+  streaming: boolean
+  skills: ReadonlyArray<Skill>
+}) {
   const [draft, setDraft] = useState(() => consumeDraftOnce(threadId))
   const [skill, setSkill] = useState<string | null>(null)
   const [images, setImages] = useState<string[]>([])
+  const [sending, setSending] = useState(false)
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null)
   const [active, setActive] = useState(0)
   const ref = useRef<HTMLTextAreaElement>(null)
@@ -86,17 +103,40 @@ export function Composer({ threadId, streaming, skills }: { threadId: string; st
   }
 
   const attach = async (files: File[]) => {
-    const pictures = files.filter((file) => IMAGE_TYPES.has(file.type))
+    const pictures = files.flatMap((file) => (isImageMime(file.type) ? [{ file, mime: file.type }] : []))
     if (!pictures.length || !window.hidegpt) return
-    const paths = await Promise.all(
-      pictures.map(async (file) => window.hidegpt.saveImage(new Uint8Array(await file.arrayBuffer()), file.type)),
+    // Every picture settles: the ones that saved are attached, and the first
+    // failure goes on the banner (main's sentence, or a plain one when the file
+    // could not be read or the request never reached main).
+    const settled = await Promise.allSettled(
+      pictures.map(async ({ file, mime }) =>
+        window.hidegpt.saveImage({ bytes: new Uint8Array(await file.arrayBuffer()), mime }),
+      ),
     )
-    setImages((current) => [...current, ...paths])
+    const paths: string[] = []
+    let failure: string | null = null
+    for (const outcome of settled) {
+      if (outcome.status === 'rejected') failure ??= 'Docs could not attach that image.'
+      else if (outcome.value.ok) paths.push(outcome.value.path)
+      else failure ??= outcome.value.error
+    }
+    if (paths.length) setImages((current) => [...current, ...paths])
+    if (failure) showRequestError(failure)
   }
 
-  const submit = () => {
-    if (streaming || (!draft.trim() && !images.length && !skill)) return
-    dispatch({ op: 'send', text: draft, ...(skill ? { skill } : {}), ...(images.length ? { images } : {}) })
+  // The draft clears only once main accepts the question; a failed send keeps
+  // it (the banner says why) so nothing typed is lost.
+  const submit = async () => {
+    if (streaming || sending || (!draft.trim() && !images.length && !skill)) return
+    setSending(true)
+    const result = await dispatch({
+      op: 'send',
+      text: draft,
+      ...(skill ? { skill } : {}),
+      ...(images.length ? { images } : {}),
+    })
+    setSending(false)
+    if (!result.ok) return
     setDraft('')
     setSkill(null)
     setImages([])
@@ -132,13 +172,13 @@ export function Composer({ threadId, streaming, skills }: { threadId: string; st
     }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
-      submit()
+      void submit()
     }
   }
 
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = Array.from(event.clipboardData.files)
-    if (!files.some((file) => IMAGE_TYPES.has(file.type))) return
+    if (!files.some((file) => isImageMime(file.type))) return
     event.preventDefault()
     void attach(files)
   }
@@ -182,7 +222,7 @@ export function Composer({ threadId, streaming, skills }: { threadId: string; st
           data-testid="composer"
           aria-label="Ask a question"
           value={draft}
-          placeholder={streaming ? 'Working…' : 'Type a question'}
+          placeholder="Type @ to insert"
           rows={1}
           onChange={(event) => {
             setDraft(event.target.value)
@@ -197,7 +237,7 @@ export function Composer({ threadId, streaming, skills }: { threadId: string; st
       <input
         id={IMAGE_INPUT_ID}
         type="file"
-        accept={[...IMAGE_TYPES].join(',')}
+        accept={IMAGE_MIME_TYPES.join(',')}
         multiple
         hidden
         onChange={(event) => {
@@ -207,4 +247,4 @@ export function Composer({ threadId, streaming, skills }: { threadId: string; st
       />
     </div>
   )
-}
+})

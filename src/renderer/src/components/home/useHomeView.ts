@@ -14,8 +14,7 @@ export function useHomeView(): [HomeView, (view: HomeView) => void] {
     setView(next)
     try {
       localStorage.setItem('hidegpt.homeView', next)
-    } catch {
-    }
+    } catch {}
   }, [])
   return [view, update]
 }

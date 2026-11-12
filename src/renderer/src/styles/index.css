@@ -4,8 +4,10 @@
 @import './base.css' layer(base);
 @import './menus.css' layer(components);
 @import './home.css' layer(components);
+@import './templates.css' layer(components);
 @import './toolbar.css' layer(components);
 @import './document.css' layer(components);
+@import './approvals.css' layer(components);
+@import './composer.css' layer(components);
 @import './tabs.css' layer(components);
-
-@import './creation.css' layer(components);
+@import './dialogs.css' layer(components);

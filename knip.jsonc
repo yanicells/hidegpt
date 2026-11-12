@@ -1,0 +1,26 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  // As in T3 Code: exported types are part of our contracts even before they have consumers.
+  "rules": { "types": "off", "nsTypes": "off" },
+  // electron-vite builds main and preload from src/<name>/index.ts, which knip finds
+  // through its electron-vite config; the renderer's entry is its index.html.
+  // Scripts run on their own (pnpm dist, record:*, the preload check).
+  "entry": ["src/renderer/index.html", "scripts/*.ts"],
+  "project": ["src/**/*.{ts,tsx}", "scripts/**/*.ts", "*.ts"],
+  // Exports a file also uses itself are its public surface, often kept for tests.
+  "ignoreExportsUsedInFile": true,
+  "ignoreDependencies": [
+    // Imported from CSS (`@import "tailwindcss"`), which knip does not read.
+    "tailwindcss",
+    // Run by .githooks/pre-commit, which knip does not read.
+    "lint-staged",
+    // The tsconfig plugin name; @effect/tsgo bundles it.
+    "@effect/language-service",
+  ],
+  // macOS tools the packaging scripts run, not packages.
+  "ignoreBinaries": ["plutil"],
+  "ignoreIssues": {
+    // Vendored from T3 Code and kept whole, so it stays easy to re-sync.
+    "src/vendor/**": ["files", "exports"],
+  },
+}

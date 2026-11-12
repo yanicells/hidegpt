@@ -1,0 +1,79 @@
+// Adapted from T3 Code (apps/web/src/components/chat/markdownStreamBlocks.test.tsx) at commit 8a14762c.
+// Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+import { renderToStaticMarkup } from 'react-dom/server'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { describe, expect, it } from 'vitest'
+
+import { splitMarkdownBlocks } from './markdownStreamBlocks'
+
+// Whitespace between top-level blocks collapses on the page.
+const html = (source: string) =>
+  renderToStaticMarkup(<ReactMarkdown remarkPlugins={[remarkGfm]}>{source}</ReactMarkdown>)
+    .replace(/>\s+</g, '><')
+    .trim()
+
+describe('splitMarkdownBlocks', () => {
+  it.each([
+    '# Title\n\nFirst paragraph with `code` and **bold**.\n\nSecond [link](https://example.com).',
+    '- one\n- two\n\n- loose three\n\n  continued\n\nAfter the list.',
+    '1. first\n\n2. second\n\nText\n\n3) restarted',
+    '```ts\nconst a = 1;\n\n\nconst b = 2;\n```\n\nafter\n\n~~~\nx\n\n~~~~\n\ny\n~~~\n\nend',
+    '> quote\n\n> another quote',
+    '| a | b |\n| - | - |\n| 1 | 2 |\n\nAfter the table.',
+    'para\n\n    indented code\n\nnext',
+    'Setext\n===\n\nnext\n---\n\n- [ ] task\n- [x] done',
+    '- a\n\n  ```\n  x\n\n```\n\nb',
+    'HTML:\n\n```html\n<div class="note">\n\n</div>\n```\n\nA regex:\n\n```\n[^a-z]+\n[ref]: not a definition\n```\n\nend',
+  ])('renders each block as the whole text renders it, at every streamed prefix: %j', (text) => {
+    for (let end = 0; end <= text.length; end++) {
+      const source = text.slice(0, end)
+      const blocks = splitMarkdownBlocks(source)
+      expect(blocks?.join('')).toBe(source)
+      expect(blocks!.map(html).join('')).toBe(html(source))
+    }
+  })
+
+  // Cases where a split could change the output: each must split exactly or stay whole.
+  it.each([
+    'see [ref]\n\npara\n\n- ```\n  x\n  ```\n\n  [ref]: https://x.com',
+    'see [ref]\n\n```a`b\n\n[ref]: https://x.com',
+    'see [ref]\n\n> [ref]: https://x.com',
+    'see [ref]\n\n- item\n\n  [ref]: https://x.com',
+    'a\n\u00a0\nb',
+    '```\nx\n```\u00a0\n\ny\n```',
+  ])('never renders differently from the whole text: %j', (text) => {
+    for (let end = 0; end <= text.length; end++) {
+      const source = text.slice(0, end)
+      const blocks = splitMarkdownBlocks(source)
+      if (blocks) expect(blocks.map(html).join('')).toBe(html(source))
+    }
+  })
+
+  it('splits only between closed blocks', () => {
+    expect(splitMarkdownBlocks('a\n\n```\nb\n\nc\n```\n\n- d\n\n- e\n\nf')).toEqual([
+      'a\n\n',
+      '```\nb\n\nc\n```\n\n- d\n\n- e\n\n',
+      'f',
+    ])
+  })
+
+  it('splits around code that only looks like document-wide syntax', () => {
+    expect(splitMarkdownBlocks('a\n\n```\n<div>\n\n[^x]\n```\n\nb')).toEqual([
+      'a\n\n',
+      '```\n<div>\n\n[^x]\n```\n\n',
+      'b',
+    ])
+  })
+
+  it.each([
+    '[ref]\n\n[ref]: /later',
+    'a[^x]\n\n[^x]: note',
+    '<details>\n\nbody\n\n</details>',
+    'a\r\n\r\nb',
+    '```\n<div>\n```\n\na[^x]\n\n[^x]: note',
+    '- a\n\n  ```\n  x\nb[^x]\n\n[^x]: note',
+  ])('keeps text with document-wide syntax whole: %j', (text) => {
+    expect(splitMarkdownBlocks(text)).toBeNull()
+  })
+})

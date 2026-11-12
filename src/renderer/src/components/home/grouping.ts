@@ -1,4 +1,4 @@
-import type { Snapshot } from '../../../../codex/types'
+import type { Snapshot } from '../../../../shared/model'
 
 export type Thread = Snapshot['threads'][number]
 
@@ -22,7 +22,7 @@ export function groupByRecency(threads: Thread[]): Section[] {
   }
   const today = dayNumber(new Date())
   for (const thread of threads) {
-    const at = new Date(toMs(thread.recencyAt ?? thread.updatedAt ?? 0))
+    const at = new Date(toMs(thread.updatedAt))
     const age = today - dayNumber(at)
     if (age <= 0) buckets.Today.push(thread)
     else if (age === 1) buckets.Yesterday.push(thread)

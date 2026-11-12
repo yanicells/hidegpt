@@ -1,0 +1,324 @@
+/* Drive dialogs: "Open a file" picker and "New folder". */
+.drive-dialog {
+  max-height: calc(100vh - 48px);
+  @apply overflow-auto border-0;
+  padding: 24px;
+  border-radius: 28px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow:
+    0 4px 8px 3px rgba(60, 64, 67, 0.15),
+    0 1px 3px rgba(60, 64, 67, 0.3);
+}
+
+/* Base UI dialog layers (components/ui/dialog.tsx). */
+.dialog-backdrop {
+  @apply fixed inset-0;
+  z-index: 140;
+  background: rgba(32, 33, 36, 0.6);
+}
+
+.dialog-viewport {
+  @apply fixed inset-0 grid place-items-center;
+  z-index: 141;
+  padding: 24px;
+}
+
+.drive-dialog {
+  outline: none;
+}
+
+.drive-dialog.small {
+  width: min(380px, calc(100vw - 40px));
+}
+
+.drive-dialog.picker {
+  width: min(720px, calc(100vw - 40px));
+  padding: 0;
+  border-radius: 8px;
+}
+
+.drive-dialog h2 {
+  margin: 0 0 16px;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 32px;
+}
+
+.outlined-field input {
+  @apply w-full;
+  height: 56px;
+  padding: 0 16px;
+  border: 1px solid #747775;
+  border-radius: 4px;
+  font-size: 16px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.outlined-field input:focus {
+  outline: none;
+  border: 2px solid var(--blue);
+  padding: 0 15px;
+}
+
+.dialog-error {
+  margin: 12px 0 0;
+  font-family: var(--font-text);
+  font-size: 13px;
+  color: var(--red);
+}
+
+.dialog-actions {
+  @apply flex items-center justify-end;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.picker-head {
+  @apply flex items-center justify-between;
+  padding: 16px 16px 0 24px;
+}
+
+.picker-head h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+/* Drive picker search: a 48px pill under the title. */
+.picker-search {
+  @apply flex items-center;
+  gap: 12px;
+  height: 48px;
+  margin: 12px 24px 4px;
+  padding: 0 16px;
+  border-radius: 24px;
+  background: var(--pill);
+  color: var(--text-2);
+}
+
+.picker-search input {
+  @apply flex-1 min-w-0 border-0 bg-transparent;
+  font-size: 16px;
+  color: var(--text);
+  outline: none;
+}
+
+.picker-tabs {
+  @apply flex;
+  gap: 16px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.picker-tabs button {
+  padding: 14px 4px 11px;
+  border-bottom: 3px solid transparent;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.picker-tabs button:hover {
+  color: var(--text);
+}
+
+.picker-tabs .active {
+  color: var(--blue);
+  border-bottom: 3px solid var(--blue);
+}
+
+.picker-list {
+  @apply list-none m-0;
+  min-height: 240px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.picker-row {
+  @apply flex items-center w-full text-left;
+  gap: 18px;
+  height: 48px;
+  padding: 0 24px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.picker-row:hover,
+.picker-row:focus-visible {
+  background: var(--hover-soft);
+  outline: none;
+}
+
+.picker-row[aria-pressed='true'] {
+  background: #c2e7ff;
+}
+
+.picker-row svg {
+  color: var(--text-2);
+}
+
+.picker-name {
+  @apply flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap;
+  font-weight: 500;
+}
+
+/* Drive's list columns: Name | Owner | Last modified. */
+.picker-cols {
+  @apply flex items-center;
+  gap: 18px;
+  height: 40px;
+  padding: 0 24px 0 66px;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.picker-owner {
+  width: 120px;
+}
+
+.picker-date {
+  width: 120px;
+}
+
+.picker-row .picker-owner,
+.picker-row .picker-date {
+  font-family: var(--font-text);
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.picker-empty {
+  padding: 48px 24px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+/* New folder on the left; Cancel and Select (filled, off until a row is picked) on the right. */
+.picker-foot {
+  @apply flex items-center;
+  gap: 8px;
+  padding: 12px 24px 20px;
+  border-top: 1px solid var(--hairline);
+}
+
+.picker-foot .outlined-button {
+  margin-right: auto;
+}
+
+.picker-foot .filled-button:disabled {
+  background: rgba(31, 31, 31, 0.12);
+  color: rgba(31, 31, 31, 0.38);
+  box-shadow: none;
+}
+
+/* Drive's Share dialog: 512px, radius 8, 24px padding, people and access rows. */
+.drive-dialog.share-dialog {
+  width: min(512px, calc(100vw - 40px));
+  padding: 24px 24px 20px;
+  border-radius: 8px;
+}
+
+.share-head {
+  @apply flex items-center justify-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.share-head h2 {
+  @apply min-w-0 overflow-hidden text-ellipsis whitespace-nowrap;
+  margin: 0;
+}
+
+.share-head-icons {
+  @apply flex shrink-0;
+  gap: 16px;
+  color: var(--text-2);
+}
+
+.share-section {
+  margin: 20px 0 8px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.share-person {
+  @apply flex items-center;
+  gap: 12px;
+  min-height: 56px;
+}
+
+.share-avatar {
+  background: #7b5ea7;
+}
+
+.share-person-text {
+  @apply flex flex-col flex-1 min-w-0;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.share-person-text small {
+  font-family: var(--font-text);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-2);
+}
+
+.share-role {
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.share-access-icon {
+  @apply grid place-items-center rounded-full shrink-0;
+  width: 32px;
+  height: 32px;
+  background: #e3e3e3;
+  color: var(--text-2);
+}
+
+.share-access {
+  @apply inline-flex items-center self-start;
+  margin-left: -8px;
+  padding: 0 4px 0 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.share-access:hover {
+  background: var(--hover);
+}
+
+.share-foot {
+  @apply flex items-center justify-between;
+  margin-top: 24px;
+}
+
+.share-foot .outlined-button {
+  height: 40px;
+  border-radius: 20px;
+}
+
+/* Docs' bottom-left snackbar ("Link copied"). */
+.snackbar {
+  @apply fixed;
+  left: 24px;
+  bottom: 24px;
+  z-index: 160;
+  padding: 14px 16px;
+  border-radius: 4px;
+  background: #303030;
+  color: #f2f2f2;
+  font-family: var(--font-text);
+  font-size: 14px;
+  line-height: 20px;
+  box-shadow:
+    0 2px 6px 2px rgba(0, 0, 0, 0.15),
+    0 1px 2px rgba(0, 0, 0, 0.3);
+}
