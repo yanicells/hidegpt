@@ -1,4 +1,5 @@
-// Upward-input release adapted from T3 Code (apps/web/src/components/chat/timelineViewport.ts) at commit 8a14762c.
+// Upward-input release and the upward-scroll detector adapted from T3 Code
+// (apps/web/src/components/chat/timelineViewport.ts and timelineScrollTarget.ts) at commit 8a14762c.
 // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 import { useCallback, useLayoutEffect, useRef, type RefObject } from 'react'
 
@@ -18,17 +19,46 @@ function movesPageUp(target: EventTarget | null, root: HTMLElement): boolean {
 }
 
 /**
+ * Returns a check, called on each scroll event, for whether the page moved up
+ * by more than a pixel since the last one. A shrinking scroll range (a shorter
+ * document, a taller window) clamps the position without anyone scrolling, so
+ * it only resets the baseline; sub-pixel steps add up. T3 compares heights;
+ * this compares the range, so a taller window is not read as a scroll. Starts
+ * at the top, where every document opens.
+ */
+function upwardScrollDetector(root: HTMLElement): () => boolean {
+  let baseline = { top: 0, range: 0 }
+  return () => {
+    const next = { top: root.scrollTop, range: root.scrollHeight - root.clientHeight }
+    if (next.range < baseline.range || next.top > baseline.top) {
+      baseline = next
+      return false
+    }
+    if (next.top < baseline.top - 1) {
+      baseline = next
+      return true
+    }
+    baseline = { top: baseline.top, range: next.range }
+    return false
+  }
+}
+
+/**
  * Keeps the page at the bottom while an answer streams, if you are there,
  * without reading layout on every delta. A ResizeObserver on `content` (which
- * has no minimum height, so a short document grows it too) scrolls once the
- * browser has laid out new text, and an IntersectionObserver on `end` tracks
- * whether you are near the bottom. A document opens at the top and follows
- * only once you scroll to its end or ask a question, so a resize or a late
- * image never pulls it down. Moving up (wheel, keys, the scrollbar) lets go at
- * once, before that frame's resize could pull the page back; it follows again
- * once you return to the end. Mount one per document (keyed by thread), so
- * this state starts fresh. Returns `release`, for jumps that move the page on
- * purpose.
+ * has no minimum height, so a short document grows it too) and on the scroller
+ * (a shorter window) scrolls once the browser has laid out, and an
+ * IntersectionObserver on `end` tracks whether you are near the bottom. A
+ * document opens at the top and follows only once you scroll to its end or ask
+ * a question, so a resize or a late image never pulls it down.
+ *
+ * Moving up lets go at once, before that frame's resize could pull the page
+ * back: wheel, keys and a press on the scrollbar as they happen, and any other
+ * upward scroll (dragging a selection, focus moving to a link above) from the
+ * scroll event, which the browser sends before resize callbacks. It follows
+ * again once you leave the end and come back. Mount one per document (keyed by
+ * thread), so this state starts fresh. Returns `release`, for moves made on
+ * purpose (a jump, keeping your place after "Load earlier").
  */
 export function useFollowBottom({
   scrollRef,
@@ -43,7 +73,7 @@ export function useFollowBottom({
   askedId: string | null
 }): { release: () => void } {
   const follow = useRef(false)
-  // You have scrolled or asked since the document opened.
+  // You have scrolled, asked or jumped since the document opened.
   const engaged = useRef(false)
   // The end marker's last reported state.
   const nearEnd = useRef(false)
@@ -76,41 +106,40 @@ export function useFollowBottom({
       },
       { root, rootMargin: NEAR_END },
     )
-    // The observer decides where you are; your first scroll only starts listening to it.
-    const scrolled = () => {
-      if (engaged.current) return
-      engaged.current = true
-      follow.current = nearEnd.current
-    }
     const leave = () => {
       engaged.current = true
       follow.current = false
     }
-    // Input events only, so these layout reads never run per delta.
-    const wheel = (event: WheelEvent) => {
-      if (event.deltaY < 0 && movesPageUp(event.target, root)) leave()
+    // Scroll events come just before the frame's layout, so these reads add none.
+    const movedUp = upwardScrollDetector(root)
+    const scrolled = () => {
+      if (movedUp()) leave()
+      else if (!engaged.current) {
+        // The observer decides where you are; your first scroll only starts listening to it.
+        engaged.current = true
+        follow.current = nearEnd.current
+      }
     }
+    // Input events only, so these layout reads never run per delta. Ctrl+wheel zooms.
+    const wheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && event.deltaY < 0 && movesPageUp(event.target, root)) leave()
+    }
+    // Shortcuts and text being composed are not scrolling; anything that does scroll is caught by `scrolled`.
     const key = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return
       const up = UP_KEYS.has(event.key) || (event.key === ' ' && event.shiftKey)
       if (up && !isEditable(event.target) && movesPageUp(event.target, root)) leave()
     }
     // A scrollbar drag sends no wheel events; it is the only press whose target is the scroller itself.
-    let onScrollbar = false
     const press = (event: PointerEvent) => {
-      onScrollbar = event.target === root
-      if (onScrollbar) leave()
-    }
-    // Letting go of the scrollbar at the end follows again.
-    const lift = () => {
-      if (onScrollbar) follow.current = nearEnd.current
-      onScrollbar = false
+      if (event.target === root && root.scrollTop > 0) leave()
     }
     grew.observe(content)
+    grew.observe(root)
     near.observe(end)
     root.addEventListener('scroll', scrolled, { passive: true })
     root.addEventListener('wheel', wheel, { passive: true })
     root.addEventListener('pointerdown', press, { passive: true })
-    window.addEventListener('pointerup', lift, { passive: true })
     window.addEventListener('keydown', key)
     return () => {
       grew.disconnect()
@@ -118,12 +147,13 @@ export function useFollowBottom({
       root.removeEventListener('scroll', scrolled)
       root.removeEventListener('wheel', wheel)
       root.removeEventListener('pointerdown', press)
-      window.removeEventListener('pointerup', lift)
       window.removeEventListener('keydown', key)
     }
   }, [scrollRef, contentRef, endRef])
 
+  // Engaged too, so the scroll this move causes is not taken as your first.
   const release = useCallback(() => {
+    engaged.current = true
     follow.current = false
   }, [])
   return { release }

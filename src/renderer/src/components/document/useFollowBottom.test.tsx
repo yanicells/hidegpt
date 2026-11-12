@@ -9,7 +9,7 @@ import { useFollowBottom } from './useFollowBottom'
 // The browser calls these after layout; the tests call them by hand.
 let laidOut = () => {}
 let endVisible = (_visible: boolean) => {}
-let resized: Element | null = null
+let resized: Element[] = []
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -19,7 +19,7 @@ beforeEach(() => {
         laidOut = callback
       }
       observe(target: Element) {
-        resized = target
+        resized.push(target)
       }
       disconnect() {}
     },
@@ -38,15 +38,17 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  resized = []
 })
 
 function Page({ askedId }: { askedId: string | null }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
-  useFollowBottom({ scrollRef, contentRef, endRef, askedId })
+  const { release } = useFollowBottom({ scrollRef, contentRef, endRef, askedId })
   return (
     <div ref={scrollRef} data-testid="root">
+      <button data-testid="release" onClick={release} />
       <div ref={contentRef} data-testid="content">
         <div data-testid="inner" style={{ overflowY: 'auto' }} />
         <textarea data-testid="composer" />
@@ -59,8 +61,25 @@ function Page({ askedId }: { askedId: string | null }) {
 /** jsdom has no layout: give the scroller a height and a writable position. */
 function scroller() {
   const root = screen.getByTestId('root')
-  Object.defineProperty(root, 'scrollHeight', { value: 1000 })
+  Object.defineProperty(root, 'scrollHeight', { value: 1000, writable: true })
   Object.defineProperty(root, 'scrollTop', { value: 0, writable: true })
+  return root
+}
+
+/** Moves the page as the browser would, sending the scroll event that follows. */
+function scrollTo(root: HTMLElement, top: number) {
+  root.scrollTop = top
+  fireEvent.scroll(root)
+}
+
+/** Asks a question at the end of a fresh page, so it follows. */
+function following() {
+  const view = render(<Page askedId={null} />)
+  const root = scroller()
+  view.rerender(<Page askedId="q1" />)
+  endVisible(true)
+  laidOut()
+  scrollTo(root, root.scrollTop)
   return root
 }
 
@@ -100,9 +119,9 @@ describe('useFollowBottom', () => {
     expect(root.scrollTop).toBe(1000)
   })
 
-  it('watches the content for growth, not the page around it', () => {
+  it('watches the content for growth and the scroller for a shorter window, not the page around it', () => {
     render(<Page askedId={null} />)
-    expect(resized).toBe(screen.getByTestId('content'))
+    expect(resized).toEqual([screen.getByTestId('content'), screen.getByTestId('root')])
   })
 
   it('lets go on an upward wheel before that frame’s resize, and follows again back at the end', () => {
@@ -137,24 +156,51 @@ describe('useFollowBottom', () => {
     laidOut()
     expect(root.scrollTop).toBe(1000)
 
+    // Shortcuts, not scrolling.
+    root.scrollTop = 900
+    fireEvent.keyDown(document.body, { key: 'ArrowUp', metaKey: true })
+    fireEvent.keyDown(document.body, { key: 'PageUp', isComposing: true })
+    laidOut()
+    expect(root.scrollTop).toBe(1000)
+
     root.scrollTop = 900
     fireEvent.keyDown(document.body, { key: 'PageUp' })
     laidOut()
     expect(root.scrollTop).toBe(900)
   })
 
-  it('lets go while the scrollbar is held, and follows again if it is let go at the end', () => {
-    const { rerender } = render(<Page askedId={null} />)
-    const root = scroller()
-    rerender(<Page askedId="q1" />)
-    endVisible(true)
+  it('lets go on a press on the scrollbar', () => {
+    const root = following()
     root.scrollTop = 900
     fireEvent.pointerDown(root)
     laidOut()
     expect(root.scrollTop).toBe(900)
+  })
 
-    fireEvent.pointerUp(window)
+  it('lets go on an upward scroll no input announced, such as dragging a selection', () => {
+    const root = following()
+    scrollTo(root, 990)
     laidOut()
-    expect(root.scrollTop).toBe(1000)
+    expect(root.scrollTop).toBe(990)
+  })
+
+  it('keeps following when the page moves up only because the document got shorter', () => {
+    const root = following()
+    Object.assign(root, { scrollHeight: 900 })
+    scrollTo(root, 900)
+    Object.assign(root, { scrollHeight: 1100 })
+    laidOut()
+    expect(root.scrollTop).toBe(1100)
+  })
+
+  it('keeps your place after a move made on purpose before you ever scrolled', () => {
+    render(<Page askedId={null} />)
+    const root = scroller()
+    // A short document: its end is on screen until "Load earlier" adds rows above.
+    endVisible(true)
+    fireEvent.click(screen.getByTestId('release'))
+    scrollTo(root, 500)
+    laidOut()
+    expect(root.scrollTop).toBe(500)
   })
 })
