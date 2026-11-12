@@ -124,8 +124,12 @@ export function useFollowBottom({
     const wheel = (event: WheelEvent) => {
       if (!event.ctrlKey && event.deltaY < 0 && movesPageUp(event.target, root)) leave()
     }
-    // Shortcuts and text being composed are not scrolling; anything that does scroll is caught by `scrolled`.
+    // Keys count from the page or from nothing focused, as in T3: one pressed on a toolbar
+    // button does not scroll it. Shortcuts and text being composed are not scrolling either;
+    // anything that does scroll is caught by `scrolled`.
     const key = (event: KeyboardEvent) => {
+      const target = event.target
+      if (!(target instanceof Node) || (!root.contains(target) && target !== document.body && target !== document.documentElement)) return
       if (event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return
       const up = UP_KEYS.has(event.key) || (event.key === ' ' && event.shiftKey)
       if (up && !isEditable(event.target) && movesPageUp(event.target, root)) leave()

@@ -58,6 +58,16 @@ function Page({ askedId }: { askedId: string | null }) {
   )
 }
 
+/** The document with a toolbar button outside its scroller. */
+function Window({ askedId }: { askedId: string | null }) {
+  return (
+    <>
+      <button data-testid="outside" />
+      <Page askedId={askedId} />
+    </>
+  )
+}
+
 /** jsdom has no layout: give the scroller a height and a writable position. */
 function scroller() {
   const root = screen.getByTestId('root')
@@ -144,9 +154,9 @@ describe('useFollowBottom', () => {
   })
 
   it('keeps following when the wheel or a key moves something else', () => {
-    const { rerender } = render(<Page askedId={null} />)
+    const { rerender } = render(<Window askedId={null} />)
     const root = scroller()
-    rerender(<Page askedId="q1" />)
+    rerender(<Window askedId="q1" />)
     endVisible(true)
     root.scrollTop = 900
     const inner = screen.getByTestId('inner')
@@ -156,10 +166,11 @@ describe('useFollowBottom', () => {
     laidOut()
     expect(root.scrollTop).toBe(1000)
 
-    // Shortcuts, not scrolling.
+    // Shortcuts, and keys on a button outside the page, are not scrolling.
     root.scrollTop = 900
     fireEvent.keyDown(document.body, { key: 'ArrowUp', metaKey: true })
     fireEvent.keyDown(document.body, { key: 'PageUp', isComposing: true })
+    fireEvent.keyDown(screen.getByTestId('outside'), { key: 'PageUp' })
     laidOut()
     expect(root.scrollTop).toBe(1000)
 
