@@ -33,6 +33,8 @@ export default defineConfig({
     },
     build: {
       minify: 'esbuild',
+      // Fonts stay files: an inlined data: font would need a looser CSP (no font-src).
+      assetsInlineLimit: (file) => (/\.woff2?$/.test(file) ? false : undefined),
       rollupOptions: {
         input: resolve('src/renderer/index.html'),
       },

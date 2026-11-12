@@ -44,7 +44,7 @@ const row = (id: string) => document.querySelector<HTMLElement>(`[data-block="${
 
 describe('Document', () => {
   it('shows a placeholder for a block that fails to render and keeps the rest of the page', () => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const question: Block = { kind: 'user', id: 'u1', text: 'Why is the sky blue?' }
     const broken: Block = { kind: 'agent', id: 'a1', text: 'boom' }
     const after: Block = { kind: 'agent', id: 'a2', text: 'Rayleigh scattering.' }
@@ -57,6 +57,8 @@ describe('Document', () => {
     // The row stays on the page, so the outline can still jump to it.
     expect(row('a1')).toContainElement(placeholder)
     expect(screen.getByRole('textbox')).toBeInTheDocument()
+    // Reported by name and message only, never the block's text.
+    expect(logged).toHaveBeenCalledWith('render error', 'Error', 'bad block')
 
     // A new version of the block renders again.
     update([question, { ...broken, text: 'Light scatters.' }, after])

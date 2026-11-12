@@ -78,7 +78,7 @@ export function createWindow(opts: { onDidFinishLoad: () => void }): BrowserWind
   denyPermissions(win.webContents.session)
   recoverRenderer(win, appUrl)
 
-  void win.loadURL(appUrl)
+  win.loadURL(appUrl).catch((error: unknown) => console.warn('window load failed', error))
   return win
 }
 
@@ -137,13 +137,15 @@ export function recoverRenderer(win: BrowserWindow, appUrl: string, now: () => n
   win.webContents.on('render-process-gone', (_event, details) => {
     const at = now()
     reloads = reloads.filter((time) => at - time < RECOVERY_WINDOW_MS)
-    const recovering =
-      RECOVERABLE_REASONS.has(details.reason) && !win.isDestroyed() && reloads.length < RECOVERY_MAX_RELOADS
+    const recoverable = RECOVERABLE_REASONS.has(details.reason) && !win.isDestroyed()
+    const recovering = recoverable && reloads.length < RECOVERY_MAX_RELOADS
     console.warn('window renderer gone', { reason: details.reason, exitCode: details.exitCode, recovering })
-    if (!recovering) return
-    reloads.push(at)
+    if (!recoverable) return
+    // Out of reloads: a static page with a link back, not a white window with no way out.
+    if (recovering) reloads.push(at)
+    const url = recovering ? appUrl : crashPage(appUrl)
     setTimeout(() => {
-      if (!win.isDestroyed()) void win.loadURL(appUrl)
+      if (!win.isDestroyed()) win.loadURL(url).catch((error: unknown) => console.warn('window reload failed', error))
     }, RECOVERY_RELOAD_DELAY_MS)
   })
   let hung: ReturnType<typeof setTimeout> | undefined
@@ -161,6 +163,30 @@ export function recoverRenderer(win: BrowserWindow, appUrl: string, now: () => n
   })
   win.on('responsive', settle)
   win.on('closed', settle)
+}
+
+// `crashPage` is adapted from T3 Code (apps/desktop/src/app/DesktopStartupRecovery.ts
+// `buildStartupRecoveryHtml`) at commit 5c6f2f12. Copyright (c) 2026 T3 Tools Inc. MIT License.
+const escapeHtml = (text: string) =>
+  text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)
+
+/**
+ * The page a window shows once its reloads run out: self-contained, no script
+ * (its CSP allows only inline styles), Docs-styled, with one link back to the
+ * app, which `isAppNavigation` lets through.
+ */
+export function crashPage(appUrl: string): string {
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>Docs</title><style>
+html,body{margin:0;height:100%;background:#fff;color:#1f1f1f}
+body{font:14px/1.5 'Google Sans',Roboto,Arial,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center}
+h1{margin:0;font-size:22px;font-weight:400}
+a{display:inline-block;height:36px;line-height:36px;padding:0 24px;border:1px solid #747775;border-radius:18px;color:#0b57d0;font-weight:500;text-decoration:none}
+a:hover{background:rgba(11,87,208,.08)}
+</style></head><body>
+<h1>Docs couldn't load this document.</h1>
+<a href="${escapeHtml(appUrl)}">Try again</a>
+</body></html>`
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
 }
 
 // `denyPermissions` follows T3 Code's preview session handlers

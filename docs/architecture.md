@@ -177,7 +177,7 @@ A streamed delta should cost the same at 300 turns as at 3. Each rule below remo
 
 ### The window (`src/main/window.ts`)
 
-- A crashed or killed renderer reloads, at most 3 times a minute per window (T3's `DesktopWindow`); the reload's `did-finish-load` resyncs the snapshot. A renderer unresponsive for 15 s is killed, so it reloads the same way.
+- A crashed or killed renderer reloads, at most 3 times a minute per window (T3's `DesktopWindow`); the reload's `did-finish-load` resyncs the snapshot. A renderer unresponsive for 15 s is killed, so it reloads the same way. Past the limit the window shows a static "Docs couldn't load this document." page (no script) whose "Try again" link loads the app again.
 - Every permission is denied except clipboard writes (copying a document link).
 - `docs://app` sends the CSP as a header as well as `index.html`'s meta tag. `docs://local` serves only images under `userData/images` (pasted) and images in the open document's questions; anything else gets 403.
 

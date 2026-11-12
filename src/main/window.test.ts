@@ -139,7 +139,7 @@ describe('recoverRenderer', () => {
     const win = Object.assign(new EventEmitter(), {
       destroyed: false,
       isDestroyed: () => win.destroyed,
-      loadURL: vi.fn(async () => undefined),
+      loadURL: vi.fn(async (_url: string) => undefined),
       webContents: Object.assign(new EventEmitter(), { forcefullyCrashRenderer: vi.fn() }),
     })
     recoverRenderer(win as unknown as BrowserWindow, 'docs://app/index.html', () => Date.now())
@@ -147,20 +147,36 @@ describe('recoverRenderer', () => {
     return { win, gone }
   }
 
-  it('reloads a crashed renderer at most three times a minute', () => {
+  it('reloads a crashed renderer three times a minute, then shows a page with a way back', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const { win, gone } = fakeWindow()
-    for (let i = 0; i < 5; i++) {
+    const loaded = () => win.loadURL.mock.calls.map(([url]) => url)
+    for (let i = 0; i < 4; i++) {
       gone(i % 2 ? 'oom' : 'crashed')
       vi.advanceTimersByTime(1_000)
     }
-    expect(win.loadURL).toHaveBeenCalledTimes(3)
-    expect(win.loadURL).toHaveBeenCalledWith('docs://app/index.html')
+    expect(loaded().slice(0, 3)).toEqual(Array(3).fill('docs://app/index.html'))
+    const page = loaded()[3] ?? ''
+    expect(page.startsWith('data:text/html')).toBe(true)
+    const html = decodeURIComponent(page.slice(page.indexOf(',') + 1))
+    expect(html).toContain('<a href="docs://app/index.html">Try again</a>')
+    expect(html).toContain("default-src 'none'")
+    expect(html).not.toContain('<script')
+    expect(isAppNavigation('docs://app/index.html', 'docs://app/index.html')).toBe(true)
 
     vi.advanceTimersByTime(60_000)
     gone('crashed')
     vi.advanceTimersByTime(1_000)
-    expect(win.loadURL).toHaveBeenCalledTimes(4)
+    expect(loaded()[4]).toBe('docs://app/index.html')
+  })
+
+  it('logs a reload that fails instead of leaving it unhandled', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { win, gone } = fakeWindow()
+    win.loadURL.mockRejectedValueOnce(new Error('ERR_ABORTED'))
+    gone('crashed')
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(warn).toHaveBeenCalledWith('window reload failed', expect.any(Error))
   })
 
   it('leaves a clean exit or a closed window alone', () => {
