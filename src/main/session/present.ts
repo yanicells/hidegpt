@@ -129,13 +129,30 @@ export function presentItem(item: Item): Block {
   return block
 }
 
+/**
+ * The list last presented. A streamed delta replaces one item of the shown document's list,
+ * so comparing against it by position skips a cache lookup for every unchanged item.
+ */
+let last: { readonly items: ReadonlyArray<Item>; readonly blocks: ReadonlyArray<Block> } | null = null
+
+/** `previous.blocks`, copied, with each position whose item changed presented again. */
+function patched(previous: NonNullable<typeof last>, items: ReadonlyArray<Item>): Block[] {
+  const blocks = previous.blocks.slice(0, items.length)
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index]!
+    if (previous.items[index] !== item) blocks[index] = presentItem(item)
+  }
+  return blocks
+}
+
 /** The blocks for a list; the same array for the same list, and the same block for each unchanged item. */
 export function presentItems(items: ReadonlyArray<Item>): ReadonlyArray<Block> {
   let blocks = blocksOf.get(items)
   if (!blocks) {
-    blocks = items.map(presentItem)
+    blocks = last ? patched(last, items) : items.map(presentItem)
     blocksOf.set(items, blocks)
   }
+  last = { items, blocks }
   return blocks
 }
 
