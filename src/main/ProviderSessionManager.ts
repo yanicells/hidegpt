@@ -16,13 +16,16 @@ import * as SubscriptionRef from 'effect/SubscriptionRef'
 import type { Command } from '../shared/contracts'
 import { HOME, type ProviderId, type Snapshot } from '../shared/model'
 import {
+  bannerMessage,
   CommandRejectedError,
+  DEFECT_MESSAGE,
   endsConnection,
   type ProviderError,
   ProviderDefectError,
   ProviderNotReadyError,
 } from '../provider/errors'
 import { describeFailure, errorLogFields, logDefects, reportDefect } from '../provider/DefectReport'
+import { forkObserved, observed, undoOnFailure } from '../provider/observed'
 import type { RequestStatus, UserItem } from '../provider/events'
 import type { AdapterEvent, CatalogPart, OpenedThread, ProviderSession } from '../provider/ProviderAdapter'
 import { isThreadEvent } from '../provider/ProviderAdapter'
@@ -192,14 +195,11 @@ export const make = (options: ManagerOptions) =>
           const startedAt = yield* now
           yield* updateLibrary(id, (lib) => ({ ...lib, status: 'ready', error: null }))
           yield* Effect.logDebug('Connected')
-          yield* Effect.forkScoped(
-            logDefects(
-              Effect.all([refreshCatalog(id), reloadDisplayed(id, session)], {
-                concurrency: 'unbounded',
-                discard: true,
-              }),
-            ),
-          )
+          // A defect here would otherwise show "ready" with nothing loaded; say so instead.
+          yield* Effect.all([refreshCatalog(id), reloadDisplayed(id, session)], {
+            concurrency: 'unbounded',
+            discard: true,
+          }).pipe(forkObserved({ name: 'manager.loadAfterConnect', onDefect: () => setError(id, DEFECT_MESSAGE) }))
           return yield* session.awaitExit.pipe(
             Effect.raceFirst(Fiber.join(pump)),
             // A session that ran a while ends "successfully", so the restart count starts over.
@@ -392,13 +392,9 @@ export const make = (options: ManagerOptions) =>
       yield* Effect.forEach(idle, release, { discard: true })
     })
     // A sweep that fails or dies is logged, and the next one still runs.
-    const sweepOnce = sweep.pipe(
-      Effect.catchCauseIf(
-        (cause) => !Cause.hasInterruptsOnly(cause),
-        (cause) => Effect.asVoid(describeFailure(cause)),
-      ),
+    yield* Effect.repeat(observed(sweep, { name: 'manager.sweep' }), Schedule.spaced(SWEEP_EVERY)).pipe(
+      forkObserved({ name: 'manager.sweepLoop' }),
     )
-    yield* Effect.forkScoped(Effect.repeat(sweepOnce, Schedule.spaced(SWEEP_EVERY)))
 
     // ---- commands -------------------------------------------------------------------
 
@@ -469,7 +465,10 @@ export const make = (options: ManagerOptions) =>
             const opened = yield* session.openThread(threadId, hint)
             yield* showOpened(id, opened)
           }).pipe(
-            Effect.tapError((error) => updateLibrary(id, (lib) => ({ ...lib, opening: null, error: error.message }))),
+            // The sentence only: whoever ran the command logs a defect once, under its report id.
+            undoOnFailure((cause) =>
+              updateLibrary(id, (lib) => ({ ...lib, opening: null, error: bannerMessage(Cause.squash(cause)) })),
+            ),
             Effect.onInterrupt(() =>
               updateLibrary(id, (lib) => (lib.opening === threadId ? { ...lib, opening: null } : lib)),
             ),
@@ -532,7 +531,7 @@ export const make = (options: ManagerOptions) =>
           ),
         )
         yield* session.send(runtime.threadId, turnId, { text, images, skill, clientId }, lib.settings).pipe(
-          Effect.tapError(() =>
+          undoOnFailure(() =>
             update((current) =>
               S.updateRuntime(current, key, (item) => ({
                 ...item,
@@ -571,7 +570,10 @@ export const make = (options: ManagerOptions) =>
           { onlyIfMissing: true },
         )
         // If the provider rejects the stop (it lost track of the turn), the timer still frees the document.
-        yield* Effect.ignore(session.interrupt(runtime.threadId, turn.id))
+        yield* observed(session.interrupt(runtime.threadId, turn.id), {
+          name: 'manager.interrupt',
+          quiet: 'the stop timer frees the document',
+        })
       })
 
     const resolveApproval = (id: ProviderId, command: Extract<Command, { op: 'resolveApproval' }>) =>
@@ -593,7 +595,7 @@ export const make = (options: ManagerOptions) =>
         yield* mark('sending')
         yield* session
           .respond(runtime.threadId, command.blockId, { accept: command.accept, answers: command.answers ?? {} })
-          .pipe(Effect.tapError(() => mark('pending', 'sending')))
+          .pipe(undoOnFailure(() => mark('pending', 'sending')))
         // A turn that ended while the reply was on its way already expired the request.
         yield* mark(command.accept ? 'accepted' : 'declined', 'sending')
       })
