@@ -2,7 +2,7 @@
  * Adapted from T3 Code (apps/web/src/components/RenderErrorBoundary.tsx) at commit 5c6f2f12.
  * Copyright (c) 2026 T3 Tools Inc. Licensed under the MIT License; see THIRD_PARTY_NOTICES.md.
  */
-import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { Component, type ReactNode } from 'react'
 
 interface RenderErrorBoundaryProps {
   readonly children: ReactNode
@@ -34,16 +34,20 @@ export class RenderErrorBoundary extends Component<RenderErrorBoundaryProps, Ren
     return { failed: true }
   }
 
-  // Only the error's name and a capped message: never the document text it was rendering.
-  // TODO: send this to main's defect log once Package A's reporting is on this branch.
-  override componentDidCatch(error: unknown, _info: ErrorInfo) {
-    const { name, message } = error instanceof Error ? error : { name: typeof error, message: String(error) }
-    console.error('render error', name, message.slice(0, 200))
-  }
-
   override render() {
     return this.state.failed ? this.props.fallback : this.props.children
   }
+}
+
+/**
+ * React's `onCaughtError` for the root: one short line per error a boundary
+ * caught, with only its name and a capped message, never the document text
+ * it was rendering. React's default would log the whole error and stack.
+ */
+// TODO: send this to main's defect log once Package A's reporting is on this branch.
+export function reportRenderError(error: unknown): void {
+  const { name, message } = error instanceof Error ? error : { name: typeof error, message: String(error) }
+  console.error('render error', name, message.slice(0, 200))
 }
 
 /** Stands in for one block on the page that couldn't render. */

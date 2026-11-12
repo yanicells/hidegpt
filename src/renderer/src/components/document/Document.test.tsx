@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { HideGptApi, SnapshotPatch } from '../../../../shared/api'
 import { emptySnapshot, type Block, type Snapshot } from '../../../../shared/model'
+import { reportRenderError } from '../layout/RenderErrorBoundary'
 import { Document } from './Document'
 
 import '@testing-library/jest-dom/vitest'
@@ -36,7 +37,8 @@ function mount(blocks: Block[]) {
     platform: 'darwin',
   }
   window.hidegpt = api as HideGptApi
-  render(<Document snap={snap} onNew={() => undefined} />)
+  // The same root option main.tsx uses.
+  render(<Document snap={snap} onNew={() => undefined} />, { onCaughtError: reportRenderError })
   return (next: Block[]) => act(() => listeners.forEach((listener) => listener({ fields: { ...snap, blocks: next } })))
 }
 
@@ -57,8 +59,8 @@ describe('Document', () => {
     // The row stays on the page, so the outline can still jump to it.
     expect(row('a1')).toContainElement(placeholder)
     expect(screen.getByRole('textbox')).toBeInTheDocument()
-    // Reported by name and message only, never the block's text.
-    expect(logged).toHaveBeenCalledWith('render error', 'Error', 'bad block')
+    // One capped line, by name and message only: no stack, never the block's text.
+    expect(logged.mock.calls).toEqual([['render error', 'Error', 'bad block']])
 
     // A new version of the block renders again.
     update([question, { ...broken, text: 'Light scatters.' }, after])
