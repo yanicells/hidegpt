@@ -158,7 +158,8 @@ const program = Effect.gen(function* () {
       Effect.catchCause((cause) =>
         Effect.sync(() => {
           console.error('Screenshots failed:', cause)
-          process.exitCode = 1
+          // Electron's quit ignores process.exitCode; exit with it once the quit has run.
+          app.once('quit', () => process.exit(1))
         }),
       ),
     )
