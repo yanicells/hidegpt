@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="768" height="1024" viewBox="0 0 24 32">
+  <!-- The current Docs logo, the same artwork as DocsIcon in src/renderer/src/components/ui/Icons.tsx.
+       Source for a Dock icon: place it on the icon canvas, render at 1024px, then iconutil. -->
+  <defs>
+    <radialGradient id="wash" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(9 43.6) scale(20.4 28.4)">
+      <stop offset="0" stop-color="#ffc1fc"/>
+      <stop offset="1" stop-color="#ffc1fc" stop-opacity="0"/>
+    </radialGradient>
+    <path id="body" d="M3.75 0H12.75L24 11.25V28.25A3.75 3.75 0 0 1 20.25 32H3.75A3.75 3.75 0 0 1 0 28.25V3.75A3.75 3.75 0 0 1 3.75 0Z"/>
+  </defs>
+  <use href="#body" fill="#3186ff"/>
+  <use href="#body" fill="url(#wash)"/>
+  <path d="M12.75 0V7.75A2 2 0 0 0 14.75 9.75H22.5Z" fill="#77bbff"/>
+  <rect x="6.05" y="19.3" width="11.9" height="2.1" rx="1.05" fill="#fff"/>
+  <rect x="6.05" y="24.55" width="8.85" height="2.1" rx="1.05" fill="#fff"/>
+</svg>
