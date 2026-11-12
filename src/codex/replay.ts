@@ -79,17 +79,36 @@ const withoutPluginsOrPlan = (value: unknown): unknown => {
 }
 
 /**
+ * Methods that describe the person's setup rather than a document: MCP servers,
+ * skills, plugins and apps. Their answers and notifications keep only their
+ * plain fields; every list in them is emptied, which still decodes on replay.
+ * Requests Docs sends stay as they are, so the replay still matches them.
+ */
+const SETUP_METHOD = /^(?:mcpServerStatus\/list|skills\/|plugin\/|app\/)/
+const listsEmptied = (value: Record<string, unknown>) =>
+  Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, Array.isArray(entry) ? [] : entry]))
+
+/**
  * A recording made with the person's own Codex home names their MCP servers
- * (with startup errors that can hold paths or URLs), the plugins they turned
- * off and their ChatGPT plan. The fixture keeps the shape and drops the
- * details, as `withoutPersonalDetails` in src/claude/replay.ts does for Claude.
+ * (with startup errors that can hold paths or URLs), skills, plugins and apps,
+ * the plugins they turned off, and their ChatGPT plan. The fixture keeps the
+ * shape and drops the details, as `withoutPersonalDetails` in
+ * src/claude/replay.ts does for Claude.
  */
 export function withoutPersonalDetails(entry: ReplayEntry): ReplayEntry {
   if (entry.type === 'runtime_exit') return entry
   const frame = withoutPluginsOrPlan(entry.frame)
-  if (isRecord(frame) && frame.method === 'mcpServer/startupStatus/updated' && isRecord(frame.params)) {
+  if (entry.type !== 'emit_inbound' || !isRecord(frame)) return { ...entry, frame }
+  if (frame.method === 'mcpServer/startupStatus/updated' && isRecord(frame.params)) {
     const { error, ...params } = frame.params
     return { ...entry, frame: { ...frame, params: { ...params, name: 'replay-mcp', ...(error === undefined ? {} : { error: error === null ? null : '<redacted>' }) } } }
+  }
+  // A notification names its method; an answer carries its request's as the label.
+  if (typeof frame.method === 'string' && SETUP_METHOD.test(frame.method) && isRecord(frame.params)) {
+    return { ...entry, frame: { ...frame, params: listsEmptied(frame.params) } }
+  }
+  if (frame.method === undefined && SETUP_METHOD.test(entry.label ?? '') && isRecord(frame.result)) {
+    return { ...entry, frame: { ...frame, result: listsEmptied(frame.result) } }
   }
   return { ...entry, frame }
 }
