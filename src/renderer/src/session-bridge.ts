@@ -5,22 +5,30 @@ import { errorMessage } from '../../shared/labels'
 import { emptySnapshot, type Block, type Snapshot } from '../../shared/model'
 import { applySnapshotPatch } from '../../shared/snapshot-patch'
 
-// Read the preload's assembled copy right away, so the first paint is the real
-// library rather than an empty one.
-let snapshot: Snapshot = window.hidegpt?.getSnapshot() ?? emptySnapshot()
+let snapshot: Snapshot = emptySnapshot()
 const listeners = new Set<() => void>()
 let detach: (() => void) | null = null
 
-// One IPC listener applies each patch once, however many components subscribe.
+/**
+ * Takes the snapshot from the preload and applies every later patch here, once,
+ * however many components subscribe. The read and the subscription happen in
+ * one task, so no patch falls between them. The app's root never unsubscribes,
+ * so in the app this runs once; tests reconnect to a fresh bridge.
+ */
+function connect(): void {
+  if (detach || !window.hidegpt) return
+  snapshot = window.hidegpt.getSnapshot()
+  detach = window.hidegpt.onSnapshot((patch) => {
+    snapshot = applySnapshotPatch(snapshot, patch)
+    for (const listener of [...listeners]) listener()
+  })
+}
+
+// At load, so the first paint is the real library and nothing is missed before React subscribes.
+connect()
+
 function subscribe(onChange: () => void): () => void {
-  if (listeners.size === 0 && window.hidegpt) {
-    // Catch up on anything that arrived before the first subscriber.
-    snapshot = window.hidegpt.getSnapshot()
-    detach = window.hidegpt.onSnapshot((patch) => {
-      snapshot = applySnapshotPatch(snapshot, patch)
-      for (const listener of [...listeners]) listener()
-    })
-  }
+  connect()
   listeners.add(onChange)
   return () => {
     listeners.delete(onChange)

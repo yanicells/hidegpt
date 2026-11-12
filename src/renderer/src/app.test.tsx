@@ -88,7 +88,7 @@ function mount(partial: Partial<Snapshot> = {}, fail: (command: Command) => stri
       return { ok: true }
     },
     pickDirectory: async () => '/tmp/project',
-    saveImage: async (_bytes, mime) => `/tmp/pasted.${mime.split('/')[1]}`,
+    saveImage: async ({ mime }) => ({ ok: true, path: `/tmp/pasted.${mime.split('/')[1]}` }),
     platform: 'darwin',
   }
   window.hidegpt = api

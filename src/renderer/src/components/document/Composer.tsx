@@ -97,9 +97,11 @@ export const Composer = memo(function Composer({
   const attach = async (files: File[]) => {
     const pictures = files.filter((file) => IMAGE_TYPES.has(file.type))
     if (!pictures.length || !window.hidegpt) return
-    const paths = await Promise.all(
-      pictures.map(async (file) => window.hidegpt.saveImage(new Uint8Array(await file.arrayBuffer()), file.type)),
+    const saved = await Promise.all(
+      pictures.map(async (file) => window.hidegpt.saveImage({ bytes: new Uint8Array(await file.arrayBuffer()), mime: file.type })),
     )
+    // A picture that could not be stored gets no chip, so it is visibly not attached.
+    const paths = saved.flatMap((result) => (result.ok ? [result.path] : []))
     setImages((current) => [...current, ...paths])
   }
 
