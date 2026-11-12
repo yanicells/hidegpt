@@ -14,14 +14,17 @@ import { isExpectedError } from './errors'
  * nothing, so these say at the call site what happens when the work fails.
  *
  * The lint rule `hidegpt/no-unobserved-effect` bans the bare forms (forks,
- * `Effect.run*`, `Effect.ignore`, `Effect.tapError`) everywhere else; see
- * "Background work" in docs/architecture.md.
+ * `Effect.run*`, `.runFork`, `.runCallback`, `Effect.ignore`, `Effect.tapError`)
+ * everywhere else; see "Background work" in docs/architecture.md.
  */
 
 export interface Observed {
   /** Names the work in the log, e.g. 'codex.elicitationCounter'. */
   readonly name: string
-  /** A typed failure is logged as a warning, unless this says why it is safe to drop. */
+  /**
+   * One of Docs' tagged errors (`isExpectedError`) is logged as a warning, unless this says why
+   * it is safe to drop. Any other failure, typed or not (a `PlatformError`), is a defect.
+   */
   readonly quiet?: string
   /** Runs after a defect is reported, e.g. to raise the generic banner with the id. */
   readonly onDefect?: (reportId: string) => Effect.Effect<void>
@@ -35,17 +38,23 @@ export interface Observed {
 export const observed = <A, E, R>(effect: Effect.Effect<A, E, R>, options: Observed): Effect.Effect<void, never, R> =>
   Effect.catchCause(Effect.asVoid(effect), (cause) => {
     if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt
-    const fail = cause.reasons.find((reason) => reason._tag === 'Fail')
-    const defect = Cause.hasDies(cause) || !fail || !isExpectedError(fail.error)
-    if (defect) {
+    // Every failure counts, not only the first: one untagged failure beside a tagged one is a defect.
+    const defect = cause.reasons.some(
+      (reason) => reason._tag === 'Die' || (reason._tag === 'Fail' && !isExpectedError(reason.error)),
+    )
+    const error = cause.reasons.flatMap((reason) =>
+      reason._tag === 'Fail' && isExpectedError(reason.error) ? [reason.error] : [],
+    )[0]
+    if (defect || error === undefined) {
       return reportDefect(cause).pipe(
         Effect.annotateLogs({ where: options.name }),
         Effect.flatMap((reportId) => options.onDefect?.(reportId) ?? Effect.void),
       )
     }
-    if (options.quiet !== undefined || !isExpectedError(fail.error)) return Effect.void
+    if (options.quiet !== undefined) return Effect.void
+    // Never the error's sentence: a provider's text can echo what was sent.
     return Effect.logWarning('Background work failed').pipe(
-      Effect.annotateLogs({ ...errorLogFields(fail.error), where: options.name }),
+      Effect.annotateLogs({ ...errorLogFields(error), where: options.name }),
     )
   })
 

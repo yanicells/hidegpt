@@ -9,7 +9,7 @@ import * as TestClock from 'effect/testing/TestClock'
 
 import { ProviderRequestError } from './errors'
 import { forkObserved, forkObservedIn, foreverObserved, makeRunObserved, observed, undoOnFailure } from './observed'
-import { captureDefects } from './observed.testkit'
+import { captureReports } from './observed.testkit'
 
 /** Every log line's message, level and annotations. */
 const captureLogs = () => {
@@ -78,7 +78,7 @@ describe('undoOnFailure', () => {
 
 describe('observed, beyond tagged errors', () => {
   it.effect('reports a failure that is not a tagged error as a defect, even when told to stay quiet', () => {
-    const { layer, reported } = captureDefects()
+    const { layer, reported } = captureReports()
     return Effect.gen(function* () {
       yield* observed(Effect.fail({ rejected: true }), { name: 'test.untagged', quiet: 'only tagged errors' })
       expect(reported()).toEqual([expect.objectContaining({ where: 'test.untagged' })])
@@ -86,7 +86,7 @@ describe('observed, beyond tagged errors', () => {
   })
 
   it.effect('reports a defect once when its failure also travels on and is reported again', () => {
-    const { layer, reported } = captureDefects()
+    const { layer, reported } = captureReports()
     return Effect.gen(function* () {
       const bug = new Error('bug')
       yield* observed(Effect.die(bug), { name: 'test.first' })
@@ -98,7 +98,7 @@ describe('observed, beyond tagged errors', () => {
 
 describe('forkObserved and forkObservedIn', () => {
   it.effect('report a forked fiber that dies, which a bare fork leaves silent', () => {
-    const { layer, reported } = captureDefects()
+    const { layer, reported } = captureReports()
     return Effect.gen(function* () {
       yield* Fiber.await(yield* Effect.forkChild(Effect.die(new Error('lost'))))
       expect(reported()).toEqual([])
@@ -112,7 +112,7 @@ describe('forkObserved and forkObservedIn', () => {
 
 describe('foreverObserved', () => {
   it.effect('outlives a dying round, backs off from 1 s doubling, and starts over after a good round', () => {
-    const { layer, reported } = captureDefects()
+    const { layer, reported } = captureReports()
     return Effect.gen(function* () {
       // Three rounds die, one succeeds, one dies, then the last never ends.
       const plan = ['die', 'die', 'die', 'ok', 'die'] as const
@@ -150,7 +150,7 @@ describe('foreverObserved', () => {
 
 describe('makeRunObserved', () => {
   it.effect('runs work from a plain callback with the logger it was made with, and stops it with its scope', () => {
-    const { layer, reported } = captureDefects()
+    const { layer, reported } = captureReports()
     return Effect.gen(function* () {
       let stopped = false
       yield* Effect.scoped(
