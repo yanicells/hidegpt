@@ -184,6 +184,9 @@ export function make(connect: Connect): ProviderAdapter {
       /** Documents this connection opened (resynced after a re-subscribe). */
       const opened = new Set<string>()
       const live = new Map<string, Live>()
+      // Sessions mid-turn. OpenCode repeats busy and retry during a turn; only the first starts one
+      // (as T3 Code's busySessionIds in packages/provider-opencode/src/server/adapter.ts).
+      const busy = new Set<string>()
       const approvals = new Map<string, PendingApproval>()
       /** Requests Docs answered itself; their `replied` event is not news. */
       const answered = new Set<string>()
@@ -283,6 +286,8 @@ export function make(connect: Connect): ProviderAdapter {
               Effect.flatMap(([page, streaming, pending]) => {
                 live.delete(threadId)
                 seed(threadId, page.messages)
+                if (streaming) busy.add(threadId)
+                else busy.delete(threadId)
                 const reset: ThreadEvent = {
                   type: 'reset',
                   threadId,
@@ -299,6 +304,7 @@ export function make(connect: Connect): ProviderAdapter {
 
       const endTurn = (sessionId: string, error?: string): ReadonlyArray<AdapterEvent> => {
         live.delete(sessionId)
+        busy.delete(sessionId)
         return [{ type: 'turnEnded', threadId: sessionId, ...(error ? { error } : {}) }]
       }
 
@@ -376,6 +382,8 @@ export function make(connect: Connect): ProviderAdapter {
           case 'session.status': {
             const { sessionID, status } = event.properties
             if (status.type === 'idle') return emitAll(endTurn(sessionID))
+            if (busy.has(sessionID)) return Effect.void
+            busy.add(sessionID)
             return emit({ type: 'turnStarted', threadId: sessionID })
           }
           case 'session.idle':
@@ -418,6 +426,7 @@ export function make(connect: Connect): ProviderAdapter {
           }
           case 'session.deleted':
             opened.delete(event.properties.info.id)
+            busy.delete(event.properties.info.id)
             return emitAll([
               { type: 'closed', threadId: event.properties.info.id },
               { type: 'invalidate', part: 'docs' },
@@ -550,6 +559,8 @@ export function make(connect: Connect): ProviderAdapter {
             )
             live.delete(threadId)
             seed(threadId, page.messages)
+            if (streaming) busy.add(threadId)
+            else busy.delete(threadId)
             opened.add(threadId)
             const model = info.data.model
             const agent = info.data.agent && info.data.agent.toLowerCase() !== 'plan' ? info.data.agent : null

@@ -268,6 +268,25 @@ describe('OpenCodeAdapter', () => {
     }),
   )
 
+  it.effect('starts a turn once, however often OpenCode repeats busy or retry', () =>
+    Effect.gen(function* () {
+      const { fake, session, events } = yield* open({ reply: null })
+      const status = (id: string, type: 'busy' | 'retry' | 'idle') =>
+        fake.push({ id, type: 'session.status', properties: { sessionID: SESSION, status: type === 'retry' ? { type, attempt: 1, message: 'Overloaded', next: 0 } : { type } } })
+      const started = () => events.filter((event) => event.type === 'turnStarted').length
+      yield* send(session, 'First')
+      yield* until(() => started() === 1)
+      status('evt_s1', 'retry')
+      status('evt_s2', 'busy')
+      status('evt_s3', 'idle')
+      yield* until(() => events.some((event) => event.type === 'turnEnded'))
+      expect(started()).toBe(1)
+
+      status('evt_s4', 'busy')
+      yield* until(() => started() === 2)
+    }),
+  )
+
   it.effect('declines a permission with a reject reply and a question with reject', () =>
     Effect.gen(function* () {
       const { fake, session } = yield* open({ reply: null })
