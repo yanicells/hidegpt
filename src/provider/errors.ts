@@ -85,7 +85,21 @@ export class CommandRejectedError extends Schema.TaggedError<CommandRejectedErro
   }
 }
 
+/** The banner sentence for a defect; the cause itself goes to the log under a report id. */
+export const DEFECT_MESSAGE = 'Something went wrong. Docs saved a report.'
+
+/** A bug (a defect) ended the connection. The log has the cause under `reportId`. */
+export class ProviderDefectError extends Schema.TaggedError<ProviderDefectError>()('ProviderDefectError', {
+  provider: ProviderId,
+  reportId: Schema.String,
+}) {
+  override get message(): string {
+    return 'Something went wrong. Docs saved a report and is reconnecting.'
+  }
+}
+
 export type ProviderError =
+  | ProviderDefectError
   | ProviderTimeoutError
   | ProcessExitedError
   | BinaryMissingError
@@ -95,9 +109,35 @@ export type ProviderError =
 
 /** Errors that end a connection; the session manager restarts after these. */
 export const endsConnection = (error: ProviderError): boolean =>
-  error._tag === 'ProcessExitedError' || error._tag === 'ProviderTimeoutError'
+  error._tag === 'ProcessExitedError' || error._tag === 'ProviderTimeoutError' || error._tag === 'ProviderDefectError'
 
-/** The banner sentence for any failure, including defects. */
+/** A failure Docs expects (one of the errors above); anything else is a defect. */
+export const isExpectedError: (error: unknown) => error is ProviderError | CommandRejectedError = Schema.is(
+  Schema.Union([
+    ProviderDefectError,
+    ProviderTimeoutError,
+    ProcessExitedError,
+    BinaryMissingError,
+    NotLoggedInError,
+    ProviderRequestError,
+    ProviderNotReadyError,
+    CommandRejectedError,
+  ]),
+)
+
+/**
+ * The banner sentence for a failure. Tagged errors already carry a Docs-style
+ * sentence; anything else is a defect, whose raw text never reaches the page.
+ */
+export function bannerMessage(error: unknown): string {
+  if (isExpectedError(error) && error.message) return error.message
+  return typeof error === 'string' && error ? error : DEFECT_MESSAGE
+}
+
+/**
+ * Readable detail from any error, for an adapter composing its own tagged
+ * error ("Docs could not load …: <detail>"). The banner uses `bannerMessage`.
+ */
 export function userMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message
   return typeof error === 'string' && error ? error : 'Something went wrong.'
