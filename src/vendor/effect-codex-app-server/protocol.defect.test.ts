@@ -55,7 +55,7 @@ it.layer(NodeServices.layer)("effect-codex-app-server protocol: defects", (it) =
       assert.instanceOf(failure, CodexError.CodexAppServerTransportError);
       assert.equal(failure.operation, "read-input-stream");
       assert.strictEqual(failure.cause, bug);
-      assert.strictEqual(yield* Fiber.join(pending).pipe(Effect.flip), failure);
+      assert.strictEqual(yield* Fiber.join(pending).pipe(Effect.asVoid, Effect.flip), failure);
     }),
   );
 
@@ -82,7 +82,7 @@ it.layer(NodeServices.layer)("effect-codex-app-server protocol: defects", (it) =
       assert.instanceOf(failure, CodexError.CodexAppServerTransportError);
       assert.equal(failure.operation, "write-output-stream");
       assert.strictEqual(failure.cause, bug);
-      assert.strictEqual(yield* Fiber.join(pending).pipe(Effect.flip), failure);
+      assert.strictEqual(yield* Fiber.join(pending).pipe(Effect.asVoid, Effect.flip), failure);
     }),
   );
 
