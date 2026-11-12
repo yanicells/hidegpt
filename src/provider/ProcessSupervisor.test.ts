@@ -115,6 +115,25 @@ describe('ProcessSupervisor', () => {
       }),
     ),
   )
+
+  it.live('does not hold the exit back on a stderr pipe a child still has open', () =>
+    withSupervisor((supervisor) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          // The background sleep keeps stderr open after the shell exits. A clean exit (0) leaves
+          // the group alone (a failing one would kill it and close the pipe); the scope's kill ends it.
+          const child = yield* supervisor.spawn(
+            { provider: 'codex', command: '/bin/sh', args: ['-c', 'sleep 30 & echo "Error: bad flag" >&2; exit 0'] },
+            true,
+          )
+          const at = Date.now()
+          const error = yield* Effect.flip(child.awaitExit)
+          expect(Date.now() - at).toBeLessThan(1_000)
+          expect(error).toMatchObject({ _tag: 'ProcessExitedError', code: 0, stderr: 'Error: bad flag' })
+        }),
+      ),
+    ),
+  )
 })
 
 describe('ProcessSupervisor.callbackSpawner', () => {

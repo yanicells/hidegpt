@@ -47,6 +47,12 @@ export interface SupervisedProcess {
 
 /** SIGTERM first; a server that ignores it gets SIGKILL after this long. */
 export const FORCE_KILL_AFTER = Duration.seconds(2)
+/**
+ * How long an exit waits for stderr to finish draining before it reads the
+ * tail. Node emits "exit" before the pipes deliver their last data; a child
+ * that keeps the pipe open must not hold the exit back.
+ */
+const STDERR_DRAIN = Duration.millis(250)
 
 /** What an SDK hands its spawn callback (Claude Code's `SpawnOptions`), plus where stderr goes. */
 export type CallbackSpawnOptions = {
@@ -151,16 +157,19 @@ const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledge
       )
 
       const tail = yield* Ref.make('')
-      if (tailStderr) {
-        yield* handle.stderr.pipe(
-          Stream.decodeText(),
-          Stream.runForEach((chunk) => Ref.update(tail, (current) => appendStderrTail(current, chunk))),
-          Effect.ignore,
-          Effect.forkScoped,
-        )
-      }
+      const draining = tailStderr
+        ? yield* handle.stderr.pipe(
+            Stream.decodeText(),
+            Stream.runForEach((chunk) => Ref.update(tail, (current) => appendStderrTail(current, chunk))),
+            Effect.ignore,
+            Effect.forkScoped,
+          )
+        : null
+      // Stderr is drained before the tail is read, as T3 Code's processRunner drains output
+      // before it reads the exit code; capped here, since a server's pipe may outlive it.
+      const drained = draining ? Effect.asVoid(Effect.timeoutOption(Fiber.await(draining), STDERR_DRAIN)) : Effect.void
       const exited = (code: number | null, signal: string | null) =>
-        Effect.flatMap(Ref.get(tail), (text) => {
+        Effect.flatMap(Effect.andThen(drained, Ref.get(tail)), (text) => {
           const stderr = stderrExcerpt(text)
           return Effect.fail(
             new ProcessExitedError({ provider: options.provider, code, signal, ...(stderr ? { stderr } : {}) }),
