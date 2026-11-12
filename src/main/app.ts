@@ -25,6 +25,7 @@ import * as Demo from './demo'
 import { handle, handleSync } from './ipc'
 import * as Logging from './logging/Logger'
 import * as ProviderEventLog from './logging/ProviderEventLog'
+import { launchPath } from './loginShellPath'
 import { makeMenu } from './menu'
 import * as ProviderRegistry from './ProviderRegistry'
 import { ProviderSessionManager, layer as managerLayer } from './ProviderSessionManager'
@@ -43,15 +44,8 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'docs', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
 ])
 
-/** GUI apps on macOS start with a bare PATH; add where the provider CLIs usually live. */
-function prependPath() {
-  if (process.platform !== 'darwin') return
-  const home = process.env.HOME ?? ''
-  const extras = ['/opt/homebrew/bin', '/usr/local/bin', home ? `${home}/.bun/bin` : '', home ? `${home}/.local/bin` : ''].filter(Boolean)
-  process.env.PATH = `${extras.join(':')}:${process.env.PATH ?? ''}`
-}
-
-prependPath()
+// GUI apps on macOS start with a bare PATH; find the provider CLIs the way a terminal would.
+if (process.platform === 'darwin') process.env.PATH = launchPath(process.env, app.isPackaged)
 
 const demo = process.env.HIDEGPT_FAKE === '1'
 /** Where a quit is: `waiting` while scopes close and providers stop, then `allowed` for the real quit. */

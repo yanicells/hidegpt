@@ -1,11 +1,10 @@
+import * as Cause from 'effect/Cause'
 import * as Context from 'effect/Context'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
 
 import type { ProviderId } from '../shared/model'
-import { providerLabel } from '../shared/labels'
-import * as Cause from 'effect/Cause'
-
+import { PERSONAL_BUILD, providerLabel } from '../shared/labels'
 import { reportDefect } from '../provider/DefectReport'
 import { ProviderRequestError } from '../provider/errors'
 import { ProcessSupervisor } from '../provider/ProcessSupervisor'
@@ -62,6 +61,13 @@ export const layerLoaders = (loaders: Loaders) => {
   return Layer.succeed(ProviderRegistry, fromLoaders({ codex: once('codex'), opencode: once('opencode'), claude: once('claude') }))
 }
 
+/**
+ * The Claude loader of a shared build. `PERSONAL_BUILD` is a build-time constant,
+ * so the bundler drops the Claude import from such a build entirely.
+ */
+export const notInThisBuild = (): Promise<ProviderAdapter> =>
+  Promise.reject(new Error('this library is not part of this build'))
+
 /** The real providers, each spawned under the shared process supervisor. */
 export const layer = Layer.effect(
   ProviderRegistry,
@@ -70,7 +76,7 @@ export const layer = Layer.effect(
     return fromLoaders({
       codex: () => import('../codex/CodexAdapter').then((m) => m.make(m.spawnAppServer(supervisor))),
       opencode: () => import('../opencode/OpenCodeAdapter').then((m) => m.make(m.spawnServer(supervisor))),
-      claude: () => import('../claude/ClaudeAdapter').then((m) => m.make(undefined, supervisor)),
+      claude: PERSONAL_BUILD ? () => import('../claude/ClaudeAdapter').then((m) => m.make(undefined, supervisor)) : notInThisBuild,
     })
   }),
 )
