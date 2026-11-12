@@ -16,7 +16,8 @@ const setBundleName = (plist: string, name: string): void => {
 export function nameHelpers(app: string, setName: (plist: string, name: string) => void = setBundleName): void {
   const frameworks = join(app, 'Contents', 'Frameworks')
   for (const entry of readdirSync(frameworks)) {
-    if (entry.endsWith('.app')) setName(join(frameworks, entry, 'Contents', 'Info.plist'), entry.slice(0, -'.app'.length))
+    if (entry.endsWith('.app'))
+      setName(join(frameworks, entry, 'Contents', 'Info.plist'), entry.slice(0, -'.app'.length))
   }
 }
 
