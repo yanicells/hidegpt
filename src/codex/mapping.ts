@@ -44,14 +44,21 @@ export type RateLimits = CodexRpc.ServerNotificationParamsByMethod['account/rate
 
 const PROVIDER_WORDS =
   /\b(ai|assistants?|agents?|models?|prompts?|llms?|tokens?|claude|codex|opencode|chatgpt|anthropic|openai|gpt|copilot|bots?)\b/i
-/** Splits identifiers into words, so `chatgpt_search` and `codexHelper` are caught too. */
-const words = (text: string) => text.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ')
+/** Product names are distinctive enough to catch anywhere, even run together (`OpenAIAPI`). */
+const PRODUCT_NAMES = /claude|codex|opencode|chatgpt|anthropic|openai|copilot|gpt[-_ ]?\d/i
+/** Splits identifiers into words, so `chatgpt_search`, `codexHelper`, `gpt5` and `OpenAIAPI` are caught too. */
+const words = (text: string) =>
+  text
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([a-z])(\d)/gi, '$1 $2')
+    .replace(/_/g, ' ')
 const LINK = /\b(?:https?:\/\/|www\.)\S+/gi
 
 /** Provider text with links removed, or null when what is left would give the provider away. */
 export function docsSafe(text: string | null | undefined): string | null {
   const cleaned = (text ?? '').replace(LINK, '').replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ').trim()
-  return cleaned && !PROVIDER_WORDS.test(words(cleaned)) ? cleaned : null
+  return cleaned && !PROVIDER_WORDS.test(words(cleaned)) && !PRODUCT_NAMES.test(cleaned) ? cleaned : null
 }
 
 /** Codex's request error text, reworded where Docs can say what to do. */
@@ -256,7 +263,7 @@ export function itemToBlock(item: ThreadItem): Block | null {
     case 'exitedReviewMode':
       return callout(item.id, 'Left review', item.review)
     case 'functionCallOutput':
-      return callout(item.id, item.name, item.namespace ?? '')
+      return callout(item.id, docsSafe(item.name) ?? 'Action', docsSafe(item.namespace) ?? '')
     default: {
       // Unreachable while the ThreadItem union is closed: a newer item type fails to decode, and
       // the client logs and drops that notification. Kept so a widened union still renders.
@@ -318,8 +325,9 @@ type Json = typeof Schema.Json.Type
 // Adapted from T3 Code (https://github.com/pingdotgg/t3code),
 // apps/server/src/provider/CodexMcpElicitation.ts (`describeMcpElicitation`,
 // `toMcpElicitationResponse`) at commit 5c6f2f12. Copyright (c) 2026 T3 Tools Inc.
-// MIT License; see THIRD_PARTY_NOTICES.md. HideGPT drops the persistence options
-// (Docs asks once) and fills fields from what the person typed.
+// MIT License; see THIRD_PARTY_NOTICES.md. HideGPT keeps only the one-time "accept"
+// (Docs asks every time), so persistence options are never chosen, and fills the
+// remaining fields from what the person typed.
 
 const NullableString = Schema.optionalKey(Schema.NullOr(Schema.String))
 const ElicitationMetadata = Schema.Struct({
@@ -334,7 +342,11 @@ const ElicitationMetadata = Schema.Struct({
 const ElicitationField = Schema.Struct({
   type: NullableString,
   title: NullableString,
+  description: NullableString,
   default: Schema.optionalKey(Schema.Json),
+  enum: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.String))),
+  enumNames: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.String))),
+  oneOf: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.Struct({ const: Schema.String, title: NullableString })))),
 })
 type ElicitationField = typeof ElicitationField.Type
 const ElicitationForm = Schema.Struct({
@@ -375,25 +387,51 @@ function formFields(params: ElicitationParams): {
   const form = Option.getOrUndefined(decodeForm(params.requestedSchema))
   if (!form) return null
   const fields = Object.entries(form.properties ?? {}).flatMap(([id, raw]) =>
-    raw !== null && typeof raw === 'object' && !Array.isArray(raw)
-      ? Option.match(decodeField(raw), { onNone: () => [], onSome: (field) => [[id, field] as const] })
-      : [],
+    Option.match(decodeField(raw), { onNone: () => [], onSome: (field) => [[id, field] as const] }),
   )
   return { fields, required: form.required ?? [] }
 }
 
+/** A field's choices, from `oneOf` or `enum` + `enumNames`. */
+function fieldOptions(field: ElicitationField): ReadonlyArray<{ readonly value: string; readonly label: string | null }> {
+  if (field.oneOf) return field.oneOf.map((option) => ({ value: option.const, label: option.title ?? null }))
+  return (field.enum ?? []).map((value, index) => ({ value, label: field.enumNames?.[index] ?? null }))
+}
+
+/** Words that make an answer outlast this one request ("for this session", "always"). */
+const PERSISTS = /session|always|permanent|forever|persistent/i
+const ONE_TIME_ACCEPT = /^(?:once|accept|approve|allow)(?:[_\s-]*(?:once(?:[_\s-]*only)?|this[_\s-]*time))?$/i
+
+/**
+ * The value Docs fills in for the person, which they never see: the one-time "allow"
+ * choice of an approval field, and `false` for a "remember this" checkbox.
+ */
+function implicitAnswer(id: string, field: ElicitationField): Json | undefined {
+  const accept = fieldOptions(field).find((option) => ONE_TIME_ACCEPT.test(option.value.trim()) && !PERSISTS.test(option.value))
+  if (accept) return accept.value
+  const persistence = id.toLowerCase() === 'persist' || [id, field.title ?? '', field.description ?? ''].some((text) => PERSISTS.test(text))
+  return field.type === 'boolean' && persistence ? false : undefined
+}
+
+/** The fields the person fills in; approval choices and persistence flags are answered for them. */
 export function elicitationFields(params: ElicitationParams) {
-  return (formFields(params)?.fields ?? []).map(([id, field]) => ({
+  const visible = (formFields(params)?.fields ?? []).filter(([id, field]) => implicitAnswer(id, field) === undefined)
+  return visible.map(([id, field]) => ({
     id,
     label: docsSafe(field.title) ?? docsSafe(id) ?? 'Answer',
     ...(field.default != null && typeof field.default !== 'object' ? { initial: String(field.default) } : {}),
   }))
 }
 
-/** What the person typed, as the field's JSON type; undefined when it is empty or doesn't fit. */
+/** What the person typed, as the field's JSON type or one of its choices; undefined when it is empty or doesn't fit. */
 function typedAnswer(field: ElicitationField, text: string | undefined): Json | undefined {
   const value = text?.trim()
   if (!value) return field.default ?? undefined
+  const options = fieldOptions(field)
+  if (options.length) {
+    const lower = value.toLowerCase()
+    return options.find((option) => option.value.toLowerCase() === lower || option.label?.toLowerCase() === lower)?.value ?? field.default ?? undefined
+  }
   if (field.type === 'boolean') return /^(true|yes|on|1)$/i.test(value) ? true : /^(false|no|off|0)$/i.test(value) ? false : undefined
   if (field.type === 'number' || field.type === 'integer') {
     const number = Number(value)
@@ -409,7 +447,7 @@ export function elicitationResponse(params: ElicitationParams, reply: ApprovalRe
   if (!form) return { action: 'accept', content: null, _meta: null }
   const content: Record<string, Json> = {}
   for (const [id, field] of form.fields) {
-    const value = typedAnswer(field, reply.answers[id])
+    const value = implicitAnswer(id, field) ?? typedAnswer(field, reply.answers[id])
     if (value !== undefined) content[id] = value
   }
   if (form.required.some((id) => !Object.hasOwn(content, id))) return { action: 'decline', content: null, _meta: null }

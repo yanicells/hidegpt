@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { docsFailure, elicitationFields, elicitationResponse } from './mapping.ts'
+import { APPROVALS, docsFailure, docsSafe, elicitationFields, elicitationResponse } from './mapping.ts'
 
 type Params = Parameters<typeof elicitationFields>[0]
 
@@ -54,5 +54,81 @@ describe('docsFailure', () => {
     }
     expect(docsFailure(error, null)).toBe('Docs could not connect. Try again in a moment.')
     expect(docsFailure({ ...error, codexErrorInfo: 'usageLimitExceeded' }, null)).toBe('Limit reached. Try again later.')
+  })
+})
+
+// T3 Code's own fixture (apps/server/src/provider/CodexMcpElicitation.test.ts, commit 5c6f2f12):
+// the usual connector approval, a required choice whose one-time option is "once".
+const safari = {
+  mode: 'form',
+  message: 'Allow ChatGPT to use Safari?',
+  serverName: 'computer-use',
+  threadId: 'provider-thread-1',
+  turnId: 'turn-1',
+  _meta: { app_name: 'Safari', persist: ['session', 'always'] },
+  requestedSchema: {
+    type: 'object',
+    properties: {
+      approval: {
+        type: 'string',
+        oneOf: [
+          { const: 'once', title: 'Allow once' },
+          { const: 'session', title: 'Allow for this session' },
+          { const: 'always', title: 'Always allow Safari' },
+        ],
+      },
+    },
+    required: ['approval'],
+  },
+} satisfies Params
+
+describe('connector approvals', () => {
+  it('asks only Allow or not, under the app\'s name', () => {
+    expect(APPROVALS['mcpServer/elicitation/request'].block('a1', safari)).toMatchObject({
+      title: 'Allow Safari?',
+      body: 'Safari needs your OK to continue.',
+      fields: [],
+    })
+  })
+
+  it('Allow picks the one-time choice, as T3 does', () => {
+    expect(elicitationResponse(safari, { accept: true, answers: {} })).toEqual({
+      action: 'accept',
+      content: { approval: 'once' },
+      _meta: null,
+    })
+  })
+
+  it('Allow picks "accept" from an enum and never a remembered choice', () => {
+    const params = {
+      ...safari,
+      requestedSchema: {
+        type: 'object',
+        properties: {
+          approval: { type: 'string', enum: ['accept_for_session', 'accept'], enumNames: ['This session', 'Allow'] },
+          remember: { type: 'boolean', title: 'Always allow this app' },
+        },
+        required: ['approval'],
+      },
+    } satisfies Params
+    expect(elicitationFields(params)).toEqual([])
+    expect(elicitationResponse(params, { accept: true, answers: {} })).toEqual({
+      action: 'accept',
+      content: { approval: 'accept', remember: false },
+      _meta: null,
+    })
+  })
+
+  it('a choice the person fills in must be one of the options', () => {
+    const params = form({ size: { type: 'string', enum: ['small', 'large'], enumNames: ['Small', 'Large'] } }, ['size'])
+    expect(elicitationResponse(params, { accept: true, answers: { size: 'Large' } })).toMatchObject({ content: { size: 'large' } })
+    expect(elicitationResponse(params, { accept: true, answers: { size: 'huge' } })).toMatchObject({ action: 'decline' })
+  })
+})
+
+describe('docsSafe', () => {
+  it('catches provider names run into other words', () => {
+    for (const text of ['gpt5', 'GPT4o', 'ChatGPTPlus', 'OpenAIAPI', 'codex_helper', 'askClaude']) expect(docsSafe(text)).toBeNull()
+    expect(docsSafe('Notion · Search pages')).toBe('Notion · Search pages')
   })
 })
