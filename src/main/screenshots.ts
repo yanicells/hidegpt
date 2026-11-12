@@ -19,7 +19,9 @@ export const captureScreenshots = (win: BrowserWindow, manager: ProviderSessionM
     const run = <A>(script: string) => Effect.promise(() => win.webContents.executeJavaScript(script) as Promise<A>)
     const pause = (ms: number) => Effect.sleep(`${ms} millis`)
     const shoot = (name: string) =>
-      Effect.promise(() => win.capturePage()).pipe(Effect.map((image) => writeFileSync(join(dir, `${name}.png`), image.toPNG())))
+      Effect.promise(() => win.capturePage()).pipe(
+        Effect.map((image) => writeFileSync(join(dir, `${name}.png`), image.toPNG())),
+      )
     const waitFor = (selector: string, what: string) =>
       run(`new Promise((resolve, reject) => {
         const started = Date.now()
@@ -32,9 +34,14 @@ export const captureScreenshots = (win: BrowserWindow, manager: ProviderSessionM
       })`)
     const click = (selector: string) => run(`document.querySelector(${JSON.stringify(selector)}).click()`)
     const clickButton = (scope: string, text: string) =>
-      run(`Array.from(document.querySelectorAll(${JSON.stringify(scope)})).find((b) => b.textContent === ${JSON.stringify(text)}).click()`)
+      run(
+        `Array.from(document.querySelectorAll(${JSON.stringify(scope)})).find((b) => b.textContent === ${JSON.stringify(text)}).click()`,
+      )
 
-    yield* manager.snapshots.pipe(Stream.filter((snapshot) => snapshot.status !== 'connecting'), Stream.runHead)
+    yield* manager.snapshots.pipe(
+      Stream.filter((snapshot) => snapshot.status !== 'connecting'),
+      Stream.runHead,
+    )
     win.show()
     yield* waitFor('[data-testid="app"]', 'The app')
     yield* pause(200)

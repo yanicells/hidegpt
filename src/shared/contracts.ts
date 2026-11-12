@@ -207,10 +207,8 @@ export const SnapshotPatch = Schema.Struct({
 })
 export type SnapshotPatch = typeof SnapshotPatch.Type
 
-const op = <const Op extends string, const Fields extends Schema.Struct.Fields = {}>(
-  name: Op,
-  fields?: Fields,
-) => Schema.Struct({ op: Schema.Literal(name), ...(fields ?? ({} as Fields)) })
+const op = <const Op extends string, const Fields extends Schema.Struct.Fields = {}>(name: Op, fields?: Fields) =>
+  Schema.Struct({ op: Schema.Literal(name), ...(fields ?? ({} as Fields)) })
 
 /** Everything the renderer can ask main to do. Decoded in main before it runs. */
 export const Command = Schema.Union([

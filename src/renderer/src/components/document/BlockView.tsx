@@ -23,7 +23,9 @@ export const BlockView = memo(
           ) : null}
           {block.text || block.skills?.length ? (
             <p className="doc-question">
-              {block.skills?.map((name) => <SkillChip key={name} name={name} />)}
+              {block.skills?.map((name) => (
+                <SkillChip key={name} name={name} />
+              ))}
               {block.text}
             </p>
           ) : null}

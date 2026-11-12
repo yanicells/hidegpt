@@ -58,13 +58,7 @@ export function MenuPanel({
   }
 
   return (
-    <div
-      ref={ref}
-      className={`menu-panel align-${align}`}
-      role="menu"
-      data-testid={testId}
-      onKeyDown={onKeyDown}
-    >
+    <div ref={ref} className={`menu-panel align-${align}`} role="menu" data-testid={testId} onKeyDown={onKeyDown}>
       {children}
       {items.map((item) => (
         <button

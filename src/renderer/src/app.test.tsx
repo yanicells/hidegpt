@@ -76,7 +76,7 @@ function mount(partial: Partial<Snapshot> = {}, fail: (command: Command) => stri
         const resolved = command.accept ? 'accepted' : 'skipped'
         snapshot = {
           ...snapshot,
-          blocks: snapshot.blocks.map((block) => 
+          blocks: snapshot.blocks.map((block) =>
             block.kind === 'approval' && block.id === command.blockId ? { ...block, resolved } : block,
           ),
         }
@@ -587,12 +587,18 @@ describe('failures and replies', () => {
     expect(calls).toEqual([])
     await user.click(screen.getByTestId('accept-ap1'))
     expect(await screen.findByText('Accepted')).toBeInTheDocument()
-    expect(calls).toEqual([{ op: 'resolveApproval', blockId: 'ap1', accept: true, answers: { name: 'Yani', size: 'Large' } }])
+    expect(calls).toEqual([
+      { op: 'resolveApproval', blockId: 'ap1', accept: true, answers: { name: 'Yani', size: 'Large' } },
+    ])
   })
 
   it('offers Log in only to libraries that sign in inside Docs', async () => {
     const user = userEvent.setup()
-    mount({ provider: 'claude', capabilities: CAPABILITIES.claude, account: { kind: 'local', label: 'yan@school.edu' } })
+    mount({
+      provider: 'claude',
+      capabilities: CAPABILITIES.claude,
+      account: { kind: 'local', label: 'yan@school.edu' },
+    })
     await user.click(screen.getByTestId('menu-account'))
     expect(screen.getByTestId('panel-account')).not.toHaveTextContent(/Log (in|out)/)
     cleanup()

@@ -117,7 +117,9 @@ function template(snap: Snapshot, handlers: MenuHandlers): Electron.MenuItemCons
         { role: 'zoomOut' },
         { type: 'separator' },
         { role: 'togglefullscreen' },
-        ...(app.isPackaged ? [] : [{ type: 'separator' as const }, { role: 'reload' as const }, { role: 'toggleDevTools' as const }]),
+        ...(app.isPackaged
+          ? []
+          : [{ type: 'separator' as const }, { role: 'reload' as const }, { role: 'toggleDevTools' as const }]),
       ],
     },
     {

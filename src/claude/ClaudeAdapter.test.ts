@@ -20,7 +20,9 @@ const SETTINGS = { model: 'default', effort: 'high', serviceTier: null, mode: nu
 const DOC = 'c0ffee00-0000-4000-8000-000000000001'
 const HISTORY = {
   sessions: [stubSession(DOC, 'Reading notes', '/tmp')],
-  transcripts: { [DOC]: [transcriptUser(DOC, 'u1', 'Summarise week 3'), transcriptAgent(DOC, 'a1', 'Week 3 covers attention.')] },
+  transcripts: {
+    [DOC]: [transcriptUser(DOC, 'u1', 'Summarise week 3'), transcriptAgent(DOC, 'a1', 'Week 3 covers attention.')],
+  },
 }
 
 /** Real time for the fake's promise-based SDK to run; the TestClock still owns deadlines. */
@@ -50,7 +52,12 @@ describe('ClaudeAdapter', () => {
     Effect.gen(function* () {
       const { fake, session } = yield* open()
       const catalog = yield* session.loadCatalog
-      expect(catalog.models[0]).toMatchObject({ id: 'default', efforts: ['low', 'medium', 'high'], defaultEffort: 'high', isDefault: true })
+      expect(catalog.models[0]).toMatchObject({
+        id: 'default',
+        efforts: ['low', 'medium', 'high'],
+        defaultEffort: 'high',
+        isDefault: true,
+      })
       expect(catalog.models[1]).toMatchObject({ id: 'haiku', efforts: [] })
       expect(catalog.account).toEqual({ kind: 'local', label: 'student@example.edu' })
       expect(fake.queries[0]?.prompts).toEqual([])
@@ -81,8 +88,12 @@ describe('ClaudeAdapter', () => {
 
   it.effect('shares one probe between the catalog and the skills of the same folder', () =>
     Effect.gen(function* () {
-      const { fake, session } = yield* open({ commands: [{ name: 'tutor', description: 'Explains', argumentHint: '' }] })
-      const [, skills] = yield* Effect.all([session.loadCatalog, session.listSkills(process.env.HOME ?? '/')], { concurrency: 'unbounded' })
+      const { fake, session } = yield* open({
+        commands: [{ name: 'tutor', description: 'Explains', argumentHint: '' }],
+      })
+      const [, skills] = yield* Effect.all([session.loadCatalog, session.listSkills(process.env.HOME ?? '/')], {
+        concurrency: 'unbounded',
+      })
       expect(skills).toEqual([{ name: 'tutor', description: 'Explains', path: '' }])
       expect(fake.queries).toHaveLength(1)
     }),
@@ -96,7 +107,9 @@ describe('ClaudeAdapter', () => {
       expect(opened).toMatchObject({ title: 'Reading notes', cwd: '/tmp', streaming: false })
       expect(opened.blocks).toHaveLength(60)
       const older = yield* session.loadOlder(DOC, opened.olderCursor ?? '')
-      expect(older.blocks.map((block) => block.kind === 'user' && block.text)).toEqual(Array.from({ length: 10 }, (_, i) => `Line ${i}`))
+      expect(older.blocks.map((block) => block.kind === 'user' && block.text)).toEqual(
+        Array.from({ length: 10 }, (_, i) => `Line ${i}`),
+      )
       expect(older.cursor).toBeNull()
       // Opening reads the transcript; no Claude Code process starts until a message is sent.
       expect(fake.queries).toHaveLength(0)
@@ -110,7 +123,13 @@ describe('ClaudeAdapter', () => {
       yield* send(session, DOC, 'Why?')
       yield* until(() => ended(events).length === 1)
 
-      expect(fake.queries[0]?.options).toMatchObject({ resume: DOC, cwd: '/tmp', model: 'default', effort: 'high', includePartialMessages: true })
+      expect(fake.queries[0]?.options).toMatchObject({
+        resume: DOC,
+        cwd: '/tmp',
+        model: 'default',
+        effort: 'high',
+        includePartialMessages: true,
+      })
       const deltas = events.flatMap((event) => (event.type === 'text' ? [event.delta] : []))
       expect(deltas.join('')).toBe('Attention comes first.')
       // The final frame repeats the streamed text; it is not drawn twice.
@@ -140,7 +159,9 @@ describe('ClaudeAdapter', () => {
       yield* until(() => fake.queries[0]?.prompts.length === 1)
       fake.queries[0]?.exit()
       yield* until(() => ended(events).length === 1)
-      expect(ended(events)[0]?.type === 'turnEnded' && ended(events)[0]).toMatchObject({ error: expect.stringMatching(/stopped before it finished/) })
+      expect(ended(events)[0]?.type === 'turnEnded' && ended(events)[0]).toMatchObject({
+        error: expect.stringMatching(/stopped before it finished/),
+      })
 
       yield* send(session, DOC, 'Again')
       yield* until(() => fake.queries[1]?.prompts.length === 1)
@@ -168,7 +189,9 @@ describe('ClaudeAdapter', () => {
       yield* until(() => fake.queries[0]?.prompts.length === 1)
       fake.queries[0]?.push(assistantFrame('msg_x', [{ type: 'text', text: 'Partial' }]))
       yield* session.interrupt(DOC)
-      fake.queries[0]?.push(resultFrame({ subtype: 'error_during_execution', is_error: true, errors: ['Request was aborted.'] }))
+      fake.queries[0]?.push(
+        resultFrame({ subtype: 'error_during_execution', is_error: true, errors: ['Request was aborted.'] }),
+      )
       yield* until(() => ended(events).length === 1)
       expect(fake.queries[0]?.calls).toContain('interrupt')
       expect(ended(events)[0]).toEqual({ type: 'turnEnded', threadId: DOC })
@@ -212,7 +235,9 @@ describe('ClaudeAdapter', () => {
       yield* send(session, DOC, 'First')
       yield* until(() => fake.queries[0]?.prompts.length === 1)
       yield* session.interrupt(DOC)
-      fake.queries[0]?.push(resultFrame({ subtype: 'error_during_execution', is_error: true, errors: ['Request was aborted.'] }))
+      fake.queries[0]?.push(
+        resultFrame({ subtype: 'error_during_execution', is_error: true, errors: ['Request was aborted.'] }),
+      )
       yield* until(() => ended(events).length === 1)
 
       // A new turn, stopped later: only its own timer may close Claude Code.
@@ -257,7 +282,10 @@ describe('ClaudeAdapter', () => {
         block: { id: 'approval-toolu_1', title: 'Allow Bash?', body: 'git status', resolved: null },
       })
       yield* session.respond(DOC, 'approval-toolu_1', { accept: true, answers: {} })
-      expect(yield* Effect.promise(() => asked.result)).toEqual({ behavior: 'allow', updatedInput: { command: 'git status' } })
+      expect(yield* Effect.promise(() => asked.result)).toEqual({
+        behavior: 'allow',
+        updatedInput: { command: 'git status' },
+      })
     }),
   )
 
@@ -266,21 +294,39 @@ describe('ClaudeAdapter', () => {
       const { fake, session, events } = yield* open({ reply: null })
       yield* send(session, DOC, 'Quiz me')
       yield* until(() => fake.queries[0]?.prompts.length === 1)
-      const input = { questions: [{ question: 'Which week?', header: 'Week', options: [{ label: '3', description: '' }, { label: '4', description: '' }], multiSelect: false }] }
+      const input = {
+        questions: [
+          {
+            question: 'Which week?',
+            header: 'Week',
+            options: [
+              { label: '3', description: '' },
+              { label: '4', description: '' },
+            ],
+            multiSelect: false,
+          },
+        ],
+      }
       const asked = fake.queries[0]!.askTool('AskUserQuestion', input, 'toolu_q')
       yield* until(() => events.some((event) => event.type === 'block'))
       expect(events.find((event) => event.type === 'block')).toMatchObject({
         block: { questions: [{ id: 'q0', question: 'Which week?', options: ['3', '4'], allowText: true }] },
       })
       yield* session.respond(DOC, 'approval-toolu_q', { accept: true, answers: { q0: '3' } })
-      expect(yield* Effect.promise(() => asked.result)).toEqual({ behavior: 'allow', updatedInput: { ...input, answers: { 'Which week?': '3' } } })
+      expect(yield* Effect.promise(() => asked.result)).toEqual({
+        behavior: 'allow',
+        updatedInput: { ...input, answers: { 'Which week?': '3' } },
+      })
 
       const withdrawn = fake.queries[0]!.askTool('Bash', { command: 'ls' }, 'toolu_2')
       yield* until(() => events.filter((event) => event.type === 'block').length === 2)
       withdrawn.abort()
       expect(yield* Effect.promise(() => withdrawn.result)).toMatchObject({ behavior: 'deny' })
       yield* until(() => events.some((event) => event.type === 'resolved'))
-      expect(events.find((event) => event.type === 'resolved')).toMatchObject({ blockId: 'approval-toolu_2', resolved: 'skipped' })
+      expect(events.find((event) => event.type === 'resolved')).toMatchObject({
+        blockId: 'approval-toolu_2',
+        resolved: 'skipped',
+      })
     }),
   )
 })

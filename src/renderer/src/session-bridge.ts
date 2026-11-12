@@ -43,7 +43,10 @@ export function currentSnapshot(): Snapshot {
  * (packages/client-runtime/src/state/threadDetail.ts) at commit 8a14762c.
  * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
  */
-export function useSnapshotSelector<T>(select: (snapshot: Snapshot) => T, isEqual: (a: T, b: T) => boolean = Object.is): T {
+export function useSnapshotSelector<T>(
+  select: (snapshot: Snapshot) => T,
+  isEqual: (a: T, b: T) => boolean = Object.is,
+): T {
   const last = useRef<{ source: Snapshot; value: T } | null>(null)
   const getSelection = () => {
     const previous = last.current

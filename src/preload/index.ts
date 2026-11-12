@@ -31,7 +31,9 @@ const api: HideGptApi = {
   dispatch: (command: Command) => ipcRenderer.invoke('command', command) as Promise<CommandResult>,
   pickDirectory: () => ipcRenderer.invoke('pick-directory'),
   saveImage: async (bytes: Uint8Array, mime: string) => {
-    const result = (await ipcRenderer.invoke('save-image', [bytes, mime])) as { ok: true; path: string } | { ok: false; error: string }
+    const result = (await ipcRenderer.invoke('save-image', [bytes, mime])) as
+      | { ok: true; path: string }
+      | { ok: false; error: string }
     if (!result.ok) throw new Error(result.error)
     return result.path
   },

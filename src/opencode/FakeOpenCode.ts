@@ -59,7 +59,12 @@ export interface FakeOpenCode {
   /** Starts a "process"; each call is a fresh server over the same library. */
   readonly connect: Connect
   /** Every request, in order (the SSE subscription included). */
-  readonly requests: ReadonlyArray<{ readonly method: string; readonly path: string; readonly query: URLSearchParams; readonly body: unknown }>
+  readonly requests: ReadonlyArray<{
+    readonly method: string
+    readonly path: string
+    readonly query: URLSearchParams
+    readonly body: unknown
+  }>
   readonly connections: () => number
   readonly subscriptions: () => number
   readonly sessions: Array<GlobalSession>
@@ -110,7 +115,8 @@ const FAKE_PROVIDER: Provider = {
   },
 } as Provider
 
-const agent = (name: string, mode: Agent['mode']): Agent => ({ name, mode, permission: [], options: {} }) as unknown as Agent
+const agent = (name: string, mode: Agent['mode']): Agent =>
+  ({ name, mode, permission: [], options: {} }) as unknown as Agent
 
 export const stubSession = (id: string, title: string, directory = '/tmp/fake', updated = Date.now()): GlobalSession =>
   ({
@@ -125,7 +131,14 @@ export const stubSession = (id: string, title: string, directory = '/tmp/fake', 
 
 export function userMessage(sessionID: string, id: string, text: string): MessageWithParts {
   return {
-    info: { id, sessionID, role: 'user', time: { created: Date.now() }, agent: 'build', model: { providerID: 'fake', modelID: 'model-a' } },
+    info: {
+      id,
+      sessionID,
+      role: 'user',
+      time: { created: Date.now() },
+      agent: 'build',
+      model: { providerID: 'fake', modelID: 'model-a' },
+    },
     parts: [{ id: `${id}-p0`, sessionID, messageID: id, type: 'text', text }],
   }
 }
@@ -168,7 +181,8 @@ const json = (data: unknown, status = 200, headers: Record<string, string> = {})
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', ...headers } })
 const notFound = (message: string) => json({ name: 'NotFoundError', data: { message } }, 404)
 const encodeCursor = (index: number) => Buffer.from(JSON.stringify({ index })).toString('base64url')
-const decodeCursor = (cursor: string) => (JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { index: number }).index
+const decodeCursor = (cursor: string) =>
+  (JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { index: number }).index
 
 export function makeFakeOpenCode(options: FakeOpenCodeOptions = {}): FakeOpenCode {
   const sessions = [...(options.sessions ?? [])]
@@ -257,8 +271,22 @@ export function makeFakeOpenCode(options: FakeOpenCodeOptions = {}): FakeOpenCod
     const id = options.ignoreMessageIds || !body.messageID ? ids() : body.messageID
     const parts: Part[] = (body.parts ?? []).map((part, index) =>
       part.type === 'file'
-        ? { id: `prt_${id.slice(4)}${index}`, sessionID: sessionId, messageID: id, type: 'file', mime: part.mime ?? '', url: part.url ?? '' }
-        : { id: `prt_${id.slice(4)}${index}`, sessionID: sessionId, messageID: id, type: 'text', text: part.text ?? '', ...(part.synthetic ? { synthetic: true } : {}) },
+        ? {
+            id: `prt_${id.slice(4)}${index}`,
+            sessionID: sessionId,
+            messageID: id,
+            type: 'file',
+            mime: part.mime ?? '',
+            url: part.url ?? '',
+          }
+        : {
+            id: `prt_${id.slice(4)}${index}`,
+            sessionID: sessionId,
+            messageID: id,
+            type: 'text',
+            text: part.text ?? '',
+            ...(part.synthetic ? { synthetic: true } : {}),
+          },
     )
     const message: MessageWithParts = {
       info: {
@@ -287,7 +315,11 @@ export function makeFakeOpenCode(options: FakeOpenCodeOptions = {}): FakeOpenCod
       start(stream) {
         controller = stream
         streams.add(stream)
-        stream.enqueue(encoder.encode(`data: ${JSON.stringify({ directory: '/tmp/fake', payload: { id: 'evt_connected', type: 'server.connected', properties: {} } })}\n\n`))
+        stream.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ directory: '/tmp/fake', payload: { id: 'evt_connected', type: 'server.connected', properties: {} } })}\n\n`,
+          ),
+        )
       },
       cancel() {
         if (controller) streams.delete(controller)
@@ -350,7 +382,11 @@ export function makeFakeOpenCode(options: FakeOpenCodeOptions = {}): FakeOpenCod
         return json(status)
       case 'POST /session': {
         const options = (body ?? {}) as { title?: string; agent?: string }
-        const created = stubSession(`ses_${ids().slice(4)}`, options.title ?? 'New session', q.get('directory') ?? '/tmp/fake')
+        const created = stubSession(
+          `ses_${ids().slice(4)}`,
+          options.title ?? 'New session',
+          q.get('directory') ?? '/tmp/fake',
+        )
         sessions.push(created)
         event('session.created', { sessionID: created.id, info: created })
         return json(created)
@@ -363,7 +399,11 @@ export function makeFakeOpenCode(options: FakeOpenCodeOptions = {}): FakeOpenCod
         const index = sessions.findIndex((item) => item.id === id)
         if (index === -1) return notFound(`Session not found: ${id}`)
         const title = (body as { title?: string }).title
-        sessions[index] = { ...sessions[index]!, ...(title ? { title } : {}), time: { ...sessions[index]!.time, updated: Date.now() } }
+        sessions[index] = {
+          ...sessions[index]!,
+          ...(title ? { title } : {}),
+          time: { ...sessions[index]!.time, updated: Date.now() },
+        }
         event('session.updated', { sessionID: id, info: sessions[index]! })
         return json(sessions[index])
       }
@@ -381,7 +421,10 @@ export function makeFakeOpenCode(options: FakeOpenCodeOptions = {}): FakeOpenCod
         return new Response(null, { status: 204 })
       case 'POST /session/:id/abort':
         if (status[id]?.type === 'busy') {
-          event('session.error', { sessionID: id, error: { name: 'MessageAbortedError', data: { message: 'Aborted' } } })
+          event('session.error', {
+            sessionID: id,
+            error: { name: 'MessageAbortedError', data: { message: 'Aborted' } },
+          })
           finish(id)
         }
         return json(true)
@@ -397,9 +440,17 @@ export function makeFakeOpenCode(options: FakeOpenCodeOptions = {}): FakeOpenCod
         if (!fake.replyResult || index === -1) return json(false)
         const [settled] = list.splice(index, 1)
         if (segments[0] === 'permission') {
-          event('permission.replied', { sessionID: settled!.sessionID, requestID: id, reply: (body as { reply: 'once' | 'always' | 'reject' }).reply })
+          event('permission.replied', {
+            sessionID: settled!.sessionID,
+            requestID: id,
+            reply: (body as { reply: 'once' | 'always' | 'reject' }).reply,
+          })
         } else if (segments[2] === 'reply') {
-          event('question.replied', { sessionID: settled!.sessionID, requestID: id, answers: (body as { answers: string[][] }).answers })
+          event('question.replied', {
+            sessionID: settled!.sessionID,
+            requestID: id,
+            answers: (body as { answers: string[][] }).answers,
+          })
         } else {
           event('question.rejected', { sessionID: settled!.sessionID, requestID: id })
         }
@@ -420,7 +471,10 @@ export function makeFakeOpenCode(options: FakeOpenCodeOptions = {}): FakeOpenCod
       exitCode = null
       const generation = connections
       if (options.heartbeatMs && !heartbeat) {
-        heartbeat = setInterval(() => push({ id: `evt_${ids().slice(4)}`, type: 'server.heartbeat', properties: {} } as unknown as Payload), options.heartbeatMs)
+        heartbeat = setInterval(
+          () => push({ id: `evt_${ids().slice(4)}`, type: 'server.heartbeat', properties: {} } as unknown as Payload),
+          options.heartbeatMs,
+        )
       }
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
@@ -435,7 +489,8 @@ export function makeFakeOpenCode(options: FakeOpenCodeOptions = {}): FakeOpenCod
         url: 'http://fake-opencode.local',
         fetch: handler as typeof fetch,
         awaitExit: Effect.callback<never, ProcessExitedError>((resume) => {
-          const listener = (code: number) => resume(Effect.fail(new ProcessExitedError({ provider: 'opencode', code, signal: null })))
+          const listener = (code: number) =>
+            resume(Effect.fail(new ProcessExitedError({ provider: 'opencode', code, signal: null })))
           if (exitCode !== null && connections === generation) return listener(exitCode)
           exitListeners.add(listener)
           return Effect.sync(() => exitListeners.delete(listener))

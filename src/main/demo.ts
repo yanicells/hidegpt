@@ -12,11 +12,17 @@ export const layer = layerLoaders({
     return make(makeDemoCodex().connect)
   },
   opencode: async () => {
-    const [{ make }, { makeDemoOpenCode }] = await Promise.all([import('../opencode/OpenCodeAdapter'), import('../opencode/demo')])
+    const [{ make }, { makeDemoOpenCode }] = await Promise.all([
+      import('../opencode/OpenCodeAdapter'),
+      import('../opencode/demo'),
+    ])
     return make(makeDemoOpenCode().connect)
   },
   claude: async () => {
-    const [{ make }, { makeDemoClaude }] = await Promise.all([import('../claude/ClaudeAdapter'), import('../claude/demo')])
+    const [{ make }, { makeDemoClaude }] = await Promise.all([
+      import('../claude/ClaudeAdapter'),
+      import('../claude/demo'),
+    ])
     const demo = makeDemoClaude()
     return make(() => Promise.resolve(demo.sdk))
   },

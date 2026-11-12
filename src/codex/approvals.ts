@@ -44,7 +44,9 @@ const isForm = (params: ElicitationParams) =>
 
 function elicitationFields(params: ElicitationParams) {
   if (!('requestedSchema' in params)) return []
-  const schema = params.requestedSchema as { properties?: Record<string, { title?: unknown; default?: unknown }> } | null
+  const schema = params.requestedSchema as {
+    properties?: Record<string, { title?: unknown; default?: unknown }>
+  } | null
   const properties = schema?.properties ?? {}
   return Object.entries(properties).map(([id, schema]) => ({
     id,
@@ -104,14 +106,22 @@ export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {
   'item/tool/requestUserInput': {
     threadId: (params) => params.threadId,
     block: (id, params) =>
-      block(id, 'The assistant needs input', params.questions.map((q) => q.question).filter(Boolean).join('\n') || 'Continue?', {
-        questions: params.questions.map((question) => ({
-          id: question.id,
-          question: question.question,
-          options: question.options?.map((option) => option.label) ?? [],
-          allowText: Boolean(question.isOther) || !question.options?.length,
-        })),
-      }),
+      block(
+        id,
+        'The assistant needs input',
+        params.questions
+          .map((q) => q.question)
+          .filter(Boolean)
+          .join('\n') || 'Continue?',
+        {
+          questions: params.questions.map((question) => ({
+            id: question.id,
+            question: question.question,
+            options: question.options?.map((option) => option.label) ?? [],
+            allowText: Boolean(question.isOther) || !question.options?.length,
+          })),
+        },
+      ),
     response: (params, reply) => ({
       answers: Object.fromEntries(
         params.questions.map((question) => {

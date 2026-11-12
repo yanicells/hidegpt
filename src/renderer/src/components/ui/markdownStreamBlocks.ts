@@ -4,7 +4,8 @@
 // Definitions (also inside quotes and list items), footnotes, raw HTML, container directives and
 // display math can tie blocks together. Checked outside code fences, where `<div>` or a regex
 // like `[^a-z]` is just code.
-const DOCUMENT_WIDE_SYNTAX = /^(?:[ \t]*(?:>|[-*+]|\d{1,9}[.)]))*[ \t]*\[[^\]\n]+\]:|^ {0,3}(?:<[A-Za-z!?/]|:::|\$\$)|\[\^/m
+const DOCUMENT_WIDE_SYNTAX =
+  /^(?:[ \t]*(?:>|[-*+]|\d{1,9}[.)]))*[ \t]*\[[^\]\n]+\]:|^ {0,3}(?:<[A-Za-z!?/]|:::|\$\$)|\[\^/m
 // A backtick fence's info string can't contain a backtick (```a`b is inline code).
 const FENCE_PATTERN = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/
 const CLOSING_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/

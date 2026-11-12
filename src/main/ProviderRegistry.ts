@@ -51,7 +51,10 @@ export const layerLoaders = (loaders: Loaders) => {
     }
     return adapter
   }
-  return Layer.succeed(ProviderRegistry, fromLoaders({ codex: once('codex'), opencode: once('opencode'), claude: once('claude') }))
+  return Layer.succeed(
+    ProviderRegistry,
+    fromLoaders({ codex: once('codex'), opencode: once('opencode'), claude: once('claude') }),
+  )
 }
 
 /** The real providers, each spawned under the shared process supervisor. */

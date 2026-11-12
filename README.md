@@ -28,18 +28,18 @@ pnpm dev
 staged files. It does this by setting `core.hooksPath`, which replaces any hooks path
 you had set, in the Git config that every worktree of this repository shares.
 
-| Script | What it does |
-|---|---|
-| `pnpm dev` | Electron app with Vite HMR |
-| `pnpm test` | Provider adapter, session manager, and renderer UI tests |
-| `pnpm typecheck` | TypeScript plus Effect diagnostics (`effect-tsgo`), e.g. an Effect that is built but never run |
-| `pnpm typecheck:effect-strict` | T3 Code's full Effect rule set; not yet clean, so not gating |
-| `pnpm lint` | oxlint with T3 Code's rules, plus floating promises |
-| `pnpm knip` | Unused files, exports, and dependencies |
-| `pnpm check` | Typecheck, lint, knip, tests, and build: what CI runs |
-| `pnpm fmt` | oxfmt (not yet applied repo-wide) |
-| `pnpm protocol` | Regenerate the Codex app-server schemas from the installed CLI |
-| `pnpm screenshot` | Home grid/list, project, creation dialog, and desktop/narrow editor PNGs using fictional content |
+| Script                         | What it does                                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `pnpm dev`                     | Electron app with Vite HMR                                                                       |
+| `pnpm test`                    | Provider adapter, session manager, and renderer UI tests                                         |
+| `pnpm typecheck`               | TypeScript plus Effect diagnostics (`effect-tsgo`), e.g. an Effect that is built but never run   |
+| `pnpm typecheck:effect-strict` | T3 Code's full Effect rule set; not yet clean, so not gating                                     |
+| `pnpm lint`                    | oxlint with T3 Code's rules, plus floating promises                                              |
+| `pnpm knip`                    | Unused files, exports, and dependencies                                                          |
+| `pnpm check`                   | Typecheck, lint, knip, tests, and build: what CI runs                                            |
+| `pnpm fmt`                     | oxfmt (not yet applied repo-wide)                                                                |
+| `pnpm protocol`                | Regenerate the Codex app-server schemas from the installed CLI                                   |
+| `pnpm screenshot`              | Home grid/list, project, creation dialog, and desktop/narrow editor PNGs using fictional content |
 
 Choose **Blank document** or a template to name a document and select its location.
 Projects are browsable folders, including empty projects. Opening a project remembers

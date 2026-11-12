@@ -38,9 +38,7 @@ export function Home({
         (!query || `${thread.name ?? ''} ${thread.preview}`.toLowerCase().includes(query)),
     )
     .sort((a, b) =>
-      sort === 'name'
-        ? (a.name || a.preview).localeCompare(b.name || b.preview)
-        : b.updatedAt - a.updatedAt,
+      sort === 'name' ? (a.name || a.preview).localeCompare(b.name || b.preview) : b.updatedAt - a.updatedAt,
     )
   const sections =
     view === 'list' && sort === 'recent' ? groupByRecency(threads) : [{ key: 'docs', title: '', threads }]
@@ -108,7 +106,11 @@ export function Home({
                     : 'Recent documents'}
             </span>
             <label className="owned-by">
-              <select aria-label="Filter by project" value={projectId} onChange={(event) => onProject(event.target.value)}>
+              <select
+                aria-label="Filter by project"
+                value={projectId}
+                onChange={(event) => onProject(event.target.value)}
+              >
                 <option value="all">All locations</option>
                 <option value="loose">No project</option>
                 {folders.map((folder) => (

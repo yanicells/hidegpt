@@ -140,9 +140,19 @@ export type ThreadEvent =
       readonly delta: string
       readonly create?: TextTarget
     }
-  | { readonly type: 'resolved'; readonly threadId: string; readonly blockId: string; readonly resolved: 'accepted' | 'skipped' }
+  | {
+      readonly type: 'resolved'
+      readonly threadId: string
+      readonly blockId: string
+      readonly resolved: 'accepted' | 'skipped'
+    }
   /** Replace the thread's blocks (after a reconnect); open approvals are kept. */
-  | { readonly type: 'reset'; readonly threadId: string; readonly blocks: ReadonlyArray<Block>; readonly streaming?: boolean }
+  | {
+      readonly type: 'reset'
+      readonly threadId: string
+      readonly blocks: ReadonlyArray<Block>
+      readonly streaming?: boolean
+    }
   | { readonly type: 'title'; readonly threadId: string; readonly title: string }
   /** The thread is gone (deleted, archived) and cannot be used. */
   | { readonly type: 'closed'; readonly threadId: string }

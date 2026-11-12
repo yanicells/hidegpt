@@ -15,7 +15,16 @@ import type {
   ToolPart,
 } from '@opencode-ai/sdk/v2/client'
 
-import type { ApprovalBlock, Block, CalloutBlock, DocSummary, ModelOption, ModeOption, ProjectSummary, UserBlock } from '../shared/model'
+import type {
+  ApprovalBlock,
+  Block,
+  CalloutBlock,
+  DocSummary,
+  ModelOption,
+  ModeOption,
+  ProjectSummary,
+  UserBlock,
+} from '../shared/model'
 
 /**
  * Pure mapping from OpenCode's SDK types to HideGPT's domain model: messages
@@ -34,7 +43,10 @@ export function splitModelKey(id: string): { providerID: string; modelID: string
   return { providerID: id.slice(0, slash), modelID: id.slice(slash + 1) }
 }
 
-export function toModels(providers: ReadonlyArray<Provider>, defaults: Readonly<Record<string, string>>): ModelOption[] {
+export function toModels(
+  providers: ReadonlyArray<Provider>,
+  defaults: Readonly<Record<string, string>>,
+): ModelOption[] {
   const models: ModelOption[] = []
   for (const provider of providers) {
     for (const [id, model] of Object.entries(provider.models)) {
@@ -212,7 +224,12 @@ const IMAGE_TYPES: Record<string, string> = {
 /** Inlines a saved image as a data URL so the server needs no file access. */
 export function imagePart(path: string): FilePartInput {
   const mime = IMAGE_TYPES[extname(path).toLowerCase()] ?? 'image/png'
-  return { type: 'file', mime, filename: basename(path), url: `data:${mime};base64,${readFileSync(path).toString('base64')}` }
+  return {
+    type: 'file',
+    mime,
+    filename: basename(path),
+    url: `data:${mime};base64,${readFileSync(path).toString('base64')}`,
+  }
 }
 
 /**
@@ -228,7 +245,10 @@ export function readableProviderError(error: { name: string; data?: unknown } | 
   if (message && message.toLowerCase() !== '<none>') return message
   const status = typeof data.statusCode === 'number' ? data.statusCode : undefined
   const body = typeof data.responseBody === 'string' ? data.responseBody : undefined
-  const title = body?.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.replace(/\s+/g, ' ').trim()
+  const title = body
+    ?.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]
+    ?.replace(/\s+/g, ' ')
+    .trim()
   if (title) return status !== undefined ? `${title} (HTTP ${status}).` : title
   if (status !== undefined) return `The model provider failed the request (HTTP ${status}).`
   return message ? 'The model provider failed the request and did not include an error message.' : error.name

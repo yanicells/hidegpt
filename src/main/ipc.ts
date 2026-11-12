@@ -20,7 +20,10 @@ export interface IpcMethod<A, I, R> {
   readonly invalid: (error: Schema.SchemaError) => unknown
 }
 
-export const handle = <A, I, R>(ipcMain: IpcMain, method: IpcMethod<A, I, R>): Effect.Effect<void, never, R | Scope.Scope> =>
+export const handle = <A, I, R>(
+  ipcMain: IpcMain,
+  method: IpcMethod<A, I, R>,
+): Effect.Effect<void, never, R | Scope.Scope> =>
   Effect.gen(function* () {
     const context = yield* Effect.context<R>()
     const runPromise = Effect.runPromiseWith(context)
