@@ -96,9 +96,6 @@ export const layerAfter = (ready: Promise<unknown>) =>
     }),
   )
 
-/** The real providers, with nothing to wait for. */
-export const layer = layerAfter(Promise.resolve())
-
 /** Fixed adapters (tests and demo mode). */
 export const layerAdapters = (adapters: Partial<Record<ProviderId, ProviderAdapter>>) =>
   Layer.succeed(
