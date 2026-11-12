@@ -148,13 +148,15 @@ Main sends `snapshot` patches on one channel:
 type SnapshotPatch = {
   fields: Partial<Omit<Snapshot, 'blocks'>>   // changed top-level fields, by reference
   blocks?: { length: number; set?: [index, Block][]; append?: [index, text][] }
+  seq: number                 // counts up by one per patch
 }
 ```
 
 - While streaming, `diffSnapshot` sees that a block only grew (same id and kind, new text starts with the old text). It then sends `append: [[i, delta]]` instead of the whole block, so IPC is proportional to the new text, not to the size of the answer.
 - Token bursts are coalesced into 32 ms frames. Navigation, new blocks, and turn ends go out right away.
 - The first patch, and the one main sends once the page loads, carries every field plus all blocks as `set`.
-- The preload only relays. It starts from what main last published (one `sendSync` before the first paint) and applies the patches that land before the page reads it, so `getSnapshot()` is the real library at startup. That first read hands the snapshot over: the preload drops its copy and stops listening, and the renderer store subscribes in the same task, so each patch is applied once.
+- A read of the whole snapshot (`snapshot-now`, `getSnapshot()`) returns it with the `seq` of the last patch it includes, and `applyPatchOnce` skips any patch at or below that. A patch main sent before answering a read, but that arrives after it, is never applied twice: not at startup, and not when StrictMode or HMR reconnects the renderer store.
+- The preload only relays. It starts from what main last published (one `sendSync` before the first paint) and applies the patches that land before the page reads it, so `getSnapshot()` is the real library at startup. That first read hands the snapshot over: the preload drops its copy and stops listening, and the renderer store subscribes in the same task.
 
 ## 7. Renderer (`src/renderer/`)
 
