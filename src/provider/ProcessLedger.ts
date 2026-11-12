@@ -11,6 +11,8 @@ import * as Path from 'effect/Path'
 import * as Schema from 'effect/Schema'
 import * as Semaphore from 'effect/Semaphore'
 
+import { forkObserved, foreverObserved, observed } from './observed'
+
 /**
  * PIDs of running provider processes, on disk, so a hard-killed main (no
  * finalizers ran) does not leave servers behind: the next launch reaps them.
@@ -251,10 +253,10 @@ const writeFileStringAtomically = (fs: FileSystem.FileSystem, path: Path.Path, f
     Effect.gen(function* () {
       const directory = path.dirname(filePath)
       yield* fs.makeDirectory(directory, { recursive: true })
-      // Cleanup failure must not fail a write that already landed.
+      // Cleanup failure must not fail a write that already landed; it is reported instead.
       const temp = yield* Effect.acquireRelease(
         fs.makeTempDirectory({ directory, prefix: `${path.basename(filePath)}.` }),
-        (dir) => Effect.ignore(fs.remove(dir, { recursive: true })),
+        (dir) => observed(fs.remove(dir, { recursive: true }), { name: 'ledger.removeTemp' }),
       )
       const tempPath = path.join(temp, 'contents.tmp')
       yield* fs.writeFileString(tempPath, contents)
@@ -304,8 +306,14 @@ export const layer = (filePath: string | null, options: LedgerOptions = {}) =>
         writeFileStringAtomically(fs, path, filePath, JSON.stringify({ ...others, ...Object.fromEntries(ours) }))
       const othersOn = (onDisk: Record<string, LedgerEntry>) =>
         Object.fromEntries(Object.entries(onDisk).filter(([, entry]) => !isOurs(entry)))
-      // The ledger is best effort: a failed write never fails a spawn.
-      const save = lock.withPermits(1)(Effect.ignore(Effect.flatMap(read, (onDisk) => write(othersOn(onDisk)))))
+      // The ledger is best effort: a failed write never fails a spawn, but it is reported (the next
+      // launch cannot reap what was never written).
+      const save = lock.withPermits(1)(
+        observed(
+          Effect.flatMap(read, (onDisk) => write(othersOn(onDisk))),
+          { name: 'ledger.save' },
+        ),
+      )
 
       const track = Effect.gen(function* () {
         if (ours.size === 0) return
@@ -322,15 +330,9 @@ export const layer = (filePath: string | null, options: LedgerOptions = {}) =>
         }
         if (changed) yield* save
       })
-      // A defect in one read is logged, not the end of tracking.
-      yield* Effect.forkScoped(
-        Effect.forever(
-          Effect.andThen(
-            Effect.sleep(TRACK_EVERY),
-            Effect.catchCause(track, (cause) => Effect.logWarning('ledger', cause)),
-          ),
-        ),
-      )
+      // A defect in one read is reported, not the end of tracking.
+      const tracking = { name: 'ledger.track' }
+      yield* forkObserved(tracking)(foreverObserved(Effect.andThen(Effect.sleep(TRACK_EVERY), track), tracking))
 
       return ProcessLedger.of({
         record: (pid, command, arg) =>
@@ -392,7 +394,7 @@ export const layer = (filePath: string | null, options: LedgerOptions = {}) =>
               }
               if (hit) killed += 1
             }
-            yield* Effect.ignore(write(kept))
+            yield* observed(write(kept), { name: 'ledger.reap' })
             return killed
           }),
         ),

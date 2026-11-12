@@ -8,6 +8,7 @@ import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
 
+import { captureDefects } from './observed.testkit'
 import { ProcessSupervisor, layer } from './ProcessSupervisor'
 
 /** Real processes: the supervisor's job is the boundary with the OS, so nothing here is faked. */
@@ -212,6 +213,22 @@ describe('ProcessSupervisor.callbackSpawner', () => {
       expect(entries()).toEqual({})
     }),
   )
+
+  it.live('reports a ledger failure in the spawn callback to the app’s logger, not the default console', () => {
+    const { layer: logs, reported } = captureDefects()
+    return withSupervisor(
+      (supervisor) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const spawn = yield* supervisor.callbackSpawner
+            spawn({ command: '/bin/sleep', args: ['30'], env: {} })
+            yield* until(() => reported().some((report) => report.where === 'ledger.save'))
+          }),
+        ),
+      // Not a folder, so every ledger write fails.
+      '/dev/null/ledger.json',
+    ).pipe(Effect.provide(logs))
+  })
 
   it.live('runs each child in its own group and kills the whole group when the scope closes', () =>
     Effect.gen(function* () {

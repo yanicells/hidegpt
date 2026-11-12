@@ -3,6 +3,7 @@
 // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 import { homedir, userInfo } from 'node:os'
 
+import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
 import * as Logger from 'effect/Logger'
@@ -61,7 +62,18 @@ export const layer = (options: LoggingOptions) => {
           })
           const file = yield* Logger.batched(Logger.formatJson, {
             window: BATCH_WINDOW,
-            flush: (lines) => Effect.ignore(sink.write(lines.map((line) => `${line}\n`).join(''))),
+            flush: (lines) =>
+              sink.write(lines.map((line) => `${line}\n`).join('')).pipe(
+                // A logger cannot log its own failure. A failed write loses these lines; a defect
+                // also goes to the terminal, as a last resort.
+                Effect.catchDefect((defect) =>
+                  Effect.sync(() =>
+                    console.error('The log could not be written:', redact(Cause.pretty(Cause.die(defect)))),
+                  ),
+                ),
+                // oxlint-disable-next-line hidegpt/no-unobserved-effect -- a logger cannot log its own failure
+                Effect.ignore,
+              ),
           })
           return redacting(file, redact)
         }).pipe(

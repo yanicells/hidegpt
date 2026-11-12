@@ -19,6 +19,7 @@ import {
 } from '../shared/contracts'
 import type { ProviderId } from '../shared/model'
 import { describeFailure, logDefects } from '../provider/DefectReport'
+import { forkObserved } from '../provider/observed'
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import * as Demo from './demo'
 import { makeIpc, type SenderGuard } from './ipc'
@@ -188,8 +189,8 @@ const program = Effect.gen(function* () {
     win?.webContents.send(IpcEvents.onSnapshot.channel, patch)
     guarded('menu', () => updateMenu(snapshot))
   })
-  // A defect is reported inside `run`, which then starts over.
-  yield* Effect.forkScoped(publisher.run)
+  // A defect is reported inside `run`, which then starts over; one that escapes is reported here.
+  yield* forkObserved({ name: 'snapshot.publisher' })(publisher.run)
   // The preload asks synchronously before the first paint, so this must exist before any window.
   yield* ipc.handleSync(IpcSnapshotNow, publisher.delivered)
 
