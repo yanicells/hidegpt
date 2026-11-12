@@ -1,12 +1,11 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 
-import type { Skill } from '../../../../shared/model'
+import { IMAGE_MIME_TYPES, isImageMime, type Skill } from '../../../../shared/model'
 import { dispatch, showRequestError } from '../../session-bridge'
 import { takePendingDraft } from '../../templates'
 import { imageSrc } from '../ui/imageSrc'
 import { SkillChip, SkillMenu } from './SmartChips'
 
-const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 const IMAGE_INPUT_ID = 'insert-image'
 
 let lastConsumedThreadId: string | null = null
@@ -95,13 +94,13 @@ export const Composer = memo(function Composer({
   }
 
   const attach = async (files: File[]) => {
-    const pictures = files.filter((file) => IMAGE_TYPES.has(file.type))
+    const pictures = files.flatMap((file) => (isImageMime(file.type) ? [{ file, mime: file.type }] : []))
     if (!pictures.length || !window.hidegpt) return
     // Every picture settles: the ones that saved are attached, and the first
     // failure goes on the banner (main's sentence, or a plain one when the file
     // could not be read or the request never reached main).
     const settled = await Promise.allSettled(
-      pictures.map(async (file) => window.hidegpt.saveImage({ bytes: new Uint8Array(await file.arrayBuffer()), mime: file.type })),
+      pictures.map(async ({ file, mime }) => window.hidegpt.saveImage({ bytes: new Uint8Array(await file.arrayBuffer()), mime })),
     )
     const paths: string[] = []
     let failure: string | null = null
@@ -163,7 +162,7 @@ export const Composer = memo(function Composer({
 
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = Array.from(event.clipboardData.files)
-    if (!files.some((file) => IMAGE_TYPES.has(file.type))) return
+    if (!files.some((file) => isImageMime(file.type))) return
     event.preventDefault()
     void attach(files)
   }
@@ -222,7 +221,7 @@ export const Composer = memo(function Composer({
       <input
         id={IMAGE_INPUT_ID}
         type="file"
-        accept={[...IMAGE_TYPES].join(',')}
+        accept={IMAGE_MIME_TYPES.join(',')}
         multiple
         hidden
         onChange={(event) => {

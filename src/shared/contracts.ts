@@ -2,6 +2,7 @@ import * as Schema from 'effect/Schema'
 import * as Struct from 'effect/Struct'
 
 import { EVENT_CHANNELS, INVOKE_CHANNELS, SNAPSHOT_NOW_CHANNEL } from './channels'
+import { IMAGE_MIME_TYPES } from './model'
 
 /**
  * The provider-neutral contracts, as `effect/Schema` values (the T3 Code
@@ -280,8 +281,14 @@ export type CommandResult = typeof CommandResult.Type
 export const MenuAction = Schema.Literals(['rename', 'grid', 'list', 'newDocument', 'goHome', 'focusSearch'])
 export type MenuAction = typeof MenuAction.Type
 
-/** The bytes of a pasted image and its MIME type, to store on disk. */
-export const SaveImageRequest = Schema.Struct({ bytes: Schema.Uint8Array, mime: Schema.String })
+/** The largest pasted image main stores (20 MB); a bigger one is answered as unreadable. */
+export const MAX_IMAGE_BYTES = 20 * 1024 * 1024
+
+/** The bytes of a pasted image and its MIME type (one Docs can store), to store on disk. */
+export const SaveImageRequest = Schema.Struct({
+  bytes: Schema.Uint8Array.check(Schema.isMaxLength(MAX_IMAGE_BYTES)),
+  mime: Schema.Literals(IMAGE_MIME_TYPES),
+})
 export type SaveImageRequest = typeof SaveImageRequest.Type
 
 /** The stored image's path, or a sentence saying why it could not be stored. */
