@@ -501,3 +501,12 @@
   line-height: 1.45;
   color: var(--text-2);
 }
+
+/* A block that couldn't render: a quiet grey note in its place on the page. */
+.render-error {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: var(--band);
+  color: var(--muted);
+}

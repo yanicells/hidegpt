@@ -31,7 +31,7 @@ import * as ProviderRegistry from './ProviderRegistry'
 import { ProviderSessionManager, layer as managerLayer } from './ProviderSessionManager'
 import { captureScreenshots } from './screenshots'
 import { makeSnapshotPublisher } from './SnapshotPublisher'
-import { createWindow, getWindow, openExternal, registerDocsProtocol, saveImage } from './window'
+import { createWindow, documentHasImage, getWindow, openExternal, registerDocsProtocol, saveImage } from './window'
 
 // A closed terminal must not crash main through console writes (EPIPE), as in T3 Code's desktop main.
 for (const stream of [process.stdout, process.stderr]) {
@@ -90,7 +90,6 @@ const runtime = ManagedRuntime.make(MainLayer)
 const program = Effect.gen(function* () {
   yield* Effect.promise(() => app.whenReady())
   yield* Effect.logInfo('Docs started', { version: app.getVersion(), demo })
-  registerDocsProtocol()
   const supervisor = yield* ProcessSupervisor.ProcessSupervisor
   const reaped = yield* supervisor.reapOrphans
   if (reaped > 0) yield* Effect.logWarning(`Stopped ${reaped} provider process(es) left by the last run.`)
@@ -163,6 +162,9 @@ const program = Effect.gen(function* () {
   yield* Effect.forkScoped(publisher.run)
   // The preload asks synchronously before the first paint, so this must exist before any window.
   yield* handleSync(ipcMain, IpcSnapshotNow, publisher.delivered)
+
+  // Local images load only if the window was handed them: the open document's, or pasted ones.
+  registerDocsProtocol((ref) => documentHasImage(publisher.delivered()?.snapshot ?? null, ref))
 
   const open = () => createWindow({ onDidFinishLoad: publisher.resync })
   const win = open()

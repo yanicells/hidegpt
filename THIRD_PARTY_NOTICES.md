@@ -55,6 +55,14 @@ projects below. Each copied or adapted file carries a header naming its source.
     atomic ledger write (`packages/shared/src/atomicWrite.ts`), and one app per
     profile in `src/main/app.ts` (`apps/desktop/src/app/DesktopClerk.ts`), at
     commit 5c6f2f12.
+  - `src/main/window.ts` and `window.test.ts` (commit 5c6f2f12): bounded
+    reloads after a renderer crash, from `apps/desktop/src/window/DesktopWindow.ts`;
+    the CSP response header and serving local files only under allowed roots,
+    from `apps/desktop/src/electron/ElectronProtocol.ts`; deny-by-default
+    permission handlers, from `apps/desktop/src/preview/BrowserSession.ts`; and
+    the test shape of `ElectronProtocol.test.ts` and `ElectronShell.test.ts`.
+  - `src/renderer/src/components/layout/RenderErrorBoundary.tsx` (commit
+    5c6f2f12): from `apps/web/src/components/RenderErrorBoundary.tsx`.
   - `src/main/ProviderSessionManager.ts` and `src/opencode/OpenCodeAdapter.ts`:
     handling a defect in a long-lived fiber with `Effect.catchCause` and
     re-interrupting on interruption, from
