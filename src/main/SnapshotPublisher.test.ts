@@ -162,10 +162,12 @@ describe('SnapshotPublisher', () => {
       yield* TestClock.adjust('1 second')
       yield* settle
       expect(sent).toHaveLength(2)
-      expect(sent[1]!.fields).toMatchObject({ title: 'Lost', status: 'ready', blocks: [] })
+      expect(sent[1]).toMatchObject({ fields: { title: 'Lost', status: 'ready' }, blocks: { length: 0, set: [] } })
+      // The lost patch's `seq` is never reused, so the window applies the whole one.
+      expect(sent[1]!.seq).toBeGreaterThan(sent[0]!.seq)
       yield* SubscriptionRef.update(state, (s) => ({ ...s, title: 'Back' }))
       yield* settle
-      expect(sent[2]).toEqual({ fields: { title: 'Back' } })
+      expect(sent[2]).toEqual({ fields: { title: 'Back' }, seq: sent[1]!.seq + 1 })
     }).pipe(Effect.provide(Logger.layer([capture])))
   })
 
@@ -197,7 +199,7 @@ describe('SnapshotPublisher', () => {
       yield* TestClock.adjust('1 second')
       yield* settle
       expect(sent).toHaveLength(2)
-      expect(sent[1]!.patch.fields).toMatchObject({ blocks: [{ kind: 'agent', id: 'a', text: 'lost ' }] })
+      expect(sent[1]!.patch.blocks).toEqual({ length: 1, set: [[0, { kind: 'agent', id: 'a', text: 'lost ' }]] })
     }).pipe(Effect.provide(Logger.layer([]))),
   )
 })
