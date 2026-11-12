@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { accountLabel, avatarLetter, PROVIDERS, providerLabel } from '../../../../shared/labels'
+import { accountAddress, accountLabel, avatarLetter, libraryName, PROVIDERS } from '../../../../shared/labels'
 import type { ProviderId, Snapshot } from '../../../../shared/model'
 import { dispatch, request } from '../../session-bridge'
 import { MIcon, type MaterialIconName } from '../ui/MaterialIcon'
@@ -12,17 +12,16 @@ const LIBRARY_COLORS: Record<ProviderId, string> = { codex: '#0b8043', opencode:
 
 /**
  * Google's account switcher behind the avatar. Each "account" is a document
- * library (provider); switching swaps the whole library. Names only appear
- * once the menu is open.
+ * library (provider), named like a Chrome profile (Personal, Work, School);
+ * switching swaps the whole library. Only a real address is ever shown.
  */
 export function AccountMenu({ snap }: { snap: Snapshot }) {
   const [open, setOpen] = useState(false)
   const [pending, setPending] = useState<ProviderId | null>(null)
   const [error, setError] = useState<string | null>(null)
   const label = accountLabel(snap.account)
-  const name = snap.account ? label.split('@')[0] : null
-  // Only a real address may show on hover; other labels would name the provider.
-  const email = label.includes('@') ? label : null
+  const email = accountAddress(snap.account)
+  const name = email ? email.split('@')[0] : null
 
   const switchTo = async (next: ProviderId) => {
     if (next === snap.provider || pending) return
@@ -69,11 +68,15 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
               onClick={() => void switchTo(provider)}
             >
               <span className="avatar-sm" style={{ background: LIBRARY_COLORS[provider] }}>
-                {providerLabel(provider).charAt(0)}
+                {libraryName(provider).charAt(0)}
               </span>
               <span className="account-row-text">
-                {providerLabel(provider)}
-                <small>{pending === provider ? 'Switching…' : accountLine(provider, snap)}</small>
+                {libraryName(provider)}
+                {pending === provider ? (
+                  <small>Switching…</small>
+                ) : snap.provider === provider && email ? (
+                  <small>{email}</small>
+                ) : null}
               </span>
               {snap.provider === provider ? (
                 <span className="row-icon ml-auto">
@@ -122,15 +125,6 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
       {pending ? <div className="top-progress" role="progressbar" aria-label="Loading" /> : null}
     </Popover>
   )
-}
-
-/** An account row's grey second line: the signed-in address, else an address-shaped handle for the library. */
-function accountLine(provider: ProviderId, snap: Snapshot): string {
-  if (provider === snap.provider && snap.account) {
-    const label = accountLabel(snap.account)
-    if (label.includes('@')) return label
-  }
-  return `${provider}@this-mac`
 }
 
 /** A Google account-switcher action row ("Add another account", "Sign out"). */

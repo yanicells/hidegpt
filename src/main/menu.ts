@@ -1,7 +1,7 @@
 import { app, Menu } from 'electron'
 
 import type { Command, MenuAction, Snapshot } from '../shared/contracts'
-import { displayServerName, PROVIDERS, providerLabel, toolsNeedingConnect } from '../shared/labels'
+import { accountLabel, displayServerName, libraryName, PROVIDERS, toolsNeedingConnect } from '../shared/labels'
 
 /**
  * The application menu, rebuilt only when something it shows changes. Menu
@@ -34,14 +34,25 @@ export function makeMenu(handlers: MenuHandlers): (snap: Snapshot) => void {
   }
 }
 
+/** Google's wording: the account, then switching between the person's accounts (libraries). */
 function accountItems(snap: Snapshot, { dispatch }: MenuHandlers): Electron.MenuItemConstructorOptions[] {
-  if (snap.capabilities.login) {
-    return snap.account
-      ? [{ label: 'Log out', click: () => dispatch({ op: 'logout' }) }]
-      : [{ label: 'Log in with ChatGPT', click: () => dispatch({ op: 'login' }) }]
-  }
-  // OpenCode and Claude sign in from their own CLIs.
-  return [{ label: snap.account?.label ?? `${providerLabel(snap.provider)} signs in outside Docs`, enabled: false }]
+  // Libraries that don't sign in from Docs reuse their CLI's login, so they only show the account.
+  const signIn: Electron.MenuItemConstructorOptions[] = !snap.capabilities.login
+    ? []
+    : snap.account
+      ? [{ label: 'Sign out', click: () => dispatch({ op: 'logout' }) }]
+      : [{ label: 'Sign in', click: () => dispatch({ op: 'login' }) }]
+  return [
+    { label: snap.account ? accountLabel(snap.account) : 'Not signed in', enabled: false },
+    ...signIn,
+    { type: 'separator' },
+    ...PROVIDERS.map((provider) => ({
+      label: libraryName(provider),
+      type: 'checkbox' as const,
+      checked: snap.provider === provider,
+      click: () => dispatch({ op: 'setProvider', provider }),
+    })),
+  ]
 }
 
 function template(snap: Snapshot, handlers: MenuHandlers): Electron.MenuItemConstructorOptions[] {
@@ -123,13 +134,6 @@ function template(snap: Snapshot, handlers: MenuHandlers): Electron.MenuItemCons
     {
       label: 'Tools',
       submenu: [
-        ...PROVIDERS.map((provider) => ({
-          label: `Use ${providerLabel(provider)}`,
-          type: 'checkbox' as const,
-          checked: snap.provider === provider,
-          click: () => dispatch({ op: 'setProvider', provider }),
-        })),
-        { type: 'separator' },
         { label: 'Refresh', click: () => dispatch({ op: 'refresh' }) },
         ...connectItems,
       ],
