@@ -27,7 +27,7 @@ const CLAUDE_FILES = ['node_modules/@anthropic-ai/claude-agent-sdk/**/*', 'node_
 const CLAUDE_BINARY = 'node_modules/@anthropic-ai/claude-agent-sdk-*/**/*'
 
 /** Everything electron-builder reads to sign or notarize. */
-const SIGNING_VARS = [
+export const SIGNING_VARS = [
   'CSC_LINK',
   'CSC_NAME',
   'CSC_KEY_PASSWORD',
