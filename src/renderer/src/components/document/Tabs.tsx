@@ -1,18 +1,20 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 
 import type { UserBlock } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
 import { BackIcon, KebabIcon, PlusMonoIcon, TabDocIcon } from '../ui/Icons'
 
-export function Tabs({
-  questions,
-  onNew,
-  onJump,
-}: {
+type TabsProps = {
   questions: ReadonlyArray<UserBlock>
   onNew: () => void
   onJump: (id: string) => void
-}) {
+}
+
+/**
+ * The outline of questions. A streamed delta leaves every question object as
+ * it was, so the list re-renders only when a question is added or changed.
+ */
+export const Tabs = memo(function Tabs({ questions, onNew, onJump }: TabsProps) {
   const [activeId, setActive] = useState<string | null>(null)
   const active =
     activeId && questions.some((question) => question.id === activeId)
@@ -59,6 +61,15 @@ export function Tabs({
         </ol>
       )}
     </aside>
+  )
+}, sameTabs)
+
+function sameTabs(a: TabsProps, b: TabsProps): boolean {
+  return (
+    a.onNew === b.onNew &&
+    a.onJump === b.onJump &&
+    a.questions.length === b.questions.length &&
+    a.questions.every((question, index) => question === b.questions[index])
   )
 }
 

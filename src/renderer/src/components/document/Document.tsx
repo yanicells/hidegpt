@@ -1,11 +1,19 @@
-import { useEffect, useLayoutEffect, useRef, type UIEvent } from 'react'
+import { memo, useCallback, useEffect, useRef } from 'react'
 
-import type { Snapshot } from '../../../../shared/model'
-import { dispatch } from '../../session-bridge'
+import type { Block, Snapshot } from '../../../../shared/model'
+import { dispatch, useBlocks } from '../../session-bridge'
 import { BlockView } from './BlockView'
 import { Composer } from './Composer'
 import { Tabs } from './Tabs'
+import { useFollowBottom } from './useFollowBottom'
+import { useKeepPlace } from './useKeepPlace'
+import { useProgressiveRows } from './useProgressiveRows'
 
+/**
+ * The open document. `snap` is the shell's copy, which skips streamed text;
+ * the blocks come from their own subscription, so a delta re-renders only the
+ * block that changed.
+ */
 export function Document({
   snap,
   onNew,
@@ -16,70 +24,64 @@ export function Document({
   outputOnly?: boolean
 }) {
   const threadId = snap.route.kind === 'doc' ? snap.route.threadId : ''
+  const blocks = useBlocks()
   const visibleBlocks = outputOnly
-    ? snap.blocks.filter(
-        (block) => block.kind !== 'callout' && !(block.kind === 'agent' && block.commentary),
-      )
-    : snap.blocks
+    ? blocks.filter((block) => block.kind !== 'callout' && !(block.kind === 'agent' && block.commentary))
+    : blocks
   const lastBlock = visibleBlocks[visibleBlocks.length - 1]
   const streamingAgentId = snap.streaming && lastBlock?.kind === 'agent' ? lastBlock.id : null
   const waiting = snap.streaming && streamingAgentId === null
-  const questions = snap.blocks.filter((block) => block.kind === 'user')
+  const questions = blocks.filter((block) => block.kind === 'user')
+  const newest = blocks[blocks.length - 1]
+  const rows = useProgressiveRows(visibleBlocks.length)
+  // The composer waits for the last rows, so it never shows mid-document while a long one opens.
+  const allRows = rows >= visibleBlocks.length
 
   const scrollRef = useRef<HTMLDivElement>(null)
-  const stickToBottom = useRef(false)
-  const seenBlocks = useRef<number | null>(null)
-  const seenThread = useRef(threadId)
-  const beforePrepend = useRef<{ height: number; top: number } | null>(null)
-  useLayoutEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    if (snap.loadingOlder) beforePrepend.current = { height: el.scrollHeight, top: el.scrollTop }
-    else if (beforePrepend.current) {
-      el.scrollTop = beforePrepend.current.top + el.scrollHeight - beforePrepend.current.height
-      beforePrepend.current = null
-      seenBlocks.current = snap.blocks.length
-      stickToBottom.current = false
-    }
-  }, [snap.loadingOlder, snap.blocks.length])
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el || snap.blocks.length === 0) return
-    if (seenThread.current !== threadId) {
-      // A newly opened document starts at the top.
-      seenThread.current = threadId
-      seenBlocks.current = snap.blocks.length
-      stickToBottom.current = false
-      el.scrollTop = 0
-      if (!snap.streaming) return
-    }
-    if (seenBlocks.current === null) {
-      // First paint shows the top of an existing document; only a live turn pulls down.
-      seenBlocks.current = snap.blocks.length
-      if (!snap.streaming) return
-    }
-    const grew = snap.blocks.length !== seenBlocks.current
-    seenBlocks.current = snap.blocks.length
-    const last = snap.blocks[snap.blocks.length - 1]
-    if (grew && last?.kind === 'user') {
-      // Your own question always pulls the view down with it.
-      stickToBottom.current = true
-    }
-    if ((grew || snap.streaming) && stickToBottom.current) el.scrollTop = el.scrollHeight
-  }, [snap.blocks, snap.streaming, threadId])
-  const onScroll = (event: UIEvent<HTMLDivElement>) => {
-    const el = event.currentTarget
-    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
-  }
-  const jumpTo = (id: string) => {
-    const root = scrollRef.current
-    const target = root?.querySelector(`[data-turn="${id}"]`)
-    stickToBottom.current = false
-    target?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
-  }
+  const contentRef = useRef<HTMLDivElement>(null)
+  const endRef = useRef<HTMLDivElement>(null)
+  const { release } = useFollowBottom({
+    scrollRef,
+    contentRef,
+    endRef,
+    askedId: newest?.kind === 'user' ? newest.id : null,
+  })
+
+  useKeepPlace(scrollRef, snap.loadingOlder, release)
+
+  // Blocks scrolled past may only take their real height mid-jump, so a jump settles on its
+  // target when the smooth scroll ends, unless you take over first or it never moved.
+  const settling = useRef<AbortController | null>(null)
+  useEffect(() => () => settling.current?.abort(), [])
+  const jumpTo = useCallback(
+    (id: string) => {
+      const root = scrollRef.current
+      const target = root?.querySelector(`[data-turn="${id}"]`)
+      if (!root || !target) return
+      release()
+      settling.current?.abort()
+      const settle = new AbortController()
+      settling.current = settle
+      const { signal } = settle
+      target.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+      root.addEventListener(
+        'scrollend',
+        () => {
+          settle.abort()
+          target.scrollIntoView?.({ block: 'start' })
+        },
+        { signal },
+      )
+      for (const type of ['wheel', 'pointerdown', 'keydown'] as const) {
+        window.addEventListener(type, () => settle.abort(), { signal, passive: true })
+      }
+      window.setTimeout(() => settle.abort(), JUMP_SETTLE_MS)
+    },
+    [release],
+  )
 
   return (
-    <div className="workspace" data-testid="document" ref={scrollRef} onScroll={onScroll}>
+    <div className="workspace" data-testid="document" ref={scrollRef}>
       <div className="doc-layout">
         <Tabs onNew={onNew} questions={questions} onJump={jumpTo} />
         <div className="paper-col">
@@ -90,27 +92,30 @@ export function Document({
                 type="button"
                 className="load-older"
                 data-testid="load-older"
-                disabled={snap.loadingOlder || snap.streaming}
+                disabled={snap.loadingOlder || snap.streaming || !allRows}
                 onClick={() => dispatch({ op: 'loadOlderTurns' })}
               >
                 {snap.loadingOlder ? 'Loading…' : 'Load earlier'}
               </button>
             ) : null}
-            {visibleBlocks.map((block, index) => (
-              <div
-                className={`doc-block${block.kind === 'user' && index > 0 ? ' turn-start' : ''}`}
-                data-turn={block.kind === 'user' ? block.id : undefined}
-                key={block.id}
-              >
-                <BlockView block={block} streaming={block.id === streamingAgentId} />
-              </div>
-            ))}
-            {waiting ? (
-              <p className="doc-body pending" aria-live="polite" aria-label="Working">
-                <span className="caret" />
-              </p>
-            ) : null}
-            <Composer key={threadId} threadId={threadId} streaming={snap.streaming} skills={snap.skills} />
+            {/* What follow-bottom watches grow: unlike the paper, it has no minimum height. */}
+            <div ref={contentRef}>
+              {visibleBlocks.slice(0, rows).map((block, index) => (
+                <BlockRow
+                  key={block.id}
+                  block={block}
+                  turnStart={block.kind === 'user' && index > 0}
+                  streaming={block.id === streamingAgentId}
+                />
+              ))}
+              {allRows && waiting ? (
+                <p className="doc-body pending" aria-live="polite" aria-label="Working">
+                  <span className="caret" />
+                </p>
+              ) : null}
+              {allRows ? <Composer threadId={threadId} streaming={snap.streaming} skills={snap.skills} /> : null}
+            </div>
+            <div ref={endRef} aria-hidden="true" />
           </article>
         </div>
       </div>
@@ -132,6 +137,22 @@ export function Document({
     </div>
   )
 }
+
+/** How long a jump waits for its smooth scroll to end before giving up on settling. */
+const JUMP_SETTLE_MS = 3000
+
+/** One block on the page. Unchanged blocks keep their identity, so a delta skips every other row. */
+const BlockRow = memo(function BlockRow({ block, turnStart, streaming }: { block: Block; turnStart: boolean; streaming: boolean }) {
+  return (
+    <div
+      className={`doc-block${turnStart ? ' turn-start' : ''}`}
+      data-turn={block.kind === 'user' ? block.id : undefined}
+      data-streaming={streaming || undefined}
+    >
+      <BlockView block={block} streaming={streaming} />
+    </div>
+  )
+})
 
 /** Decorative inch ruler above the paper, like Docs. */
 function Ruler() {
