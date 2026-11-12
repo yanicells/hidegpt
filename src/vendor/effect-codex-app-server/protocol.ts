@@ -234,6 +234,8 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
     // HideGPT: the reader and writer fibers are forked and never joined, and the handlers
     // around them see typed failures only. A defect would end the fiber silently and leave
     // the session looking connected, so treat it as a transport error. T3 has the same gap.
+    // A defect inside handleTermination itself (e.g. terminationError dying in classify) is
+    // only logged: terminationHandled is already set, so pending requests do not fail.
     const terminateOnDefect = (operation: CodexError.CodexAppServerTransportOperation) =>
       Effect.catchDefect((defect) =>
         Effect.logError("Codex App Server protocol defect", Cause.die(defect)).pipe(
@@ -364,7 +366,7 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
                     "Codex App Server request handler defect",
                     Cause.die(defect),
                   ).pipe(
-                    Effect.annotateLogs({ method: request.method }),
+                    Effect.annotateLogs({ method: request.method, requestId: request.id }),
                     Effect.andThen(
                       respondError(
                         request.id,
