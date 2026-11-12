@@ -8,16 +8,18 @@ import { makeFakeCodex } from '../codex/FakeCodex'
 import * as OpenCodeAdapter from '../opencode/OpenCodeAdapter'
 import { makeFakeOpenCode } from '../opencode/FakeOpenCode'
 import { CAPABILITIES } from '../shared/model'
+import { fromLegacy } from './legacyEvents'
 import { capabilityMismatches, type ProviderAdapter, type ProviderSession } from './ProviderAdapter'
 
 /**
  * The renderer shows sign-in, "Connect" and "Add project" from the capability flags;
- * the manager calls the session's optional methods. Each adapter must agree with both.
+ * the manager calls the session's optional methods. Each adapter must agree with both,
+ * as the manager sees it (through `fromLegacy`, which must keep exactly the methods it got).
  */
 const ADAPTERS: ReadonlyArray<ProviderAdapter> = [
-  CodexAdapter.make(makeFakeCodex().connect),
-  OpenCodeAdapter.make(makeFakeOpenCode().connect),
-  ClaudeAdapter.make(() => Promise.resolve(makeFakeClaude().sdk)),
+  fromLegacy(CodexAdapter.make(makeFakeCodex().connect)),
+  fromLegacy(OpenCodeAdapter.make(makeFakeOpenCode().connect)),
+  fromLegacy(ClaudeAdapter.make(() => Promise.resolve(makeFakeClaude().sdk))),
 ]
 
 const session = (overrides: Partial<ProviderSession>) => overrides as ProviderSession

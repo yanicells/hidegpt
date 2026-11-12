@@ -35,14 +35,13 @@ import {
   type ProviderError,
 } from '../provider/errors'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
+import type { TurnInput, TurnSettings } from '../provider/ProviderAdapter'
 import type {
-  AdapterEvent,
-  OpenedThread,
-  ProviderAdapter,
-  ProviderSession,
-  TurnInput,
-  TurnSettings,
-} from '../provider/ProviderAdapter'
+  LegacyAdapterEvent as AdapterEvent,
+  LegacyOpenedThread as OpenedThread,
+  LegacyProviderAdapter as ProviderAdapter,
+  LegacyProviderSession as ProviderSession,
+} from '../provider/legacyEvents'
 import { CAPABILITIES, type Block, type DocSummary } from '../shared/model'
 import {
   askedQuestions,

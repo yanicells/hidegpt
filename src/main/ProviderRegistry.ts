@@ -8,6 +8,7 @@ import { PERSONAL_BUILD, providerLabel } from '../shared/labels'
 import { reportDefect } from '../provider/DefectReport'
 import { ProviderRequestError } from '../provider/errors'
 import { ProcessSupervisor } from '../provider/ProcessSupervisor'
+import { fromLegacy } from '../provider/legacyEvents'
 import type { ProviderAdapter } from '../provider/ProviderAdapter'
 
 /**
@@ -79,7 +80,8 @@ export const notInThisBuild = (): Promise<ProviderAdapter> =>
  * The real providers, each spawned under the shared process supervisor. No adapter
  * loads (so no CLI is looked up on PATH) until `ready` settles; main passes its
  * login-shell PATH lookup here, so a provider can start before the window has
- * painted without ever missing a CLI installed under nvm and the like.
+ * painted without ever missing a CLI installed under nvm and the like. Each
+ * adapter still speaks the older event shape, so `fromLegacy` translates it.
  */
 export const layerAfter = (ready: Promise<unknown>) =>
   Layer.effect(
@@ -88,11 +90,16 @@ export const layerAfter = (ready: Promise<unknown>) =>
       const supervisor = yield* ProcessSupervisor
       return fromLoaders({
         codex: () =>
-          ready.then(() => import('../codex/CodexAdapter')).then((m) => m.make(m.spawnAppServer(supervisor))),
+          ready
+            .then(() => import('../codex/CodexAdapter'))
+            .then((m) => fromLegacy(m.make(m.spawnAppServer(supervisor)))),
         opencode: () =>
-          ready.then(() => import('../opencode/OpenCodeAdapter')).then((m) => m.make(m.spawnServer(supervisor))),
+          ready
+            .then(() => import('../opencode/OpenCodeAdapter'))
+            .then((m) => fromLegacy(m.make(m.spawnServer(supervisor)))),
         claude: PERSONAL_BUILD
-          ? () => ready.then(() => import('../claude/ClaudeAdapter')).then((m) => m.make(undefined, supervisor))
+          ? () =>
+              ready.then(() => import('../claude/ClaudeAdapter')).then((m) => fromLegacy(m.make(undefined, supervisor)))
           : notInThisBuild,
       })
     }),

@@ -1,31 +1,34 @@
-import { appendText, openApprovals, updateApproval, upsertBlock } from '../../shared/blocks'
 import { CAPABILITIES, HOME, NO_BLOCKS } from '../../shared/model'
 import { accountAddress } from '../../shared/labels'
-import type { AccountSummary, Block, DocSummary, ProviderId, Route, Skill, Snapshot } from '../../shared/model'
-import {
-  EMPTY_CATALOG,
-  type Catalog,
-  type OpenedThread,
-  type ThreadEvent,
-  type TurnSettings,
-} from '../../provider/ProviderAdapter'
+import type { AccountSummary, DocSummary, ProviderId, Route, Skill, Snapshot } from '../../shared/model'
+import type { Item, ThreadEvent, TurnId } from '../../provider/events'
+import { EMPTY_CATALOG, type Catalog, type OpenedThread, type TurnSettings } from '../../provider/ProviderAdapter'
+import { appendDelta, expireRequests, isOpenRequest, openRequests, upsertItem } from './items'
+import { presentFailure, presentItems } from './present'
 
 /**
  * The session manager's state as plain immutable data, plus the pure
  * functions that change it. The Effect service in `ProviderSessionManager`
  * owns one `SubscriptionRef<State>` and only ever calls these, so every rule
  * about what the window shows is testable without a runtime.
+ *
+ * A document stores typed items and its open turn; `toSnapshot` presents the
+ * items as blocks (`./present`). Turn events carry the turn's app id, so a
+ * terminal for any turn but the open one changes nothing.
  */
+
+/** `starting`: sent, not yet confirmed by the provider. `stopping`: Stop was pressed; the turn has not ended. */
+export type TurnPhase = 'starting' | 'running' | 'stopping'
+export type OpenTurn = { readonly id: TurnId; readonly phase: TurnPhase }
 
 /** One document kept in memory: open, or recently open and still streaming or waiting. */
 export type ThreadRuntime = {
   readonly provider: ProviderId
   readonly threadId: string
   readonly title: string
-  readonly blocks: ReadonlyArray<Block>
-  readonly streaming: boolean
-  /** Stop was pressed; `streaming` stays on until the turn really ends. */
-  readonly stopping: boolean
+  readonly items: ReadonlyArray<Item>
+  /** The turn in progress, or null when the document is idle. */
+  readonly turn: OpenTurn | null
   readonly olderCursor: string | null
   readonly loadingOlder: boolean
   readonly cwd: string
@@ -145,9 +148,9 @@ export function toSnapshot(state: State): Snapshot {
     skills: lib.skills,
     route: lib.route,
     title: runtime?.title ?? 'Docs',
-    blocks: runtime?.blocks ?? NO_BLOCKS,
-    streaming: runtime?.streaming ?? false,
-    stopping: runtime?.stopping ?? false,
+    blocks: runtime ? presentItems(runtime.items) : NO_BLOCKS,
+    streaming: Boolean(runtime?.turn),
+    stopping: runtime?.turn?.phase === 'stopping',
     hasOlder: Boolean(runtime?.olderCursor),
     loadingOlder: runtime?.loadingOlder ?? false,
     openingThreadId: lib.opening,
@@ -174,60 +177,70 @@ export function removeRuntime(state: State, key: string): State {
   return { ...state, runtimes }
 }
 
-/** The turn is over: no spinner, no pending stop. */
-export const settle = (runtime: ThreadRuntime): ThreadRuntime =>
-  runtime.streaming || runtime.stopping ? { ...runtime, streaming: false, stopping: false } : runtime
+/** A stop the provider never confirmed: the stopped turn ends here, if it is still the open one. */
+export const settleStop = (runtime: ThreadRuntime, turnId: TurnId): ThreadRuntime =>
+  runtime.turn?.id === turnId ? { ...runtime, turn: null } : runtime
+
+/** True when a turn event names a turn other than the open one, so the reducer ignores it. */
+export function isStaleTurnEvent(runtime: ThreadRuntime, event: ThreadEvent): boolean {
+  if (event.type === 'turn.started') return runtime.turn !== null && runtime.turn.id !== event.turnId
+  if (event.type === 'turn.ended') return runtime.turn?.id !== event.turnId
+  return false
+}
+
+/** The turn after the provider confirms `turnId` started: a stop already pressed stays pressed. */
+const startedTurn = (turn: OpenTurn | null, turnId: TurnId): OpenTurn | null => {
+  if (!turn) return { id: turnId, phase: 'running' }
+  if (turn.id !== turnId) return turn
+  return turn.phase === 'starting' ? { ...turn, phase: 'running' } : turn
+}
 
 /** Folds one provider event into the thread it names. Threads with no runtime are ignored here. */
 export function applyThreadEvent(state: State, provider: ProviderId, event: ThreadEvent, now: number): State {
   const key = keyOf(provider, event.threadId)
   const runtime = state.runtimes.get(key)
-  if (!runtime) return state
+  if (!runtime || isStaleTurnEvent(runtime, event)) return state
   const touched = { ...runtime, touchedAt: now }
   switch (event.type) {
-    case 'turnStarted':
-      return updateRuntime(state, key, () => ({ ...touched, streaming: true, stopping: false }))
-    case 'turnEnded': {
+    case 'turn.started':
+      return updateRuntime(state, key, () => ({ ...touched, turn: startedTurn(runtime.turn, event.turnId) }))
+    case 'turn.ended': {
+      const error = event.failure ? presentFailure(event.failure) : null
       const shown = isDisplayed(state, runtime)
       const next = updateRuntime(state, key, () => ({
-        ...settle(touched),
-        error: event.error && !shown ? event.error : touched.error,
+        ...touched,
+        turn: null,
+        items: expireRequests(runtime.items),
+        error: error && !shown ? error : touched.error,
       }))
-      return event.error && shown
-        ? updateLibrary(next, provider, (lib) => ({ ...lib, error: event.error ?? null }))
-        : next
+      return error && shown ? updateLibrary(next, provider, (lib) => ({ ...lib, error })) : next
     }
-    case 'block':
+    case 'item.upserted':
       return updateRuntime(state, key, () => ({
         ...touched,
-        blocks: upsertBlock(runtime.blocks, event.block, event.replaces),
+        items: upsertItem(runtime.items, event.item, event.replaces),
       }))
-    case 'text':
+    case 'item.delta':
       return updateRuntime(state, key, () => ({
         ...touched,
-        blocks: appendText(runtime.blocks, event.blockId, event.delta, event.create),
+        items: appendDelta(runtime.items, event.itemId, event.delta, event.create),
       }))
-    case 'resolved':
-      return updateRuntime(state, key, () => ({
-        ...touched,
-        blocks: updateApproval(runtime.blocks, event.blockId, { resolved: event.resolved, pending: false }),
-      }))
-    case 'reset': {
-      const ids = new Set(event.blocks.map((block) => block.id))
-      const blocks = [...event.blocks, ...openApprovals(runtime.blocks).filter((block) => !ids.has(block.id))]
-      const streaming = event.streaming ?? runtime.streaming
-      return updateRuntime(state, key, () => ({
-        ...touched,
-        blocks,
-        streaming,
-        stopping: streaming && runtime.stopping,
-      }))
+    case 'thread.reset': {
+      const ids = new Set(event.items.map((item) => item.id))
+      const items = [...event.items, ...openRequests(runtime.items).filter((item) => !ids.has(item.id))]
+      const turn =
+        event.activeTurnId === null
+          ? null
+          : runtime.turn?.id === event.activeTurnId
+            ? runtime.turn
+            : { id: event.activeTurnId, phase: 'running' as const }
+      return updateRuntime(state, key, () => ({ ...touched, items, turn }))
     }
-    case 'title': {
+    case 'thread.renamed': {
       const next = updateRuntime(state, key, () => ({ ...touched, title: event.title }))
       return renameDoc(next, provider, event.threadId, event.title)
     }
-    case 'closed': {
+    case 'thread.closed': {
       const next = removeRuntime(state, key)
       const route = next.libraries[provider].route
       return route.kind === 'doc' && route.threadId === event.threadId
@@ -247,21 +260,21 @@ export const renameDoc = (state: State, provider: ProviderId, threadId: string, 
     docs: lib.docs.map((doc) => (doc.id === threadId ? { ...doc, name } : doc)),
   }))
 
-/** Stores an opened (or reloaded) thread. Approvals still waiting survive a reload. */
+/** Stores an opened (or reloaded) thread. Requests still waiting survive a reload. */
 export function adopt(state: State, provider: ProviderId, opened: OpenedThread, now: number): State {
   const key = keyOf(provider, opened.threadId)
   const previous = state.runtimes.get(key)
-  const ids = new Set(opened.blocks.map((block) => block.id))
+  const ids = new Set(opened.items.map((item) => item.id))
   const runtimes = new Map(state.runtimes)
+  const active = opened.activeTurnId
   runtimes.set(key, {
     provider,
     threadId: opened.threadId,
     title: opened.title,
-    blocks: previous
-      ? [...opened.blocks, ...openApprovals(previous.blocks).filter((block) => !ids.has(block.id))]
-      : opened.blocks,
-    streaming: Boolean(opened.streaming),
-    stopping: false,
+    items: previous
+      ? [...opened.items, ...openRequests(previous.items).filter((item) => !ids.has(item.id))]
+      : opened.items,
+    turn: active === null ? null : previous?.turn?.id === active ? previous.turn : { id: active, phase: 'running' },
     olderCursor: opened.olderCursor,
     loadingOlder: false,
     cwd: opened.cwd,
@@ -318,7 +331,7 @@ export function withModel(lib: Library, model: string): Library {
 }
 
 /**
- * The provider process died: every running turn on it ends, approvals can no
+ * The provider process died: every running turn on it ends, requests can no
  * longer be answered, the shown document reloads on reconnect, and other
  * documents are dropped (they reopen from the provider).
  */
@@ -327,17 +340,7 @@ export function connectionLost(state: State, provider: ProviderId, message: stri
   for (const [key, runtime] of state.runtimes) {
     if (runtime.provider !== provider) continue
     if (isDisplayed(state, runtime)) {
-      runtimes.set(key, {
-        ...runtime,
-        streaming: false,
-        stopping: false,
-        stale: true,
-        blocks: runtime.blocks.map((block) =>
-          block.kind === 'approval' && block.resolved === null
-            ? { ...block, resolved: 'skipped', pending: false }
-            : block,
-        ),
-      })
+      runtimes.set(key, { ...runtime, turn: null, stale: true, items: expireRequests(runtime.items) })
     } else {
       runtimes.delete(key)
     }
@@ -350,13 +353,12 @@ export function connectionLost(state: State, provider: ProviderId, message: stri
   }))
 }
 
-const hasOpenApproval = (runtime: ThreadRuntime) =>
-  runtime.blocks.some((block) => block.kind === 'approval' && block.resolved === null)
+const hasOpenRequest = (runtime: ThreadRuntime) => runtime.items.some(isOpenRequest)
 
 /** Off-screen, settled runtimes to release: idle past `idleMs`, or the oldest beyond `maxIdle`. */
 export function idleRuntimes(state: State, now: number, idleMs: number, maxIdle: number): ReadonlyArray<ThreadRuntime> {
   const idle = [...state.runtimes.values()]
-    .filter((runtime) => !isDisplayed(state, runtime) && !runtime.streaming && !hasOpenApproval(runtime))
+    .filter((runtime) => !isDisplayed(state, runtime) && runtime.turn === null && !hasOpenRequest(runtime))
     .sort((a, b) => a.touchedAt - b.touchedAt)
   const excess = Math.max(0, idle.length - maxIdle)
   return idle.filter((runtime, index) => index < excess || now - runtime.touchedAt >= idleMs)

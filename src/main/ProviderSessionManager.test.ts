@@ -13,7 +13,7 @@ import * as ClaudeAdapter from '../claude/ClaudeAdapter'
 import { makeFakeClaude } from '../claude/FakeClaude'
 import * as CodexAdapter from '../codex/CodexAdapter'
 import { agentItem, makeFakeCodex, stubTurn, userItem, type FakeCodexOptions } from '../codex/FakeCodex'
-import type { ProviderAdapter } from '../provider/ProviderAdapter'
+import { fromLegacy, type LegacyProviderAdapter } from '../provider/legacyEvents'
 import type { Snapshot } from '../shared/model'
 import { layerAdapters, layerLoaders } from './ProviderRegistry'
 import * as Manager from './ProviderSessionManager'
@@ -23,14 +23,21 @@ import * as Manager from './ProviderSessionManager'
  * peer: only the process boundary is fake, so these cover the same paths the
  * app runs (T3 Code's replay-fixture approach).
  */
-const setup = (options: FakeCodexOptions = {}, others: { claude?: ProviderAdapter } = {}) =>
+const setup = (options: FakeCodexOptions = {}, others: { claude?: LegacyProviderAdapter } = {}) =>
   Effect.gen(function* () {
     const peer = makeFakeCodex(options)
     const opened: string[] = []
     const manager = yield* Manager.make({
       defaultCwd: () => '/tmp/docs',
       openExternal: (url) => Effect.sync(() => opened.push(url)),
-    }).pipe(Effect.provide(layerAdapters({ codex: CodexAdapter.make(peer.connect), ...others })))
+    }).pipe(
+      Effect.provide(
+        layerAdapters({
+          codex: fromLegacy(CodexAdapter.make(peer.connect)),
+          ...(others.claude ? { claude: fromLegacy(others.claude) } : {}),
+        }),
+      ),
+    )
     yield* manager.start('codex')
     yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
     return { peer, manager, opened }
@@ -67,14 +74,16 @@ const brokenOnce = (peer: ReturnType<typeof makeFakeCodex>, method: string, key:
   let broken = true
   const poison = <T extends object>(name: string, params: T) =>
     name === method && broken ? ((broken = false), throwingOn(params, key, message)) : params
-  return CodexAdapter.make(
-    Effect.map(peer.connect, (client): CodexAdapter.Client => ({
-      ...client,
-      handleServerNotification: (name, handler) =>
-        client.handleServerNotification(name, (params) => handler(poison(name, params))),
-      handleServerRequest: (name, handler) =>
-        client.handleServerRequest(name, (params) => handler(poison(name, params))),
-    })),
+  return fromLegacy(
+    CodexAdapter.make(
+      Effect.map(peer.connect, (client): CodexAdapter.Client => ({
+        ...client,
+        handleServerNotification: (name, handler) =>
+          client.handleServerNotification(name, (params) => handler(poison(name, params))),
+        handleServerRequest: (name, handler) =>
+          client.handleServerRequest(name, (params) => handler(poison(name, params))),
+      })),
+    ),
   )
 }
 const countCalls = (peer: { calls: ReadonlyArray<{ method: string }> }, method: string) =>
@@ -303,7 +312,7 @@ describe('ProviderSessionManager', () => {
       const peer = makeFakeCodex()
       const codex = CodexAdapter.make(peer.connect)
       let armed = false
-      const flaky: ProviderAdapter = {
+      const flaky: LegacyProviderAdapter = {
         ...codex,
         openSession: Effect.map(codex.openSession, (session) => ({
           ...session,
@@ -311,7 +320,7 @@ describe('ProviderSessionManager', () => {
         })),
       }
       const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
-        Effect.provide(layerAdapters({ codex: flaky })),
+        Effect.provide(layerAdapters({ codex: fromLegacy(flaky) })),
       )
       yield* manager.start('codex')
       yield* until(manager, (snapshot) => snapshot.status === 'ready')
@@ -338,7 +347,7 @@ describe('ProviderSessionManager', () => {
       const peer = makeFakeCodex()
       const codex = CodexAdapter.make(peer.connect)
       let broken = true
-      const flaky: ProviderAdapter = {
+      const flaky: LegacyProviderAdapter = {
         ...codex,
         openSession: Effect.map(codex.openSession, (session) => ({
           ...session,
@@ -347,7 +356,7 @@ describe('ProviderSessionManager', () => {
         })),
       }
       const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
-        Effect.provide(layerAdapters({ codex: flaky })),
+        Effect.provide(layerAdapters({ codex: fromLegacy(flaky) })),
       )
       yield* manager.start('codex')
       yield* until(manager, (snapshot) => snapshot.status === 'ready')
@@ -421,14 +430,14 @@ describe('ProviderSessionManager', () => {
       const peer = makeFakeCodex()
       const codex = CodexAdapter.make(peer.connect)
       let broken = true
-      const flaky: ProviderAdapter = {
+      const flaky: LegacyProviderAdapter = {
         ...codex,
         openSession: Effect.map(codex.openSession, (session) =>
           broken ? ((broken = false), { ...session, events: Stream.die(new Error('bad frame')) }) : session,
         ),
       }
       const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
-        Effect.provide(layerAdapters({ codex: flaky })),
+        Effect.provide(layerAdapters({ codex: fromLegacy(flaky) })),
       )
       yield* manager.start('codex')
       const lost = yield* until(manager, (snapshot) => snapshot.error !== null)
@@ -526,12 +535,12 @@ describe('ProviderSessionManager', () => {
         const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
           Effect.provide(
             layerLoaders({
-              codex: () => Promise.resolve(CodexAdapter.make(peer.connect)),
+              codex: () => Promise.resolve(fromLegacy(CodexAdapter.make(peer.connect))),
               opencode: () => Promise.reject(new Error('unused')),
               claude: () =>
                 claudeLoads++ === 0
                   ? Promise.reject(new Error('Cannot find module ./ClaudeAdapter'))
-                  : Promise.resolve(ClaudeAdapter.make(() => Promise.resolve(makeFakeClaude().sdk))),
+                  : Promise.resolve(fromLegacy(ClaudeAdapter.make(() => Promise.resolve(makeFakeClaude().sdk)))),
             }),
           ),
         )

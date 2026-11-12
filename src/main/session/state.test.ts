@@ -1,27 +1,29 @@
 import { describe, expect, it } from 'vitest'
 
-import type { ApprovalBlock, Block } from '../../shared/model'
+import type { AssistantItem, Failure, Item, RequestItem, RequestStatus } from '../../provider/events'
+import type { OpenedThread } from '../../provider/ProviderAdapter'
+import { diffSnapshot } from '../../shared/snapshot-patch'
 import * as S from './state'
 
-const approval = (id: string, resolved: ApprovalBlock['resolved'] = null): ApprovalBlock => ({
-  kind: 'approval',
+const request = (id: string, status: RequestStatus = 'pending'): RequestItem => ({
+  kind: 'request',
   id,
-  suggestion: 'add',
-  title: 'Run command?',
-  body: 'ls',
+  request: 'command',
+  status,
+  subject: 'ls',
+  detail: '',
   fields: [],
   questions: [],
-  resolved,
 })
-const agent = (id: string, text: string): Block => ({ kind: 'agent', id, text })
+const assistant = (id: string, text: string): AssistantItem => ({ kind: 'assistant', id, text, phase: 'final' })
+const rateLimited: Failure = { class: 'usage_limit', detail: 'Rate limited.', retryable: false, resetAt: null }
+const LIMIT_SENTENCE = 'You’ve reached your usage limit. Try again later.'
 
-const opened = (threadId: string, blocks: ReadonlyArray<Block> = [agent('a1', 'Hello.')]) => ({
-  threadId,
-  title: threadId,
-  blocks,
-  olderCursor: null,
-  cwd: '/tmp/docs',
-})
+const opened = (
+  threadId: string,
+  items: ReadonlyArray<Item> = [assistant('a1', 'Hello.')],
+  activeTurnId: string | null = null,
+): OpenedThread => ({ threadId, title: threadId, items, olderCursor: null, cwd: '/tmp/docs', activeTurnId })
 
 /** Codex active, showing `codexDoc`; OpenCode in the background, showing `openDoc`. */
 const twoLibraries = () => {
@@ -34,6 +36,10 @@ const twoLibraries = () => {
 
 const runtime = (state: S.State, provider: 'codex' | 'opencode', threadId: string) =>
   state.runtimes.get(S.keyOf(provider, threadId))
+
+/** `twoLibraries` with turn `turnId` sent and confirmed on codex's `thr_1`. */
+const running = (turnId = 'turn-1') =>
+  S.applyThreadEvent(twoLibraries(), 'codex', { type: 'turn.started', threadId: 'thr_1', turnId }, 1)
 
 describe('session state', () => {
   it('shows the signed-in address for a library that reports no account', () => {
@@ -69,70 +75,156 @@ describe('session state', () => {
     expect(S.idleRuntimes(state, 60_001, 60_000, 12).map((item) => item.threadId)).toEqual(['thr_a', 'thr_b'])
   })
 
-  it('puts a background library’s turn error on that library’s banner', () => {
-    const state = S.applyThreadEvent(
+  it('puts a background library’s failed turn on that library’s banner, in Docs’ words', () => {
+    let state = S.applyThreadEvent(
       twoLibraries(),
       'opencode',
-      { type: 'turnEnded', threadId: 'ses_1', error: 'Rate limited.' },
+      { type: 'turn.started', threadId: 'ses_1', turnId: 't' },
+      1,
+    )
+    state = S.applyThreadEvent(
+      state,
+      'opencode',
+      { type: 'turn.ended', threadId: 'ses_1', turnId: 't', status: 'failed', failure: rateLimited },
       5,
     )
-    expect(state.libraries.opencode.error).toBe('Rate limited.')
+    expect(state.libraries.opencode.error).toBe(LIMIT_SENTENCE)
     expect(state.libraries.codex.error).toBeNull()
     expect(runtime(state, 'opencode', 'ses_1')?.error).toBeNull()
   })
 
-  it('keeps a hidden document’s turn error until it is opened', () => {
-    let state = S.updateLibrary(twoLibraries(), 'codex', (lib) => ({ ...lib, route: { kind: 'home' } }))
-    state = S.applyThreadEvent(state, 'codex', { type: 'turnEnded', threadId: 'thr_1', error: 'Rate limited.' }, 5)
+  it('keeps a hidden document’s failed turn until it is opened', () => {
+    let state = S.updateLibrary(running(), 'codex', (lib) => ({ ...lib, route: { kind: 'home' } }))
+    state = S.applyThreadEvent(
+      state,
+      'codex',
+      { type: 'turn.ended', threadId: 'thr_1', turnId: 'turn-1', status: 'failed', failure: rateLimited },
+      5,
+    )
     expect(state.libraries.codex.error).toBeNull()
-    expect(runtime(state, 'codex', 'thr_1')?.error).toBe('Rate limited.')
+    expect(runtime(state, 'codex', 'thr_1')?.error).toBe(LIMIT_SENTENCE)
 
     state = S.showThread(state, 'codex', 'thr_1')
-    expect(state.libraries.codex.error).toBe('Rate limited.')
+    expect(state.libraries.codex.error).toBe(LIMIT_SENTENCE)
     expect(runtime(state, 'codex', 'thr_1')?.error).toBeNull()
   })
 
-  it('on a crash, ends turns, skips open approvals, keeps the shown document and drops the rest', () => {
-    let state = S.adopt(twoLibraries(), 'codex', opened('thr_2'), 0)
-    state = S.applyThreadEvent(state, 'codex', { type: 'turnStarted', threadId: 'thr_1' }, 1)
-    state = S.applyThreadEvent(state, 'codex', { type: 'block', threadId: 'thr_1', block: approval('ap_1') }, 2)
-    state = S.connectionLost(state, 'codex', 'Codex stopped unexpectedly.')
+  it('ignores a terminal for any turn but the open one', () => {
+    const state = running('turn-2')
+    const late = S.applyThreadEvent(
+      state,
+      'codex',
+      { type: 'turn.ended', threadId: 'thr_1', turnId: 'turn-1', status: 'failed', failure: rateLimited },
+      5,
+    )
+    expect(late).toBe(state)
+    expect(S.toSnapshot(late)).toMatchObject({ streaming: true, error: null })
 
-    expect(runtime(state, 'codex', 'thr_1')).toMatchObject({ streaming: false, stale: true })
-    expect(runtime(state, 'codex', 'thr_1')?.blocks.at(-1)).toMatchObject({
-      id: 'ap_1',
-      resolved: 'skipped',
-      pending: false,
-    })
-    expect(runtime(state, 'codex', 'thr_2')).toBeUndefined()
-    expect(runtime(state, 'opencode', 'ses_1')).toBeDefined()
-    expect(state.libraries.codex).toMatchObject({ status: 'connecting', error: 'Codex stopped unexpectedly.' })
+    const own = S.applyThreadEvent(
+      state,
+      'codex',
+      { type: 'turn.ended', threadId: 'thr_1', turnId: 'turn-2', status: 'completed', failure: null },
+      6,
+    )
+    expect(S.toSnapshot(own).streaming).toBe(false)
   })
 
-  it('a reload or a reset keeps approvals that still wait for an answer', () => {
+  it('keeps Stopping… through late deltas, until the stopped turn’s terminal', () => {
+    let state = S.updateRuntime(running(), S.keyOf('codex', 'thr_1'), (item) => ({
+      ...item,
+      turn: { id: 'turn-1', phase: 'stopping' },
+    }))
+    state = S.applyThreadEvent(
+      state,
+      'codex',
+      { type: 'item.delta', threadId: 'thr_1', itemId: 'a1', delta: ' More.' },
+      2,
+    )
+    expect(S.toSnapshot(state)).toMatchObject({ streaming: true, stopping: true })
+    // The settle timer of an older turn never ends this one.
+    expect(S.settleStop(runtime(state, 'codex', 'thr_1')!, 'turn-0').turn).not.toBeNull()
+    expect(S.settleStop(runtime(state, 'codex', 'thr_1')!, 'turn-1').turn).toBeNull()
+  })
+
+  it('shows a document opened mid-answer as streaming', () => {
+    const state = S.showThread(S.adopt(twoLibraries(), 'codex', opened('thr_2', [], 'turn-9'), 0), 'codex', 'thr_2')
+    expect(S.toSnapshot(state)).toMatchObject({ streaming: true, stopping: false })
+    const ended = S.applyThreadEvent(
+      state,
+      'codex',
+      { type: 'turn.ended', threadId: 'thr_2', turnId: 'turn-9', status: 'completed', failure: null },
+      1,
+    )
+    expect(S.toSnapshot(ended).streaming).toBe(false)
+  })
+
+  it('a turn’s end expires the requests it left unanswered', () => {
+    let state = S.applyThreadEvent(
+      running(),
+      'codex',
+      { type: 'item.upserted', threadId: 'thr_1', turnId: 'turn-1', item: request('ap_1') },
+      2,
+    )
+    state = S.applyThreadEvent(
+      state,
+      'codex',
+      { type: 'turn.ended', threadId: 'thr_1', turnId: 'turn-1', status: 'interrupted', failure: null },
+      3,
+    )
+    expect(runtime(state, 'codex', 'thr_1')?.items.at(-1)).toMatchObject({ id: 'ap_1', status: 'expired' })
+    expect(S.toSnapshot(state).blocks.at(-1)).toMatchObject({ resolved: 'skipped', pending: false })
+  })
+
+  it('on a crash, ends turns, expires open requests, keeps the shown document and drops the rest', () => {
+    let state = S.adopt(running(), 'codex', opened('thr_2'), 0)
+    state = S.applyThreadEvent(
+      state,
+      'codex',
+      { type: 'item.upserted', threadId: 'thr_1', turnId: 'turn-1', item: request('ap_1') },
+      2,
+    )
+    state = S.connectionLost(state, 'codex', 'Docs lost its connection.')
+
+    expect(runtime(state, 'codex', 'thr_1')).toMatchObject({ turn: null, stale: true })
+    expect(runtime(state, 'codex', 'thr_1')?.items.at(-1)).toMatchObject({ id: 'ap_1', status: 'expired' })
+    expect(runtime(state, 'codex', 'thr_2')).toBeUndefined()
+    expect(runtime(state, 'opencode', 'ses_1')).toBeDefined()
+    expect(state.libraries.codex).toMatchObject({ status: 'connecting', error: 'Docs lost its connection.' })
+  })
+
+  it('a reload or a reset keeps requests that still wait for an answer', () => {
     let state = S.applyThreadEvent(
       twoLibraries(),
       'codex',
-      { type: 'block', threadId: 'thr_1', block: approval('ap_1') },
+      { type: 'item.upserted', threadId: 'thr_1', turnId: null, item: request('ap_1') },
       1,
     )
     state = S.applyThreadEvent(
       state,
       'codex',
-      { type: 'block', threadId: 'thr_1', block: approval('ap_0', 'accepted') },
+      { type: 'item.upserted', threadId: 'thr_1', turnId: null, item: request('ap_0', 'accepted') },
       1,
     )
 
-    const reloaded = S.adopt(state, 'codex', opened('thr_1', [agent('a2', 'New.')]), 2)
-    expect(runtime(reloaded, 'codex', 'thr_1')?.blocks.map((block) => block.id)).toEqual(['a2', 'ap_1'])
+    const reloaded = S.adopt(state, 'codex', opened('thr_1', [assistant('a2', 'New.')]), 2)
+    expect(runtime(reloaded, 'codex', 'thr_1')?.items.map((item) => item.id)).toEqual(['a2', 'ap_1'])
 
     const reset = S.applyThreadEvent(
       state,
       'codex',
-      { type: 'reset', threadId: 'thr_1', blocks: [agent('a3', 'Reset.')], streaming: true },
+      { type: 'thread.reset', threadId: 'thr_1', items: [assistant('a3', 'Reset.')], activeTurnId: 'turn-3' },
       3,
     )
-    expect(runtime(reset, 'codex', 'thr_1')).toMatchObject({ streaming: true })
-    expect(runtime(reset, 'codex', 'thr_1')?.blocks.map((block) => block.id)).toEqual(['a3', 'ap_1'])
+    expect(S.toSnapshot(reset).streaming).toBe(true)
+    expect(runtime(reset, 'codex', 'thr_1')?.items.map((item) => item.id)).toEqual(['a3', 'ap_1'])
+  })
+
+  it('a streamed delta crosses IPC as one append and nothing else', () => {
+    const state = running()
+    const before = S.toSnapshot(state)
+    const after = S.toSnapshot(
+      S.applyThreadEvent(state, 'codex', { type: 'item.delta', threadId: 'thr_1', itemId: 'a1', delta: ' World' }, 2),
+    )
+    expect(diffSnapshot(before, after)).toEqual({ fields: {}, blocks: { length: 1, append: [[0, ' World']] } })
   })
 })

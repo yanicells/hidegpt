@@ -15,7 +15,10 @@ import * as TestClock from 'effect/testing/TestClock'
 
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import { DEFECT_MESSAGE } from '../provider/errors'
-import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
+import type {
+  LegacyAdapterEvent as AdapterEvent,
+  LegacyProviderSession as ProviderSession,
+} from '../provider/legacyEvents'
 import * as ClaudeAdapter from './ClaudeAdapter'
 import {
   assistantFrame,
