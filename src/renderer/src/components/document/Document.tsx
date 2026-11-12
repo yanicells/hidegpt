@@ -92,7 +92,7 @@ export function Document({
                 type="button"
                 className="load-older"
                 data-testid="load-older"
-                disabled={snap.loadingOlder || snap.streaming}
+                disabled={snap.loadingOlder || snap.streaming || !allRows}
                 onClick={() => dispatch({ op: 'loadOlderTurns' })}
               >
                 {snap.loadingOlder ? 'Loading…' : 'Load earlier'}
