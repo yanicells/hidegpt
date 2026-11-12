@@ -108,6 +108,28 @@ describe('ProviderSessionManager', () => {
     }),
   )
 
+  it.effect('a stop from before a crash does not end a turn sent after the reconnect', () =>
+    Effect.gen(function* () {
+      // The stop is never answered, and the crash ends the stopped turn without a turnEnded.
+      const { peer, manager } = yield* setup({ reply: null, handlers: { 'turn/interrupt': () => Effect.never } })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* manager.dispatch({ op: 'send', text: 'First' })
+      yield* until(manager, (snapshot) => snapshot.streaming && snapshot.blocks.some((block) => block.kind === 'user' && !block.id.startsWith('local-')))
+      yield* Effect.forkScoped(manager.dispatch({ op: 'interrupt' }))
+      yield* until(manager, (snapshot) => snapshot.stopping)
+      yield* peer.exit(1, 'boom')
+      yield* until(manager, (snapshot) => snapshot.status === 'connecting')
+      yield* TestClock.adjust('1 second')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready')
+      yield* settle
+      yield* manager.dispatch({ op: 'send', text: 'Second' })
+      yield* until(manager, (snapshot) => snapshot.streaming && !snapshot.stopping)
+      yield* TestClock.adjust('10 seconds')
+      yield* settle
+      expect((yield* manager.snapshot).streaming).toBe(true)
+    }),
+  )
+
   it.effect('refuses an empty send so the composer keeps the draft', () =>
     Effect.gen(function* () {
       const { manager } = yield* setup()

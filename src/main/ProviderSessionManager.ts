@@ -208,8 +208,9 @@ export const make = (options: ManagerOptions) =>
         Effect.catchCause((cause) => {
           if (Cause.hasInterrupts(cause)) return Effect.interrupt
           const error = userMessage(Cause.squash(cause))
-          return update((current) => S.connectionLost(current, id, error)).pipe(
-            Effect.andThen(updateLibrary(id, (lib) => ({ ...lib, status: 'error', error, opening: null }))),
+          // One update, so no snapshot shows the library reconnecting first.
+          return update((current) =>
+            S.updateLibrary(S.connectionLost(current, id, error), id, (lib) => ({ ...lib, status: 'error', error, opening: null })),
           )
         }),
       )
@@ -311,7 +312,11 @@ export const make = (options: ManagerOptions) =>
             const known = (yield* read).runtimes.has(key)
             const at = yield* now
             if (known) yield* update((current) => S.applyThreadEvent(current, id, event, at))
-            if (event.type === 'turnEnded' || event.type === 'closed') yield* FiberMap.remove(stopTimers, key)
+            // A stop timer belongs to one turn: a new turn (say, after a crash ended the stopped one
+          // silently) must not be settled by it.
+          if (event.type === 'turnStarted' || event.type === 'turnEnded' || event.type === 'closed') {
+            yield* FiberMap.remove(stopTimers, key)
+          }
             // A thread with no runtime (released, never opened here) only moves Home's ordering.
             if (event.type === 'turnEnded' || (!known && event.type === 'title')) yield* invalidate(id, 'docs')
             return
@@ -474,7 +479,8 @@ export const make = (options: ManagerOptions) =>
     /**
      * Asks the provider to stop. The document shows "Stopping…" until the turn's
      * terminal event, so late deltas never flip it back; after 10 s it settles anyway,
-     * which also frees a document whose turn end was lost.
+     * which also frees a document whose turn end was lost. A new turn on the document
+     * cancels that timer.
      */
     const interrupt = (id: ProviderId) =>
       Effect.gen(function* () {
