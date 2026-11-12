@@ -416,8 +416,11 @@
    once it has been on screen. A contained block keeps its children's edge
    margins inside instead of collapsing them with its neighbours'; the page's
    blocks carry no margin of their own and answers drop their outer margins,
-   so the spacing is the same. */
+   so the spacing is the same. `flow-root` does the same for the blocks that
+   are never skipped, so a page break's top margin stays inside its block and
+   pagination can tell where each block starts. */
 .doc-block {
+  display: flow-root;
   content-visibility: auto;
   contain-intrinsic-size: auto 480px;
 }

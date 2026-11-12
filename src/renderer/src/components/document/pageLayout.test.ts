@@ -64,6 +64,24 @@ describe('layoutPages', () => {
     expect(pages).toBe(2)
   })
 
+  it("replaces a row's first unit's own margin, not the space the row above leaves", () => {
+    // The question row ends 8px below its heading (the heading's bottom margin, inside the row),
+    // and is off-screen, so the answer moves without it.
+    const question = row(96, [unit('q', 700, 40, 'h1')], { height: 748, live: false })
+    const { breaks } = layoutPages([question, row(844, [unit('a', 0, 200)])], noLines)
+    // The answer's first paragraph sits flush with its row's top: a 324px margin lands it at 1168.
+    expect(breaks[1]).toEqual([{ kind: 'push', el: 'a', margin: 324, push: 324 }])
+  })
+
+  it('places a row that is one unit by where it sits without its own push', () => {
+    const above = row(96, [unit('x', 0, 784)])
+    // The composer was pushed 200 last pass. That is its top margin, so its box starts at 1100, not 900.
+    const composer = row(1100, [unit('c', -200, 100)], { height: 100, applied: 200 })
+    const fresh = layoutPages([above, row(900, [unit('c', 0, 100)])], noLines)
+    expect(layoutPages([above, composer], noLines)).toEqual(fresh)
+    expect(fresh.breaks[1]).toEqual([{ kind: 'push', el: 'c', margin: 288, push: 268 }])
+  })
+
   it('keeps an unmeasured row as it is and still counts it', () => {
     const unmeasured: PageRow<string> = { top: 96, height: 2900, live: false, measured: null, applied: 0 }
     const { breaks, pages } = layoutPages([unmeasured, row(2996, [unit('c', 0, 50)])], noLines)

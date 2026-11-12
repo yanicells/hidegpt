@@ -7,7 +7,11 @@ const MARGIN = 96
 /** Docs' "prevent single lines": a split paragraph keeps at least two lines on each page. */
 const MIN_LINES = 2
 
-/** Something that paginates, measured with its row's breaks cleared. Offsets are from the row's top. */
+/**
+ * Something that paginates, as it would sit with its row's breaks removed. Offsets are from
+ * the row's border-box top as laid out now, which only a row that is itself one unit moves
+ * (its break is its own top margin), so for that row the offset is minus its push.
+ */
 export type PageUnit<E> = { el: E; offset: number; height: number; heading: boolean; paragraph: boolean }
 
 /**
@@ -59,7 +63,8 @@ export function layoutPages<E>(
   const breaks: (PageBreak<E>[] | null)[] = []
   let shift = 0
   let bottom = 0
-  // The previous unit's bottom as laid out without breaks, for the gap a push keeps.
+  // Where the margin a push replaces starts: the previous unit's bottom without breaks
+  // inside a row, or the previous row's bottom, since a row keeps its margins inside it.
   let above = MARGIN
   let previous: Placed<E> | undefined
 
@@ -113,8 +118,7 @@ export function layoutPages<E>(
       bottom = Math.max(bottom, row.top + start + row.height)
       shift = start
     }
-    // Whatever the row's breaks add to its height also sits between its last unit and the next row.
-    above += row.height - row.measured.height
+    above = row.top + row.height
   })
   return { breaks, pages: Math.floor(bottom / PAGE_PITCH) + 1 }
 }

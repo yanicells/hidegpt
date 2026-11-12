@@ -11,7 +11,7 @@ export { PAGE_HEIGHT, PAGE_PITCH } from './pageLayout'
  * text" link) paginates whole.
  */
 const BLOCK_UNITS = [
-  ':scope > :not(:has(> .doc-body))',
+  ':scope > :not(.doc-body, :has(> .doc-body))',
   '.doc-body > :not(ul, ol)',
   '.doc-body > :is(ul, ol) > li',
 ].join(', ')
@@ -34,32 +34,44 @@ export function usePages(paperRef: RefObject<HTMLElement | null>): number {
   return pages
 }
 
-/** A row's units as last measured with its breaks cleared, plus lines read so far. */
+/** A row's units as they would sit without its breaks, plus lines read so far. */
 type Geometry = { units: PageUnit<HTMLElement>[]; height: number; lines: Map<HTMLElement, Lines | null> }
 
-/** How many passes a frame's ResizeObserver callbacks may run before deferring to the next frame. */
-const MAX_SYNC_PASSES = 3
+/** Passes one frame may run before the rest waits for the next frame, so a layout that never settles can't hang it. */
+const MAX_PASSES_PER_FRAME = 6
+
+/** Passes one ResizeObserver callback runs to let the rows settle. */
+const MAX_SETTLE_PASSES = 3
 
 /**
  * Keeps each row's geometry cached and measures a row only when it is rendered and its
  * contents changed, so an off-screen block that `content-visibility` skips is never laid
- * out just to be measured. Pagination itself is arithmetic (`layoutPages`).
+ * out just to be measured. A row is measured with its breaks in place and the pushes they
+ * are known to add taken back out, so a pass only reads and then writes what changed:
+ * one layout, the one the frame was going to do. Pagination itself is arithmetic (`layoutPages`).
  */
-class Paginator {
+export class Paginator {
   private readonly geometry = new WeakMap<HTMLElement, Geometry>()
   /** The breaks written into each row, by element. */
   private readonly written = new WeakMap<HTMLElement, Map<HTMLElement, PageBreak<HTMLElement>>>()
-  /** From `contentvisibilityautostatechange`; absent until the browser first decides. */
+  /**
+   * Whether `content-visibility` skips a row, from `contentvisibilityautostatechange`, or
+   * from the row itself where that event would come too late.
+   */
   private readonly skipped = new WeakMap<Element, boolean>()
+  /** Rows the last pass saw rendered; one rendering since has never been placed live. */
+  private readonly wasLive = new WeakSet<HTMLElement>()
   private readonly dirty = new Set<HTMLElement>()
-  /** Rows measured this frame: their next resize is a pass's own breaks landing. */
-  private readonly measured = new Set<HTMLElement>()
   private readonly observed = new Set<HTMLElement>()
   private readonly mutations: MutationObserver
   private readonly resizes: ResizeObserver | null
-  private width = ''
+  /**
+   * The paper's width in page px (`--paper-width`), fixed on screen, so it's read once rather
+   * than every pass. Observing the paper instead would report its every change in height.
+   */
+  private width: number
   private frame = 0
-  /** Passes run this frame; cleared by the next frame's callback. */
+  /** Passes run this frame; cleared by the next frame. */
   private passes = 0
   private resetFrame = 0
   private disposed = false
@@ -70,6 +82,7 @@ class Paginator {
   ) {
     // Breaks left by an earlier instance (a remount) aren't in this one's books.
     for (const el of Array.from(paper.querySelectorAll<HTMLElement>('[data-page-break], [data-page-split]'))) clearBreak(el)
+    this.width = parseFloat(getComputedStyle(paper).width)
     this.mutations = new MutationObserver((records) => this.onMutations(records))
     // Our own break writes are attributes outside the filter, so they don't retrigger this.
     this.mutations.observe(paper, {
@@ -83,7 +96,9 @@ class Paginator {
     paper.addEventListener('contentvisibilityautostatechange', this.onVisibility, true)
     void document.fonts?.ready.then(() => {
       if (this.disposed) return
-      this.width = ''
+      // Text measured in a fallback font wraps differently now.
+      this.width = parseFloat(getComputedStyle(paper).width)
+      for (const row of this.rows()) this.dirty.add(row)
       this.schedule()
     })
     this.run()
@@ -122,36 +137,63 @@ class Paginator {
   }
 
   /**
-   * A row changed size. A pass already ran this frame for what React changed, so only a
-   * change nobody measured (a row rendering for the first time, or again after the rows
-   * above it moved, an image, a font) needs one now, before paint.
+   * Runs after layout, so reads here are free. A pass already ran this frame for what React
+   * changed, and the breaks it wrote account for their rows' new sizes; only a change no pass
+   * planned for (a row rendering for the first time or again, an image, a font) needs one now,
+   * before paint.
    */
   private onResize(entries: ResizeObserverEntry[]) {
-    let unexplained = false
+    let unplanned = false
     for (const entry of entries) {
       const row = entry.target as HTMLElement
-      if (this.passes > 0 && this.measured.has(row)) continue
-      const geometry = this.geometry.get(row)
-      const height = entry.borderBoxSize?.[0]?.blockSize ?? row.offsetHeight
       // RO sizes are layout px, like the cache: the page zoom doesn't scale them.
-      if (geometry && this.skipped.get(row) !== true && Math.abs(height - geometry.height - this.pushOf(row)) > 1) {
-        this.dirty.add(row)
-        unexplained = true
-      } else if (!geometry && this.skipped.get(row) !== true) {
-        unexplained = true
-      }
+      unplanned = this.unplanned(row, entry.borderBoxSize?.[0]?.blockSize ?? row.offsetHeight, true) || unplanned
     }
-    if (!unexplained) return
-    if (this.passes < MAX_SYNC_PASSES) this.run()
-    else this.schedule()
+    if (unplanned) this.settle()
+  }
+
+  /**
+   * Whether a row's size is one no pass planned for, marking it to be measured again when
+   * its contents must have changed. `fresh` asks the row whether it's skipped rather than
+   * trusting the last visibility event: Chromium delivers that event after this frame's
+   * ResizeObserver callbacks, so a row coming into view still reads as skipped here.
+   */
+  private unplanned(row: HTMLElement, height: number, fresh: boolean): boolean {
+    if (fresh) this.refreshSkipped(row)
+    // A skipped row keeps the size it last rendered at; its breaks wait for it to render.
+    if (!this.isLive(row)) return false
+    const geometry = this.geometry.get(row)
+    // Rendering now but not when the last pass placed it: its breaks may never have been
+    // written live, and a paragraph can only be split once its lines can be read.
+    if (!geometry || !this.wasLive.has(row)) return true
+    if (Math.abs(height - geometry.height - this.pushOf(row)) <= 1) return false
+    this.dirty.add(row)
+    return true
+  }
+
+  /**
+   * Passes until the rows stop changing size. ResizeObserver redelivers in the same frame
+   * only for elements deeper than the ones it just delivered, and the rows are siblings, so
+   * a row that resized because of this callback's breaks would wait a frame to be seen.
+   * Instead each further pass reads the result of the last, which costs the layout the frame
+   * would run anyway. The breaks written here still log "ResizeObserver loop completed with
+   * undelivered notifications". It isn't this observer's (it persists with every row
+   * unobserved); it comes with resizing content-visibility rows and changes nothing on screen.
+   */
+  private settle() {
+    for (let pass = 0; pass < MAX_SETTLE_PASSES; pass++) {
+      if (this.passes >= MAX_PASSES_PER_FRAME) break
+      if (!this.run(pass > 0)) return
+    }
+    this.schedule()
   }
 
   private readonly onVisibility = (event: Event) => {
     const row = event.target as HTMLElement
     const { skipped } = event as ContentVisibilityAutoStateChangeEvent
     this.skipped.set(row, skipped)
-    // A row coming into view may need breaks it never had, or new ones after the rows above it moved.
-    if (!skipped) this.schedule()
+    // A row the observer saw no resize for may still need breaks after the rows above it moved.
+    if (!skipped && !this.wasLive.has(row)) this.schedule()
   }
 
   /** The row (a child of the flow, or of the paper outside it) that holds `node`. */
@@ -179,17 +221,20 @@ class Paginator {
     return rows
   }
 
-  /**
-   * Whether a row is laid out right now. Only blocks can be skipped; for one the browser
-   * hasn't decided on yet, ask whether its contents are visible.
-   */
-  private isLive(row: HTMLElement): boolean {
-    if (!skippable(row)) return true
-    const state = this.skipped.get(row)
-    if (state !== undefined) return !state
+  /** Asks the row itself whether it's skipped right now. */
+  private refreshSkipped(row: HTMLElement) {
     const child = row.firstElementChild
     // jsdom has no checkVisibility, and lays nothing out anyway.
-    return typeof child?.checkVisibility === 'function' ? child.checkVisibility({ contentVisibilityAuto: true }) : true
+    if (skippable(row) && typeof child?.checkVisibility === 'function') {
+      this.skipped.set(row, !child.checkVisibility({ contentVisibilityAuto: true }))
+    }
+  }
+
+  /** Whether a row is laid out right now. Only blocks can be skipped. */
+  private isLive(row: HTMLElement): boolean {
+    if (!skippable(row)) return true
+    if (!this.skipped.has(row)) this.refreshSkipped(row)
+    return this.skipped.get(row) !== true
   }
 
   private pushOf(row: HTMLElement): number {
@@ -198,56 +243,52 @@ class Paginator {
     return push
   }
 
-  /** One pass: clear the rows to measure, read, compute, then write only what changed. */
-  private run() {
-    if (this.disposed) return
+  /**
+   * One pass: read, compute, then write only what changed. With `ifUnplanned`, it stops
+   * after the reads unless a row's size is one no pass planned for. Returns whether it wrote.
+   */
+  private run(ifUnplanned = false): boolean {
+    if (this.disposed) return false
     this.passes += 1
     if (!this.resetFrame) {
       this.resetFrame = requestAnimationFrame(() => {
         this.resetFrame = 0
         this.passes = 0
-        this.measured.clear()
       })
     }
     const paper = this.paper
-    const width = getComputedStyle(paper).width
-    if (width !== this.width) {
-      // The text reflows, so every cached geometry is stale.
-      this.width = width
-      for (const row of this.rows()) this.dirty.add(row)
-    }
-
     const rows = this.rows()
-    const live = rows.map((row) => this.isLive(row))
-    const measure = rows.map((row, index) => {
-      const stale = this.dirty.has(row) || !this.geometry.has(row) || !skippable(row)
-      // A skipped row can't be measured without laying it out; it keeps its breaks until it renders.
-      if (stale && !live[index]) this.geometry.delete(row)
-      return stale && live[index]
-    })
-    this.dirty.clear()
-
-    // Writes: rows about to be measured lose their breaks.
-    rows.forEach((row, index) => {
-      if (measure[index]) this.writeBreaks(row, [])
-    })
-
-    // Reads.
+    // Reads. Nothing above wrote, so the first of these is the frame's only layout.
     const box = paper.getBoundingClientRect()
     // The page zoom scales client rects; layout values stay in page px.
-    const scale = box.width / parseFloat(width)
-    if (!scale) return
+    const scale = box.width / this.width
+    if (!scale) return false
     const rects = rows.map((row) => row.getBoundingClientRect())
+    if (ifUnplanned) {
+      // A row the last pass's breaks moved into or out of view, or resized some other way.
+      let unplanned = false
+      rows.forEach((row, index) => {
+        unplanned = this.unplanned(row, rects[index].height / scale, true) || unplanned
+      })
+      if (!unplanned) return false
+    }
+    const live = rows.map((row) => this.isLive(row))
     rows.forEach((row, index) => {
-      if (measure[index]) {
-        this.geometry.set(row, measureRow(row, rects[index], scale))
-        this.measured.add(row)
+      const stale = this.dirty.has(row) || !this.geometry.has(row) || !skippable(row)
+      if (stale && live[index]) {
+        this.geometry.set(row, measureRow(row, rects[index], scale, this.written.get(row)))
+      } else if (stale) {
+        // A skipped row can't be measured without laying it out; it keeps its breaks until it renders.
+        this.geometry.delete(row)
       }
+      if (live[index]) this.wasLive.add(row)
+      else this.wasLive.delete(row)
       if (!this.observed.has(row)) {
         this.observed.add(row)
         this.resizes?.observe(row)
       }
     })
+    this.dirty.clear()
     const pageRows: PageRow<HTMLElement>[] = rows.map((row, index) => ({
       top: (rects[index].top - box.top) / scale,
       height: rects[index].height / scale,
@@ -261,33 +302,47 @@ class Paginator {
       const geometry = pageRows[index].measured as Geometry
       if (!geometry.lines.has(unit.el)) {
         if (!live[index]) return null
-        geometry.lines.set(unit.el, readLines(unit.el, scale))
+        geometry.lines.set(unit.el, readLines(unit.el, scale, this.written.get(rows[index])?.get(unit.el)))
       }
       return geometry.lines.get(unit.el) ?? null
     })
 
     // Writes.
+    let wrote = false
     rows.forEach((row, index) => {
       const next = layout.breaks[index]
-      if (next) this.writeBreaks(row, next)
+      if (next) wrote = this.writeBreaks(row, next) || wrote
     })
     this.onPages(layout.pages)
+    return wrote
   }
 
-  /** Replaces a row's written breaks with `next`, touching only elements that change. */
-  private writeBreaks(row: HTMLElement, next: PageBreak<HTMLElement>[]) {
+  /** Replaces a row's written breaks with `next`, touching only elements that change. Returns whether any did. */
+  private writeBreaks(row: HTMLElement, next: PageBreak<HTMLElement>[]): boolean {
     const before = this.written.get(row)
-    if (!before?.size && !next.length) return
-    const after = new Map(next.map((pageBreak) => [pageBreak.el, pageBreak]))
-    for (const [el, old] of before ?? []) {
-      const now = after.get(el)
-      if (!now || !sameBreak(old, now)) clearBreak(el)
+    if (!before?.size && !next.length) return false
+    let wrote = false
+    const after = new Map<HTMLElement, PageBreak<HTMLElement>>()
+    for (const now of next) {
+      const old = before?.get(now.el)
+      // Within half a pixel, keep what's written, so a pass that reads it back changes nothing.
+      if (old && sameBreak(old, now)) {
+        after.set(now.el, old)
+      } else {
+        if (old) clearBreak(now.el)
+        applyBreak(now)
+        after.set(now.el, now)
+        wrote = true
+      }
     }
-    for (const [el, now] of after) {
-      const old = before?.get(el)
-      if (!old || !sameBreak(old, now)) applyBreak(now)
+    for (const el of before?.keys() ?? []) {
+      if (!after.has(el)) {
+        clearBreak(el)
+        wrote = true
+      }
     }
     this.written.set(row, after)
+    return wrote
   }
 }
 
@@ -306,40 +361,58 @@ function skippable(row: HTMLElement): boolean {
   )
 }
 
-/** Reads a rendered row's units with its breaks cleared. */
-function measureRow(row: HTMLElement, rect: DOMRect, scale: number): Geometry {
-  const els = row.classList.contains('doc-block') ? Array.from(row.querySelectorAll<HTMLElement>(BLOCK_UNITS)) : [row]
-  const units = els.map((el) => {
-    const unit = el.getBoundingClientRect()
-    return {
+/**
+ * Reads a rendered row's units with its breaks in place and takes their known pushes back
+ * out: a push moves its own unit and everything after it, a split everything after its
+ * band. A row that is one unit carries its push as its own top margin, above its box.
+ */
+function measureRow(row: HTMLElement, rect: DOMRect, scale: number, written?: Map<HTMLElement, PageBreak<HTMLElement>>): Geometry {
+  if (!row.classList.contains('doc-block')) {
+    const own = written?.get(row)
+    const unit = { el: row, offset: -(own?.push ?? 0), height: rect.height / scale, heading: false, paragraph: false }
+    return { units: [unit], height: rect.height / scale, lines: new Map() }
+  }
+  let moved = 0
+  const units = Array.from(row.querySelectorAll<HTMLElement>(BLOCK_UNITS), (el) => {
+    const box = el.getBoundingClientRect()
+    const own = written?.get(el)
+    const unit = {
       el,
-      offset: (unit.top - rect.top) / scale,
-      height: unit.height / scale,
+      offset: (box.top - rect.top) / scale - moved - (own?.kind === 'push' ? own.push : 0),
+      height: box.height / scale - (own?.kind === 'split' ? own.push : 0),
       heading: /^H[1-6]$/.test(el.tagName),
       paragraph: el.tagName === 'P',
     }
+    moved += own?.push ?? 0
+    return unit
   })
-  return { units, height: rect.height / scale, lines: new Map() }
+  return { units, height: rect.height / scale - moved, lines: new Map() }
 }
 
-/** A paragraph's line tops relative to its own top, in page px. */
-function readLines(el: HTMLElement, scale: number): Lines | null {
+/** A paragraph's line tops relative to its own top, in page px, without its split if it has one. */
+function readLines(el: HTMLElement, scale: number, written?: PageBreak<HTMLElement>): Lines | null {
   const lineHeight = parseFloat(getComputedStyle(el).lineHeight)
   if (!lineHeight) return null
   const top = el.getBoundingClientRect().top
   const range = document.createRange()
   range.selectNodeContents(el)
-  // Inline boxes sit half a leading below their line box's top.
-  const tops = Array.from(range.getClientRects(), (rect) => (rect.top - top) / scale - (lineHeight - rect.height / scale) / 2)
+  const split = written?.kind === 'split' ? written : null
+  const tops = Array.from(range.getClientRects(), (rect) => {
+    // Inline boxes sit half a leading below their line box's top.
+    const line = (rect.top - top) / scale - (lineHeight - rect.height / scale) / 2
+    return split && line >= split.start ? line - split.push : line
+  })
   tops.sort((a, b) => a - b)
   const lines: number[] = []
   for (const line of tops) if (!lines.length || line - lines[lines.length - 1] > lineHeight / 2) lines.push(line)
   return { tops: lines, lineHeight }
 }
 
+/** Breaks within half a pixel of each other: rewriting one would only add a layout. */
 function sameBreak(a: PageBreak<HTMLElement>, b: PageBreak<HTMLElement>): boolean {
-  if (a.kind === 'push' && b.kind === 'push') return a.margin === b.margin
-  if (a.kind === 'split' && b.kind === 'split') return a.start === b.start && a.end === b.end
+  const near = (x: number, y: number) => Math.abs(x - y) < 0.5
+  if (a.kind === 'push' && b.kind === 'push') return near(a.margin, b.margin)
+  if (a.kind === 'split' && b.kind === 'split') return near(a.start, b.start) && near(a.end, b.end)
   return false
 }
 
