@@ -17,7 +17,12 @@ export const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g
 export const wholeWord = (name: string, flags: string) =>
   new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(name)}(?![A-Za-z0-9])`, flags)
 
-export const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g
+/**
+ * An email address. It starts only where a run of address characters starts:
+ * the leftmost match never starts later, and without it a long run with no `@`
+ * is retried from every character (seconds for 10 KB of text).
+ */
+export const EMAIL = /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g
 
 /** Well-known token formats: JWTs, provider API keys (`sk-…`, `sk-ant-…`) and GitHub tokens. */
 export const TOKEN =

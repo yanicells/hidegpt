@@ -17,6 +17,12 @@ describe('makeRedactor', () => {
     expect(redact('sent to bob.lee+docs@mail.example.org, cc alice@example.com')).toBe('sent to <email>, cc <email>')
   })
 
+  it('takes linear time on a long message', () => {
+    // 1 MB with no address or key; a pattern that retried from each character would not finish.
+    const text = `${'x'.repeat(1_000_000)} ${'a.b-'.repeat(100_000)}`
+    expect(redact(text)).toBe(text)
+  })
+
   it('keeps ordinary text that only looks like a key', () => {
     for (const text of [
       'Process exited with code=1',
