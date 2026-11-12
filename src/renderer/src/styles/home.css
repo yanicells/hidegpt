@@ -29,21 +29,30 @@
 
 .gallery {
   background: var(--pill);
-  padding: 16px 0 14px;
+  padding: 12px 0 21.5px;
 }
 
 .gallery-inner,
 .recent-inner {
-  /* Docs sizes the column to a whole number of recent cards (208 + 20 gap) and centres it. */
-  --home-room: min(1144px, calc(100% - 64px));
-  width: calc(round(down, var(--home-room) + 20px, 228px) - 20px);
+  /*
+   * Docs centres a column of whole recent-card pitches (210 + 20 gap, the last
+   * gap included), so at 1470 the cards start at x=154 and end at 1284.
+   */
+  --home-room: min(1150px, calc(100% - 44px));
+  width: round(down, var(--home-room), 230px);
   margin: 0 auto;
+  padding-right: 20px;
+}
+
+/* The templates sit 5px inside the recents column. */
+.gallery-inner {
+  padding-left: 5px;
 }
 
 .gallery-head {
   @apply flex items-center justify-between;
   height: 40px;
-  margin: 0 0 6px 6px;
+  margin: 0 13px 8px 8px;
 }
 
 .section-title {
@@ -56,26 +65,26 @@
 .template-strip {
   @apply grid overflow-hidden;
   /* One row only: cards that don't fit drop to zero-height rows instead of being cut in half. */
-  grid-template-columns: repeat(auto-fill, 144px);
+  grid-template-columns: repeat(auto-fill, 146px);
   grid-auto-rows: 0;
   grid-template-rows: auto;
-  gap: 0 18px;
+  gap: 0 17px;
   padding-bottom: 2px;
 }
 
 .template {
-  width: 144px;
+  width: 146px;
   /* Clips the cards in the strip's zero-height overflow rows entirely. */
   min-height: 0;
   @apply flex flex-col overflow-hidden;
 }
 
 .template-card {
-  width: 144px;
-  height: 184px;
+  width: 146px;
+  height: 185px;
   @apply grid place-items-center overflow-hidden;
   background: var(--surface);
-  border: 1px solid var(--outline);
+  border: 1px solid var(--line);
   border-radius: 4px;
   transition: border-color 120ms;
 }
@@ -92,7 +101,7 @@
 }
 
 .template-title {
-  margin: 12px 0 0 4px;
+  margin: 9px 0 0 4px;
   font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.1px;
@@ -101,7 +110,8 @@
 }
 
 .template-category {
-  margin: 2px 0 0 4px;
+  /* Docs sets the subtitle 18.5px under the title, closer than two 20px lines. */
+  margin: -1.5px 0 0 4px;
   font-size: 14px;
   color: var(--text-2);
 }
@@ -125,17 +135,22 @@
   background: var(--hover);
 }
 
-.doc-grid {
-  @apply grid;
-  grid-template-columns: repeat(auto-fill, 208px);
-  gap: 22px 20px;
+.recent-controls .icon-btn {
+  color: var(--muted);
 }
 
+.doc-grid {
+  @apply grid;
+  grid-template-columns: repeat(auto-fill, 210px);
+  gap: 20px;
+}
+
+/* The title button's ::after covers the card, so the whole card opens the document. */
 .doc-card {
-  @apply flex flex-col text-left min-w-0 overflow-hidden;
+  @apply relative flex flex-col text-left min-w-0 overflow-hidden;
   /* Large libraries: skip layout and paint for cards scrolled out of view. */
   content-visibility: auto;
-  contain-intrinsic-size: auto 324px;
+  contain-intrinsic-size: auto 340px;
   border: 1px solid var(--outline);
   border-radius: 6px;
   background: var(--surface);
@@ -146,9 +161,18 @@
   border-color: #8ab4f8;
 }
 
-.doc-card:focus-visible {
+.doc-card:has(.card-title:focus-visible) {
   outline: 2px solid var(--blue);
   outline-offset: 1px;
+}
+
+.card-title::after {
+  content: '';
+  @apply absolute inset-0;
+}
+
+.card-title:focus-visible {
+  outline: none;
 }
 
 .thumb {
@@ -158,7 +182,7 @@
   @apply overflow-hidden relative;
 }
 
-/* A scaled-down first page: 208px card / 816px page = 0.255. */
+/* A scaled-down first page: 208px inside the card's border / 816px page = 0.255. */
 .thumb-page {
   width: 816px;
   padding: 96px;
@@ -184,14 +208,15 @@
   overflow-wrap: anywhere;
 }
 
-/* 73px like Docs: the 40px ⋮ overhangs its 28px meta row. */
+/* 74px like Docs: the meta row starts 19px under the title, and the 40px ⋮ overhangs it. */
 .card-foot {
   @apply flex flex-col min-w-0;
-  gap: 4px;
-  padding: 14px 0 7px 16px;
+  gap: 0;
+  padding: 15px 0 12px 18px;
 }
 
 .card-title {
+  @apply text-left;
   padding-right: 12px;
   font-size: 14px;
   font-weight: 500;
@@ -201,7 +226,8 @@
 }
 
 .card-meta {
-  @apply flex items-center whitespace-nowrap overflow-hidden;
+  @apply flex items-center whitespace-nowrap;
+  margin-top: -1px;
   gap: 6px;
   font-family: var(--font-text);
   font-size: 12px;
@@ -244,23 +270,35 @@
   }
 }
 
-/* Header and rows share columns so "Owned by" and "Last opened by me" sit over their values. */
+/*
+ * Header and rows share columns so "Owned by" and "Last opened by me" sit over
+ * their values. Docs places them from the right: at 1470 the owner column
+ * starts at x=718.5 and the date column at 923.5.
+ */
 .recent-head,
 .list-row {
   @apply grid items-center;
-  grid-template-columns: minmax(0, 1fr) 190px 250px 124px;
+  grid-template-columns: minmax(0, 1fr) 205px 231.5px 129px;
   column-gap: 0;
+}
+
+/* Without the date column, Docs moves "Owned by anyone" right, to x=884.5 at 1470. */
+.recent-head:not(.as-list) {
+  grid-template-columns: minmax(0, 1fr) 270.5px 0 129px;
 }
 
 .recent-head {
   min-height: 48px;
-  margin: 9px 0 12px;
+  /* First group label to first row centre: 64px, as in Docs. */
+  margin: 9px 0 15px;
 }
 
 .recent-head.as-list {
-  /* First group label to first row centre: 64px, as in Docs. */
-  margin-bottom: 15px;
   padding-left: 16px;
+}
+
+.recent-head .section-title {
+  font-weight: 500;
 }
 
 .recent-head.as-list .section-title,
@@ -269,21 +307,30 @@
   font-weight: 500;
 }
 
+/* Docs centres the owner filter and column label 3.5px, and the tools 5px, above the title. */
+.recent-head .owned-by-button,
+.list-col-label {
+  margin-bottom: 7px;
+}
+
 .recent-controls {
   @apply flex items-center justify-end;
   gap: 2px;
+  margin: 0 5px 10px 0;
 }
 
 .list {
   @apply list-none m-0 p-0;
 }
 
+/* The name button's ::after covers the row, so the whole row opens the document. */
 .list-row {
-  @apply w-full text-left;
-  min-height: 50px;
+  @apply relative w-full text-left;
+  /* 49px plus the 1px rule between rows: Docs' 50px pitch. */
+  min-height: 49px;
   padding: 0 0 0 16px;
   content-visibility: auto;
-  contain-intrinsic-size: auto 50px;
+  contain-intrinsic-size: auto 49px;
   font-size: 14px;
   color: var(--text);
 }
@@ -292,48 +339,78 @@
   background: var(--hover-soft);
 }
 
+.list-row:has(.list-open:focus-visible) {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
 .list-name {
   @apply flex items-center min-w-0;
   gap: 26px;
 }
 
-.list-name span {
-  @apply overflow-hidden text-ellipsis whitespace-nowrap;
+.list-open {
+  @apply overflow-hidden text-ellipsis whitespace-nowrap text-left;
   font-weight: 500;
   letter-spacing: 0.1px;
 }
 
+.list-open::after {
+  content: '';
+  @apply absolute inset-0;
+}
+
+.list-open:focus-visible {
+  outline: none;
+}
+
 .list-owner,
 .list-date {
-  padding-left: 16px;
   color: var(--text-2);
 }
 
+/* Values sit 16px (owner) and 12px (date) right of their column labels, as in Docs. */
+.list-owner {
+  padding-left: 28px;
+}
+
+.list-date {
+  padding-left: 12px;
+}
+
+/* Real menu buttons, above the stretched open button. */
 .list-more,
 .card-more {
-  @apply grid place-items-center justify-self-end rounded-full;
+  @apply relative z-1 grid place-items-center justify-self-end shrink-0 rounded-full;
   width: 40px;
   height: 40px;
   margin-block: -6px;
-  color: var(--text-2);
+  color: var(--muted);
+}
+
+.list-more:hover,
+.card-more:hover,
+.list-more[data-popup-open],
+.card-more[data-popup-open] {
+  background: var(--hover);
 }
 
 .list-more {
-  margin-right: 16px;
+  margin-right: 10px;
+}
+
+.card-more {
+  margin-right: 3px;
 }
 
 .list li + li {
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid var(--line);
 }
 
+/* Docs: 113px from a group's last row to the next group's first. */
 .recency-label {
-  margin: 28px 16px 12px;
+  margin: 21px 16px 22px;
   color: var(--text);
-}
-
-/* List view leaves more air under a group label before its first row. */
-.recency-label:has(+ .list) {
-  margin-bottom: 23px;
 }
 
 /* "Owned by anyone ▾": plain text with a caret, no box. */
@@ -350,6 +427,10 @@
   font-weight: 500;
   letter-spacing: 0.1px;
   color: var(--text-2);
+}
+
+.owned-by-button svg {
+  color: var(--muted);
 }
 
 .owned-by-button span {
@@ -396,20 +477,26 @@
   gap: 8px;
   padding: 0 12px;
   height: 36px;
+  /* Docs sets the label 1.5px above the row's centre line. */
+  padding-bottom: 3px;
   font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.1px;
-  color: var(--text);
-}
-
-.gallery-caption svg {
   color: var(--text-2);
 }
 
+.gallery-caption svg {
+  color: var(--muted);
+}
+
 .gallery-divider {
-  height: 28px;
+  height: 32px;
   width: 1px;
-  background: #c4c7c5;
+  background: #d8dcdf;
+}
+
+.gallery-tools .header-icon {
+  color: var(--muted);
 }
 
 /* ---------- Buttons shared by home and dialogs ---------- */
@@ -479,12 +566,13 @@
     --home-room: calc(100% - 40px);
   }
 
-  .recent-head {
+  .recent-head,
+  .recent-head:not(.as-list) {
     grid-template-columns: minmax(0, 1fr) auto 0 auto;
   }
 
   .list-row {
-    grid-template-columns: minmax(0, 1fr) 0 130px 56px;
+    grid-template-columns: minmax(0, 1fr) 0 130px 50px;
   }
 
   /* Keep the grid columns; only the owner values and date label step aside. */
