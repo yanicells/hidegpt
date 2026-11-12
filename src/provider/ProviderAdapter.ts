@@ -5,7 +5,6 @@ import type * as Stream from 'effect/Stream'
 import type {
   AccountSummary,
   ApprovalReply,
-  Block,
   Capabilities,
   DocSummary,
   ModelOption,
@@ -16,6 +15,9 @@ import type {
   ToolServer,
 } from '../shared/model'
 import type { ProviderError } from './errors'
+import type { Item, ThreadEvent, TurnId } from './events'
+
+export type { ThreadEvent } from './events'
 
 /**
  * The one interface every provider implements (Codex app-server, OpenCode
@@ -24,6 +26,10 @@ import type { ProviderError } from './errors'
  * stops it (kills its process group). Adapters hold no UI state and never
  * filter by route: every thread event names its thread, and the session
  * manager decides what the window shows. See docs/architecture.md §2.
+ *
+ * Sessions speak the canonical contract in `./events`: typed items, and turns
+ * with app-owned ids. Adapters not yet moved onto it are wrapped by
+ * `fromLegacy` (`./legacyEvents`).
  */
 export interface ProviderAdapter {
   readonly id: ProviderId
@@ -49,9 +55,18 @@ export interface ProviderSession {
   readonly loadOlder: (threadId: string, cursor: string) => Effect.Effect<OlderPage, ProviderError>
   /** Id for the optimistic user echo; providers that accept client ids send it with the turn. */
   readonly messageId: () => string
-  /** Succeeds once the provider accepted the turn; progress arrives as events. */
-  readonly send: (threadId: string, input: TurnInput, settings: TurnSettings) => Effect.Effect<void, ProviderError>
-  readonly interrupt: (threadId: string) => Effect.Effect<void, ProviderError>
+  /**
+   * Starts turn `turnId` (allocated by the manager). Succeeds once the provider accepted it;
+   * progress arrives as events stamped with that id.
+   */
+  readonly send: (
+    threadId: string,
+    turnId: TurnId,
+    input: TurnInput,
+    settings: TurnSettings,
+  ) => Effect.Effect<void, ProviderError>
+  /** Asks the provider to stop turn `turnId`, waiting briefly if it has not started yet. Its terminal comes as an event. */
+  readonly interrupt: (threadId: string, turnId: TurnId) => Effect.Effect<void, ProviderError>
   /** Fails when the provider did not take the reply; the approval then stays open. */
   readonly respond: (threadId: string, approvalId: string, reply: ApprovalReply) => Effect.Effect<void, ProviderError>
   readonly rename: (threadId: string, name: string) => Effect.Effect<void, ProviderError>
@@ -72,15 +87,17 @@ export interface ProviderSession {
  * flag (from `CAPABILITIES`) and the manager calls the method, so the two must agree;
  * a test checks every adapter with `capabilityMismatches`. `gitProjects` names no method.
  */
-export const CAPABILITY_METHODS: ReadonlyArray<readonly [keyof Capabilities, keyof ProviderSession]> = [
+export const CAPABILITY_METHODS: ReadonlyArray<readonly [keyof Capabilities, keyof OptionalMethods]> = [
   ['login', 'login'],
   ['login', 'logout'],
   ['connectTools', 'connectTool'],
   ['createProjects', 'createProject'],
 ]
 
+type OptionalMethods = Pick<ProviderSession, 'login' | 'logout' | 'connectTool' | 'createProject'>
+
 /** Each flag/method pair that disagrees, e.g. `login: true but logout is missing`; empty when they agree. */
-export function capabilityMismatches(capabilities: Capabilities, session: ProviderSession): string[] {
+export function capabilityMismatches(capabilities: Capabilities, session: OptionalMethods): string[] {
   return CAPABILITY_METHODS.flatMap(([flag, method]) => {
     const present = session[method] !== undefined
     return present === capabilities[flag]
@@ -133,58 +150,28 @@ export type CreateThreadOptions = {
 export type OpenedThread = {
   readonly threadId: string
   readonly title: string
-  readonly blocks: ReadonlyArray<Block>
-  /** Cursor for the page before `blocks`, or null at the start. */
+  readonly items: ReadonlyArray<Item>
+  /** Cursor for the page before `items`, or null at the start. */
   readonly olderCursor: string | null
   readonly cwd: string
   /** What the thread last ran with; the toolbar adopts it. */
   readonly settings?: Partial<TurnSettings>
-  /** A turn is already running (opened mid-answer). */
-  readonly streaming?: boolean
+  /** The turn already running (opened mid-answer), adopted under an app id. */
+  readonly activeTurnId: TurnId | null
 }
 
-export type OlderPage = { readonly blocks: ReadonlyArray<Block>; readonly cursor: string | null }
+export type OlderPage = { readonly items: ReadonlyArray<Item>; readonly cursor: string | null }
 
 /** What can go stale on Home; the manager refetches (debounced). */
 export type CatalogPart = 'docs' | 'account' | 'projects' | 'skills' | 'tools'
 
-export type TextTarget = { readonly kind: 'agent' } | { readonly kind: 'callout'; readonly title: string }
-
-export type ThreadEvent =
-  | { readonly type: 'turnStarted'; readonly threadId: string }
-  /** Terminal: always ends the "Working…" state. */
-  | { readonly type: 'turnEnded'; readonly threadId: string; readonly error?: string }
-  /** Insert or replace by id; `replaces` names the optimistic echo a server user message confirms. */
-  | { readonly type: 'block'; readonly threadId: string; readonly block: Block; readonly replaces?: string | null }
-  | {
-      readonly type: 'text'
-      readonly threadId: string
-      readonly blockId: string
-      readonly delta: string
-      readonly create?: TextTarget
-    }
-  | {
-      readonly type: 'resolved'
-      readonly threadId: string
-      readonly blockId: string
-      readonly resolved: 'accepted' | 'skipped'
-    }
-  /** Replace the thread's blocks (after a reconnect); open approvals are kept. */
-  | {
-      readonly type: 'reset'
-      readonly threadId: string
-      readonly blocks: ReadonlyArray<Block>
-      readonly streaming?: boolean
-    }
-  | { readonly type: 'title'; readonly threadId: string; readonly title: string }
-  /** The thread is gone (deleted, archived) and cannot be used. */
-  | { readonly type: 'closed'; readonly threadId: string }
-
-export type AdapterEvent =
-  | ThreadEvent
+/** Events not about one thread. */
+export type LibraryEvent =
   | { readonly type: 'invalidate'; readonly part: CatalogPart }
   /** Non-blocking banner text (warnings, config problems). */
   | { readonly type: 'notice'; readonly message: string }
   | { readonly type: 'loginUrl'; readonly url: string | null }
+
+export type AdapterEvent = ThreadEvent | LibraryEvent
 
 export const isThreadEvent = (event: AdapterEvent): event is ThreadEvent => 'threadId' in event

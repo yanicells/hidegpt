@@ -22,7 +22,11 @@ import * as Stream from 'effect/Stream'
 
 import * as ClaudeAdapter from '../src/claude/ClaudeAdapter.ts'
 import { recordingSdk } from '../src/claude/replay.ts'
-import type { AdapterEvent, ProviderSession, TurnSettings } from '../src/provider/ProviderAdapter.ts'
+import type { TurnSettings } from '../src/provider/ProviderAdapter.ts'
+import type {
+  LegacyAdapterEvent as AdapterEvent,
+  LegacyProviderSession as ProviderSession,
+} from '../src/provider/legacyEvents.ts'
 import {
   encodeTranscript,
   leaks,

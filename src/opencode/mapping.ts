@@ -173,7 +173,7 @@ export function permissionBlock(request: PermissionRequest): ApprovalBlock {
     id: permissionBlockId(request.id),
     suggestion: 'format',
     title: `Allow ${request.permission}${patterns}?`,
-    body: 'The assistant is asking for extra access.',
+    body: 'More access is needed to continue.',
     fields: [],
     questions: [],
     resolved: null,
@@ -187,7 +187,7 @@ export function questionBlock(request: QuestionRequest): ApprovalBlock {
     kind: 'approval',
     id: permissionBlockId(request.id),
     suggestion: 'question',
-    title: 'The assistant needs input',
+    title: 'Waiting for your response',
     body:
       request.questions
         .map((question) => question.question)

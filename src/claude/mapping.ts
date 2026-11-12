@@ -446,7 +446,7 @@ export function questionBlock(id: string, questions: ReadonlyArray<AskedQuestion
     kind: 'approval',
     id,
     suggestion: 'question',
-    title: 'Claude needs input',
+    title: 'Waiting for your response',
     body: questions.map((item) => item.question).join('\n') || 'Continue?',
     fields: [],
     // Claude adds its own "Other" choice, so free text is always allowed.

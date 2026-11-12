@@ -23,14 +23,13 @@ import {
 import { logDefects, reportDefect } from '../provider/DefectReport'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
 import { randomUuidV4 } from '../provider/randomUuid'
+import type { Catalog, TurnSettings } from '../provider/ProviderAdapter'
 import type {
-  AdapterEvent,
-  Catalog,
-  OpenedThread,
-  ProviderAdapter,
-  ProviderSession,
-  TurnSettings,
-} from '../provider/ProviderAdapter'
+  LegacyAdapterEvent as AdapterEvent,
+  LegacyOpenedThread as OpenedThread,
+  LegacyProviderAdapter as ProviderAdapter,
+  LegacyProviderSession as ProviderSession,
+} from '../provider/legacyEvents'
 import * as CodexClient from '../vendor/effect-codex-app-server/client.ts'
 import * as CodexError from '../vendor/effect-codex-app-server/errors.ts'
 import type * as CodexRpc from '../vendor/effect-codex-app-server/rpc.ts'

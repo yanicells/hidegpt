@@ -157,7 +157,7 @@ export function itemToBlock(item: ThreadItem): Block | null {
     case 'imageGeneration':
       return callout(item.id, 'Generated image', item.savedPath ?? item.revisedPrompt ?? item.status)
     case 'collabAgentToolCall':
-      return callout(item.id, `Agent · ${item.tool}`, item.prompt ?? item.status)
+      return callout(item.id, `Subtask · ${item.tool}`, item.prompt ?? item.status)
     case 'contextCompaction':
       return callout(item.id, 'Compacted context', '')
     case 'enteredReviewMode':
@@ -278,19 +278,19 @@ export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {
   'item/fileChange/requestApproval': {
     threadId: (params) => params.threadId,
     block: (id, params) =>
-      block(id, 'replace', 'Apply file changes?', params.reason ?? 'The assistant wants to edit files.'),
+      block(id, 'replace', 'Apply file changes?', params.reason ?? 'Files in this folder will change.'),
     response: (_params, reply) => ({ decision: reply.accept ? 'accept' : 'decline' }),
   },
   applyPatchApproval: {
     threadId: (params) => params.conversationId,
     block: (id, params) =>
-      block(id, 'replace', 'Apply file changes?', params.reason ?? 'The assistant wants to edit files.'),
+      block(id, 'replace', 'Apply file changes?', params.reason ?? 'Files in this folder will change.'),
     response: (_params, reply) => ({ decision: legacyDecision(reply) }),
   },
   'item/permissions/requestApproval': {
     threadId: (params) => params.threadId,
     block: (id, params) =>
-      block(id, 'format', 'Grant extra access?', params.reason ?? 'The assistant needs more permissions.'),
+      block(id, 'format', 'Grant extra access?', params.reason ?? 'More access is needed to continue.'),
     response: (params, reply) => ({
       permissions: reply.accept
         ? {
@@ -322,7 +322,7 @@ export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {
       block(
         id,
         'question',
-        'The assistant needs input',
+        'Waiting for your response',
         params.questions
           .map((q) => q.question)
           .filter(Boolean)
