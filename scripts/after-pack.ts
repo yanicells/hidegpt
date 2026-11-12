@@ -21,8 +21,14 @@ export function nameHelpers(app: string, setName: (plist: string, name: string) 
   }
 }
 
-/** electron-builder's `afterPack` hook: it runs before signing, so the edits are sealed in. */
-export async function afterPack(context: AfterPackContext): Promise<void> {
+/**
+ * electron-builder's `afterPack` hook: it runs before signing, so the edits are
+ * sealed in. electron-builder passes only the context; `setName` is for tests.
+ */
+export async function afterPack(
+  context: AfterPackContext,
+  setName: (plist: string, name: string) => void = setBundleName,
+): Promise<void> {
   if (context.electronPlatformName !== 'darwin') return
-  nameHelpers(join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`))
+  nameHelpers(join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`), setName)
 }
