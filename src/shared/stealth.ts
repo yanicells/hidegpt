@@ -5,7 +5,7 @@
  * wording) through it, and `present.ts` uses it at runtime to drop a
  * provider-written title that would leak.
  *
- * Yani owns this list; add a word here and every gate picks it up.
+ * Yani owns these lists; add a word here and every gate picks it up.
  */
 export const BANNED_WORDS: ReadonlyArray<string> = [
   'ai',
@@ -27,15 +27,36 @@ export const BANNED_WORDS: ReadonlyArray<string> = [
 ]
 
 /**
- * Case-insensitive and on whole words, where a word is a run of letters: "AI",
- * "Agent ·", "GPT-5" and "claude_ai" match, "said" and "maintain" do not.
- * A plural "s" counts too ("agents", "models").
+ * Developer words: none names an AI, but each reads as a tool's internals, not a
+ * document editor ("Using mcp__github__create_issue", "Spawned a subagent").
  */
-const BANNED = new RegExp(`(?<!\\p{L})(${BANNED_WORDS.join('|')})s?(?!\\p{L})`, 'giu')
+export const PROSE_WORDS: ReadonlyArray<string> = ['hidegpt', 'mcp', 'sdk', 'cli', 'subagent', 'provider']
 
-/** The banned words in `text`, lowercased, in order of appearance; empty when it is clean. */
+const BANNED = new Set([...BANNED_WORDS, ...PROSE_WORDS])
+
+/** A run of letters split where its case changes: "ChatGPTPlus" is "Chat", "GPT", "Plus". */
+const CASE_PARTS = /\p{Lu}+(?=\p{Lu}\p{Ll})|\p{Lu}?\p{Ll}+|\p{Lu}+/gu
+
+/** `word` lowercased, if it (or it less a plural "s") is banned. */
+function banned(word: string): string | null {
+  const lower = word.toLowerCase()
+  if (BANNED.has(lower)) return lower
+  return lower.endsWith('s') && BANNED.has(lower.slice(0, -1)) ? lower.slice(0, -1) : null
+}
+
+/**
+ * The banned words in `text`, lowercased, in order of appearance; empty when it is clean.
+ * Case-insensitive and on whole words, where a word is a run of letters, so "_", "-" and
+ * digits split words ("claude_ai", "gpt5", "GPT-4o"). A run that is not banned whole is
+ * also checked by its case parts ("OpenAI", "ChatGPTPlus"), so "said" and "maintain" pass
+ * but "OpenCode" and "useMcp" do not. A plural "s" counts too ("agents", "models").
+ */
 export function stealthViolations(text: string): string[] {
-  return Array.from(text.matchAll(BANNED), (match) => match[1]!.toLowerCase())
+  return Array.from(text.matchAll(/\p{L}+/gu), ([run]) => {
+    const whole = banned(run)
+    if (whole) return [whole]
+    return Array.from(run.matchAll(CASE_PARTS), ([part]) => banned(part)).filter((word) => word !== null)
+  }).flat()
 }
 
 export const isStealthy = (text: string): boolean => stealthViolations(text).length === 0
