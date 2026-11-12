@@ -53,7 +53,10 @@ const isJson = (value: unknown): value is Json => typeof value === 'object' && v
 const pick = (value: Json, keys: ReadonlyArray<string>): Json =>
   Object.fromEntries(keys.flatMap((key) => (value[key] === undefined ? [] : [[key, value[key]]])))
 
-/** The `system/init` fields a fixture keeps (T3's list); the lists in it become empty. */
+/**
+ * The `system/init` fields a fixture keeps (T3's list); the lists in it become
+ * empty. `output_style` can be the name of a custom style; T3 keeps it too.
+ */
 const INIT_FIELDS = ['type', 'subtype', 'apiKeySource', 'betas', 'claude_code_version', 'cwd', 'model', 'permissionMode', 'output_style', 'fast_mode_state', 'uuid', 'session_id']
 const INIT_LISTS = ['agents', 'tools', 'mcp_servers', 'slash_commands', 'skills', 'plugins']
 /** All that is kept of any other system message: Docs reads none of them. */
@@ -83,24 +86,38 @@ function withoutPersonalMessage(message: Json): Json {
 }
 
 /** Commands a probe answer lists: Claude Code's own stay, the person's skills and plugins go. */
-const builtinOnly = (result: unknown): unknown => {
-  if (Array.isArray(result)) return result.filter((command) => isJson(command) && command.builtin === true)
-  if (isJson(result) && Array.isArray(result.commands)) return { ...result, commands: builtinOnly(result.commands) }
-  return result
+const builtinOnly = (commands: unknown): unknown =>
+  Array.isArray(commands) ? commands.filter((command) => isJson(command) && command.builtin === true) : commands
+
+/** What sign-in needs from `account` (`isSignedIn`); the email, plan and organization go. */
+const ACCOUNT_FIELDS = ['tokenSource', 'apiProvider', 'apiKeySource']
+
+/**
+ * `initializationResult` rebuilt from what Docs reads: built-in commands, the
+ * models, and enough of the account to tell whether Claude Code is signed in.
+ * Agents, output styles and their folder, and anything new are left out.
+ */
+const probeAnswer = (result: unknown): unknown => {
+  if (!isJson(result)) return result
+  return {
+    ...(result.commands === undefined ? {} : { commands: builtinOnly(result.commands) }),
+    ...(result.models === undefined ? {} : { models: result.models }),
+    ...(isJson(result.account) ? { account: pick(result.account, ACCOUNT_FIELDS) } : {}),
+  }
 }
 
 /**
  * An entry without the person's Claude configuration, before the recorder
- * scrubs it: streamed messages go through `withoutPersonalMessage`, and probe
- * answers (`initializationResult`, `supportedCommands`) keep built-in commands only.
+ * scrubs it: streamed messages go through `withoutPersonalMessage`,
+ * `initializationResult` through `probeAnswer`, and `supportedCommands` keeps
+ * built-in commands only.
  */
 export function withoutPersonalDetails(entry: ReplayEntry): ReplayEntry {
   if (entry.type !== 'emit_inbound' || !isJson(entry.frame)) return entry
   const frame = entry.frame
   if (isJson(frame.message)) return { ...entry, frame: { ...frame, message: withoutPersonalMessage(frame.message) } }
-  if ((frame.call === 'initializationResult' || frame.call === 'supportedCommands') && 'result' in frame) {
-    return { ...entry, frame: { ...frame, result: builtinOnly(frame.result) } }
-  }
+  if (frame.call === 'initializationResult' && 'result' in frame) return { ...entry, frame: { ...frame, result: probeAnswer(frame.result) } }
+  if (frame.call === 'supportedCommands' && 'result' in frame) return { ...entry, frame: { ...frame, result: builtinOnly(frame.result) } }
   return entry
 }
 
