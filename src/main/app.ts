@@ -1,8 +1,9 @@
 /// <reference types="electron-vite/node" />
-import { app, BrowserWindow, dialog, ipcMain, protocol } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron'
 import { join } from 'node:path'
 
 import * as NodeServices from '@effect/platform-node/NodeServices'
+import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
 import * as Fiber from 'effect/Fiber'
 import * as Layer from 'effect/Layer'
@@ -11,10 +12,12 @@ import * as Schema from 'effect/Schema'
 
 import { Command, type CommandResult, type MenuAction } from '../shared/contracts'
 import type { ProviderId } from '../shared/model'
-import { userMessage } from '../provider/errors'
+import { describeFailure } from '../provider/DefectReport'
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import * as Demo from './demo'
 import { handle } from './ipc'
+import * as Logging from './logging/Logger'
+import * as ProviderEventLog from './logging/ProviderEventLog'
 import { makeMenu } from './menu'
 import * as ProviderRegistry from './ProviderRegistry'
 import { ProviderSessionManager, layer as managerLayer } from './ProviderSessionManager'
@@ -48,12 +51,17 @@ const home = () => process.env.HOME ?? process.env.USERPROFILE ?? process.cwd()
 // Codex files a new document without a folder under its own threads directory.
 const defaultCwd = (id: ProviderId) => (id === 'codex' ? `${home()}/.codex/threads` : home())
 
+/** `userData/logs`: main.ndjson, and providers/<library>.ndjson. Help → Report a problem… opens it. */
+const logsDirectory = join(app.getPath('userData'), 'logs')
+
 const MainLayer = managerLayer({
   defaultCwd,
   openExternal: (url) => Effect.sync(() => openExternal(url)),
 }).pipe(
   Layer.provideMerge(demo ? Demo.layer : ProviderRegistry.layer),
   Layer.provideMerge(ProcessSupervisor.layer(demo ? null : join(app.getPath('userData'), 'provider-processes.json'))),
+  Layer.provideMerge(ProviderEventLog.layer(join(logsDirectory, 'providers'))),
+  Layer.provideMerge(Logging.layer({ directory: logsDirectory, console: !app.isPackaged })),
   Layer.provideMerge(NodeServices.layer),
 )
 const runtime = ManagedRuntime.make(MainLayer)
@@ -67,20 +75,25 @@ const decodeFailed: CommandResult = { ok: false, error: 'Docs could not read tha
 /** The app: IPC, the window, the menu, and the first library's connection. Runs until quit. */
 const program = Effect.gen(function* () {
   yield* Effect.promise(() => app.whenReady())
+  yield* Effect.logInfo('Docs started', { version: app.getVersion(), demo })
   registerDocsProtocol()
   const supervisor = yield* ProcessSupervisor.ProcessSupervisor
   const reaped = yield* supervisor.reapOrphans
-  if (reaped > 0) console.warn(`Stopped ${reaped} provider process(es) left by the last run.`)
+  if (reaped > 0) yield* Effect.logWarning(`Stopped ${reaped} provider process(es) left by the last run.`)
   const manager = yield* ProviderSessionManager
 
   const send = (channel: string, value: unknown) => getWindow()?.webContents.send(channel, value)
   const sendMenu = (action: MenuAction) => send('menu', action)
 
-  /** Every command, from the window or the menu, ends in a result; nothing is thrown away. */
+  /**
+   * Every command, from the window or the menu, ends in a result; nothing is thrown away.
+   * A defect's raw text never reaches the page: it is logged, and the page gets a plain sentence.
+   */
   const run = (command: Command): Effect.Effect<CommandResult> =>
     (command.op === 'openFolder' ? openFolder : manager.dispatch(command)).pipe(
       Effect.as<CommandResult>({ ok: true }),
-      Effect.catchCause((cause) => Effect.succeed<CommandResult>({ ok: false, error: userMessage(causeError(cause)) })),
+      Effect.catchCause((cause) => Effect.map(describeFailure(cause), (error): CommandResult => ({ ok: false, error }))),
+      Effect.annotateLogs({ command: command.op }),
     )
 
   const openFolder = Effect.gen(function* () {
@@ -99,7 +112,15 @@ const program = Effect.gen(function* () {
     runtime.runFork(
       run(command).pipe(Effect.flatMap((result) => (result.ok ? Effect.void : manager.notify(result.error)))),
     )
-  const updateMenu = makeMenu({ dispatch: dispatchFromMenu, send: sendMenu })
+  const updateMenu = makeMenu({
+    dispatch: dispatchFromMenu,
+    send: sendMenu,
+    // openPath resolves to an error message when it fails (say, the folder is gone); show Docs' own folder then.
+    reportProblem: () =>
+      void shell.openPath(logsDirectory).then((failed) => {
+        if (failed) shell.showItemInFolder(app.getPath('userData'))
+      }),
+  })
 
   yield* handle(ipcMain, {
     channel: 'command',
@@ -128,7 +149,7 @@ const program = Effect.gen(function* () {
     handler: ([bytes, mime]) =>
       Effect.tryPromise(() => saveImage(bytes, mime)).pipe(
         Effect.map((path): { ok: true; path: string } | { ok: false; error: string } => ({ ok: true, path })),
-        Effect.catch((error) => Effect.succeed({ ok: false as const, error: userMessage(error.cause) })),
+        Effect.catchCause((cause) => Effect.map(describeFailure(cause), (error) => ({ ok: false as const, error }))),
       ),
     invalid: () => ({ ok: false, error: 'Docs could not read that image.' }),
   })
@@ -171,18 +192,12 @@ const program = Effect.gen(function* () {
   return yield* Effect.never
 }).pipe(Effect.scoped)
 
-/** The first error in a failed command (a tagged provider error, a rejection, or a defect). */
-function causeError(cause: import('effect/Cause').Cause<unknown>): unknown {
-  for (const reason of cause.reasons) {
-    if (reason._tag === 'Fail') return reason.error
-    if (reason._tag === 'Die') return reason.defect
-  }
-  return null
-}
-
 const main = runtime.runFork(program)
+// The app cannot run without its program; whenever it fails, say why, in the log too.
 main.addObserver((exit) => {
-  if (exit._tag === 'Failure' && !app.isReady()) console.error(exit.cause)
+  if (exit._tag === 'Success' || Cause.hasInterruptsOnly(exit.cause)) return
+  console.error(exit.cause)
+  runtime.runFork(Effect.logFatal('Docs stopped', exit.cause))
 })
 
 app.on('window-all-closed', () => {

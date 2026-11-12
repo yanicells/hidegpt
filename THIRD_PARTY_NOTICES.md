@@ -69,6 +69,14 @@ projects below. Each copied or adapted file carries a header naming its source.
     `.github/workflows/ci.yml`; and `lint-staged.config.js` with
     `.githooks/pre-commit` from the `staged` block of `vite.config.ts` and
     `.vite-hooks/pre-commit`.
+  - `src/main/logging/` (commit 5c6f2f12): the rotating file sink, from
+    `packages/shared/src/logging.ts` (`makeAsyncRotatingFileSink`); the main
+    NDJSON logger, after `apps/server/src/serverLogger.ts` and
+    `observability/Observability.ts`; the provider event log with its batching
+    writer and skipped text deltas, after
+    `apps/server/src/provider/EventNdjsonLogger.ts`; and logging only defects,
+    from `apps/server/src/observability/DefectReporter.ts`, now in
+    `src/provider/DefectReport.ts`.
 - License: MIT
 
 ```

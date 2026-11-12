@@ -23,8 +23,10 @@ import * as Queue from 'effect/Queue'
 import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
 
+import { reportDefect } from '../provider/DefectReport'
 import {
   BinaryMissingError,
+  DEFECT_MESSAGE,
   NotLoggedInError,
   ProviderRequestError,
   ProviderTimeoutError,
@@ -352,7 +354,12 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
         Stream.fromAsyncIterable(live.query, (cause) => cause).pipe(
           Stream.runForEach((message) => onMessage(live, message)),
           Effect.exit,
-          Effect.flatMap((exit) => settle(live, stoppedMessage(live, exit))),
+          // A die is a Docs bug reading a frame: report it, and keep its raw text off the page.
+          Effect.flatMap((exit) =>
+            exit._tag === 'Failure' && Cause.hasDies(exit.cause)
+              ? Effect.flatMap(reportDefect(exit.cause), () => settle(live, DEFECT_MESSAGE))
+              : settle(live, stoppedMessage(live, exit)),
+          ),
         )
 
       const startLive = (threadId: string, settings: TurnSettings) =>

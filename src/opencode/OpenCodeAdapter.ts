@@ -17,11 +17,12 @@ import type { ApprovalBlock, DocSummary, Skill } from '../shared/model'
 import {
   NotLoggedInError,
   ProcessExitedError,
+  ProviderDefectError,
   ProviderRequestError,
   type ProviderError,
   ProviderTimeoutError,
-  userMessage,
 } from '../provider/errors'
+import { reportDefect } from '../provider/DefectReport'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
 import type { AdapterEvent, Catalog, OpenedThread, ProviderAdapter, ProviderSession, ThreadEvent } from '../provider/ProviderAdapter'
 import {
@@ -464,12 +465,14 @@ export function make(connect: Connect): ProviderAdapter {
         Effect.catchCause((cause) =>
           Cause.hasInterrupts(cause)
             ? Effect.interrupt
-            : Deferred.fail(
-                streamEnded,
-                Cause.findErrorOption(cause).pipe(
-                  Option.getOrElse(() => streamLost(`OpenCode updates failed: ${userMessage(Cause.squash(cause))}`)),
-                ),
-              ),
+            : Option.match(Cause.findErrorOption(cause), {
+                onSome: (error) => Deferred.fail(streamEnded, error),
+                // A defect (say, in toEvents) is logged under a report id; the banner gets a plain sentence.
+                onNone: () =>
+                  reportDefect(cause).pipe(
+                    Effect.flatMap((reportId) => Deferred.fail(streamEnded, new ProviderDefectError({ provider, reportId }))),
+                  ),
+              }),
         ),
         Effect.forkIn(scope),
       )

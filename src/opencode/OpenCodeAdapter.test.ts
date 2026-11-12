@@ -1,7 +1,9 @@
 import { describe, expect, it } from '@effect/vitest'
+import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
 import * as Exit from 'effect/Exit'
 import * as Fiber from 'effect/Fiber'
+import * as Logger from 'effect/Logger'
 import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
@@ -223,6 +225,21 @@ describe('OpenCodeAdapter', () => {
       expect(error._tag).toBe('ProcessExitedError')
     }),
   )
+
+  it.effect('a defect while reading updates ends the session with a plain sentence and a logged report', () => {
+    const logged: string[] = []
+    const capture = Logger.make(({ cause, logLevel }) => {
+      if (logLevel === 'Error') logged.push(Cause.pretty(cause))
+    })
+    return Effect.gen(function* () {
+      const { fake, session } = yield* open()
+      // A malformed update: reading `info.role` throws inside the event mapping.
+      fake.push({ id: 'evt_bad', type: 'message.updated', properties: { sessionID: SESSION } } as never)
+      const error = yield* Effect.flip(session.awaitExit)
+      expect(error).toMatchObject({ _tag: 'ProviderDefectError', message: 'Something went wrong. Docs saved a report and is reconnecting.' })
+      expect(logged).toEqual([expect.stringContaining("reading 'role'")])
+    }).pipe(Effect.provide(Logger.layer([capture])))
+  })
 
   it.effect('times out a request the server never answers', () =>
     Effect.gen(function* () {

@@ -4,7 +4,10 @@ import * as Layer from 'effect/Layer'
 
 import type { ProviderId } from '../shared/model'
 import { providerLabel } from '../shared/labels'
-import { ProviderRequestError, userMessage } from '../provider/errors'
+import * as Cause from 'effect/Cause'
+
+import { reportDefect } from '../provider/DefectReport'
+import { ProviderRequestError } from '../provider/errors'
 import { ProcessSupervisor } from '../provider/ProcessSupervisor'
 import type { ProviderAdapter } from '../provider/ProviderAdapter'
 
@@ -20,19 +23,24 @@ export class ProviderRegistry extends Context.Service<
 
 type Loaders = { readonly [K in ProviderId]: () => Promise<ProviderAdapter> }
 
-/** A chunk that fails to load is an error on that library's banner, not a defect that ends supervision. */
+/**
+ * A chunk that fails to load is an error on that library's banner, not a defect that ends
+ * supervision. Why it failed goes to the log under a report id, not onto the page.
+ */
 const fromLoaders = (loaders: Loaders) =>
   ProviderRegistry.of({
     adapter: (id) =>
-      Effect.tryPromise({
-        try: loaders[id],
-        catch: (cause) =>
-          new ProviderRequestError({
-            provider: id,
-            operation: 'load',
-            detail: `Docs could not load ${providerLabel(id)}: ${userMessage(cause)}`,
-          }),
-      }),
+      Effect.tryPromise({ try: loaders[id], catch: (cause) => cause }).pipe(
+        Effect.catch((cause) =>
+          reportDefect(Cause.die(cause)).pipe(
+            Effect.andThen(
+              Effect.fail(
+                new ProviderRequestError({ provider: id, operation: 'load', detail: `Docs could not load ${providerLabel(id)}. Docs saved a report.` }),
+              ),
+            ),
+          ),
+        ),
+      ),
   })
 
 /**

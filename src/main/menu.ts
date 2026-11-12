@@ -11,6 +11,8 @@ import { accountLabel, displayServerName, libraryName, PROVIDERS, toolsNeedingCo
 export type MenuHandlers = {
   readonly dispatch: (command: Command) => void
   readonly send: (action: MenuAction) => void
+  /** Help → Report a problem…: shows the folder of saved reports. */
+  readonly reportProblem: () => void
 }
 
 const signature = (snap: Snapshot) =>
@@ -55,7 +57,8 @@ function accountItems(snap: Snapshot, { dispatch }: MenuHandlers): Electron.Menu
   ]
 }
 
-function template(snap: Snapshot, handlers: MenuHandlers): Electron.MenuItemConstructorOptions[] {
+/** The menu for `snap`. Exported for tests. */
+export function template(snap: Snapshot, handlers: MenuHandlers): Electron.MenuItemConstructorOptions[] {
   const { dispatch, send } = handlers
   const isMac = process.platform === 'darwin'
   const connectItems = toolsNeedingConnect(snap.mcpServers).map((server) => ({
@@ -139,5 +142,6 @@ function template(snap: Snapshot, handlers: MenuHandlers): Electron.MenuItemCons
       ],
     },
     { label: 'Account', submenu: accountItems(snap, handlers) },
+    { role: 'help', submenu: [{ label: 'Report a problem…', click: handlers.reportProblem }] },
   ]
 }
