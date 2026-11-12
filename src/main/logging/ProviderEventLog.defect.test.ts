@@ -72,7 +72,7 @@ describe('ProviderEventLog: defects', () => {
         yield* log.record('codex', started('second'))
         yield* Effect.sleep('600 millis')
         // Read while the log is still open: closing its scope flushes the queue either way.
-        expect(yield* readLog(join(dir, 'codex.ndjson'))).toContain('second')
+        expect(yield* readLog(join(dir, 'personal.ndjson'))).toContain('second')
       }).pipe(Effect.scoped)
       const reports = logged.filter((line) => line.message === 'Unhandled defect')
       expect(reports.map((line) => line.annotations.where)).toEqual(['eventLog.write'])
@@ -84,7 +84,7 @@ describe('ProviderEventLog: defects', () => {
     const { logged, layer } = captureLogs()
     return Effect.gen(function* () {
       const dir = yield* tempDir
-      const file = join(dir, 'codex.ndjson')
+      const file = join(dir, 'personal.ndjson')
       yield* Effect.gen(function* () {
         const log = yield* make(dir)
         yield* log.record('codex', started('warmup'))

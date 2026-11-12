@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -35,7 +35,9 @@ describe('ProviderEventLog', () => {
         )
       }).pipe(Effect.scoped, Effect.provide(layer(dir)))
 
-      const log = readFileSync(join(dir, 'codex.ndjson'), 'utf8')
+      // Named for the library as the page shows it, never for the provider.
+      expect(readdirSync(dir)).toEqual(['personal.ndjson'])
+      const log = readFileSync(join(dir, 'personal.ndjson'), 'utf8')
       const types = log
         .trim()
         .split('\n')

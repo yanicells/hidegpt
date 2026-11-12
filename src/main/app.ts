@@ -85,7 +85,7 @@ const MainLayer = managerLayer({
 }).pipe(
   Layer.provideMerge(demo ? Demo.layer : ProviderRegistry.layerAfter(pathReady)),
   Layer.provideMerge(ProcessSupervisor.layer(demo ? null : join(app.getPath('userData'), 'provider-processes.json'))),
-  Layer.provideMerge(ProviderEventLog.layer(join(logsDirectory, 'providers'))),
+  Layer.provideMerge(ProviderEventLog.layer(join(logsDirectory, 'activity'))),
   Layer.provideMerge(Logging.layer({ directory: logsDirectory, console: !app.isPackaged })),
   Layer.provideMerge(NodeServices.layer),
 )

@@ -10,11 +10,12 @@ import * as Queue from 'effect/Queue'
 
 import { foreverObserved, observed } from '../../provider/observed'
 import type { AdapterEvent } from '../../provider/ProviderAdapter'
+import { libraryName } from '../../shared/labels'
 import type { ProviderId } from '../../shared/model'
 import { makeRotatingFileSink, type RotatingFileSink } from './rotatingFileSink'
 
-/** `logs/providers/<provider>.ndjson`: 5 MB, plus three rotated files each. */
-export const PROVIDER_LOG = { maxBytes: 5 * 1024 * 1024, maxFiles: 3 } as const
+/** `logs/activity/<library>.ndjson`: 5 MB, plus three rotated files each. */
+export const ACTIVITY_LOG = { maxBytes: 5 * 1024 * 1024, maxFiles: 3 } as const
 const BATCH_WINDOW = '500 millis'
 /** Lines waiting for the writer. Past this the oldest go, and the next round logs how many. */
 export const MAX_QUEUED_LINES = 10_000
@@ -82,10 +83,13 @@ export function describeEvent(event: AdapterEvent): Record<string, unknown> | nu
   }
 }
 
+/** The file a library writes to: its on-screen name, so no file is named after a provider. */
+export const activityFile = (provider: ProviderId) => `${libraryName(provider).toLowerCase()}.ndjson`
+
 type Line = { readonly provider: ProviderId; readonly text: string }
 
 /**
- * Writes to `directory/<provider>.ndjson`. Lines queue up and one fiber
+ * Writes to `directory/<library>.ndjson`. Lines queue up and one fiber
  * writes them in batches, so logging never slows the event pump; closing the
  * layer's scope writes whatever is still queued.
  */
@@ -96,7 +100,7 @@ export const make = (directory: string) =>
     const sinkFor = (provider: ProviderId) => {
       const open = sinks.get(provider)
       if (open) return Effect.succeed(open)
-      return makeRotatingFileSink({ ...PROVIDER_LOG, filePath: path.join(directory, `${provider}.ndjson`) }).pipe(
+      return makeRotatingFileSink({ ...ACTIVITY_LOG, filePath: path.join(directory, activityFile(provider)) }).pipe(
         Effect.tap((sink) => Effect.sync(() => sinks.set(provider, sink))),
       )
     }
@@ -169,5 +173,5 @@ export const make = (directory: string) =>
     })
   })
 
-/** The real log, under `userData/logs/providers`. */
+/** The real log, under `userData/logs/activity`. */
 export const layer = (directory: string) => Layer.effect(ProviderEventLog, make(directory))
