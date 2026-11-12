@@ -8,6 +8,7 @@ import * as FileSystem from 'effect/FileSystem'
 import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as Path from 'effect/Path'
+import type * as PlatformError from 'effect/PlatformError'
 import * as Schema from 'effect/Schema'
 import * as Semaphore from 'effect/Semaphore'
 
@@ -243,6 +244,29 @@ const signal = (target: number) => {
 const killRow = (row: ProcessRow) => signal(row.pgid === row.pid ? -row.pid : row.pid)
 
 /**
+ * Disk work nobody awaits. The ledger is best effort, so a failed read or write
+ * (a full disk, no permission) is a warning that says what failed, never the
+ * path; anything else is a defect, reported as in `observed`.
+ */
+const observedOnDisk = <A, R>(effect: Effect.Effect<A, PlatformError.PlatformError, R>, name: string) =>
+  observed(
+    effect.pipe(
+      Effect.catchTag('PlatformError', ({ reason }) =>
+        Effect.logWarning('The process ledger could not be updated').pipe(
+          Effect.annotateLogs({
+            where: name,
+            error: 'PlatformError',
+            reason: reason._tag,
+            module: reason.module,
+            method: reason.method,
+          }),
+        ),
+      ),
+    ),
+    { name },
+  )
+
+/**
  * Writes through a temp file in the same folder, then renames it over the
  * target, so a crash mid-write never leaves a half-written ledger.
  * Adapted from T3 Code (packages/shared/src/atomicWrite.ts) at commit 5c6f2f12.
@@ -253,10 +277,10 @@ const writeFileStringAtomically = (fs: FileSystem.FileSystem, path: Path.Path, f
     Effect.gen(function* () {
       const directory = path.dirname(filePath)
       yield* fs.makeDirectory(directory, { recursive: true })
-      // Cleanup failure must not fail a write that already landed; it is reported instead.
+      // Cleanup failure must not fail a write that already landed; it is logged instead.
       const temp = yield* Effect.acquireRelease(
         fs.makeTempDirectory({ directory, prefix: `${path.basename(filePath)}.` }),
-        (dir) => observed(fs.remove(dir, { recursive: true }), { name: 'ledger.removeTemp' }),
+        (dir) => observedOnDisk(fs.remove(dir, { recursive: true }), 'ledger.removeTemp'),
       )
       const tempPath = path.join(temp, 'contents.tmp')
       yield* fs.writeFileString(tempPath, contents)
@@ -306,12 +330,12 @@ export const layer = (filePath: string | null, options: LedgerOptions = {}) =>
         writeFileStringAtomically(fs, path, filePath, JSON.stringify({ ...others, ...Object.fromEntries(ours) }))
       const othersOn = (onDisk: Record<string, LedgerEntry>) =>
         Object.fromEntries(Object.entries(onDisk).filter(([, entry]) => !isOurs(entry)))
-      // The ledger is best effort: a failed write never fails a spawn, but it is reported (the next
+      // The ledger is best effort: a failed write never fails a spawn, but it is logged (the next
       // launch cannot reap what was never written).
       const save = lock.withPermits(1)(
-        observed(
+        observedOnDisk(
           Effect.flatMap(read, (onDisk) => write(othersOn(onDisk))),
-          { name: 'ledger.save' },
+          'ledger.save',
         ),
       )
 
@@ -394,7 +418,7 @@ export const layer = (filePath: string | null, options: LedgerOptions = {}) =>
               }
               if (hit) killed += 1
             }
-            yield* observed(write(kept), { name: 'ledger.reap' })
+            yield* observedOnDisk(write(kept), 'ledger.reap')
             return killed
           }),
         ),

@@ -8,7 +8,7 @@ import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
 
-import { captureDefects } from './observed.testkit'
+import { captureReports } from './observed.testkit'
 import { ProcessSupervisor, layer } from './ProcessSupervisor'
 
 /** Real processes: the supervisor's job is the boundary with the OS, so nothing here is faked. */
@@ -118,6 +118,21 @@ describe('ProcessSupervisor', () => {
     20_000,
   )
 
+  it.live('reports nothing when the server exits on its own before the scope closes', () => {
+    const { layer: logs, reported } = captureReports()
+    return withSupervisor((supervisor) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const child = yield* supervisor.spawn({ provider: 'codex', command: '/bin/sh', args: ['-c', 'exit 0'] })
+          yield* Effect.exit(child.awaitExit)
+        }),
+      ),
+    ).pipe(
+      Effect.provide(logs),
+      Effect.map(() => expect(reported()).toEqual([])),
+    )
+  })
+
   it.effect('ends with the exit code and the last stderr line', () =>
     withSupervisor((supervisor) =>
       Effect.scoped(
@@ -221,21 +236,60 @@ describe('ProcessSupervisor.callbackSpawner', () => {
     }),
   )
 
-  it.live('reports a ledger failure in the spawn callback to the app’s logger, not the default console', () => {
-    const { layer: logs, reported } = captureDefects()
+  it.live('logs a ledger write failure in the spawn callback to the app’s logger, as a warning, not a defect', () => {
+    const { layer: logs, reported, warned } = captureReports()
+    const saveFailed = () => warned().some(({ annotations }) => annotations.where === 'ledger.save')
     return withSupervisor(
       (supervisor) =>
         Effect.scoped(
           Effect.gen(function* () {
             const spawn = yield* supervisor.callbackSpawner
             spawn({ command: '/bin/sleep', args: ['30'], env: {} })
-            yield* until(() => reported().some((report) => report.where === 'ledger.save'))
+            yield* until(saveFailed)
           }),
         ),
       // Not a folder, so every ledger write fails.
       '/dev/null/ledger.json',
-    ).pipe(Effect.provide(logs))
+    ).pipe(
+      Effect.provide(logs),
+      Effect.map(() => {
+        expect(warned().find(({ annotations }) => annotations.where === 'ledger.save')?.annotations).toMatchObject({
+          error: 'PlatformError',
+          reason: expect.any(String),
+        })
+        expect(JSON.stringify(warned())).not.toContain('/dev/null')
+        expect(reported()).toEqual([])
+      }),
+    )
   })
+
+  it.live('leaves no record when the scope closes while records and stops are still landing', () =>
+    Effect.gen(function* () {
+      const ledgerPath = join(dir, 'closing-ledger.json')
+      const entries = () => {
+        try {
+          return JSON.parse(readFileSync(ledgerPath, 'utf8')) as Record<string, unknown>
+        } catch {
+          return {}
+        }
+      }
+      yield* withSupervisor(
+        (supervisor) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              const spawn = yield* supervisor.callbackSpawner
+              // One CLI that exits at once (its stop is forked from the exit), and one still running
+              // whose record is still being written as the scope closes.
+              const quick = spawn({ command: '/bin/sh', args: ['-c', 'exit 0'], env: {} })
+              yield* Effect.callback<void>((resume) => void quick.once('exit', () => resume(Effect.void)))
+              spawn({ command: '/bin/sleep', args: ['30'], env: {} })
+            }),
+          ),
+        ledgerPath,
+      )
+      expect(entries()).toEqual({})
+    }),
+  )
 
   it.live('runs each child in its own group and kills the whole group when the scope closes', () =>
     Effect.gen(function* () {

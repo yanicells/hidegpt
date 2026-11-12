@@ -154,8 +154,16 @@ const make = (
       // The read is capped, so a slow `ps` never delays the kill past quit's deadline.
       yield* Effect.acquireRelease(ledger.record(handle.pid, options.command, options.args[0] ?? ''), () =>
         treeReadBeforeKill(ledger).pipe(
-          // A kill that fails or dies is reported, and the ledger is still updated.
-          Effect.andThen(observed(handle.kill({ forceKillAfter: FORCE_KILL_AFTER }), { name: 'supervisor.kill' })),
+          // A server that already exited cannot be signalled, so the kill's PlatformError is no defect
+          // (as `signalGroup`). Anything else it does is reported, and the ledger is still updated.
+          Effect.andThen(
+            observed(
+              handle
+                .kill({ forceKillAfter: FORCE_KILL_AFTER })
+                .pipe(Effect.catchTag('PlatformError', () => Effect.void)),
+              { name: 'supervisor.kill' },
+            ),
+          ),
           Effect.andThen(ledger.stop(handle.pid)),
         ),
       )
