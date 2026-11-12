@@ -5,6 +5,7 @@
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
@@ -51,6 +52,7 @@
     "electron-vite": "^5.0.0",
     "jsdom": "^30.0.1",
     "knip": "6.45.0",
+    "lint-staged": "17.6.0",
     "oxfmt": "0.78.0",
     "oxlint": "1.93.0",
     "tailwindcss": "^4.3.3",

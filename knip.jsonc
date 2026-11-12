@@ -11,6 +11,8 @@
   "ignoreDependencies": [
     // Imported from CSS (`@import "tailwindcss"`), which knip does not read.
     "tailwindcss",
+    // Run by .githooks/pre-commit, which knip does not read.
+    "lint-staged",
   ],
   "ignoreIssues": {
     // Vendored from T3 Code and kept whole, so it stays easy to re-sync.
