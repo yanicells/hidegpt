@@ -77,8 +77,7 @@ export const isStealthy = (text: string): boolean => stealthViolations(text).len
 const VENDORS = new Set(VENDOR_WORDS)
 
 /** The vendor names in `text`: the gate's matches, kept to `VENDOR_WORDS`. */
-export const vendorViolations = (text: string): string[] =>
-  stealthViolations(text).filter((word) => VENDORS.has(word))
+export const vendorViolations = (text: string): string[] => stealthViolations(text).filter((word) => VENDORS.has(word))
 
 const namesVendor = (text: string): boolean => vendorViolations(text).length > 0
 
