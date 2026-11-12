@@ -45,10 +45,17 @@ const daemonOf = (pid: number) => {
   if (found) daemons.push(found)
   return found
 }
+/** Running and not a zombie: on Linux an orphan waits for init (or the CI runner) to reap it, and still answers kill 0. */
 const running = (pid: number) => {
   try {
     process.kill(pid, 0)
-    return true
+  } catch {
+    return false
+  }
+  try {
+    return !execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' })
+      .trim()
+      .startsWith('Z')
   } catch {
     return false
   }
