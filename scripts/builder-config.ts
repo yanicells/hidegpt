@@ -9,6 +9,9 @@ const has = (env: Env, ...keys: ReadonlyArray<string>) => keys.every((key) => Bo
 /** `HIDEGPT_PERSONAL=1`: the build is for the builder alone and may carry the Claude library. */
 export const isPersonal = (env: Env): boolean => env.HIDEGPT_PERSONAL === '1'
 
+/** Where `pnpm dist` writes the build: `dist/`, or `dist/personal/` for a personal one. */
+export const outputDir = (env: Env): string => (isPersonal(env) ? 'dist/personal' : 'dist')
+
 /** A certificate is configured: a .p12 in `CSC_LINK`, or a keychain identity in `CSC_NAME`. */
 export const wantsSigning = (env: Env): boolean => has(env, 'CSC_LINK') || has(env, 'CSC_NAME')
 
@@ -22,6 +25,38 @@ export const wantsNotarizing = (env: Env): boolean =>
 /** The SDK's entry bundles its own dependencies, so it and its platform binary are all Claude needs. */
 const CLAUDE_FILES = ['node_modules/@anthropic-ai/claude-agent-sdk/**/*', 'node_modules/@anthropic-ai/claude-agent-sdk-*/**/*']
 const CLAUDE_BINARY = 'node_modules/@anthropic-ai/claude-agent-sdk-*/**/*'
+
+/** Everything electron-builder reads to sign or notarize. */
+const SIGNING_VARS = [
+  'CSC_LINK',
+  'CSC_NAME',
+  'CSC_KEY_PASSWORD',
+  'APPLE_API_KEY',
+  'APPLE_API_KEY_ID',
+  'APPLE_API_ISSUER',
+  'APPLE_ID',
+  'APPLE_APP_SPECIFIC_PASSWORD',
+  'APPLE_TEAM_ID',
+  'APPLE_KEYCHAIN',
+  'APPLE_KEYCHAIN_PROFILE',
+]
+
+/**
+ * The environment electron-builder gets. It treats any set signing variable as
+ * enabled (T3 Code scrubs them the same way), so blank values are dropped, and an
+ * unsigned build drops every signing variable and never searches the keychain.
+ */
+export function builderEnv(env: Env): Record<string, string> {
+  const scrubbed: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) {
+    if (value?.trim()) scrubbed[key] = value
+  }
+  if (!wantsSigning(scrubbed)) {
+    for (const key of SIGNING_VARS) delete scrubbed[key]
+    scrubbed.CSC_IDENTITY_AUTO_DISCOVERY = 'false'
+  }
+  return scrubbed
+}
 
 /**
  * The electron-builder config for a macOS `.dmg` and `.zip`. It's built in code, as
@@ -45,8 +80,9 @@ export function builderConfig(env: Env): Configuration {
     appId: 'app.docs.desktop',
     productName: 'Docs',
     copyright: 'Copyright © 2026',
-    artifactName: 'Docs-${version}-${arch}.${ext}',
-    directories: { output: 'dist', buildResources: 'build' },
+    // A personal build goes to its own folder with its own name, so it isn't handed out by mistake.
+    artifactName: personal ? 'Docs-${version}-${arch}-personal.${ext}' : 'Docs-${version}-${arch}.${ext}',
+    directories: { output: outputDir(env), buildResources: 'build' },
     // The package.json inside the app: the Docs name, and in a shared build no dependency
     // list (electron-builder merges objects key by key, so only null clears it).
     extraMetadata: { name: 'docs', productName: 'Docs', ...(personal ? {} : { dependencies: null }) },

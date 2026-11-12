@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { builderConfig } from './builder-config.ts'
+import { builderConfig, builderEnv } from './builder-config.ts'
 
 const NOTARY = { APPLE_API_KEY: '/keys/AuthKey.p8', APPLE_API_KEY_ID: 'KEYID', APPLE_API_ISSUER: 'issuer' }
 
@@ -44,5 +44,31 @@ describe('builderConfig', () => {
     const config = builderConfig({})
     expect(config).toMatchObject({ productName: 'Docs', extraMetadata: { name: 'docs', productName: 'Docs' } })
     expect(JSON.stringify(config)).not.toMatch(/gpt|claude-code|openai|\bai\b/i)
+  })
+})
+
+describe('personal builds', () => {
+  it('get their own folder and name, so a shared build is never mistaken for one', () => {
+    const shared = builderConfig({})
+    const personal = builderConfig({ HIDEGPT_PERSONAL: '1' })
+    expect(shared).toMatchObject({ artifactName: 'Docs-${version}-${arch}.${ext}', directories: { output: 'dist' } })
+    expect(personal).toMatchObject({
+      artifactName: 'Docs-${version}-${arch}-personal.${ext}',
+      directories: { output: 'dist/personal' },
+    })
+  })
+})
+
+describe('builderEnv', () => {
+  const SIGNING = { CSC_LINK: '/certs/developer-id.p12', CSC_KEY_PASSWORD: 'secret', ...NOTARY }
+
+  it('drops every signing variable from an unsigned build and stops keychain discovery', () => {
+    const env = builderEnv({ PATH: '/usr/bin', CSC_LINK: '  ', CSC_KEY_PASSWORD: 'secret', ...NOTARY })
+    expect(env).toEqual({ PATH: '/usr/bin', CSC_IDENTITY_AUTO_DISCOVERY: 'false' })
+  })
+
+  it('keeps the signing variables of a signed build, minus blank ones', () => {
+    const env = builderEnv({ ...SIGNING, APPLE_TEAM_ID: ' ' })
+    expect(env).toEqual(SIGNING)
   })
 })
