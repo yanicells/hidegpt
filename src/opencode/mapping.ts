@@ -18,7 +18,7 @@ import type {
   ToolPart,
 } from '@opencode-ai/sdk/v2/client'
 
-import { toolTitle, type ToolKind } from '../provider/toolTitles'
+import { requestTitle, toolTitle, type ToolKind } from '../provider/toolTitles'
 import type { TurnFailure, TurnFailureKind } from '../provider/turnFailure'
 import type {
   ApprovalBlock,
@@ -136,25 +136,42 @@ export function userBlock(id: string, parts: ReadonlyArray<Part>): UserBlock | n
 }
 
 /**
- * OpenCode's tools by kind; null draws no callout (the question tool, whose card
- * shows it, and the to-do list).
- * Adapted from T3 Code (packages/provider-opencode/src/server/toolItems.ts, openCodeToolProjectionKind)
- * at commit 5c6f2f12.
+ * OpenCode's built-in tools by kind; null draws no callout (the question tool, whose
+ * card shows it, and the to-do list). Kinds follow T3 Code
+ * (packages/provider-opencode/src/server/toolItems.ts, openCodeToolProjectionKind) at commit 5c6f2f12.
  * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+ */
+const BUILT_IN_TOOLS = new Map<string, ToolKind | null>([
+  ['bash', 'command'],
+  ['edit', 'file_change'],
+  ['write', 'file_change'],
+  ['patch', 'file_change'],
+  ['apply_patch', 'file_change'],
+  ['multiedit', 'file_change'],
+  ['read', 'file_read'],
+  ['glob', 'file_search'],
+  ['grep', 'file_search'],
+  ['list', 'file_search'],
+  ['lsp', 'file_search'],
+  ['webfetch', 'web_fetch'],
+  ['websearch', 'web_search'],
+  ['codesearch', 'web_search'],
+  ['task', 'subagent'],
+  ['question', null],
+  ['todowrite', null],
+  ['todoread', null],
+])
+
+/**
+ * The kind of step a tool part is, or null when it draws no callout. OpenCode names a
+ * connected app's tool `{server}_{tool}` (`notion_search`), so any other name with an
+ * underscore is one.
  */
 function toolKind(name: string): ToolKind | null {
   const normalized = name.toLowerCase()
-  if (normalized.startsWith('mcp__') || normalized === 'server_tool') return 'mcp_tool'
-  if (normalized === 'question' || normalized === 'todowrite' || normalized === 'todoread') return null
-  if (normalized.includes('bash') || normalized.includes('shell')) return 'command'
-  if (normalized.includes('edit') || normalized.includes('write') || normalized.includes('patch')) return 'file_change'
-  if (normalized === 'webfetch') return 'web_fetch'
-  if (normalized.includes('web') || normalized === 'codesearch' || normalized === 'code_search') return 'web_search'
-  if (normalized === 'read') return 'file_read'
-  if (normalized === 'task') return 'subagent'
-  if (['glob', 'grep', 'search', 'lsp'].some((word) => normalized.includes(word)) || normalized === 'list')
-    return 'file_search'
-  return 'other'
+  const builtIn = BUILT_IN_TOOLS.get(normalized)
+  if (builtIn !== undefined) return builtIn
+  return normalized.startsWith('mcp__') || normalized.includes('_') ? 'mcp_tool' : 'other'
 }
 
 /**
@@ -187,7 +204,13 @@ export function toolCallout(part: ToolPart): CalloutBlock | null {
   if (!kind) return null
   const state = part.state
   const done = state.status === 'completed' || state.status === 'error'
-  const output = state.status === 'completed' ? (kind === 'file_read' ? readOutput(state.output) : state.output) : ''
+  // A subtask's output is its whole report, with OpenCode's `<task_metadata>` session id.
+  const output =
+    state.status !== 'completed' || kind === 'subagent'
+      ? ''
+      : kind === 'file_read'
+        ? readOutput(state.output)
+        : state.output
   const body = state.status === 'error' ? STEP_FAILED : output.slice(0, 2000)
   return { kind: 'callout', id: part.id, title: toolTitle(kind, done, part.tool), body }
 }
@@ -220,20 +243,19 @@ export function sessionTitle(title: string | undefined, messages: ReadonlyArray<
 export const permissionBlockId = (requestId: string) => `approval-${requestId}`
 
 /**
- * The card's question for an OpenCode permission, by kind (wording: STL-2, "Requests
- * and questions"); never the permission's own name.
+ * The kind of step an OpenCode permission asks for, so its card asks in the same
+ * words as a Claude one (`requestTitle`); never the permission's own name.
  * Adapted from T3 Code (packages/provider-opencode/src/server/adapter.ts, openCodePermissionRequestKind)
  * at commit 5c6f2f12.
  * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
  */
-function permissionTitle(permission: string): string {
+function permissionKind(permission: string): ToolKind {
   const normalized = permission.toLowerCase()
-  if (['edit', 'write', 'patch', 'apply_patch'].includes(normalized)) return 'Edit this file?'
-  if (['read', 'glob', 'grep', 'list', 'lsp', 'external_directory'].includes(normalized)) return 'Open this file?'
-  if (normalized === 'bash') return 'Run this command?'
-  if (normalized === 'webfetch' || normalized === 'websearch' || normalized === 'codesearch')
-    return 'Look this up online?'
-  return 'Allow this step?'
+  if (['edit', 'write', 'patch', 'apply_patch'].includes(normalized)) return 'file_change'
+  if (['read', 'glob', 'grep', 'list', 'lsp', 'external_directory'].includes(normalized)) return 'file_read'
+  if (normalized === 'bash') return 'command'
+  if (normalized === 'webfetch' || normalized === 'websearch' || normalized === 'codesearch') return 'web_search'
+  return 'other'
 }
 
 /** A permission the server asks for, as a suggestion card that quotes what it would touch. */
@@ -242,7 +264,7 @@ export function permissionBlock(request: PermissionRequest): ApprovalBlock {
     kind: 'approval',
     id: permissionBlockId(request.id),
     suggestion: 'add',
-    title: permissionTitle(request.permission),
+    title: requestTitle(permissionKind(request.permission)),
     body: request.patterns.join(', '),
     fields: [],
     questions: [],

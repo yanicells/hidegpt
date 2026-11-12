@@ -28,6 +28,8 @@ describe('toolCallout', () => {
       'task',
       'mcp__claude_ai_Notion__notion-search',
       'notion_create_page',
+      'openai_ask',
+      'skill',
     ].map((tool) => toolCallout(completed(tool, ''))?.title)
     expect(titles).toEqual([
       'Ran a command',
@@ -43,6 +45,8 @@ describe('toolCallout', () => {
       'Looked something up',
       'Background task',
       'Notion · notion search',
+      'Notion · create page',
+      'A connected app · ask',
       'Did a step',
     ])
   })
@@ -65,6 +69,11 @@ describe('toolCallout', () => {
       time: { start: 1, end: 2 },
     })
     expect(view(toolCallout(failed))).toEqual(['Ran a command', STEP_FAILED])
+  })
+
+  it("shows a subtask's description only, never its report or session id", () => {
+    const report = 'Found 3 readings.\n\n<task_metadata>\nsession_id: ses_1\n</task_metadata>'
+    expect(view(toolCallout(completed('task', report)))).toEqual(['Background task', ''])
   })
 
   it("shows a read's content without OpenCode's envelope, and keeps text after it", () => {
