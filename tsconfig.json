@@ -11,7 +11,8 @@
     "noEmit": true,
     "types": ["node"],
     "isolatedModules": true,
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true
   },
   "include": [
     "electron.vite.config.ts",
