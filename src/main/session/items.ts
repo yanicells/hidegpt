@@ -39,7 +39,8 @@ function replaceAt(items: Items, index: number, item: Item): Items {
  * Inserts or replaces an item by id. A server user message replaces its
  * optimistic echo: by `replaces` (the client id sent with the turn) when the
  * provider echoes it back, otherwise by matching text on the newest echo. A
- * request re-sent as `pending` keeps what the person already did with it.
+ * request re-sent as `pending` keeps what the person already did with it, and
+ * a final status (accepted, declined, expired) never changes.
  */
 export function upsertItem(items: Items, next: Item, replaces?: string | null): Items {
   const index = lastIndexOf(items, next.id)
@@ -48,7 +49,11 @@ export function upsertItem(items: Items, next: Item, replaces?: string | null): 
     return echo === -1 ? [...items, next] : replaceAt(items, echo, next)
   }
   const previous = items[index]!
-  if (previous.kind === 'request' && next.kind === 'request' && next.status === 'pending') {
+  if (
+    previous.kind === 'request' &&
+    next.kind === 'request' &&
+    (next.status === 'pending' || isFinalRequestStatus(previous.status))
+  ) {
     return replaceAt(items, index, { ...next, status: previous.status })
   }
   return replaceAt(items, index, next)

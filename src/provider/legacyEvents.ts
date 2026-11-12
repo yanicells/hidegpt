@@ -183,13 +183,12 @@ const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession) =>
     const queue = yield* Queue.unbounded<AdapterEvent, Cause.Done>()
     const emit = (event: AdapterEvent) => Effect.asVoid(Queue.offer(queue, event))
     const tracker = yield* makeTurnTracker({ provider, emit })
-    /** Approvals still open, so a legacy `resolved` (which names only the id) can re-send the whole item. */
-    const openRequests = new Map<string, RequestItem>()
+    const openRequests = makeOpenRequests()
 
-    const toItems = (blocks: ReadonlyArray<Block>): Item[] =>
+    const toItems = (threadId: string, blocks: ReadonlyArray<Block>): Item[] =>
       blocks.map((block) => {
         const item = blockToItem(block)
-        if (item.kind === 'request' && item.status === 'pending') openRequests.set(item.id, item)
+        if (item.kind === 'request' && item.status === 'pending') openRequests.add(threadId, item)
         return item
       })
 
@@ -197,7 +196,7 @@ const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession) =>
       Effect.gen(function* () {
         const { blocks, streaming, ...rest } = opened
         const activeTurnId = streaming ? yield* tracker.adopt(opened.threadId, null) : null
-        return { ...rest, items: toItems(blocks), activeTurnId } satisfies OpenedThread
+        return { ...rest, items: toItems(opened.threadId, blocks), activeTurnId } satisfies OpenedThread
       })
 
     yield* legacy.events.pipe(
@@ -219,7 +218,7 @@ const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession) =>
       createThread: (options) => Effect.flatMap(legacy.createThread(options), toOpened),
       loadOlder: (threadId, cursor) =>
         Effect.map(legacy.loadOlder(threadId, cursor), (page) => ({
-          items: toItems(page.blocks),
+          items: toItems(threadId, page.blocks),
           cursor: page.cursor,
         })),
       messageId: legacy.messageId,
@@ -246,11 +245,30 @@ const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession) =>
     } satisfies ProviderSession
   })
 
+/**
+ * Approvals still open, so a legacy `resolved` (which names only the id) can re-send the whole
+ * item. A thread's entries go when its turn ends: the session manager expires them then.
+ */
+function makeOpenRequests() {
+  const open = new Map<string, { readonly threadId: string; readonly item: RequestItem }>()
+  return {
+    add: (threadId: string, item: RequestItem) => void open.set(item.id, { threadId, item }),
+    take: (id: string): RequestItem | undefined => {
+      const entry = open.get(id)
+      open.delete(id)
+      return entry?.item
+    },
+    forget: (threadId: string) => {
+      for (const [id, entry] of open) if (entry.threadId === threadId) open.delete(id)
+    },
+  }
+}
+
 type Translation = {
   readonly tracker: TurnTracker
   readonly emit: (event: AdapterEvent) => Effect.Effect<void>
-  readonly toItems: (blocks: ReadonlyArray<Block>) => Item[]
-  readonly openRequests: Map<string, RequestItem>
+  readonly toItems: (threadId: string, blocks: ReadonlyArray<Block>) => Item[]
+  readonly openRequests: ReturnType<typeof makeOpenRequests>
 }
 
 /** One legacy event as canonical ones. The tracker emits the turn events itself. */
@@ -259,14 +277,18 @@ function translate(event: LegacyAdapterEvent, { tracker, emit, toItems, openRequ
     case 'turnStarted':
       return tracker.started(event.threadId, null)
     case 'turnEnded':
-      return tracker.end(
-        event.threadId,
-        event.error === undefined
-          ? { status: 'completed', failure: null }
-          : { status: 'failed', failure: classify({ message: event.error }) },
+      return Effect.sync(() => openRequests.forget(event.threadId)).pipe(
+        Effect.andThen(
+          tracker.end(
+            event.threadId,
+            event.error === undefined
+              ? { status: 'completed', failure: null }
+              : { status: 'failed', failure: classify({ message: event.error }) },
+          ),
+        ),
       )
     case 'block': {
-      const [item] = toItems([event.block])
+      const [item] = toItems(event.threadId, [event.block])
       return emit({
         type: 'item.upserted',
         threadId: event.threadId,
@@ -284,8 +306,7 @@ function translate(event: LegacyAdapterEvent, { tracker, emit, toItems, openRequ
         create: deltaTarget(event.blockId, event.create),
       })
     case 'resolved': {
-      const request = openRequests.get(event.blockId)
-      openRequests.delete(event.blockId)
+      const request = openRequests.take(event.blockId)
       if (!request) return Effect.logDebug('Resolved an approval this session never saw')
       // `skipped` from the provider means it settled the request itself (the turn ended, or it was stopped).
       const status = event.resolved === 'accepted' ? 'accepted' : 'expired'
@@ -304,12 +325,18 @@ function translate(event: LegacyAdapterEvent, { tracker, emit, toItems, openRequ
             : event.streaming
               ? yield* tracker.adopt(event.threadId, null)
               : null
-        yield* emit({ type: 'thread.reset', threadId: event.threadId, items: toItems(event.blocks), activeTurnId })
+        yield* emit({
+          type: 'thread.reset',
+          threadId: event.threadId,
+          items: toItems(event.threadId, event.blocks),
+          activeTurnId,
+        })
       })
     case 'title':
       return emit({ type: 'thread.renamed', threadId: event.threadId, title: event.title })
     case 'closed':
       return Effect.gen(function* () {
+        openRequests.forget(event.threadId)
         if (tracker.current(event.threadId) !== null)
           yield* tracker.end(event.threadId, { status: 'interrupted', failure: null })
         yield* emit({ type: 'thread.closed', threadId: event.threadId })
