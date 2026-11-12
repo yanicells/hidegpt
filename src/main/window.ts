@@ -192,8 +192,7 @@ export function recoverRenderer(win: BrowserWindow, appUrl: string, now: () => n
 
 // `crashPage` is adapted from T3 Code (apps/desktop/src/app/DesktopStartupRecovery.ts
 // `buildStartupRecoveryHtml`) at commit 5c6f2f12. Copyright (c) 2026 T3 Tools Inc. MIT License.
-const escapeHtml = (text: string) =>
-  text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)
+const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)
 
 /**
  * The page a window shows once its reloads run out: self-contained, no script

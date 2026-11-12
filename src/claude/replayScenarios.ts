@@ -32,7 +32,8 @@ export type LibraryResult = {
 }
 
 export const library: ReplayScenario<LibraryResult> = {
-  description: 'Catalog probe with no login (Docs shows the sign-in hint), an empty document list, and a document that does not exist. No prompt.',
+  description:
+    'Catalog probe with no login (Docs shows the sign-in hint), an empty document list, and a document that does not exist. No prompt.',
   prompts: [],
   run: ({ session, afterCatalog }) =>
     Effect.gen(function* () {

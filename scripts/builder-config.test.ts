@@ -45,7 +45,9 @@ describe('builderConfig', () => {
   it('ships only the Claude SDK, its binary unpacked, in a personal build', () => {
     const config = builderConfig({ HIDEGPT_PERSONAL: '1' })
     expect(config.files).toContain('node_modules/@anthropic-ai/claude-agent-sdk/**/*')
-    expect(config.files).toContain('!node_modules/@anthropic-ai/claude-agent-sdk/{bridge.mjs,browser-sdk.js,core*.mjs,*.d.ts}')
+    expect(config.files).toContain(
+      '!node_modules/@anthropic-ai/claude-agent-sdk/{bridge.mjs,browser-sdk.js,core*.mjs,*.d.ts}',
+    )
     expect(config.asarUnpack).toEqual(['node_modules/@anthropic-ai/claude-agent-sdk-*/**/*'])
     expect(config.extraMetadata).not.toHaveProperty('dependencies')
   })

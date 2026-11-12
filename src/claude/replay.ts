@@ -124,7 +124,9 @@ export function recordingSdk(sdk: ClaudeSdk, entries: ReplayEntry[], allowTurns:
             })()
       const started = sdk.query({
         prompt: guarded,
-        ...(options ? { options: { ...options, ...(recordedCanUseTool ? { canUseTool: recordedCanUseTool } : {}) } } : {}),
+        ...(options
+          ? { options: { ...options, ...(recordedCanUseTool ? { canUseTool: recordedCanUseTool } : {}) } }
+          : {}),
       })
       real = started
       const messages = (async function* () {
@@ -333,7 +335,10 @@ export function replaySdk(
    */
   const askPermission = (query: number, permission: PermissionRequest) => {
     const saved = permissions.get(query)
-    if (!saved?.ask) return fail(`Recorded a permission request for ${permission.toolUseID}, but Docs gave query ${query} no canUseTool.`)
+    if (!saved?.ask)
+      return fail(
+        `Recorded a permission request for ${permission.toolUseID}, but Docs gave query ${query} no canUseTool.`,
+      )
     const { tool, input, ...asked } = permission
     saved
       .ask(tool, input, { ...asked, signal: saved.abort.signal, requestId: permission.toolUseID })

@@ -26,7 +26,8 @@ describe('ProviderSessionManager stop timer', () => {
   it.effect('logs a defect in the timer that frees a stopped document, which nobody waits on', () => {
     const logged: Array<{ readonly cause: string; readonly annotations: Record<string, unknown> }> = []
     const capture = Logger.make(({ cause, fiber, logLevel }) => {
-      if (logLevel === 'Error') logged.push({ cause: Cause.pretty(cause), annotations: fiber.getRef(References.CurrentLogAnnotations) })
+      if (logLevel === 'Error')
+        logged.push({ cause: Cause.pretty(cause), annotations: fiber.getRef(References.CurrentLogAnnotations) })
     })
     return Effect.gen(function* () {
       // Codex accepts the stop but never ends the turn, so only the timer can settle it.
@@ -41,14 +42,21 @@ describe('ProviderSessionManager stop timer', () => {
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
       yield* manager.dispatch({ op: 'send', text: 'Write a long essay' })
       // Codex's echo of the sent text: the turn is running on its side.
-      yield* until((snapshot) => snapshot.blocks.some((block) => block.kind === 'user' && !block.id.startsWith('local-')))
+      yield* until((snapshot) =>
+        snapshot.blocks.some((block) => block.kind === 'user' && !block.id.startsWith('local-')),
+      )
       yield* manager.dispatch({ op: 'interrupt' })
       yield* until((snapshot) => snapshot.stopping)
       expect(logged).toEqual([])
 
       yield* TestClock.adjust('10 seconds')
       yield* Effect.yieldNow.pipe(Effect.repeat({ times: 30 }))
-      expect(logged).toEqual([{ cause: expect.stringContaining('settle bug'), annotations: { reportId: expect.stringMatching(/^[0-9a-f]{8}$/) } }])
+      expect(logged).toEqual([
+        {
+          cause: expect.stringContaining('settle bug'),
+          annotations: { reportId: expect.stringMatching(/^[0-9a-f]{8}$/) },
+        },
+      ])
     }).pipe(Effect.provide(Logger.layer([capture])))
   })
 })

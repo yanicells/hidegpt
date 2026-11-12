@@ -470,7 +470,8 @@ export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {
   },
   'item/permissions/requestApproval': {
     threadId: (params) => params.threadId,
-    block: (id, params) => block(id, 'format', 'Allow more access?', params.reason ?? 'More access is needed to continue.'),
+    block: (id, params) =>
+      block(id, 'format', 'Allow more access?', params.reason ?? 'More access is needed to continue.'),
     response: (params, reply) => ({
       permissions: reply.accept
         ? {

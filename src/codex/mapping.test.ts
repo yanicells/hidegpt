@@ -22,10 +22,7 @@ describe('elicitationFields', () => {
 })
 
 describe('elicitationResponse', () => {
-  const params = form(
-    { notify: { type: 'boolean' }, count: { type: 'integer' }, name: { type: 'string' } },
-    ['name'],
-  )
+  const params = form({ notify: { type: 'boolean' }, count: { type: 'integer' }, name: { type: 'string' } }, ['name'])
 
   it('sends booleans and numbers as JSON, not strings', () => {
     expect(elicitationResponse(params, { accept: true, answers: { notify: 'yes', count: '3', name: 'eva' } })).toEqual({
@@ -53,6 +50,8 @@ describe('docsFailure', () => {
       misalignment: null,
     }
     expect(docsFailure(error, null)).toBe('Docs could not connect. Try again in a moment.')
-    expect(docsFailure({ ...error, codexErrorInfo: 'usageLimitExceeded' }, null)).toBe('Limit reached. Try again later.')
+    expect(docsFailure({ ...error, codexErrorInfo: 'usageLimitExceeded' }, null)).toBe(
+      'Limit reached. Try again later.',
+    )
   })
 })

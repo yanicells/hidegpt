@@ -127,10 +127,7 @@ export function makeSnapshotPublisher(
     ),
   )
   return {
-    run: restarting.pipe(
-      Effect.repeat({ while: (again) => again }),
-      Effect.asVoid,
-    ),
+    run: restarting.pipe(Effect.repeat({ while: (again) => again }), Effect.asVoid),
     resync: () => {
       const latest = pending ?? delivered
       delivered = null

@@ -18,8 +18,14 @@ const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
  * well-known token formats. T3 Code redacts its own WebSocket tickets the same way.
  */
 const CREDENTIALS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/(^|[?&"'\s,;{])((?:access_|refresh_|id_)?token|api_?key|secret|password|passwd|auth|code|state|ticket|signature|sig)=[^&#"'\s]*/gi, '$1$2=<redacted>'],
-  [/("(?:(?:access_|refresh_|id_)?token|api_?key|apiKey|secret|password|authorization)"\s*:\s*)"[^"]*"/gi, '$1"<redacted>"'],
+  [
+    /(^|[?&"'\s,;{])((?:access_|refresh_|id_)?token|api_?key|secret|password|passwd|auth|code|state|ticket|signature|sig)=[^&#"'\s]*/gi,
+    '$1$2=<redacted>',
+  ],
+  [
+    /("(?:(?:access_|refresh_|id_)?token|api_?key|apiKey|secret|password|authorization)"\s*:\s*)"[^"]*"/gi,
+    '$1"<redacted>"',
+  ],
   [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/g, '$1 <redacted>'],
   [/(:\/\/)[^/\s:@]+:[^/\s@]+@/g, '$1<redacted>@'],
   [/\bsk-[A-Za-z0-9_-]{16,}/g, '<redacted>'],

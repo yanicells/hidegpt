@@ -67,7 +67,10 @@ const withoutPluginIds = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(withoutPluginIds)
   if (!isRecord(value)) return value
   return Object.fromEntries(
-    Object.entries(value).map(([key, entry]) => [key, key === 'disabledPluginIds' && Array.isArray(entry) ? [] : withoutPluginIds(entry)]),
+    Object.entries(value).map(([key, entry]) => [
+      key,
+      key === 'disabledPluginIds' && Array.isArray(entry) ? [] : withoutPluginIds(entry),
+    ]),
   )
 }
 
@@ -82,7 +85,17 @@ export function withoutPersonalLists(entry: ReplayEntry): ReplayEntry {
   const frame = withoutPluginIds(entry.frame)
   if (isRecord(frame) && frame.method === 'mcpServer/startupStatus/updated' && isRecord(frame.params)) {
     const { error, ...params } = frame.params
-    return { ...entry, frame: { ...frame, params: { ...params, name: 'replay-mcp', ...(error === undefined ? {} : { error: error === null ? null : '<redacted>' }) } } }
+    return {
+      ...entry,
+      frame: {
+        ...frame,
+        params: {
+          ...params,
+          name: 'replay-mcp',
+          ...(error === undefined ? {} : { error: error === null ? null : '<redacted>' }),
+        },
+      },
+    }
   }
   return { ...entry, frame }
 }

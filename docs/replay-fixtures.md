@@ -38,12 +38,12 @@ in `src/provider/replayScenario.ts`). The recorder runs it against the real CLI
 and the replay test runs the same code against the recording, so the two
 can't drift apart.
 
-| Scenario | Prompts | What it records |
-|---|---|---|
-| `library` | none | Handshake, catalog, document list, and opening a document. Committed. |
-| `turn` | 2 | A new document, two short answers, then the document read back. |
-| `stop` | 1 | A long answer (counting to 300), stopped as soon as its first words arrive. |
-| `approval` | 2 | "Create tea.txt" (accepted), then "Now delete tea.txt" (denied). |
+| Scenario   | Prompts | What it records                                                             |
+| ---------- | ------- | --------------------------------------------------------------------------- |
+| `library`  | none    | Handshake, catalog, document list, and opening a document. Committed.       |
+| `turn`     | 2       | A new document, two short answers, then the document read back.             |
+| `stop`     | 1       | A long answer (counting to 300), stopped as soon as its first words arrive. |
+| `approval` | 2       | "Create tea.txt" (accepted), then "Now delete tea.txt" (denied).            |
 
 - `library` needs no login, and any agent may re-record it.
   - Codex runs with an empty `CODEX_HOME`: signed out, with no documents, and

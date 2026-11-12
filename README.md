@@ -34,20 +34,20 @@ TypeScript 7 language server at `.vscode/tsdk/tsgo`, which runs `effect-tsgo`'s 
 `node_modules`. The `typescript` (5.x) devDependency now serves editors without that
 extension only; no script runs `tsc`.
 
-| Script | What it does |
-| --- | --- |
-| `pnpm dev` | Electron app with Vite HMR |
-| `pnpm test` | Provider adapter, session manager, and renderer UI tests |
-| `pnpm typecheck` | TypeScript plus Effect diagnostics (`effect-tsgo`), e.g. an Effect that is built but never run |
-| `pnpm typecheck:effect-strict` | T3 Code's full Effect rule set; not yet clean, so not gating |
-| `pnpm lint` | oxlint with T3 Code's rules, plus floating promises |
-| `pnpm knip` | Unused files, exports, and dependencies |
-| `pnpm check` | Typecheck, lint, format check, knip, tests, and build: what CI runs |
-| `pnpm fmt` | Format with oxfmt; `pnpm fmt:check` verifies it in CI |
-| `pnpm protocol` | Regenerate the Codex app-server schemas from the installed CLI |
-| `pnpm protocol --check` | Fail if the committed schemas no longer match the installed CLI |
-| `pnpm screenshot` | Home grid/list, folder picker, open menus, a streaming reply and a suggestion, and desktop/narrow editor PNGs using fictional content |
-| `pnpm dist` | Package a macOS `.dmg` into `dist/` (see [Packaging](#packaging)) |
+| Script                         | What it does                                                                                                                          |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`                     | Electron app with Vite HMR                                                                                                            |
+| `pnpm test`                    | Provider adapter, session manager, and renderer UI tests                                                                              |
+| `pnpm typecheck`               | TypeScript plus Effect diagnostics (`effect-tsgo`), e.g. an Effect that is built but never run                                        |
+| `pnpm typecheck:effect-strict` | T3 Code's full Effect rule set; not yet clean, so not gating                                                                          |
+| `pnpm lint`                    | oxlint with T3 Code's rules, plus floating promises                                                                                   |
+| `pnpm knip`                    | Unused files, exports, and dependencies                                                                                               |
+| `pnpm check`                   | Typecheck, lint, format check, knip, tests, and build: what CI runs                                                                   |
+| `pnpm fmt`                     | Format with oxfmt; `pnpm fmt:check` verifies it in CI                                                                                 |
+| `pnpm protocol`                | Regenerate the Codex app-server schemas from the installed CLI                                                                        |
+| `pnpm protocol --check`        | Fail if the committed schemas no longer match the installed CLI                                                                       |
+| `pnpm screenshot`              | Home grid/list, folder picker, open menus, a streaming reply and a suggestion, and desktop/narrow editor PNGs using fictional content |
+| `pnpm dist`                    | Package a macOS `.dmg` into `dist/` (see [Packaging](#packaging))                                                                     |
 
 **Blank document** or a template creates an "Untitled document" right away, like Docs;
 rename it from the title field. Projects are folders. The folder icon (**Open file
