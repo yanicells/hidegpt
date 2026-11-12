@@ -1,13 +1,16 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 
-import { describe, expect, it } from 'vitest'
+import { join } from 'node:path'
+
+import { describe, expect, it, vi } from 'vitest'
 
 import {
+  type CacheFiles,
   extractPath,
   firstLoginShellPath,
   hydratePath,
-  killLoginShellProbe,
   loginShellCandidates,
+  pathRefreshed,
   readLoginShellPath,
 } from './loginShellPath'
 
@@ -59,11 +62,19 @@ describe('readLoginShellPath', () => {
     expect(await groupGone(shell.spawned[0]!.pid!)).toBe(true)
   })
 
-  it('kills a lookup still running when the app quits', async () => {
+  it('kills a lookup still running when the app quits, and tries no other shell', async () => {
+    // A fresh module: the quit is for good, so it must not reach the other tests.
+    vi.resetModules()
+    const probe = await import('./loginShellPath')
     const shell = fakeShell('sleep 30')
-    const lookup = readLoginShellPath('/bin/zsh', 5_000, shell.spawnShell)
-    killLoginShellProbe()
+    const lookup = probe.firstLoginShellPath(
+      ['/bin/zsh', '/bin/bash'],
+      (candidate, timeoutMs) => probe.readLoginShellPath(candidate, timeoutMs, shell.spawnShell),
+      1_000,
+    )
+    probe.killLoginShellProbe()
     await expect(lookup).resolves.toBeUndefined()
+    expect(shell.spawned).toHaveLength(1)
     expect(await groupGone(shell.spawned[0]!.pid!)).toBe(true)
   })
 })
@@ -110,23 +121,116 @@ describe('login shell candidates', () => {
 
 describe('hydratePath', () => {
   const fallback = '/opt/homebrew/bin:/usr/local/bin:/Users/me/.bun/bin:/Users/me/.local/bin:/usr/bin:/bin'
+  const CACHE = join('/data', 'login-shell-path.json')
+  const NEWER = '/Users/me/.volta/bin'
+  const launchEnv = (): NodeJS.ProcessEnv => ({ HOME: '/Users/me', SHELL: '/bin/zsh', PATH: '/usr/bin:/bin' })
+  const cached = (shell: string, path: string) => JSON.stringify({ version: 1, shell, path })
 
-  it("sets the fallback at once, then puts a packaged app's shell PATH first", async () => {
-    const env: NodeJS.ProcessEnv = { HOME: '/Users/me', PATH: '/usr/bin:/bin' }
-    let answer: (path: string) => void = () => {}
-    const ready = hydratePath(env, true, () => new Promise((resolve) => (answer = resolve)))
+  /** The cache folder in memory: what is on disk, and how many writes it took. */
+  function memoryFiles(initial?: string) {
+    const disk = new Map(initial === undefined ? [] : [[CACHE, initial]])
+    let writes = 0
+    const files: CacheFiles = {
+      read: async (file) => {
+        const text = disk.get(file)
+        if (text === undefined) throw new Error('ENOENT')
+        return text
+      },
+      write: async (file, text) => {
+        writes++
+        disk.set(file, text)
+      },
+    }
+    return { files, disk, writes: () => writes }
+  }
+
+  /** A login shell that answers when the test says, counting how often it was asked. */
+  function controlledShell() {
+    let answer: (path: string | undefined) => void = () => {}
+    let asked = 0
+    const findShellPath = () => {
+      asked++
+      return new Promise<string | undefined>((resolve) => (answer = resolve))
+    }
+    return { findShellPath, answer: (path: string | undefined) => answer(path), asked: () => asked }
+  }
+
+  /** True if `promise` has settled once pending callbacks have run. */
+  async function settled(promise: Promise<unknown>): Promise<boolean> {
+    let done = false
+    void promise.then(() => (done = true))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    return done
+  }
+
+  it('a miss waits for the shell once, puts its PATH first, and saves it', async () => {
+    const env = launchEnv()
+    const { files, disk } = memoryFiles()
+    const shell = controlledShell()
+    const ready = hydratePath(env, true, '/data', { findShellPath: shell.findShellPath, files })
     expect(env.PATH).toBe(fallback)
-    answer(`${NVM}:/opt/homebrew/bin`)
+    expect(await settled(ready)).toBe(false)
+    shell.answer(`${NVM}:/opt/homebrew/bin`)
     await ready
+    expect(shell.asked()).toBe(1)
     expect(env.PATH).toBe(`${NVM}:${fallback}`)
+    expect(JSON.parse(disk.get(CACHE)!)).toEqual({ version: 1, shell: '/bin/zsh', path: `${NVM}:/opt/homebrew/bin` })
   })
 
-  it('never asks a shell in dev, and keeps the fallback when the shell gives nothing', async () => {
-    const dev: NodeJS.ProcessEnv = { HOME: '/Users/me', PATH: '/usr/bin:/bin' }
-    await hydratePath(dev, false, () => Promise.reject(new Error('a dev run must not spawn a shell')))
+  it('a hit settles on the cached PATH without waiting for the shell, and keeps an unchanged answer as it is', async () => {
+    const env = launchEnv()
+    const cache = memoryFiles(cached('/bin/zsh', NVM))
+    const shell = controlledShell()
+    await hydratePath(env, true, '/data', { findShellPath: shell.findShellPath, files: cache.files })
+    expect(env.PATH).toBe(`${NVM}:${fallback}`)
+    expect(await settled(pathRefreshed())).toBe(false)
+    shell.answer(NVM)
+    await pathRefreshed()
+    expect(shell.asked()).toBe(1)
+    expect(env.PATH).toBe(`${NVM}:${fallback}`)
+    expect(cache.writes()).toBe(0)
+  })
+
+  it("the refresh behind a hit replaces the cached PATH and the file when the shell's answer changed", async () => {
+    const env = launchEnv()
+    const cache = memoryFiles(cached('/bin/zsh', NVM))
+    const shell = controlledShell()
+    await hydratePath(env, true, '/data', { findShellPath: shell.findShellPath, files: cache.files })
+    shell.answer(NEWER)
+    await pathRefreshed()
+    // The cached entry is gone, not kept behind the new one.
+    expect(env.PATH).toBe(`${NEWER}:${fallback}`)
+    expect(JSON.parse(cache.disk.get(CACHE)!)).toEqual({ version: 1, shell: '/bin/zsh', path: NEWER })
+  })
+
+  it.each([
+    ['another $SHELL', cached('/bin/bash', NVM)],
+    ['an unreadable file', '{"version":1,"shell":"/bin/zsh","pa'],
+  ])('treats %s as a miss', async (_case, file) => {
+    const env = launchEnv()
+    const cache = memoryFiles(file)
+    const shell = controlledShell()
+    const ready = hydratePath(env, true, '/data', { findShellPath: shell.findShellPath, files: cache.files })
+    expect(await settled(ready)).toBe(false)
+    expect(env.PATH).toBe(fallback)
+    shell.answer(NEWER)
+    await ready
+    expect(env.PATH).toBe(`${NEWER}:${fallback}`)
+    expect(JSON.parse(cache.disk.get(CACHE)!)).toEqual({ version: 1, shell: '/bin/zsh', path: NEWER })
+  })
+
+  it('never asks a shell in dev, and keeps the fallback and saves nothing when the shell gives nothing', async () => {
+    const dev = launchEnv()
+    const cache = memoryFiles(cached('/bin/zsh', NVM))
+    await hydratePath(dev, false, '/data', {
+      findShellPath: () => Promise.reject(new Error('a dev run must not spawn a shell')),
+      files: cache.files,
+    })
     expect(dev.PATH).toBe(fallback)
-    const silent: NodeJS.ProcessEnv = { HOME: '/Users/me', PATH: '/usr/bin:/bin' }
-    await hydratePath(silent, true, async () => undefined)
+    const silent = launchEnv()
+    const empty = memoryFiles()
+    await hydratePath(silent, true, '/data', { findShellPath: async () => undefined, files: empty.files })
     expect(silent.PATH).toBe(fallback)
+    expect(empty.writes()).toBe(0)
   })
 })

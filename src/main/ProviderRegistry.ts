@@ -9,6 +9,7 @@ import { reportDefect } from '../provider/DefectReport'
 import { ProviderRequestError } from '../provider/errors'
 import { ProcessSupervisor } from '../provider/ProcessSupervisor'
 import type { ProviderAdapter } from '../provider/ProviderAdapter'
+import { pathRefreshed } from './loginShellPath'
 
 /**
  * Where the session manager gets adapters (T3 Code's `ProviderAdapterRegistry`).
@@ -77,16 +78,48 @@ export const notInThisBuild = (): Promise<ProviderAdapter> =>
   Promise.reject(new Error('this library is not part of this build'))
 
 /**
+ * A supervisor whose spawn, when the command is missing, waits once for `refreshed`
+ * (the login-shell lookup behind a cached PATH) and tries again if PATH changed, so
+ * a CLI installed since the last launch is found rather than reported missing.
+ */
+export const retryOnFreshPath = (
+  supervisor: ProcessSupervisor['Service'],
+  refreshed: () => Promise<unknown>,
+  currentPath: () => string | undefined = () => process.env.PATH,
+): ProcessSupervisor['Service'] =>
+  ProcessSupervisor.of({
+    ...supervisor,
+    spawn: (options, tailStderr) =>
+      Effect.suspend(() => {
+        const tried = currentPath()
+        return supervisor
+          .spawn(options, tailStderr)
+          .pipe(
+            Effect.catchTag('BinaryMissingError', (missing) =>
+              Effect.promise(refreshed).pipe(
+                Effect.andThen(
+                  Effect.suspend(() =>
+                    currentPath() === tried ? Effect.fail(missing) : supervisor.spawn(options, tailStderr),
+                  ),
+                ),
+              ),
+            ),
+          )
+      }),
+  })
+
+/**
  * The real providers, each spawned under the shared process supervisor. No adapter
  * loads (so no CLI is looked up on PATH) until `ready` settles; main passes its
  * login-shell PATH lookup here, so a provider can start before the window has
- * painted without ever missing a CLI installed under nvm and the like.
+ * painted without ever missing a CLI installed under nvm and the like. `ready` may
+ * settle on last launch's PATH; a CLI missing from it waits for `refreshed`.
  */
-export const layerAfter = (ready: Promise<unknown>) =>
+export const layerAfter = (ready: Promise<unknown>, refreshed: () => Promise<unknown> = pathRefreshed) =>
   Layer.effect(
     ProviderRegistry,
     Effect.gen(function* () {
-      const supervisor = yield* ProcessSupervisor
+      const supervisor = retryOnFreshPath(yield* ProcessSupervisor, refreshed)
       return fromLoaders({
         codex: () =>
           ready.then(() => import('../codex/CodexAdapter')).then((m) => m.make(m.spawnAppServer(supervisor))),
