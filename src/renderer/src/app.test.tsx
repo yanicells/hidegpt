@@ -625,7 +625,9 @@ describe('composer attachments', () => {
     const png = new File([new Uint8Array([1])], 'a.png', { type: 'image/png' })
     const gif = new File([new Uint8Array([2])], 'b.gif', { type: 'image/gif' })
     fireEvent.paste(composer, { clipboardData: { files: [png, gif] } })
-    expect(await screen.findByTestId('error-banner')).toHaveTextContent('Docs could not save that image.')
+    expect(await screen.findByTestId('error-banner')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }))
+    expect(screen.getByText('Docs could not save that image. Check your disk space.')).toBeInTheDocument()
     expect(screen.getByTestId('composer-images').querySelectorAll('img')).toHaveLength(1)
   })
 
