@@ -231,6 +231,23 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
         ] as const;
       }).pipe(Effect.flatten);
 
+    // HideGPT: the reader and writer fibers are forked and never joined, and the handlers
+    // around them see typed failures only. A defect would end the fiber silently and leave
+    // the session looking connected, so treat it as a transport error. T3 has the same gap.
+    const terminateOnDefect = (operation: CodexError.CodexAppServerTransportOperation) =>
+      Effect.catchDefect((defect) =>
+        Effect.logError("Codex App Server protocol defect", Cause.die(defect)).pipe(
+          Effect.annotateLogs({ operation }),
+          Effect.andThen(
+            handleTermination(() =>
+              Effect.succeed(
+                new CodexError.CodexAppServerTransportError({ operation, cause: defect }),
+              ),
+            ),
+          ),
+        ),
+      );
+
     const offerOutgoing =
       /* Every protocol write reaches this helper; request spans cover the operation. */
       Effect.fnUntraced(function* (message: Record<string, unknown>) {
@@ -341,6 +358,25 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
                     ),
                   onSuccess: (result) => respond(request.id, result),
                 }),
+                // HideGPT: answer a handler defect, so Codex does not wait on it forever.
+                Effect.catchDefect((defect) =>
+                  Effect.logError(
+                    "Codex App Server request handler defect",
+                    Cause.die(defect),
+                  ).pipe(
+                    Effect.annotateLogs({ method: request.method }),
+                    Effect.andThen(
+                      respondError(
+                        request.id,
+                        CodexError.CodexAppServerRequestError.internalError(
+                          `Codex App Server request handler failed for method '${request.method}'`,
+                          undefined,
+                          { method: request.method, operation: "handle-request", cause: defect },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
                 Effect.ensuring(
                   Ref.update(activeRequestHandlers, (count) => Math.max(0, count - 1)),
                 ),
@@ -479,6 +515,7 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
             }),
           ),
       }),
+      terminateOnDefect("read-input-stream"), // HideGPT
       Effect.forkScoped,
     );
 
@@ -494,6 +531,7 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
           ),
         ),
       ),
+      terminateOnDefect("write-output-stream"), // HideGPT
       Effect.forkScoped,
     );
 
