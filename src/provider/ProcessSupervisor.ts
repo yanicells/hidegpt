@@ -109,8 +109,13 @@ const stopGroup = (child: ChildProcessWithoutNullStreams, pid: number) =>
     Effect.timeoutOrElse({ duration: FORCE_KILL_AFTER, orElse: () => Effect.sync(() => signalGroup(pid, 'SIGKILL')) }),
   )
 
-/** The tree read just before a kill, capped so a hung `ps` cannot hold the kill back. */
-const treeReadBeforeKill = (ledger: ProcessLedger.ProcessLedger['Service']) => Effect.asVoid(Effect.timeoutOption(ledger.track, '1 second'))
+/**
+ * The tree read just before a kill, after `pending` (records still landing: an
+ * entry not yet in the ledger has no tree to read). Capped, so a hung `ps`
+ * cannot hold the kill back.
+ */
+const treeReadBeforeKill = (ledger: ProcessLedger.ProcessLedger['Service'], pending: Effect.Effect<unknown> = Effect.void) =>
+  Effect.asVoid(Effect.timeoutOption(Effect.andThen(pending, ledger.track), '1 second'))
 
 /** Forked ledger work fails nowhere visible, so a defect is logged instead of lost. */
 const logDefects = (effect: Effect.Effect<void>) => Effect.catchCause(effect, (cause) => Effect.logWarning('ledger', cause))
@@ -186,7 +191,8 @@ const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledge
         Effect.sync(() => {
           closed = true
         }).pipe(
-          Effect.andThen(treeReadBeforeKill(ledger)),
+          // `record` is forked per spawn, so a scope that closes right after one waits for it here.
+          Effect.andThen(Effect.suspend(() => treeReadBeforeKill(ledger, Fiber.awaitAll([...running.values()].map(({ recorded }) => recorded))))),
           Effect.andThen(
             Effect.suspend(() =>
               Effect.forEach(
