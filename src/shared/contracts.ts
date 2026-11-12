@@ -285,7 +285,8 @@ export const CommandResult = Schema.Union([
 ])
 export type CommandResult = typeof CommandResult.Type
 
-export const MenuAction = Schema.Literals(['rename', 'grid', 'list', 'newDocument', 'goHome', 'focusSearch'])
+/** Cmd+F: `find` asks the open document for its find bar; Home gets `focusSearch`. */
+export const MenuAction = Schema.Literals(['rename', 'grid', 'list', 'newDocument', 'goHome', 'focusSearch', 'find'])
 export type MenuAction = typeof MenuAction.Type
 
 /** The largest pasted image main stores (20 MB); a bigger one is answered as unreadable. */

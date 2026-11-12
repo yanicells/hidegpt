@@ -32,6 +32,7 @@ import {
   denyPermissions,
   documentHasImage,
   isAppNavigation,
+  keepMainTitle,
   recoverRenderer,
   registerDocsProtocol,
   wireNavigation,
@@ -111,6 +112,16 @@ describe('documentHasImage', () => {
     expect(documentHasImage(snapshot, '/tmp/a.png')).toBe(true)
     expect(documentHasImage(snapshot, '/tmp/b.png')).toBe(false)
     expect(documentHasImage(null, '/tmp/a.png')).toBe(false)
+  })
+})
+
+describe('keepMainTitle', () => {
+  it("keeps the page's <title> out of the title bar", () => {
+    const win = new EventEmitter()
+    keepMainTitle(win as unknown as BrowserWindow)
+    const event = { preventDefault: vi.fn() }
+    win.emit('page-title-updated', event, 'Docs', true)
+    expect(event.preventDefault).toHaveBeenCalledOnce()
   })
 })
 
