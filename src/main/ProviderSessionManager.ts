@@ -20,13 +20,14 @@ import { HOME, type ProviderId, type Snapshot, type UserBlock } from '../shared/
 import {
   CommandRejectedError,
   endsConnection,
-  ProcessExitedError,
   type ProviderError,
+  ProviderDefectError,
   ProviderNotReadyError,
-  userMessage,
 } from '../provider/errors'
 import type { AdapterEvent, CatalogPart, OpenedThread, ProviderSession } from '../provider/ProviderAdapter'
 import { isThreadEvent } from '../provider/ProviderAdapter'
+import { describeFailure, reportDefect } from './logging/DefectReport'
+import { ProviderEventLog } from './logging/ProviderEventLog'
 import { ProviderRegistry } from './ProviderRegistry'
 import * as S from './session/state'
 
@@ -104,6 +105,7 @@ function signInElsewhere(provider: ProviderId): string {
 export const make = (options: ManagerOptions) =>
   Effect.gen(function* () {
     const registry = yield* ProviderRegistry
+    const eventLog = yield* ProviderEventLog
     /** The layer's scope: background work started by commands outlives the command. */
     const scope = yield* Scope.Scope
     const background = <E>(effect: Effect.Effect<void, E>) => Effect.asVoid(Effect.forkIn(Effect.ignore(effect), scope))
@@ -165,7 +167,7 @@ export const make = (options: ManagerOptions) =>
             ),
           )
           // A defect while applying an event ends the session like a crash, so it restarts
-          // instead of looking connected but frozen.
+          // instead of looking connected but frozen. The cause goes to the log, not the banner.
           // Adapted from T3 Code (packages/provider-opencode/src/server/adapter.ts) at commit 8a14762c.
           // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
           const pump = yield* session.events.pipe(
@@ -174,8 +176,8 @@ export const make = (options: ManagerOptions) =>
             Effect.catchCause((cause) =>
               Cause.hasInterrupts(cause)
                 ? Effect.interrupt
-                : Effect.fail(
-                    new ProcessExitedError({ provider: id, code: null, signal: null, stderr: userMessage(Cause.squash(cause)) }),
+                : reportDefect(cause).pipe(
+                    Effect.flatMap((reportId) => Effect.fail(new ProviderDefectError({ provider: id, reportId }))),
                   ),
             ),
             Effect.forkScoped,
@@ -183,6 +185,7 @@ export const make = (options: ManagerOptions) =>
           sessions.set(id, session)
           const startedAt = yield* now
           yield* updateLibrary(id, (lib) => ({ ...lib, status: 'ready', error: null }))
+          yield* Effect.logDebug('Connected')
           yield* Effect.forkScoped(Effect.all([refreshCatalog(id), reloadDisplayed(id, session)], { concurrency: 'unbounded', discard: true }))
           return yield* session.awaitExit.pipe(
             Effect.raceFirst(Fiber.join(pump)),
@@ -201,7 +204,12 @@ export const make = (options: ManagerOptions) =>
         // Only a dead or wedged process is worth restarting; a missing binary or a bad config is not,
         // and is shown once, by the catch below.
         Effect.tapError((error) =>
-          endsConnection(error) ? update((current) => S.connectionLost(current, id, error.message)) : Effect.void,
+          endsConnection(error)
+            ? Effect.logWarning('Connection lost', error.message).pipe(
+                Effect.annotateLogs({ error: error._tag }),
+                Effect.andThen(update((current) => S.connectionLost(current, id, error.message))),
+              )
+            : Effect.void,
         ),
         Effect.retry({ schedule: RESTART_SCHEDULE, while: endsConnection }),
         Effect.tap((error) => update((current) => S.connectionLost(current, id, error.message))),
@@ -210,12 +218,16 @@ export const make = (options: ManagerOptions) =>
         // library switch connects it again. The shown document is marked stale either way.
         Effect.catchCause((cause) => {
           if (Cause.hasInterrupts(cause)) return Effect.interrupt
-          const error = userMessage(Cause.squash(cause))
-          // One update, so no snapshot shows the library reconnecting first.
-          return update((current) =>
-            S.updateLibrary(S.connectionLost(current, id, error), id, (lib) => ({ ...lib, status: 'error', error, opening: null })),
+          return describeFailure(cause).pipe(
+            // One update, so no snapshot shows the library reconnecting first.
+            Effect.flatMap((error) =>
+              update((current) =>
+                S.updateLibrary(S.connectionLost(current, id, error), id, (lib) => ({ ...lib, status: 'error', error, opening: null })),
+              ),
+            ),
           )
         }),
+        Effect.annotateLogs({ provider: id }),
       )
 
     /** After a (re)connect the document on screen reloads from the provider. */
@@ -310,6 +322,7 @@ export const make = (options: ManagerOptions) =>
       (id: ProviderId) =>
       (event: AdapterEvent): Effect.Effect<void> =>
         Effect.gen(function* () {
+          yield* eventLog.record(id, event)
           if (isThreadEvent(event)) {
             const key = S.keyOf(id, event.threadId)
             const known = (yield* read).runtimes.has(key)

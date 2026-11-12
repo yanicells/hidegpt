@@ -1,8 +1,11 @@
 import { describe, expect, it } from '@effect/vitest'
+import * as Cause from 'effect/Cause'
 import * as Deferred from 'effect/Deferred'
 import * as Effect from 'effect/Effect'
 import * as Fiber from 'effect/Fiber'
+import * as Logger from 'effect/Logger'
 import * as Option from 'effect/Option'
+import * as References from 'effect/References'
 import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
@@ -38,6 +41,15 @@ type Service = Manager.ProviderSessionManager['Service']
 /** The first snapshot that matches. */
 const until = (manager: Service, predicate: (snapshot: Snapshot) => boolean) =>
   manager.snapshots.pipe(Stream.filter(predicate), Stream.runHead, Effect.map(Option.getOrThrow))
+
+/** Error-level logs (their cause and annotations), instead of the console. */
+const captureErrorLogs = () => {
+  const logged: Array<{ readonly cause: string; readonly annotations: Record<string, unknown> }> = []
+  const capture = Logger.make(({ cause, fiber, logLevel }) => {
+    if (logLevel === 'Error') logged.push({ cause: Cause.pretty(cause), annotations: fiber.getRef(References.CurrentLogAnnotations) })
+  })
+  return { logged, layer: Logger.layer([capture]) }
+}
 
 const settle = Effect.yieldNow.pipe(Effect.repeat({ times: 30 }))
 const countCalls = (peer: { calls: ReadonlyArray<{ method: string }> }, method: string) =>
@@ -270,8 +282,9 @@ describe('ProviderSessionManager', () => {
     }),
   )
 
-  it.effect('restarts a connection whose events hit a defect instead of leaving it frozen', () =>
-    Effect.gen(function* () {
+  it.effect('restarts a connection whose events hit a defect, showing a plain sentence and logging the cause', () => {
+    const { logged, layer } = captureErrorLogs()
+    return Effect.gen(function* () {
       const peer = makeFakeCodex()
       const codex = CodexAdapter.make(peer.connect)
       let broken = true
@@ -286,12 +299,15 @@ describe('ProviderSessionManager', () => {
       )
       yield* manager.start('codex')
       const lost = yield* until(manager, (snapshot) => snapshot.error !== null)
-      expect(lost).toMatchObject({ status: 'connecting', error: 'Codex stopped unexpectedly: bad frame. Docs is reconnecting.' })
+      expect(lost).toMatchObject({ status: 'connecting', error: 'Something went wrong. Docs saved a report and is reconnecting.' })
+      expect(logged).toEqual([
+        { cause: expect.stringContaining('bad frame'), annotations: { provider: 'codex', reportId: expect.stringMatching(/^[0-9a-f]{8}$/) } },
+      ])
       yield* TestClock.adjust('1 second')
       yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
       expect(peer.connections()).toBe(2)
-    }),
-  )
+    }).pipe(Effect.provide(layer))
+  })
 
   it.effect('a library that fails to load shows why, the others keep working, and it loads on the next try', () =>
     Effect.gen(function* () {
