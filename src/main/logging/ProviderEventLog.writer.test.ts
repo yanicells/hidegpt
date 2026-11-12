@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -8,7 +8,7 @@ import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
 import * as Logger from 'effect/Logger'
-import { vi } from 'vitest'
+import { onTestFinished, vi } from 'vitest'
 
 import { ProviderEventLog, layer } from './ProviderEventLog'
 import type { RotatingFileSink } from './rotatingFileSink'
@@ -37,7 +37,8 @@ describe('ProviderEventLog writer', () => {
       if (logLevel === 'Error') logged.push(Cause.pretty(cause))
     })
     return Effect.gen(function* () {
-      const dir = mkdtempSync(join(tmpdir(), 'hidegpt-provider-log-'))
+      const dir = mkdtempSync(join(tmpdir(), 'docs-provider-log-'))
+      onTestFinished(() => rmSync(dir, { recursive: true, force: true }))
       yield* Effect.gen(function* () {
         const log = yield* ProviderEventLog
         yield* log.record('codex', { type: 'turnStarted', threadId: 'bad' })

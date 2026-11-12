@@ -426,7 +426,7 @@ describe('ClaudeAdapter', () => {
   )
 
   describe('under the process supervisor', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'hidegpt-claude-'))
+    const dir = mkdtempSync(join(tmpdir(), 'docs-claude-'))
     afterAll(() => rmSync(dir, { recursive: true, force: true }))
     const groupAlive = (pid: number) => {
       try {

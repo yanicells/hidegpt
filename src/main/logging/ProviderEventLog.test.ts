@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -7,6 +7,7 @@ import { describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
 import * as Option from 'effect/Option'
 import * as Stream from 'effect/Stream'
+import { onTestFinished } from 'vitest'
 
 import * as CodexAdapter from '../../codex/CodexAdapter'
 import { makeFakeCodex } from '../../codex/FakeCodex'
@@ -17,7 +18,8 @@ import { describeEvent, layer } from './ProviderEventLog'
 describe('ProviderEventLog', () => {
   it.effect('logs a turn by type and id, never what was written or answered', () =>
     Effect.gen(function* () {
-      const dir = mkdtempSync(join(tmpdir(), 'hidegpt-provider-log-'))
+      const dir = mkdtempSync(join(tmpdir(), 'docs-provider-log-'))
+      onTestFinished(() => rmSync(dir, { recursive: true, force: true }))
       // Provided as a layer, as main does: the manager closes first, then the log writes what is queued.
       yield* Effect.gen(function* () {
         const peer = makeFakeCodex({ reply: () => 'Answer-7c1e chlorophyll absorbs red light.' })

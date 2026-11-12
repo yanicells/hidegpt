@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import * as NodeServices from '@effect/platform-node/NodeServices'
-import { describe, expect, it } from '@effect/vitest'
+import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
@@ -12,7 +12,9 @@ import * as TestConsole from 'effect/testing/TestConsole'
 import * as Logging from './Logger'
 import { makeRotatingFileSink } from './rotatingFileSink'
 
-const tempDir = () => mkdtempSync(join(tmpdir(), 'hidegpt-logs-'))
+const root = mkdtempSync(join(tmpdir(), 'docs-logs-'))
+afterAll(() => rmSync(root, { recursive: true, force: true }))
+const tempDir = () => mkdtempSync(join(root, 'case-'))
 
 describe('makeRotatingFileSink', () => {
   it.effect('rotates by size and keeps at most maxFiles backups', () =>
