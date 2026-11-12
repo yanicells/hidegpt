@@ -70,6 +70,17 @@ runs, with `frames` 417 to 614). Phases with a fixed amount of work (`cold`, `op
 `load_all`, every `m_ginstr`) stay within 1 to 2%. Read a per-frame phase next to its
 `frames`, or compare on a quiet machine.
 
+Counts are exact for what the app did, and two byte counts depend on when the app did it.
+`cold.ipc_kb` varies between runs (1,475 to 1,743 KB in 15 messages on one build): the library
+arrives as cumulative pages and the publisher sends whichever is newest at each frame. And the
+library is listed again after each turn, so its 270 KB lands in whichever phase is running when
+the list returns (`code30.ipc_kb` reads 304 or 35). Compare those as a sum over phases.
+
+`type_idle300.r_ginstr` is the one instruction count seen to differ between sessions of the
+same build: 2.4 to 3.3 on a quiet machine, 1.87 to 1.90 in four busier ones (probably deferred
+work that only runs when the phase has idle time; not confirmed). Compare typing on `script_ms`,
+`recalc_ms` and key latency from runs taken side by side.
+
 Launch has three marks, all from the process starting: `cold.listed_ms` (the provider
 served the last page of the library; everything before it is the main process and the
 provider), `cold.first_card_ms` (the first documents painted) and `cold.all_cards_ms`
