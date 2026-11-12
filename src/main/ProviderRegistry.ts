@@ -3,6 +3,8 @@ import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
 
 import type { ProviderId } from '../shared/model'
+import { providerLabel } from '../shared/labels'
+import { ProviderRequestError, userMessage } from '../provider/errors'
 import { ProcessSupervisor } from '../provider/ProcessSupervisor'
 import type { ProviderAdapter } from '../provider/ProviderAdapter'
 
@@ -13,13 +15,25 @@ import type { ProviderAdapter } from '../provider/ProviderAdapter'
  */
 export class ProviderRegistry extends Context.Service<
   ProviderRegistry,
-  { readonly adapter: (id: ProviderId) => Effect.Effect<ProviderAdapter> }
+  { readonly adapter: (id: ProviderId) => Effect.Effect<ProviderAdapter, ProviderRequestError> }
 >()('hidegpt/ProviderRegistry') {}
 
 type Loaders = { readonly [K in ProviderId]: () => Promise<ProviderAdapter> }
 
+/** A chunk that fails to load is an error on that library's banner, not a defect that ends supervision. */
 const fromLoaders = (loaders: Loaders) =>
-  ProviderRegistry.of({ adapter: (id) => Effect.promise(loaders[id]) })
+  ProviderRegistry.of({
+    adapter: (id) =>
+      Effect.tryPromise({
+        try: loaders[id],
+        catch: (cause) =>
+          new ProviderRequestError({
+            provider: id,
+            operation: 'load',
+            detail: `Docs could not load ${providerLabel(id)}: ${userMessage(cause)}`,
+          }),
+      }),
+  })
 
 /** Adapters that load on first use (demo mode); each loader runs once, so a reconnect keeps its library. */
 export const layerLoaders = (loaders: Loaders) => {

@@ -2,6 +2,7 @@ import { randomBytes, randomInt } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 
 import { createOpencodeClient, type GlobalEvent, type OpencodeClient, type Part } from '@opencode-ai/sdk/v2/client'
+import * as Cause from 'effect/Cause'
 import * as Deferred from 'effect/Deferred'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
@@ -19,6 +20,7 @@ import {
   ProviderRequestError,
   type ProviderError,
   ProviderTimeoutError,
+  userMessage,
 } from '../provider/errors'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
 import type { AdapterEvent, Catalog, OpenedThread, ProviderAdapter, ProviderSession, ThreadEvent } from '../provider/ProviderAdapter'
@@ -449,7 +451,17 @@ export function make(connect: Connect): ProviderAdapter {
       const streamEnded = yield* Deferred.make<never, ProviderError>()
       yield* subscription.pipe(
         Stream.runForEach(toEvents),
-        Effect.catch((error) => Deferred.fail(streamEnded, error)),
+        // Any end but shutdown, a defect included, ends the session so the manager restarts it.
+        Effect.catchCause((cause) =>
+          Cause.hasInterrupts(cause)
+            ? Effect.interrupt
+            : Deferred.fail(
+                streamEnded,
+                Cause.findErrorOption(cause).pipe(
+                  Option.getOrElse(() => streamLost(`OpenCode updates failed: ${userMessage(Cause.squash(cause))}`)),
+                ),
+              ),
+        ),
         Effect.forkIn(scope),
       )
       yield* Deferred.await(connected).pipe(

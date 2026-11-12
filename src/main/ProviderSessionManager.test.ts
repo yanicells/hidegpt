@@ -6,10 +6,13 @@ import * as Option from 'effect/Option'
 import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
+import * as ClaudeAdapter from '../claude/ClaudeAdapter'
+import { makeFakeClaude } from '../claude/FakeClaude'
 import * as CodexAdapter from '../codex/CodexAdapter'
 import { agentItem, makeFakeCodex, stubTurn, userItem, type FakeCodexOptions } from '../codex/FakeCodex'
+import type { ProviderAdapter } from '../provider/ProviderAdapter'
 import type { Snapshot } from '../shared/model'
-import { layerAdapters } from './ProviderRegistry'
+import { layerAdapters, layerLoaders } from './ProviderRegistry'
 import * as Manager from './ProviderSessionManager'
 
 /**
@@ -17,14 +20,14 @@ import * as Manager from './ProviderSessionManager'
  * peer: only the process boundary is fake, so these cover the same paths the
  * app runs (T3 Code's replay-fixture approach).
  */
-const setup = (options: FakeCodexOptions = {}) =>
+const setup = (options: FakeCodexOptions = {}, others: { claude?: ProviderAdapter } = {}) =>
   Effect.gen(function* () {
     const peer = makeFakeCodex(options)
     const opened: string[] = []
     const manager = yield* Manager.make({
       defaultCwd: () => '/tmp/docs',
       openExternal: (url) => Effect.sync(() => opened.push(url)),
-    }).pipe(Effect.provide(layerAdapters({ codex: CodexAdapter.make(peer.connect) })))
+    }).pipe(Effect.provide(layerAdapters({ codex: CodexAdapter.make(peer.connect), ...others })))
     yield* manager.start('codex')
     yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
     return { peer, manager, opened }
@@ -177,6 +180,90 @@ describe('ProviderSessionManager', () => {
       yield* settle
       expect(yield* manager.runtimeCount).toBe(0)
       expect(countCalls(peer, 'thread/unsubscribe')).toBe(1)
+    }),
+  )
+
+  it.effect('keeps each library’s document and account across a switch, and never releases the one it shows', () =>
+    Effect.gen(function* () {
+      const claude = makeFakeClaude()
+      const { manager } = yield* setup({}, { claude: ClaudeAdapter.make(() => Promise.resolve(claude.sdk)) })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* manager.dispatch({ op: 'setProvider', provider: 'claude' })
+      const other = yield* until(manager, (snapshot) => snapshot.provider === 'claude' && snapshot.account !== null)
+      expect(other.account?.label).toBe('student@example.edu')
+      expect(other.route).toEqual({ kind: 'home' })
+
+      // Hours in the other library: the Codex document is still what Codex shows.
+      yield* TestClock.adjust('2 hours')
+      yield* settle
+      yield* manager.dispatch({ op: 'setProvider', provider: 'codex' })
+      const back = yield* manager.snapshot
+      expect(back).toMatchObject({ provider: 'codex', route: { kind: 'doc', threadId: 'thr_1' }, title: 'Photosynthesis' })
+      expect(back.account?.label).toMatch(/student@school\.edu/)
+    }),
+  )
+
+  it.effect('an open still loading in one library does not pull the window back from another', () =>
+    Effect.gen(function* () {
+      const gate = yield* Deferred.make<void>()
+      const claude = makeFakeClaude()
+      const { manager } = yield* setup(
+        { before: (method) => (method === 'thread/resume' ? Deferred.await(gate) : Effect.void) },
+        { claude: ClaudeAdapter.make(() => Promise.resolve(claude.sdk)) },
+      )
+      const opening = yield* Effect.forkScoped(manager.dispatch({ op: 'openThread', threadId: 'thr_1' }))
+      yield* settle
+      yield* manager.dispatch({ op: 'setProvider', provider: 'claude' })
+      yield* Deferred.succeed(gate, undefined)
+      yield* Fiber.join(opening)
+      yield* settle
+      expect(yield* manager.snapshot).toMatchObject({ provider: 'claude', route: { kind: 'home' } })
+      yield* manager.dispatch({ op: 'setProvider', provider: 'codex' })
+      expect((yield* manager.snapshot).route).toEqual({ kind: 'doc', threadId: 'thr_1' })
+    }),
+  )
+
+  it.effect('restarts a connection whose events hit a defect instead of leaving it frozen', () =>
+    Effect.gen(function* () {
+      const peer = makeFakeCodex()
+      const codex = CodexAdapter.make(peer.connect)
+      let broken = true
+      const flaky: ProviderAdapter = {
+        ...codex,
+        openSession: Effect.map(codex.openSession, (session) =>
+          broken ? ((broken = false), { ...session, events: Stream.die(new Error('bad frame')) }) : session,
+        ),
+      }
+      const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
+        Effect.provide(layerAdapters({ codex: flaky })),
+      )
+      yield* manager.start('codex')
+      const lost = yield* until(manager, (snapshot) => snapshot.error !== null)
+      expect(lost).toMatchObject({ status: 'connecting', error: 'Codex stopped unexpectedly: bad frame. Docs is reconnecting.' })
+      yield* TestClock.adjust('1 second')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
+      expect(peer.connections()).toBe(2)
+    }),
+  )
+
+  it.effect('a library that fails to load shows why, and the other libraries keep working', () =>
+    Effect.gen(function* () {
+      const peer = makeFakeCodex()
+      const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
+        Effect.provide(
+          layerLoaders({
+            codex: () => Promise.resolve(CodexAdapter.make(peer.connect)),
+            opencode: () => Promise.reject(new Error('unused')),
+            claude: () => Promise.reject(new Error('Cannot find module ./ClaudeAdapter')),
+          }),
+        ),
+      )
+      yield* manager.start('codex')
+      yield* manager.dispatch({ op: 'setProvider', provider: 'claude' })
+      const failed = yield* until(manager, (snapshot) => snapshot.status === 'error')
+      expect(failed.error).toBe('Docs could not load Claude: Cannot find module ./ClaudeAdapter')
+      yield* manager.dispatch({ op: 'setProvider', provider: 'codex' })
+      expect(yield* until(manager, (snapshot) => snapshot.status === 'ready')).toMatchObject({ provider: 'codex' })
     }),
   )
 })

@@ -17,7 +17,14 @@ import * as SubscriptionRef from 'effect/SubscriptionRef'
 import { mergeOlderBlocks, updateApproval } from '../shared/blocks'
 import type { Command } from '../shared/contracts'
 import { HOME, type ProviderId, type Snapshot, type UserBlock } from '../shared/model'
-import { CommandRejectedError, type ProviderError, ProviderNotReadyError } from '../provider/errors'
+import {
+  CommandRejectedError,
+  endsConnection,
+  ProcessExitedError,
+  type ProviderError,
+  ProviderNotReadyError,
+  userMessage,
+} from '../provider/errors'
 import type { AdapterEvent, CatalogPart, OpenedThread, ProviderSession } from '../provider/ProviderAdapter'
 import { isThreadEvent } from '../provider/ProviderAdapter'
 import { ProviderRegistry } from './ProviderRegistry'
@@ -154,15 +161,29 @@ export const make = (options: ManagerOptions) =>
           yield* Effect.addFinalizer(() =>
             Effect.sync(() => sessions.delete(id)).pipe(
               // Refreshes run outside this scope; stop the ones still talking to the dead session.
-              Effect.andThen(Effect.forEach(['docs', 'skills', 'catalog'], (part) => FiberMap.remove(refreshes, `${id}:${part}`), { discard: true })),
+              Effect.andThen(Effect.forEach(['all', 'docs', 'skills', 'catalog'], (part) => FiberMap.remove(refreshes, `${id}:${part}`), { discard: true })),
             ),
           )
-          yield* session.events.pipe(Stream.runForEach(onEvent(id)), Effect.forkScoped)
+          // A defect while applying an event ends the session like a crash (T3 Code's
+          // catchCause pattern), so it restarts instead of looking connected but frozen.
+          const pump = yield* session.events.pipe(
+            Stream.runForEach(onEvent(id)),
+            Effect.andThen(Effect.never),
+            Effect.catchCause((cause) =>
+              Cause.hasInterrupts(cause)
+                ? Effect.interrupt
+                : Effect.fail(
+                    new ProcessExitedError({ provider: id, code: null, signal: null, stderr: userMessage(Cause.squash(cause)) }),
+                  ),
+            ),
+            Effect.forkScoped,
+          )
           sessions.set(id, session)
           const startedAt = yield* now
           yield* updateLibrary(id, (lib) => ({ ...lib, status: 'ready', error: null }))
           yield* Effect.forkScoped(Effect.all([refreshCatalog(id), reloadDisplayed(id, session)], { concurrency: 'unbounded', discard: true }))
           return yield* session.awaitExit.pipe(
+            Effect.raceFirst(Fiber.join(pump)),
             // A session that ran a while ends "successfully", so the restart count starts over.
             Effect.catch((error) =>
               Effect.flatMap(now, (at) =>
@@ -176,15 +197,15 @@ export const make = (options: ManagerOptions) =>
     const supervise = (id: ProviderId) =>
       connectOnce(id).pipe(
         Effect.tapError((error) => update((current) => S.connectionLost(current, id, error.message))),
-        Effect.retry({
-          schedule: RESTART_SCHEDULE,
-          // Only a dead or wedged process is worth restarting; a missing binary or a bad config is not.
-          while: (error) => error._tag === 'ProcessExitedError' || error._tag === 'ProviderTimeoutError',
-        }),
+        // Only a dead or wedged process is worth restarting; a missing binary or a bad config is not.
+        Effect.retry({ schedule: RESTART_SCHEDULE, while: endsConnection }),
         Effect.tap((error) => update((current) => S.connectionLost(current, id, error.message))),
         Effect.forever,
-        Effect.catch((error) =>
-          updateLibrary(id, (lib) => ({ ...lib, status: 'error', error: error.message, opening: null })),
+        // Anything else, a defect included, leaves the library in error until Tools → Refresh.
+        Effect.catchCause((cause) =>
+          Cause.hasInterrupts(cause)
+            ? Effect.interrupt
+            : updateLibrary(id, (lib) => ({ ...lib, status: 'error', error: userMessage(Cause.squash(cause)), opening: null })),
         ),
       )
 
@@ -253,6 +274,11 @@ export const make = (options: ManagerOptions) =>
         yield* Effect.forEach([docs, skills, catalog], joinSuperseded, { discard: true })
       })
 
+    /**
+     * Debounced: a burst of invalidations becomes one refresh. The debounce only
+     * starts the refresh (each runs in `refreshes`), so an invalidation that
+     * arrives while one is running schedules another instead of being dropped.
+     */
     const invalidate = (id: ProviderId, part: CatalogPart) =>
       FiberMap.run(
         invalidations,
@@ -262,7 +288,7 @@ export const make = (options: ManagerOptions) =>
             Effect.gen(function* () {
               if (part === 'docs') yield* refreshing(id, 'docs', refreshDocs(id))
               else if (part === 'skills') yield* refreshing(id, 'skills', refreshSkills(id, skillsCwd(yield* read, id), true))
-              else yield* refreshCatalog(id)
+              else yield* refreshing(id, 'all', refreshCatalog(id))
             }),
           ),
         ),
