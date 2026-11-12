@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 
 import type { Snapshot } from '../../../../shared/model'
-import { dispatch } from '../../session-bridge'
+import { dispatch, dispatchToDocument } from '../../session-bridge'
 import { threadProjectId } from '../home/projects'
 import { AccountMenu } from '../layout/AccountMenu'
 import { SideRail } from '../layout/SideRail'
@@ -42,7 +42,7 @@ export function DocumentChrome({
       return
     }
     const next = (draft ?? snap.title).trim() || 'Untitled document'
-    if (next !== snap.title) dispatch({ op: 'setDocumentName', name: next })
+    if (next !== snap.title) dispatchToDocument({ op: 'setDocumentName', name: next })
     setDraft(null)
   }
 

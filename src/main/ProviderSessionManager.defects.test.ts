@@ -48,7 +48,9 @@ describe('ProviderSessionManager: a defect undoes the optimistic state', () => {
       const { manager } = yield* setup({ send: () => bug('send') })
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
 
-      const exit = yield* Effect.exit(manager.dispatch({ op: 'send', text: 'Why are leaves green?' }))
+      const exit = yield* Effect.exit(
+        manager.dispatch({ op: 'send', provider: 'codex', threadId: 'thr_1', text: 'Why are leaves green?' }),
+      )
       expect(Exit.isFailure(exit)).toBe(true)
 
       const shown = yield* manager.snapshot
@@ -75,7 +77,13 @@ describe('ProviderSessionManager: a defect undoes the optimistic state', () => {
       expect(approval).toMatchObject({ resolved: null })
 
       const exit = yield* Effect.exit(
-        manager.dispatch({ op: 'resolveApproval', blockId: approval?.id ?? '', accept: true }),
+        manager.dispatch({
+          op: 'resolveApproval',
+          provider: 'codex',
+          threadId: 'thr_1',
+          blockId: approval?.id ?? '',
+          accept: true,
+        }),
       )
       expect(Exit.isFailure(exit)).toBe(true)
       // `pending: true` here means every later click returns early: the turn waits forever.

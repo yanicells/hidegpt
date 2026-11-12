@@ -26,14 +26,13 @@ import {
 } from '../provider/errors'
 import { describeFailure, errorLogFields, logDefects, reportDefect } from '../provider/DefectReport'
 import { forkObserved, observed, undoOnFailure } from '../provider/observed'
-import type { RequestStatus, UserItem } from '../provider/events'
 import type { AdapterEvent, CatalogPart, OpenedThread, ProviderSession } from '../provider/ProviderAdapter'
 import { isThreadEvent } from '../provider/ProviderAdapter'
-import { randomUuidV4 } from '../provider/randomUuid'
 import { ProviderEventLog } from './logging/ProviderEventLog'
 import { ProviderRegistry } from './ProviderRegistry'
-import { mergeOlderItems, setRequestStatus } from './session/items'
+import { mergeOlderItems } from './session/items'
 import * as S from './session/state'
+import * as TurnController from './session/TurnController'
 
 /**
  * The one owner of UI state in main (T3 Code's `ProviderSessionManager`,
@@ -44,11 +43,11 @@ import * as S from './session/state'
  * `SubscriptionRef`; the IPC layer turns its changes into snapshot patches.
  *
  * Concurrency is fibers, not tokens: navigation runs in a `FiberHandle`, so a
- * newer open interrupts a slower one; refreshes, debounced invalidations,
- * stop timers, and connections run in `FiberMap`s keyed by what they update,
- * so a newer run replaces the older one and nothing stale ever lands. Turns
- * carry an app id the manager allocates before sending, so an event from an
- * older turn can never end a newer one.
+ * newer open interrupts a slower one; refreshes, debounced invalidations and
+ * connections run in `FiberMap`s keyed by what they update, so a newer run
+ * replaces the older one and nothing stale ever lands. Sending, stopping and
+ * answering live in `session/TurnController`; commands for a document name
+ * it, so they never land on another one.
  */
 
 export type ManagerError = ProviderError | CommandRejectedError
@@ -86,7 +85,6 @@ export const RESTART_SCHEDULE = Schedule.exponential('500 millis').pipe(
 )
 const STABLE_AFTER = Duration.seconds(60)
 const READY_DEADLINE = Duration.seconds(45)
-const STOP_SETTLE = Duration.seconds(10)
 const INVALIDATE_DEBOUNCE = Duration.millis(400)
 const SWEEP_EVERY = Duration.seconds(60)
 const MAX_IDLE_RUNTIMES = 12
@@ -121,7 +119,6 @@ export const make = (options: ManagerOptions) =>
     const navigation = yield* FiberHandle.make()
     const refreshes = yield* FiberMap.make<string>()
     const invalidations = yield* FiberMap.make<string>()
-    const stopTimers = yield* FiberMap.make<string>()
 
     const read = SubscriptionRef.get(state)
     const update = (f: (state: S.State) => S.State) => SubscriptionRef.update(state, f)
@@ -398,6 +395,8 @@ export const make = (options: ManagerOptions) =>
 
     // ---- commands -------------------------------------------------------------------
 
+    const turns = yield* TurnController.make({ state, ready, live: (id) => sessions.get(id) })
+
     const touchDisplayed = (id: ProviderId) =>
       Effect.gen(function* () {
         const runtime = S.displayedRuntime(yield* read, id)
@@ -418,12 +417,6 @@ export const make = (options: ManagerOptions) =>
     /** Runs a navigation; starting another one (or going Home) interrupts it. */
     const navigate = <E>(effect: Effect.Effect<void, E>) =>
       FiberHandle.run(navigation, effect).pipe(Effect.flatMap(joinSuperseded))
-
-    const displayedOrReject = Effect.gen(function* () {
-      const current = yield* read
-      const runtime = S.displayedRuntime(current)
-      return runtime ? runtime : yield* rejected('Open a document first.')
-    })
 
     const showOpened = (id: ProviderId, opened: OpenedThread) =>
       Effect.gen(function* () {
@@ -496,116 +489,12 @@ export const make = (options: ManagerOptions) =>
         }),
       )
 
-    const send = (id: ProviderId, command: Extract<Command, { op: 'send' }>) =>
+    const loadOlder = (target: TurnController.Target) =>
       Effect.gen(function* () {
-        const runtime = yield* displayedOrReject
-        if (runtime.turn) return yield* rejected('Wait for the current answer to finish, or stop it first.')
-        const text = command.text.trim()
-        const images = command.images ?? []
-        const lib = (yield* read).libraries[id]
-        const skill = command.skill ? (lib.skills.find((item) => item.name === command.skill) ?? null) : null
-        if (!text && images.length === 0 && !skill) return yield* rejected('There is nothing to send.')
-        const session = yield* ready(id)
-        const clientId = session.messageId()
-        // The turn's app id: every event for this turn carries it, so nothing from another turn can end it.
-        const turnId = yield* randomUuidV4
-        const echo: UserItem = {
-          kind: 'user',
-          id: clientId,
-          text,
-          ...(images.length ? { images } : {}),
-          ...(skill ? { skills: [skill.name] } : {}),
-        }
-        const key = S.keyOf(id, runtime.threadId)
-        const at = yield* now
-        yield* update((current) =>
-          S.updateLibrary(
-            S.updateRuntime(current, key, (item) => ({
-              ...item,
-              items: [...item.items, echo],
-              turn: { id: turnId, phase: 'starting' },
-              touchedAt: at,
-            })),
-            id,
-            (latest) => ({ ...latest, error: null }),
-          ),
-        )
-        yield* session.send(runtime.threadId, turnId, { text, images, skill, clientId }, lib.settings).pipe(
-          undoOnFailure(() =>
-            update((current) =>
-              S.updateRuntime(current, key, (item) => ({
-                ...item,
-                turn: item.turn?.id === turnId ? null : item.turn,
-                items: item.items.filter((entry) => entry.id !== clientId),
-              })),
-            ),
-          ),
-        )
-      })
-
-    /**
-     * Asks the provider to stop. The document shows "Stopping…" until the turn's
-     * terminal event, so late deltas never flip it back; after 10 s it settles anyway,
-     * which also frees a document whose turn end was lost. The timer names its turn,
-     * so it can never end a newer one.
-     */
-    const interrupt = (id: ProviderId) =>
-      Effect.gen(function* () {
-        const runtime = S.displayedRuntime(yield* read, id)
-        const session = sessions.get(id)
-        const turn = runtime?.turn
-        if (!runtime || !turn || turn.phase === 'stopping' || !session) return
-        const key = S.keyOf(id, runtime.threadId)
-        yield* update((current) =>
-          S.updateRuntime(current, key, (item) =>
-            item.turn?.id === turn.id ? { ...item, turn: { ...turn, phase: 'stopping' } } : item,
-          ),
-        )
-        yield* FiberMap.run(
-          stopTimers,
-          `${key}#${turn.id}`,
-          Effect.sleep(STOP_SETTLE).pipe(
-            Effect.andThen(update((current) => S.updateRuntime(current, key, (item) => S.settleStop(item, turn.id)))),
-          ),
-          { onlyIfMissing: true },
-        )
-        // If the provider rejects the stop (it lost track of the turn), the timer still frees the document.
-        yield* observed(session.interrupt(runtime.threadId, turn.id), {
-          name: 'manager.interrupt',
-          quiet: 'the stop timer frees the document',
-        })
-      })
-
-    const resolveApproval = (id: ProviderId, command: Extract<Command, { op: 'resolveApproval' }>) =>
-      Effect.gen(function* () {
-        const runtime = yield* displayedOrReject
-        const request = runtime.items.find((item) => item.id === command.blockId)
-        if (!request || request.kind !== 'request' || request.status !== 'pending') return
-        const session = yield* ready(id)
-        const key = S.keyOf(id, runtime.threadId)
-        /** Moves the request to `status`, unless `from` is given and it has moved on since (it expired). */
-        const mark = (status: RequestStatus, from?: RequestStatus) =>
-          update((current) =>
-            S.updateRuntime(current, key, (item) => {
-              const now = item.items.find((entry) => entry.id === command.blockId)
-              if (from && (now?.kind !== 'request' || now.status !== from)) return item
-              return { ...item, items: setRequestStatus(item.items, command.blockId, status) }
-            }),
-          )
-        yield* mark('sending')
-        yield* session
-          .respond(runtime.threadId, command.blockId, { accept: command.accept, answers: command.answers ?? {} })
-          .pipe(undoOnFailure(() => mark('pending', 'sending')))
-        // A turn that ended while the reply was on its way already expired the request.
-        yield* mark(command.accept ? 'accepted' : 'declined', 'sending')
-      })
-
-    const loadOlder = (id: ProviderId) =>
-      Effect.gen(function* () {
-        const runtime = S.displayedRuntime(yield* read, id)
-        const session = sessions.get(id)
-        if (!runtime?.olderCursor || runtime.loadingOlder || !session) return
-        const key = S.keyOf(id, runtime.threadId)
+        const runtime = yield* TurnController.runtimeOf(state, target)
+        const session = sessions.get(target.provider)
+        if (!runtime.olderCursor || runtime.loadingOlder || !session) return
+        const key = S.keyOf(target.provider, target.threadId)
         yield* update((current) => S.updateRuntime(current, key, (item) => ({ ...item, loadingOlder: true })))
         // The older items and the end of loading go out in one snapshot, so the window
         // keeps your place in the same render that adds them above you.
@@ -626,18 +515,21 @@ export const make = (options: ManagerOptions) =>
         )
       })
 
-    const rename = (id: ProviderId, name: string) =>
+    const rename = (target: TurnController.Target, name: string) =>
       Effect.gen(function* () {
-        const runtime = yield* displayedOrReject
+        const runtime = yield* TurnController.runtimeOf(state, target)
         const trimmed = name.trim()
         if (!trimmed || trimmed === runtime.title) return
-        const session = yield* ready(id)
-        yield* session.rename(runtime.threadId, trimmed)
+        const session = yield* ready(target.provider)
+        yield* session.rename(target.threadId, trimmed)
         yield* update((current) =>
           S.renameDoc(
-            S.updateRuntime(current, S.keyOf(id, runtime.threadId), (item) => ({ ...item, title: trimmed })),
-            id,
-            runtime.threadId,
+            S.updateRuntime(current, S.keyOf(target.provider, target.threadId), (item) => ({
+              ...item,
+              title: trimmed,
+            })),
+            target.provider,
+            target.threadId,
             trimmed,
           ),
         )
@@ -723,9 +615,9 @@ export const make = (options: ManagerOptions) =>
           case 'goHome':
             return yield* goHome(id)
           case 'send':
-            return yield* send(id, command)
+            return yield* turns.send(command)
           case 'interrupt':
-            return yield* interrupt(id)
+            return yield* turns.interrupt(command)
           case 'login':
             return yield* login(id)
           case 'logout':
@@ -755,11 +647,11 @@ export const make = (options: ManagerOptions) =>
                 : { ...lib, settings: { ...lib.settings, mode: command.name } },
             )
           case 'loadOlderTurns':
-            return yield* loadOlder(id)
+            return yield* loadOlder(command)
           case 'resolveApproval':
-            return yield* resolveApproval(id, command)
+            return yield* turns.resolveApproval(command)
           case 'setDocumentName':
-            return yield* rename(id, command.name)
+            return yield* rename(command, command.name)
           case 'refresh':
             return yield* refresh(id)
         }

@@ -177,10 +177,6 @@ export function removeRuntime(state: State, key: string): State {
   return { ...state, runtimes }
 }
 
-/** A stop the provider never confirmed: the stopped turn ends here, if it is still the open one. */
-export const settleStop = (runtime: ThreadRuntime, turnId: TurnId): ThreadRuntime =>
-  runtime.turn?.id === turnId ? { ...runtime, turn: null } : runtime
-
 /** True when a turn event names a turn other than the open one, so the reducer ignores it. */
 export function isStaleTurnEvent(runtime: ThreadRuntime, event: ThreadEvent): boolean {
   if (event.type === 'turn.started') return runtime.turn !== null && runtime.turn.id !== event.turnId
