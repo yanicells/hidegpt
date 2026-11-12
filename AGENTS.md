@@ -102,7 +102,9 @@ plain React.
   `message` is the Docs-style sentence the banner shows.
 - Commands are decoded with their schema at the IPC boundary.
 - Tests use `@effect/vitest` and `TestClock`, against fakes that replace only
-  the process boundary (`FakeCodex`, `FakeOpenCode`, `FakeClaude`).
+  the process boundary (`FakeCodex`, `FakeOpenCode`, `FakeClaude`), plus replay
+  fixtures recorded from the real CLIs (docs/replay-fixtures.md). Never set
+  `HIDEGPT_RECORD_TURNS=1`: only the owner records turns.
 - Don't mix styles: new main/provider code is Effect, not promise chains.
 
 ## Project structure
@@ -166,6 +168,7 @@ pnpm test         # vitest: session/protocol + renderer UI tests
 pnpm typecheck    # tsc --noEmit
 pnpm protocol     # regenerate the vendored Codex schemas from the installed CLI
 pnpm protocol --check  # fail if the committed schemas drift from the installed CLI
+pnpm record:codex library   # re-record a no-prompt replay fixture (also record:claude)
 pnpm screenshot   # PNGs of home + document with a fake session
 ```
 
