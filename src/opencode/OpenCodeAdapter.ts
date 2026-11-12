@@ -85,6 +85,14 @@ export const WATCHDOG = Duration.seconds(30)
 /** Quick re-subscribes before giving up and restarting the server. Resets once events flow again. */
 const RESUBSCRIBE = Schedule.exponential('250 millis').pipe(Schedule.upTo({ times: 5 }))
 const SERVER_READY = 20
+/** How far up a subagent's parents `resolveRoot` asks the server, and how long each lookup may take. */
+const ROUTE_HOPS = 5
+const LOOKUP_SECONDS = 5
+/** Retries for a request whose document is still unknown: 200 ms doubling to 2 s, about 5 s in all. */
+const ROUTE_RETRIES = 5
+/** Stop's walk over subagent sessions: its deadline and how many requests run at once. */
+const ABORT_DESCENDANTS_SECONDS = 15
+const ABORT_CONCURRENCY = 8
 const NO_MODELS =
   'OpenCode has no model providers set up. Run `opencode auth login` in a terminal, then use Tools → Refresh.'
 
@@ -127,6 +135,10 @@ export function errorDetail(cause: unknown): string {
   if (cause.message === 'fetch failed' || network?.code === 'ECONNREFUSED') return 'OpenCode is not responding.'
   return cause.message || 'OpenCode could not do that.'
 }
+
+/** Whether an SDK rejection is the server's 404 (the session is gone). */
+const isNotFound = (cause: unknown) =>
+  cause instanceof Error && Option.getOrUndefined(decodeResponseFailure(cause.cause))?.status === 404
 
 /** One SDK request with its deadline; failures become HideGPT's tagged errors. */
 const request = <A>(operation: string, run: (signal: AbortSignal) => Promise<A>, seconds = DEFAULT_DEADLINE) =>
@@ -206,6 +218,8 @@ export function make(connect: Connect): ProviderAdapter {
       const titles = new Map<string, string>()
       /** Subagent session → the session that started it, so its questions reach the open document. */
       const parents = new Map<string, string>()
+      /** Sessions the server says have no parent: documents, open or not. */
+      const roots = new Set<string>()
       /** Documents this connection opened (resynced after a re-subscribe). */
       const opened = new Set<string>()
       const live = new Map<string, Live>()
@@ -219,11 +233,133 @@ export function make(connect: Connect): ProviderAdapter {
       const messageId = makeMessageIds()
 
       const dir = (sessionId: string) => directories.get(sessionId)
-      const rootOf = (sessionId: string) => {
+      /** Follows the parents already known, stopping at an open document. */
+      const climb = (sessionId: string) => {
         let id = sessionId
-        for (let depth = 0; depth < 8 && parents.has(id); depth += 1) id = parents.get(id) ?? id
+        for (let depth = 0; depth < 8 && !opened.has(id) && parents.has(id); depth += 1) id = parents.get(id) ?? id
         return id
       }
+
+      /**
+       * The document a session belongs to: itself, or the document whose subagent started it.
+       * Answers from memory when it can; otherwise asks the server for each parent, up to
+       * five hops, and remembers every hop. `undefined` when a lookup fails or the chain runs out.
+       * `directory` is where the event came from, for a session Docs has not seen yet.
+       * Adapted from T3 Code (packages/provider-opencode/src/server/adapter.ts, resolveSessionOwner) at commit 5c6f2f12.
+       * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+       */
+      const resolveRoot = (sessionId: string, directory?: string): Effect.Effect<string | undefined> =>
+        Effect.gen(function* () {
+          const known = (id: string) => opened.has(id) || roots.has(id)
+          let cursor = climb(sessionId)
+          for (let hop = 0; hop < ROUTE_HOPS && !known(cursor); hop += 1) {
+            const id = cursor
+            const found = yield* request(
+              'session.get',
+              (signal) => client.session.get({ sessionID: id, directory: dir(id) ?? directory }, opts(signal)),
+              LOOKUP_SECONDS,
+            ).pipe(Effect.option)
+            if (Option.isNone(found)) return undefined
+            const info = found.value.data
+            directories.set(id, info.directory)
+            if (!info.parentID) roots.add(id)
+            else {
+              parents.set(id, info.parentID)
+              cursor = climb(info.parentID)
+            }
+          }
+          return known(cursor) ? cursor : undefined
+        })
+
+      /**
+       * Shows a permission or question on its document. The lookup runs before the block is
+       * emitted, so it stays in order with the events around it. A subagent's session can be
+       * unknown for a moment after its first request: retry with backoff in the background, and
+       * in the end show it under its own session. A request settled meanwhile is not shown.
+       * Adapted from T3 Code (packages/provider-opencode/src/server/adapter.ts, routeRuntimeRequest) at commit 5c6f2f12.
+       * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+       */
+      const routeRequest = (sessionId: string, directory: string, block: ApprovalBlock): Effect.Effect<void> => {
+        const show = (threadId: string) =>
+          approvals.has(block.id) ? emit({ type: 'block', threadId, block }) : Effect.void
+        const retry = Effect.gen(function* () {
+          for (let attempt = 0; attempt < ROUTE_RETRIES; attempt += 1) {
+            yield* Effect.sleep(Duration.millis(Math.min(200 * 2 ** attempt, 2_000)))
+            if (!approvals.has(block.id)) return
+            const root = yield* resolveRoot(sessionId, directory)
+            if (root) return yield* show(root)
+          }
+          yield* show(sessionId)
+        })
+        return resolveRoot(sessionId, directory).pipe(
+          Effect.flatMap((root) => (root ? show(root) : retry.pipe(logDefects, Effect.forkIn(scope), Effect.asVoid))),
+        )
+      }
+
+      /**
+       * Stops every subagent session under `rootId`, breadth first. A session already gone (404)
+       * is skipped; the first other failure is returned after the walk, within 15 s.
+       * Adapted from T3 Code (packages/provider-opencode/src/server/adapter.ts, abortDescendants) at commit 5c6f2f12.
+       * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+       */
+      const abortDescendants = (rootId: string): Effect.Effect<void, ProviderError> =>
+        Effect.gen(function* () {
+          const visited = new Set([rootId])
+          let failure: ProviderError | undefined
+          /** Runs a request; a 404 answers `null` and any other failure is kept, so the walk goes on. */
+          const attempt = <A>(operation: string, run: (signal: AbortSignal) => Promise<A>) =>
+            request(operation, (signal) =>
+              run(signal).catch((cause: unknown) => {
+                if (isNotFound(cause)) return null
+                throw cause
+              }),
+            ).pipe(
+              Effect.catch((error) => {
+                failure ??= error
+                return Effect.succeed(null)
+              }),
+            )
+          const childrenOf = (sessionId: string) =>
+            attempt('session.children', (signal) =>
+              client.session.children({ sessionID: sessionId, directory: dir(sessionId) }, opts(signal)),
+            ).pipe(
+              Effect.map((result) =>
+                (result?.data ?? []).filter((child) => {
+                  if (visited.has(child.id)) return false
+                  visited.add(child.id)
+                  directories.set(child.id, child.directory)
+                  parents.set(child.id, sessionId)
+                  return true
+                }),
+              ),
+            )
+          let frontier = yield* childrenOf(rootId)
+          while (frontier.length > 0) {
+            const next = yield* Effect.forEach(
+              frontier,
+              (child) =>
+                attempt('session.abort', (signal) =>
+                  client.session.abort({ sessionID: child.id, directory: dir(child.id) }, opts(signal)),
+                ).pipe(Effect.andThen(childrenOf(child.id))),
+              { concurrency: ABORT_CONCURRENCY },
+            )
+            frontier = next.flat()
+          }
+          if (failure) return yield* Effect.fail(failure)
+        }).pipe(
+          Effect.timeoutOrElse({
+            duration: Duration.seconds(ABORT_DESCENDANTS_SECONDS),
+            orElse: () =>
+              Effect.fail(
+                new ProviderTimeoutError({
+                  provider,
+                  operation: 'session.abort',
+                  seconds: ABORT_DESCENDANTS_SECONDS,
+                }),
+              ),
+          }),
+        )
+
       const liveOf = (sessionId: string): Live => {
         let state = live.get(sessionId)
         if (!state) {
@@ -283,20 +419,28 @@ export function make(connect: Connect): ProviderAdapter {
           ],
           { concurrency: 'unbounded' },
         ).pipe(
-          Effect.map(([permissions, questions]) => {
-            const mine = (id: string) => rootOf(id) === sessionId
-            const blocks: ApprovalBlock[] = []
-            for (const item of permissions.data) {
-              if (!mine(item.sessionID)) continue
-              register('permission', item.id, item.sessionID)
-              blocks.push(permissionBlock(item))
-            }
-            for (const item of questions.data) {
-              if (!mine(item.sessionID)) continue
-              register('question', item.id, item.sessionID, item.questions.length)
-              blocks.push(questionBlock(item))
-            }
-            return blocks
+          Effect.flatMap(([permissions, questions]) => {
+            // A subagent's request names the subagent's session: find the document it belongs to.
+            const mine = (id: string) =>
+              id === sessionId
+                ? Effect.succeed(true)
+                : resolveRoot(id, dir(sessionId)).pipe(Effect.map((root) => root === sessionId))
+            const take = <T extends { readonly sessionID: string }>(items: ReadonlyArray<T>) =>
+              Effect.filter(items, (item) => mine(item.sessionID), { concurrency: 4 })
+            return Effect.all([take(permissions.data), take(questions.data)]).pipe(
+              Effect.map(([ownPermissions, ownQuestions]) => {
+                const blocks: ApprovalBlock[] = []
+                for (const item of ownPermissions) {
+                  register('permission', item.id, item.sessionID)
+                  blocks.push(permissionBlock(item))
+                }
+                for (const item of ownQuestions) {
+                  register('question', item.id, item.sessionID, item.questions.length)
+                  blocks.push(questionBlock(item))
+                }
+                return blocks
+              }),
+            )
           }),
           // A document still opens when the pending lists are unavailable.
           Effect.orElseSucceed((): ReadonlyArray<ApprovalBlock> => []),
@@ -391,12 +535,14 @@ export function make(connect: Connect): ProviderAdapter {
         state.pendingEcho = null
       }
 
-      const onReplied = (requestID: string, resolved: 'accepted' | 'skipped'): ReadonlyArray<AdapterEvent> => {
+      const onReplied = (requestID: string, resolved: 'accepted' | 'skipped'): Effect.Effect<void> => {
         const blockId = permissionBlockId(requestID)
         const pending = approvals.get(blockId)
         approvals.delete(blockId)
-        if (answered.delete(requestID) || !pending) return []
-        return [{ type: 'resolved', threadId: rootOf(pending.sessionId), blockId, resolved }]
+        if (answered.delete(requestID) || !pending) return Effect.void
+        return resolveRoot(pending.sessionId).pipe(
+          Effect.flatMap((root) => emit({ type: 'resolved', threadId: root ?? pending.sessionId, blockId, resolved })),
+        )
       }
 
       let subscribed = false
@@ -438,21 +584,19 @@ export function make(connect: Connect): ProviderAdapter {
           case 'permission.asked': {
             const request = event.properties
             register('permission', request.id, request.sessionID)
-            return emit({ type: 'block', threadId: rootOf(request.sessionID), block: permissionBlock(request) })
+            return routeRequest(request.sessionID, envelope.directory, permissionBlock(request))
           }
           case 'question.asked': {
             const request = event.properties
             register('question', request.id, request.sessionID, request.questions.length)
-            return emit({ type: 'block', threadId: rootOf(request.sessionID), block: questionBlock(request) })
+            return routeRequest(request.sessionID, envelope.directory, questionBlock(request))
           }
           case 'permission.replied':
-            return emitAll(
-              onReplied(event.properties.requestID, event.properties.reply === 'reject' ? 'skipped' : 'accepted'),
-            )
+            return onReplied(event.properties.requestID, event.properties.reply === 'reject' ? 'skipped' : 'accepted')
           case 'question.replied':
-            return emitAll(onReplied(event.properties.requestID, 'accepted'))
+            return onReplied(event.properties.requestID, 'accepted')
           case 'question.rejected':
-            return emitAll(onReplied(event.properties.requestID, 'skipped'))
+            return onReplied(event.properties.requestID, 'skipped')
           case 'session.created':
           case 'session.updated': {
             const info = event.properties.info
@@ -461,6 +605,7 @@ export function make(connect: Connect): ProviderAdapter {
               parents.set(info.id, info.parentID)
               return Effect.void
             }
+            roots.add(info.id)
             if (event.type === 'session.created') return emit({ type: 'invalidate', part: 'docs' })
             if (!info.title || titles.get(info.id) === info.title) return Effect.void
             titles.set(info.id, info.title)
@@ -469,6 +614,7 @@ export function make(connect: Connect): ProviderAdapter {
           case 'session.deleted':
             opened.delete(event.properties.info.id)
             busy.delete(event.properties.info.id)
+            parents.delete(event.properties.info.id)
             return emitAll([
               { type: 'closed', threadId: event.properties.info.id },
               { type: 'invalidate', part: 'docs' },
@@ -568,7 +714,10 @@ export function make(connect: Connect): ProviderAdapter {
               ),
             ).pipe(
               Effect.map((result) => {
-                for (const item of result.data) directories.set(item.id, item.directory)
+                for (const item of result.data) {
+                  directories.set(item.id, item.directory)
+                  roots.add(item.id)
+                }
                 const nextCursor = Number(result.response.headers.get('x-next-cursor'))
                 const next =
                   nextCursor && result.data.length === DOC_PAGE && page + 1 < MAX_DOC_PAGES
@@ -610,6 +759,7 @@ export function make(connect: Connect): ProviderAdapter {
               client.session.get({ sessionID: threadId, directory: dir(threadId) }, opts(signal)),
             )
             directories.set(threadId, info.data.directory)
+            if (!info.data.parentID) roots.add(threadId)
             if (info.data.title) titles.set(threadId, info.data.title)
             const [page, streaming, pending] = yield* Effect.all(
               [messagesPage(threadId), isBusy(threadId), pendingFor(threadId)],
@@ -720,19 +870,18 @@ export function make(connect: Connect): ProviderAdapter {
             )
           }),
 
+        // Aborting a session leaves its subagents running, so they are stopped after it.
         interrupt: (threadId) =>
-          Effect.asVoid(
-            request('session.abort', (signal) =>
-              client.session.abort({ sessionID: threadId, directory: dir(threadId) }, opts(signal)),
-            ),
-          ),
+          request('session.abort', (signal) =>
+            client.session.abort({ sessionID: threadId, directory: dir(threadId) }, opts(signal)),
+          ).pipe(Effect.andThen(abortDescendants(threadId))),
 
         respond: (_threadId, approvalId, reply) =>
           Effect.gen(function* () {
             const pending = approvals.get(approvalId)
             if (!pending)
               return yield* Effect.fail(rejected('respond', 'This request is no longer waiting for an answer.'))
-            const directory = dir(pending.sessionId) ?? dir(rootOf(pending.sessionId))
+            const directory = dir(pending.sessionId) ?? dir(climb(pending.sessionId))
             const requestID = pending.requestId
             answered.add(requestID)
             const answers = Array.from({ length: pending.questions }, (_, index) => {
