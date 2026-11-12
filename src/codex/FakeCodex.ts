@@ -6,6 +6,7 @@ import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
 
 import * as CodexClient from '../vendor/effect-codex-app-server/client.ts'
+import { CLIENT_OPTIONS } from './CodexAdapter'
 import * as CodexError from '../vendor/effect-codex-app-server/errors.ts'
 import type * as CodexRpc from '../vendor/effect-codex-app-server/rpc.ts'
 import { makeInMemoryStdio } from '../vendor/effect-codex-app-server/_internal/stdio.ts'
@@ -364,7 +365,7 @@ export const makeFakeCodex = (options: FakeCodexOptions = {}): FakeCodex => {
     )
     return yield* CodexClient.make(
       stdio,
-      {},
+      CLIENT_OPTIONS,
       Effect.sync(
         () =>
           new CodexError.CodexAppServerProcessExitedError({

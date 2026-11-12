@@ -10,7 +10,6 @@ import * as FiberMap from 'effect/FiberMap'
 import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as Schedule from 'effect/Schedule'
-import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
 import * as SubscriptionRef from 'effect/SubscriptionRef'
 
@@ -20,13 +19,14 @@ import { HOME, type ProviderId, type Snapshot, type UserBlock } from '../shared/
 import {
   CommandRejectedError,
   endsConnection,
-  ProcessExitedError,
   type ProviderError,
+  ProviderDefectError,
   ProviderNotReadyError,
-  userMessage,
 } from '../provider/errors'
+import { describeFailure, errorLogFields, logDefects, reportDefect } from '../provider/DefectReport'
 import type { AdapterEvent, CatalogPart, OpenedThread, ProviderSession } from '../provider/ProviderAdapter'
 import { isThreadEvent } from '../provider/ProviderAdapter'
+import { ProviderEventLog } from './logging/ProviderEventLog'
 import { ProviderRegistry } from './ProviderRegistry'
 import * as S from './session/state'
 
@@ -104,9 +104,7 @@ function signInElsewhere(provider: ProviderId): string {
 export const make = (options: ManagerOptions) =>
   Effect.gen(function* () {
     const registry = yield* ProviderRegistry
-    /** The layer's scope: background work started by commands outlives the command. */
-    const scope = yield* Scope.Scope
-    const background = <E>(effect: Effect.Effect<void, E>) => Effect.asVoid(Effect.forkIn(Effect.ignore(effect), scope))
+    const eventLog = yield* ProviderEventLog
     const idleMs = Duration.toMillis(Duration.fromInputUnsafe(options.idleRelease ?? IDLE_RELEASE))
     const state = yield* SubscriptionRef.make(S.initialState('codex', options.defaultCwd))
     /** Live sessions by provider; set while a connection is up. */
@@ -165,7 +163,7 @@ export const make = (options: ManagerOptions) =>
             ),
           )
           // A defect while applying an event ends the session like a crash, so it restarts
-          // instead of looking connected but frozen.
+          // instead of looking connected but frozen. The cause goes to the log, not the banner.
           // Adapted from T3 Code (packages/provider-opencode/src/server/adapter.ts) at commit 8a14762c.
           // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
           const pump = yield* session.events.pipe(
@@ -174,8 +172,8 @@ export const make = (options: ManagerOptions) =>
             Effect.catchCause((cause) =>
               Cause.hasInterrupts(cause)
                 ? Effect.interrupt
-                : Effect.fail(
-                    new ProcessExitedError({ provider: id, code: null, signal: null, stderr: userMessage(Cause.squash(cause)) }),
+                : reportDefect(cause).pipe(
+                    Effect.flatMap((reportId) => Effect.fail(new ProviderDefectError({ provider: id, reportId }))),
                   ),
             ),
             Effect.forkScoped,
@@ -183,7 +181,10 @@ export const make = (options: ManagerOptions) =>
           sessions.set(id, session)
           const startedAt = yield* now
           yield* updateLibrary(id, (lib) => ({ ...lib, status: 'ready', error: null }))
-          yield* Effect.forkScoped(Effect.all([refreshCatalog(id), reloadDisplayed(id, session)], { concurrency: 'unbounded', discard: true }))
+          yield* Effect.logDebug('Connected')
+          yield* Effect.forkScoped(
+            logDefects(Effect.all([refreshCatalog(id), reloadDisplayed(id, session)], { concurrency: 'unbounded', discard: true })),
+          )
           return yield* session.awaitExit.pipe(
             Effect.raceFirst(Fiber.join(pump)),
             // A session that ran a while ends "successfully", so the restart count starts over.
@@ -201,7 +202,12 @@ export const make = (options: ManagerOptions) =>
         // Only a dead or wedged process is worth restarting; a missing binary or a bad config is not,
         // and is shown once, by the catch below.
         Effect.tapError((error) =>
-          endsConnection(error) ? update((current) => S.connectionLost(current, id, error.message)) : Effect.void,
+          endsConnection(error)
+            ? Effect.logWarning('Connection lost').pipe(
+                Effect.annotateLogs(errorLogFields(error)),
+                Effect.andThen(update((current) => S.connectionLost(current, id, error.message))),
+              )
+            : Effect.void,
         ),
         Effect.retry({ schedule: RESTART_SCHEDULE, while: endsConnection }),
         Effect.tap((error) => update((current) => S.connectionLost(current, id, error.message))),
@@ -210,12 +216,16 @@ export const make = (options: ManagerOptions) =>
         // library switch connects it again. The shown document is marked stale either way.
         Effect.catchCause((cause) => {
           if (Cause.hasInterrupts(cause)) return Effect.interrupt
-          const error = userMessage(Cause.squash(cause))
-          // One update, so no snapshot shows the library reconnecting first.
-          return update((current) =>
-            S.updateLibrary(S.connectionLost(current, id, error), id, (lib) => ({ ...lib, status: 'error', error, opening: null })),
+          return describeFailure(cause).pipe(
+            // One update, so no snapshot shows the library reconnecting first.
+            Effect.flatMap((error) =>
+              update((current) =>
+                S.updateLibrary(S.connectionLost(current, id, error), id, (lib) => ({ ...lib, status: 'error', error, opening: null })),
+              ),
+            ),
           )
         }),
+        Effect.annotateLogs({ provider: id }),
       )
 
     /** After a (re)connect the document on screen reloads from the provider. */
@@ -233,7 +243,10 @@ export const make = (options: ManagerOptions) =>
 
     // ---- catalog ---------------------------------------------------------------
 
-    /** Runs `effect` as the only refresh of its kind; a newer one interrupts it. */
+    /**
+     * Runs `effect` as the only refresh of its kind; a newer one interrupts it. The fiber
+     * is not joined unless the caller does so, so a refresh nobody joins goes in `logDefects`.
+     */
     const refreshing = <E>(id: ProviderId, part: string, effect: Effect.Effect<void, E>) =>
       FiberMap.run(refreshes, `${id}:${part}`, effect)
 
@@ -292,13 +305,16 @@ export const make = (options: ManagerOptions) =>
       FiberMap.run(
         invalidations,
         `${id}:${part}`,
-        Effect.sleep(INVALIDATE_DEBOUNCE).pipe(
-          Effect.andThen(
-            Effect.gen(function* () {
-              if (part === 'docs') yield* refreshing(id, 'docs', refreshDocs(id))
-              else if (part === 'skills') yield* refreshing(id, 'skills', refreshSkills(id, skillsCwd(yield* read, id), true))
-              else yield* refreshing(id, 'all', refreshCatalog(id))
-            }),
+        // Nobody joins the debounce or the refreshes it starts, so each logs its own defects.
+        logDefects(
+          Effect.sleep(INVALIDATE_DEBOUNCE).pipe(
+            Effect.andThen(
+              Effect.gen(function* () {
+                if (part === 'docs') yield* refreshing(id, 'docs', logDefects(refreshDocs(id)))
+                else if (part === 'skills') yield* refreshing(id, 'skills', logDefects(refreshSkills(id, skillsCwd(yield* read, id), true)))
+                else yield* refreshing(id, 'all', logDefects(refreshCatalog(id)))
+              }),
+            ),
           ),
         ),
         { onlyIfMissing: true },
@@ -310,6 +326,7 @@ export const make = (options: ManagerOptions) =>
       (id: ProviderId) =>
       (event: AdapterEvent): Effect.Effect<void> =>
         Effect.gen(function* () {
+          yield* eventLog.record(id, event)
           if (isThreadEvent(event)) {
             const key = S.keyOf(id, event.threadId)
             const known = (yield* read).runtimes.has(key)
@@ -349,7 +366,14 @@ export const make = (options: ManagerOptions) =>
       const idle = S.idleRuntimes(yield* read, yield* now, idleMs, MAX_IDLE_RUNTIMES)
       yield* Effect.forEach(idle, release, { discard: true })
     })
-    yield* Effect.forkScoped(Effect.repeat(sweep, Schedule.spaced(SWEEP_EVERY)))
+    // A sweep that fails or dies is logged, and the next one still runs.
+    const sweepOnce = sweep.pipe(
+      Effect.catchCauseIf(
+        (cause) => !Cause.hasInterruptsOnly(cause),
+        (cause) => Effect.asVoid(describeFailure(cause)),
+      ),
+    )
+    yield* Effect.forkScoped(Effect.repeat(sweepOnce, Schedule.spaced(SWEEP_EVERY)))
 
     // ---- commands -------------------------------------------------------------------
 
@@ -386,7 +410,7 @@ export const make = (options: ManagerOptions) =>
           const shown = S.showThread(adopted, id, opened.threadId)
           return S.updateLibrary(shown, id, (lib) => ({ ...lib, settings: S.adoptSettings(lib.settings, opened.settings) }))
         })
-        yield* background(refreshing(id, 'skills', refreshSkills(id, opened.cwd)))
+        yield* refreshing(id, 'skills', logDefects(refreshSkills(id, opened.cwd)))
       })
 
     const openThread = (id: ProviderId, threadId: string) =>
@@ -400,7 +424,7 @@ export const make = (options: ManagerOptions) =>
           yield* update((current) =>
             S.showThread(S.updateRuntime(current, S.keyOf(id, threadId), (item) => ({ ...item, touchedAt: at })), id, threadId),
           )
-          yield* refreshing(id, 'skills', refreshSkills(id, cached.cwd))
+          yield* refreshing(id, 'skills', logDefects(refreshSkills(id, cached.cwd)))
           return
         }
         yield* updateLibrary(id, (lib) => ({ ...lib, opening: threadId, error: null }))
@@ -495,7 +519,8 @@ export const make = (options: ManagerOptions) =>
         yield* FiberMap.run(
           stopTimers,
           key,
-          Effect.sleep(STOP_SETTLE).pipe(Effect.andThen(update((current) => S.updateRuntime(current, key, S.settle)))),
+          // Nobody joins the timer; a defect in it would otherwise leave "Stopping…" up silently.
+          logDefects(Effect.sleep(STOP_SETTLE).pipe(Effect.andThen(update((current) => S.updateRuntime(current, key, S.settle))))),
           { onlyIfMissing: true },
         )
         // If the provider rejects the stop (it lost track of the turn), the timer still frees the document.
@@ -688,7 +713,7 @@ export const make = (options: ManagerOptions) =>
         Effect.gen(function* () {
           const id = yield* active
           yield* updateLibrary(id, (lib) => ({ ...lib, cwd }))
-          if ((yield* read).libraries[id].route.kind === 'home') yield* refreshing(id, 'skills', refreshSkills(id, cwd))
+          if ((yield* read).libraries[id].route.kind === 'home') yield* refreshing(id, 'skills', logDefects(refreshSkills(id, cwd)))
         }),
       notify: (message) => Effect.flatMap(active, (id) => setError(id, message)),
       runtimeCount: Effect.map(read, (current) => current.runtimes.size),

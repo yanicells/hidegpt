@@ -1,9 +1,12 @@
 import { describe, expect, it } from '@effect/vitest'
+import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
 import * as Fiber from 'effect/Fiber'
+import * as Logger from 'effect/Logger'
 import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
+import { DEFECT_MESSAGE } from '../provider/errors'
 import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
 import * as ClaudeAdapter from './ClaudeAdapter'
 import {
@@ -150,6 +153,24 @@ describe('ClaudeAdapter', () => {
     }),
   )
 
+  it.effect('ends a turn on a frame Docs cannot read with a plain sentence, and logs the cause', () =>
+    Effect.gen(function* () {
+      const logged: string[] = []
+      const capture = Logger.make(({ cause, logLevel }) => {
+        if (logLevel === 'Error') logged.push(Cause.pretty(cause))
+      })
+      yield* Effect.gen(function* () {
+        const { fake, session, events } = yield* open({ reply: null })
+        yield* send(session, DOC, 'Hi')
+        yield* until(() => fake.queries[0]?.prompts.length === 1)
+        fake.queries[0]?.push({ type: 'assistant', message: null } as never)
+        yield* until(() => ended(events).length === 1)
+        expect(ended(events)[0]).toMatchObject({ error: DEFECT_MESSAGE })
+      }).pipe(Effect.provide(Logger.layer([capture])))
+      expect(logged).toEqual([expect.stringContaining('TypeError')])
+    }),
+  )
+
   it.effect('reports a failed result in Claude words', () =>
     Effect.gen(function* () {
       const { fake, session, events } = yield* open({ reply: null })
@@ -258,6 +279,29 @@ describe('ClaudeAdapter', () => {
       })
       yield* session.respond(DOC, 'approval-toolu_1', { accept: true, answers: {} })
       expect(yield* Effect.promise(() => asked.result)).toEqual({ behavior: 'allow', updatedInput: { command: 'git status' } })
+    }),
+  )
+
+  it.effect('refuses a tool whose request Docs cannot show, and logs the cause through the session’s logger', () =>
+    Effect.gen(function* () {
+      const logged: string[] = []
+      const capture = Logger.make(({ cause, logLevel }) => {
+        if (logLevel === 'Error') logged.push(Cause.pretty(cause))
+      })
+      yield* Effect.gen(function* () {
+        const { fake, session } = yield* open({ reply: null })
+        yield* send(session, DOC, 'Run it')
+        yield* until(() => fake.queries[0]?.prompts.length === 1)
+        const input = Object.defineProperty({}, 'command', {
+          enumerable: true,
+          get: () => {
+            throw new Error('preview bug')
+          },
+        })
+        const asked = fake.queries[0]!.askTool('Bash', input, 'toolu_1')
+        expect(yield* Effect.promise(() => asked.result)).toEqual({ behavior: 'deny', message: DEFECT_MESSAGE })
+      }).pipe(Effect.provide(Logger.layer([capture])))
+      expect(logged).toEqual([expect.stringContaining('preview bug')])
     }),
   )
 

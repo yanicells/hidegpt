@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
+import * as Cause from 'effect/Cause'
 import * as Context from 'effect/Context'
 import * as Deferred from 'effect/Deferred'
 import * as Duration from 'effect/Duration'
@@ -15,10 +16,12 @@ import type { AccountSummary, ApprovalReply, DocSummary, ModelOption, ProjectSum
 import {
   type BinaryMissingError,
   ProcessExitedError,
+  ProviderDefectError,
   ProviderRequestError,
   type ProviderError,
   ProviderTimeoutError,
 } from '../provider/errors'
+import { logDefects, reportDefect } from '../provider/DefectReport'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
 import type {
   AdapterEvent,
@@ -140,7 +143,7 @@ export function make(connect: Connect): ProviderAdapter {
       // Off-path calls (elicitation counters, token refresh) must never fail a handler.
       const scope = yield* Scope.Scope
       const background = <A>(effect: Effect.Effect<A, ProviderError>) =>
-        Effect.asVoid(Effect.forkIn(Effect.ignore(effect), scope))
+        Effect.asVoid(Effect.forkIn(logDefects(Effect.ignore(effect)), scope))
 
       /** Threads this connection resumed or started (server-side subscriptions). */
       const loaded = new Set<string>()
@@ -149,23 +152,59 @@ export function make(connect: Connect): ProviderAdapter {
       const approvals = new Map<string, PendingApproval>()
       let modes: ReadonlyArray<Mode> = []
 
-      yield* registerNotifications(client, emit, { loaded, activeTurns })
+      // The vendored dispatch handles a handler's failure but not its die: a notification
+      // reader would end silently, and a request would never be answered, leaving the turn
+      // hanging. A die is a Docs bug, so it is reported and ends the session here; the
+      // manager restarts it with a plain banner.
+      const defect = yield* Deferred.make<never, ProviderError>()
+      const endOnDefect = (cause: Cause.Cause<unknown>) =>
+        reportDefect(cause).pipe(
+          Effect.flatMap((reportId) => Deferred.fail(defect, new ProviderDefectError({ provider: 'codex', reportId }))),
+          Effect.asVoid,
+        )
+      yield* registerNotifications(client, emit, { loaded, activeTurns, endOnDefect })
 
-      yield* client.handleServerRequest('currentTime/read', () =>
+      /**
+       * `client.handleServerRequest`, with a die reported and the session ended. The error
+       * reply is only for the types: the connection closes, and the restarted Codex starts over.
+       *
+       * Why restart rather than answer `internalError` and carry on: a die is a Docs bug partway
+       * through a handler, so Docs' side may be half-updated (an approval block on the page with
+       * no pending entry behind it, an elicitation counter raised but never lowered). A restart
+       * reloads the document from Codex's own transcript and shows the banner; carrying on would
+       * leave the page out of step with Codex and say nothing.
+       */
+      const handle = <M extends CodexRpc.ServerRequestMethod>(
+        method: M,
+        handler: (
+          params: CodexRpc.ServerRequestParamsByMethod[M],
+        ) => Effect.Effect<CodexRpc.ServerRequestResponsesByMethod[M], CodexError.CodexAppServerError>,
+      ) =>
+        client.handleServerRequest(method, (params) =>
+          Effect.suspend(() => handler(params)).pipe(
+            Effect.catchCauseIf(Cause.hasDies, (cause) =>
+              endOnDefect(cause).pipe(
+                Effect.andThen(Effect.fail(CodexError.CodexAppServerRequestError.internalError('Docs could not handle this request.'))),
+              ),
+            ),
+          ),
+        )
+
+      yield* handle('currentTime/read', () =>
         Effect.succeed({ currentTimeAt: Math.floor(Date.now() / 1000) }),
       )
-      yield* client.handleServerRequest('item/tool/call', () =>
+      yield* handle('item/tool/call', () =>
         Effect.succeed({
           contentItems: [{ type: 'inputText' as const, text: 'This Docs window does not host that tool.' }],
           success: false,
         }),
       )
-      yield* client.handleServerRequest('attestation/generate', () =>
+      yield* handle('attestation/generate', () =>
         Effect.fail(CodexError.CodexAppServerRequestError.internalError('attestation is not enabled')),
       )
       // Codex only asks for tokens a client supplied itself; Docs signs in through Codex's own
       // ChatGPT login, which Codex refreshes, so this should never come. If it does, sign in again.
-      yield* client.handleServerRequest('account/chatgptAuthTokens/refresh', () =>
+      yield* handle('account/chatgptAuthTokens/refresh', () =>
         Effect.gen(function* () {
           yield* emit({ type: 'notice', message: 'Sign in with ChatGPT to refresh this session.' })
           yield* emit({ type: 'invalidate', part: 'account' })
@@ -201,7 +240,7 @@ export function make(connect: Connect): ProviderAdapter {
             if (elicitation) yield* background(rpc('thread/decrement_elicitation', { threadId }))
             return spec.response(params, reply)
           })
-      const handleApproval = <M extends ApprovalMethod>(method: M) => client.handleServerRequest(method, awaitApproval(method))
+      const handleApproval = <M extends ApprovalMethod>(method: M) => handle(method, awaitApproval(method))
       yield* Effect.forEach(APPROVAL_METHODS, handleApproval, { discard: true })
 
       yield* rpc('initialize', {
@@ -242,7 +281,7 @@ export function make(connect: Connect): ProviderAdapter {
 
       const session: ProviderSession = {
         events: Stream.fromQueue(events),
-        awaitExit: client.awaitTermination.pipe(Effect.mapError(exitError)),
+        awaitExit: client.awaitTermination.pipe(Effect.mapError(exitError), Effect.raceFirst(Deferred.await(defect))),
 
         loadCatalog: Effect.gen(function* () {
           const [account, models, projects, modeList, tools] = yield* Effect.all(
@@ -458,14 +497,28 @@ export function make(connect: Connect): ProviderAdapter {
 function registerNotifications(
   client: Client,
   emit: (event: AdapterEvent) => Effect.Effect<void>,
-  { loaded, activeTurns }: { readonly loaded: Set<string>; readonly activeTurns: Map<string, string> },
+  {
+    loaded,
+    activeTurns,
+    endOnDefect,
+  }: {
+    readonly loaded: Set<string>
+    readonly activeTurns: Map<string, string>
+    readonly endOnDefect: (cause: Cause.Cause<unknown>) => Effect.Effect<void>
+  },
 ) {
+  // A die here would end the vendored reader silently and leave the page waiting.
   const on = <M extends CodexRpc.ServerNotificationMethod>(
     method: M,
     toEvents: (params: Notification<M>) => ReadonlyArray<AdapterEvent>,
   ) =>
     client.handleServerNotification(method, (params) =>
-      Effect.suspend(() => Effect.forEach(toEvents(params), emit, { discard: true })),
+      Effect.suspend(() => Effect.forEach(toEvents(params), emit, { discard: true })).pipe(
+        Effect.catchCauseIf(
+          (cause) => !Cause.hasInterruptsOnly(cause),
+          (cause) => endOnDefect(cause),
+        ),
+      ),
     )
 
   const docsChanged = { type: 'invalidate', part: 'docs' } as const
@@ -588,6 +641,13 @@ export function toAccount(account: Account): AccountSummary | null {
   return { kind: 'other', label: 'Account' }
 }
 
+/**
+ * Options for the vendored client. It can log every JSON-RPC frame at Debug,
+ * and main's log file keeps Debug lines, but frames hold prompts and answers.
+ * Never turn these on.
+ */
+export const CLIENT_OPTIONS = { logIncoming: false, logOutgoing: false } as const satisfies CodexClient.CodexAppServerClientOptions
+
 /** The real backend: `codex app-server`, spawned under the process supervisor. */
 export const spawnAppServer = (supervisor: ProcessSupervisor['Service']): Connect =>
   Effect.gen(function* () {
@@ -596,6 +656,6 @@ export const spawnAppServer = (supervisor: ProcessSupervisor['Service']): Connec
       command: globalThis.process.env.CODEX_BIN || 'codex',
       args: ['app-server'],
     })
-    const context = yield* Layer.build(CodexClient.layerChildProcess(process.handle))
+    const context = yield* Layer.build(CodexClient.layerChildProcess(process.handle, CLIENT_OPTIONS))
     return Context.get(context, CodexClient.CodexAppServerClient)
   })

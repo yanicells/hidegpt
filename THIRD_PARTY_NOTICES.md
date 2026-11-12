@@ -53,6 +53,18 @@ or adapted file carries a header naming its source.
     box scrolls, and on any other upward scroll (the upward-scroll detector),
     from `apps/web/src/components/chat/timelineViewport.ts` and
     `timelineScrollTarget.ts`.
+  - `src/main/logging/` (commit 5c6f2f12): the rotating file sink, from
+    `packages/shared/src/logging.ts` (`makeAsyncRotatingFileSink`); the main
+    NDJSON logger, after `apps/server/src/serverLogger.ts` and
+    `observability/Observability.ts`; the provider event log with its batching
+    writer and skipped text deltas, after
+    `apps/server/src/provider/EventNdjsonLogger.ts`; and logging only defects,
+    from `apps/server/src/observability/DefectReporter.ts`, now in
+    `src/provider/DefectReport.ts`; and redacting logged causes
+    (`src/main/logging/redact.ts`), from `redactCauseCredentials` in
+    `packages/shared/src/observability.ts` and its use in
+    `apps/server/src/serverLogger.ts`, extended to the home folder, the
+    account name, and more credential shapes.
 - License: MIT
 
 ```

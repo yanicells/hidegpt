@@ -17,11 +17,12 @@ import type { ApprovalBlock, DocSummary, Skill } from '../shared/model'
 import {
   NotLoggedInError,
   ProcessExitedError,
+  ProviderDefectError,
   ProviderRequestError,
   type ProviderError,
   ProviderTimeoutError,
-  userMessage,
 } from '../provider/errors'
+import { logDefects, reportDefect } from '../provider/DefectReport'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
 import type { AdapterEvent, Catalog, OpenedThread, ProviderAdapter, ProviderSession, ThreadEvent } from '../provider/ProviderAdapter'
 import {
@@ -366,7 +367,7 @@ export function make(connect: Connect): ProviderAdapter {
         const event = envelope.payload
         switch (event.type) {
           case 'server.connected':
-            if (subscribed) return resync.pipe(Effect.forkIn(scope), Effect.asVoid)
+            if (subscribed) return logDefects(resync).pipe(Effect.forkIn(scope), Effect.asVoid)
             subscribed = true
             return Deferred.succeed(connected, undefined).pipe(Effect.asVoid)
           case 'message.updated':
@@ -461,16 +462,17 @@ export function make(connect: Connect): ProviderAdapter {
       yield* subscription.pipe(
         Stream.runForEach(toEvents),
         // Any end but shutdown, a defect included, ends the session so the manager restarts it.
-        Effect.catchCause((cause) =>
-          Cause.hasInterrupts(cause)
-            ? Effect.interrupt
-            : Deferred.fail(
-                streamEnded,
-                Cause.findErrorOption(cause).pipe(
-                  Option.getOrElse(() => streamLost(`OpenCode updates failed: ${userMessage(Cause.squash(cause))}`)),
-                ),
-              ),
-        ),
+        Effect.catchCause((cause) => {
+          const dies = Cause.hasDies(cause)
+          if (Cause.hasInterrupts(cause) && !dies) return Effect.interrupt
+          const error = Cause.findErrorOption(cause)
+          if (Option.isSome(error) && !dies) return Deferred.fail(streamEnded, error.value)
+          // A defect (say, in toEvents), even beside a failure, is logged under a report id;
+          // the banner gets a plain sentence.
+          return reportDefect(cause).pipe(
+            Effect.flatMap((reportId) => Deferred.fail(streamEnded, new ProviderDefectError({ provider, reportId }))),
+          )
+        }),
         Effect.forkIn(scope),
       )
       yield* Deferred.await(connected).pipe(
@@ -768,6 +770,8 @@ export const spawnServer = (supervisor: ProcessSupervisor['Service']): Connect =
         }),
       ),
       Effect.ignore,
+      // A defect here is logged; the wait below then ends with the serve timeout.
+      logDefects,
       Effect.forkScoped,
     )
     const url = yield* Deferred.await(ready).pipe(

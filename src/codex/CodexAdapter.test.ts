@@ -3,6 +3,8 @@ import * as Deferred from 'effect/Deferred'
 import * as Effect from 'effect/Effect'
 import * as Exit from 'effect/Exit'
 import * as Fiber from 'effect/Fiber'
+import * as Logger from 'effect/Logger'
+import * as References from 'effect/References'
 import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
@@ -84,6 +86,21 @@ describe('CodexAdapter', () => {
       expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1' })
     }),
   )
+
+  it.effect('never logs protocol frames, which hold prompts and answers, even at Debug', () => {
+    expect(CodexAdapter.CLIENT_OPTIONS).toEqual({ logIncoming: false, logOutgoing: false })
+    const logged: string[] = []
+    const capture = Logger.make(({ message, fiber }) => {
+      logged.push(JSON.stringify({ message, annotations: fiber.getRef(References.CurrentLogAnnotations) }))
+    })
+    return Effect.gen(function* () {
+      const { session, events } = yield* open({ reply: () => 'Answer-5e2a about leaves.' })
+      yield* send(session, 'Prompt-9c3f why are leaves green?')
+      yield* settle
+      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1' })
+      expect(logged.join('\n')).not.toMatch(/Prompt-9c3f|Answer-5e2a/)
+    }).pipe(Effect.provide(Logger.layer([capture])), Effect.provideService(References.MinimumLogLevel, 'Debug'))
+  })
 
   it.effect('interrupts the running turn by its id', () =>
     Effect.gen(function* () {

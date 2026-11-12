@@ -1,8 +1,11 @@
 import { describe, expect, it } from '@effect/vitest'
+import * as Cause from 'effect/Cause'
 import * as Deferred from 'effect/Deferred'
 import * as Effect from 'effect/Effect'
 import * as Fiber from 'effect/Fiber'
+import * as Logger from 'effect/Logger'
 import * as Option from 'effect/Option'
+import * as References from 'effect/References'
 import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
@@ -39,7 +42,38 @@ type Service = Manager.ProviderSessionManager['Service']
 const until = (manager: Service, predicate: (snapshot: Snapshot) => boolean) =>
   manager.snapshots.pipe(Stream.filter(predicate), Stream.runHead, Effect.map(Option.getOrThrow))
 
+/** Error-level logs (their cause and annotations), instead of the console. */
+const captureErrorLogs = () => {
+  const logged: Array<{ readonly cause: string; readonly annotations: Record<string, unknown> }> = []
+  const capture = Logger.make(({ cause, fiber, logLevel }) => {
+    if (logLevel === 'Error') logged.push({ cause: Cause.pretty(cause), annotations: fiber.getRef(References.CurrentLogAnnotations) })
+  })
+  return { logged, layer: Logger.layer([capture]) }
+}
+
 const settle = Effect.yieldNow.pipe(Effect.repeat({ times: 30 }))
+
+/** A copy of `params` whose `key` throws when read: a Docs mapping bug, which the fake's schema-checked frames cannot produce. */
+const throwingOn = <T extends object>(params: T, key: string, message: string): T =>
+  Object.defineProperty({ ...params }, key, {
+    get: () => {
+      throw new Error(message)
+    },
+  })
+
+/** Codex over `peer`, where the first `method` message (a notification or a request) reaches Docs with a throwing `key`. */
+const brokenOnce = (peer: ReturnType<typeof makeFakeCodex>, method: string, key: string, message: string) => {
+  let broken = true
+  const poison = <T extends object>(name: string, params: T) =>
+    name === method && broken ? ((broken = false), throwingOn(params, key, message)) : params
+  return CodexAdapter.make(
+    Effect.map(peer.connect, (client): CodexAdapter.Client => ({
+      ...client,
+      handleServerNotification: (name, handler) => client.handleServerNotification(name, (params) => handler(poison(name, params))),
+      handleServerRequest: (name, handler) => client.handleServerRequest(name, (params) => handler(poison(name, params))),
+    })),
+  )
+}
 const countCalls = (peer: { calls: ReadonlyArray<{ method: string }> }, method: string) =>
   peer.calls.filter((call) => call.method === method).length
 
@@ -230,6 +264,72 @@ describe('ProviderSessionManager', () => {
     }),
   )
 
+  it.effect('logs a defect in the skills refresh an open starts, which nobody waits on', () => {
+    const { logged, layer } = captureErrorLogs()
+    return Effect.gen(function* () {
+      const peer = makeFakeCodex()
+      const codex = CodexAdapter.make(peer.connect)
+      let armed = false
+      const flaky: ProviderAdapter = {
+        ...codex,
+        openSession: Effect.map(codex.openSession, (session) => ({
+          ...session,
+          listSkills: (cwd: string) => (armed ? Effect.die(new Error('skills bug')) : session.listSkills(cwd)),
+        })),
+      }
+      const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
+        Effect.provide(layerAdapters({ codex: flaky })),
+      )
+      yield* manager.start('codex')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready')
+      yield* settle
+      armed = true
+      // Opening a document refreshes the skills of its folder.
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* settle
+      // So does choosing a folder on Home.
+      yield* manager.dispatch({ op: 'goHome' })
+      yield* manager.setFolder('/tmp/elsewhere')
+      yield* settle
+      const report = { cause: expect.stringContaining('skills bug'), annotations: expect.objectContaining({ reportId: expect.any(String) }) }
+      expect(logged).toEqual([report, report])
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect('keeps sweeping idle documents after one release hits a defect, and logs it', () => {
+    const { logged, layer } = captureErrorLogs()
+    return Effect.gen(function* () {
+      const peer = makeFakeCodex()
+      const codex = CodexAdapter.make(peer.connect)
+      let broken = true
+      const flaky: ProviderAdapter = {
+        ...codex,
+        openSession: Effect.map(codex.openSession, (session) => ({
+          ...session,
+          releaseThread: (threadId: string) =>
+            broken ? ((broken = false), Effect.die(new Error('release bug'))) : session.releaseThread(threadId),
+        })),
+      }
+      const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
+        Effect.provide(layerAdapters({ codex: flaky })),
+      )
+      yield* manager.start('codex')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready')
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* manager.dispatch({ op: 'goHome' })
+      yield* TestClock.adjust('31 minutes')
+      yield* settle
+      expect(logged).toEqual([{ cause: expect.stringContaining('release bug'), annotations: expect.objectContaining({ reportId: expect.any(String) }) }])
+
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_2' })
+      yield* manager.dispatch({ op: 'goHome' })
+      yield* TestClock.adjust('31 minutes')
+      yield* settle
+      expect(yield* manager.runtimeCount).toBe(0)
+      expect(countCalls(peer, 'thread/unsubscribe')).toBe(1)
+    }).pipe(Effect.provide(layer))
+  })
+
   it.effect('keeps each library’s document and account across a switch, and never releases the one it shows', () =>
     Effect.gen(function* () {
       const claude = makeFakeClaude()
@@ -270,8 +370,9 @@ describe('ProviderSessionManager', () => {
     }),
   )
 
-  it.effect('restarts a connection whose events hit a defect instead of leaving it frozen', () =>
-    Effect.gen(function* () {
+  it.effect('restarts a connection whose events hit a defect, showing a plain sentence and logging the cause', () => {
+    const { logged, layer } = captureErrorLogs()
+    return Effect.gen(function* () {
       const peer = makeFakeCodex()
       const codex = CodexAdapter.make(peer.connect)
       let broken = true
@@ -286,15 +387,65 @@ describe('ProviderSessionManager', () => {
       )
       yield* manager.start('codex')
       const lost = yield* until(manager, (snapshot) => snapshot.error !== null)
-      expect(lost).toMatchObject({ status: 'connecting', error: 'Codex stopped unexpectedly: bad frame. Docs is reconnecting.' })
+      expect(lost).toMatchObject({ status: 'connecting', error: 'Something went wrong. Docs saved a report and is reconnecting.' })
+      expect(logged).toEqual([
+        { cause: expect.stringContaining('bad frame'), annotations: { provider: 'codex', reportId: expect.stringMatching(/^[0-9a-f]{8}$/) } },
+      ])
       yield* TestClock.adjust('1 second')
       yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
       expect(peer.connections()).toBe(2)
-    }),
-  )
+    }).pipe(Effect.provide(layer))
+  })
 
-  it.effect('a library that fails to load shows why, the others keep working, and it loads on the next try', () =>
-    Effect.gen(function* () {
+  it.effect('restarts Codex when a notification handler dies, instead of freezing the page', () => {
+    const { logged, layer } = captureErrorLogs()
+    return Effect.gen(function* () {
+      const peer = makeFakeCodex()
+      const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
+        Effect.provide(layerAdapters({ codex: brokenOnce(peer, 'turn/started', 'turn', 'mapper bug') })),
+      )
+      yield* manager.start('codex')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* manager.dispatch({ op: 'send', text: 'Hi' })
+      const lost = yield* until(manager, (snapshot) => snapshot.error !== null)
+      expect(lost).toMatchObject({ status: 'connecting', error: 'Something went wrong. Docs saved a report and is reconnecting.' })
+      expect(logged).toEqual([
+        { cause: expect.stringContaining('mapper bug'), annotations: { provider: 'codex', reportId: expect.stringMatching(/^[0-9a-f]{8}$/) } },
+      ])
+      yield* TestClock.adjust('1 second')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
+      expect(peer.connections()).toBe(2)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect('restarts Codex when an approval handler dies, instead of leaving the turn waiting', () => {
+    const { logged, layer } = captureErrorLogs()
+    return Effect.gen(function* () {
+      const peer = makeFakeCodex()
+      const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
+        Effect.provide(layerAdapters({ codex: brokenOnce(peer, 'item/commandExecution/requestApproval', 'command', 'approval bug') })),
+      )
+      yield* manager.start('codex')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* peer
+        .request('item/commandExecution/requestApproval', { threadId: 'thr_1', turnId: 'turn_1', itemId: 'cmd_1', command: 'ls', startedAtMs: 1 })
+        .pipe(Effect.forkScoped)
+      const lost = yield* until(manager, (snapshot) => snapshot.error !== null)
+      expect(lost).toMatchObject({ status: 'connecting', error: 'Something went wrong. Docs saved a report and is reconnecting.' })
+      expect(logged).toEqual([
+        { cause: expect.stringContaining('approval bug'), annotations: { provider: 'codex', reportId: expect.stringMatching(/^[0-9a-f]{8}$/) } },
+      ])
+      yield* TestClock.adjust('1 second')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
+      expect(peer.connections()).toBe(2)
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect('a library that fails to load says so and logs why, the others keep working, and it loads on the next try', () => {
+    const { logged, layer } = captureErrorLogs()
+    return Effect.gen(function* () {
       const peer = makeFakeCodex()
       let claudeLoads = 0
       const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
@@ -321,7 +472,8 @@ describe('ProviderSessionManager', () => {
       yield* manager.dispatch({ op: 'setProvider', provider: 'claude' })
       const seen = yield* Fiber.join(shown)
       const failed = seen[seen.length - 1]!
-      expect(failed.error).toBe('Docs could not load Claude: Cannot find module ./ClaudeAdapter')
+      expect(failed.error).toBe('Docs could not load Claude. Docs saved a report.')
+      expect(logged).toEqual([{ cause: expect.stringContaining('Cannot find module ./ClaudeAdapter'), annotations: { provider: 'claude', reportId: expect.any(String) } }])
       // Not retried, so shown once, as an error: never first as a reconnect.
       expect(seen.filter((snapshot) => snapshot.error === failed.error && snapshot.status !== 'error')).toEqual([])
       yield* manager.dispatch({ op: 'setProvider', provider: 'codex' })
@@ -329,6 +481,6 @@ describe('ProviderSessionManager', () => {
       yield* manager.dispatch({ op: 'setProvider', provider: 'claude' })
       expect(yield* until(manager, (snapshot) => snapshot.provider === 'claude' && snapshot.status === 'ready')).toMatchObject({ error: null })
       expect(claudeLoads).toBe(2)
-    }),
-  )
+    }).pipe(Effect.provide(layer))
+  })
 })
