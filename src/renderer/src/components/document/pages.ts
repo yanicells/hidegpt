@@ -301,6 +301,7 @@ export class Paginator {
       live: live[index],
       measured: this.geometry.get(row) ?? null,
       applied: this.pushOf(row),
+      written: this.written.get(row),
     }))
 
     // Compute. Lines are read only for a paragraph that crosses a page, and only in a rendered row.
@@ -331,15 +332,12 @@ export class Paginator {
     const after = new Map<HTMLElement, PageBreak<HTMLElement>>()
     for (const now of next) {
       const old = before?.get(now.el)
-      // Within half a pixel, keep what's written, so a pass that reads it back changes nothing.
-      if (old && sameBreak(old, now)) {
-        after.set(now.el, old)
-      } else {
-        if (old) clearBreak(now.el)
-        applyBreak(now)
-        after.set(now.el, now)
-        wrote = true
-      }
+      after.set(now.el, now)
+      // layoutPages hands back the written break when the new one is within half a pixel of it.
+      if (old === now) continue
+      if (old) clearBreak(now.el)
+      applyBreak(now)
+      wrote = true
     }
     for (const el of before?.keys() ?? []) {
       if (!after.has(el)) {
@@ -412,14 +410,6 @@ function readLines(el: HTMLElement, scale: number, written?: PageBreak<HTMLEleme
   const lines: number[] = []
   for (const line of tops) if (!lines.length || line - lines[lines.length - 1] > lineHeight / 2) lines.push(line)
   return { tops: lines, lineHeight }
-}
-
-/** Breaks within half a pixel of each other: rewriting one would only add a layout. */
-function sameBreak(a: PageBreak<HTMLElement>, b: PageBreak<HTMLElement>): boolean {
-  const near = (x: number, y: number) => Math.abs(x - y) < 0.5
-  if (a.kind === 'push' && b.kind === 'push') return near(a.margin, b.margin)
-  if (a.kind === 'split' && b.kind === 'split') return near(a.start, b.start) && near(a.end, b.end)
-  return false
 }
 
 /**

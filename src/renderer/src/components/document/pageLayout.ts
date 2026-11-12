@@ -20,6 +20,7 @@ export type PageUnit<E> = { el: E; offset: number; height: number; heading: bool
  * frame; a row skipped by `content-visibility` keeps its size until it renders again.
  * `measured` is the cached geometry, or null for a row never measured, whose breaks stay as they are.
  * `applied` is how far the breaks currently written into a live row push what follows it.
+ * `written` is those breaks, by element.
  */
 export type PageRow<E> = {
   top: number
@@ -27,6 +28,7 @@ export type PageRow<E> = {
   live: boolean
   measured: { units: PageUnit<E>[]; height: number } | null
   applied: number
+  written?: ReadonlyMap<E, PageBreak<E>>
 }
 
 /** Line tops relative to the paragraph's top. */
@@ -54,7 +56,9 @@ type Placed<E> = { unit: PageUnit<E>; row: number; future: number; gap: number }
  * nothing inside an off-screen row. `shift` is how far a position will move once this
  * pass's breaks replace the ones in effect: each break adds its push, and at the end of a
  * live row the pushes it already had come back off, since the next row's top includes them.
- * A skipped row's breaks are recomputed for when it renders, but move nothing now.
+ * A skipped row's breaks are recomputed for when it renders, but move nothing now. A break
+ * within half a pixel of the one written comes back as that one, so rewriting it would change
+ * nothing and the next break is placed from where this one really sits.
  */
 export function layoutPages<E>(
   rows: PageRow<E>[],
@@ -67,6 +71,10 @@ export function layoutPages<E>(
   // inside a row, or the previous row's bottom, since a row keeps its margins inside it.
   let above = MARGIN
   let previous: Placed<E> | undefined
+  const settled = (row: number, next: PageBreak<E>): PageBreak<E> => {
+    const old = rows[row].written?.get(next.el)
+    return old && sameBreak(old, next) ? old : next
+  }
 
   rows.forEach((row, index) => {
     const start = shift
@@ -90,8 +98,9 @@ export function layoutPages<E>(
         if (split !== null) {
           const push = nextTop - (placed.future + split)
           // The band starts a pixel into the line so rounding can't catch the line above.
-          own.push({ kind: 'split', el: unit.el, start: split + 1, end: split + push, push })
-          shift += push
+          const next = settled(index, { kind: 'split', el: unit.el, start: split + 1, end: split + push, push })
+          own.push(next)
+          shift += next.push
         } else if (unit.height <= PAGE_HEIGHT - 2 * MARGIN) {
           // Docs keeps a heading with the paragraph after it, so the heading moves too,
           // when moving it changes the layout now: in this row or a rendered one.
@@ -103,8 +112,9 @@ export function layoutPages<E>(
             Math.floor(previous.future / PAGE_PITCH) === page
           const lead = keep && previous ? previous : placed
           const push = nextTop - lead.future
-          breaks[lead.row]!.push({ kind: 'push', el: lead.unit.el, margin: lead.gap + push, push })
-          shift += push
+          const next = settled(lead.row, { kind: 'push', el: lead.unit.el, margin: lead.gap + push, push })
+          breaks[lead.row]!.push(next)
+          shift += next.push
         }
         // Otherwise it is taller than a page's text area and has to cross the break.
       }
@@ -133,4 +143,12 @@ function splitAt(lines: Lines | null, top: number, limit: number): number | null
   const first = lines.tops.findIndex((line) => top + line + lines.lineHeight > limit)
   const at = Math.min(first, lines.tops.length - MIN_LINES)
   return first >= 0 && at >= MIN_LINES ? lines.tops[at] : null
+}
+
+/** Breaks within half a pixel of each other: rewriting one would only add a layout. */
+function sameBreak<E>(a: PageBreak<E>, b: PageBreak<E>): boolean {
+  const near = (x: number, y: number) => Math.abs(x - y) < 0.5
+  if (a.kind === 'push' && b.kind === 'push') return near(a.margin, b.margin)
+  if (a.kind === 'split' && b.kind === 'split') return near(a.start, b.start) && near(a.end, b.end)
+  return false
 }
