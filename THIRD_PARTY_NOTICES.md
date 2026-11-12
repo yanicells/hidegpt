@@ -60,7 +60,11 @@ or adapted file carries a header naming its source.
     writer and skipped text deltas, after
     `apps/server/src/provider/EventNdjsonLogger.ts`; and logging only defects,
     from `apps/server/src/observability/DefectReporter.ts`, now in
-    `src/provider/DefectReport.ts`.
+    `src/provider/DefectReport.ts`; and redacting logged causes
+    (`src/main/logging/redact.ts`), from `redactCauseCredentials` in
+    `packages/shared/src/observability.ts` and its use in
+    `apps/server/src/serverLogger.ts`, extended to the home folder, the
+    account name, and more credential shapes.
 - License: MIT
 
 ```
