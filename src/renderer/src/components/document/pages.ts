@@ -172,13 +172,13 @@ export class Paginator {
   }
 
   /**
-   * Passes until the rows stop changing size. ResizeObserver redelivers in the same frame
-   * only for elements deeper than the ones it just delivered, and the rows are siblings, so
-   * a row that resized because of this callback's breaks would wait a frame to be seen.
-   * Instead each further pass reads the result of the last, which costs the layout the frame
-   * would run anyway. The breaks written here still log "ResizeObserver loop completed with
-   * undelivered notifications". It isn't this observer's (it persists with every row
-   * unobserved); it comes with resizing content-visibility rows and changes nothing on screen.
+   * Passes until the rows stop changing size, each further pass reading the last one's result
+   * (the layout the frame runs anyway). ResizeObserver redelivers in the same frame only what
+   * sits deeper than the shallowest element any observer delivered, document-wide. Rows are
+   * redelivered today only because useFollowBottom observes `.paper-flow` and the scroller
+   * above them; looping here keeps pagination from depending on another hook's observer. The
+   * "ResizeObserver loop completed with undelivered notifications" that breaks written here
+   * log is that `.paper-flow` growing again, which useFollowBottom reads next frame.
    */
   private settle() {
     for (let pass = 0; pass < MAX_SETTLE_PASSES; pass++) {
@@ -237,9 +237,15 @@ export class Paginator {
     return this.skipped.get(row) !== true
   }
 
+  /**
+   * How far the breaks written into a row move what follows it. An element React removed
+   * (a paragraph that became a table mid-stream) took its break with it.
+   */
   private pushOf(row: HTMLElement): number {
     let push = 0
-    for (const pageBreak of this.written.get(row)?.values() ?? []) push += pageBreak.push
+    for (const [el, pageBreak] of this.written.get(row) ?? []) {
+      if (el.isConnected && row.contains(el)) push += pageBreak.push
+    }
     return push
   }
 
