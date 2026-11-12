@@ -120,7 +120,8 @@ describe('connector approvals', () => {
   })
 
   it('a choice the person fills in must be one of the options', () => {
-    const params = form({ size: { type: 'string', enum: ['small', 'large'], enumNames: ['Small', 'Large'] } }, ['size'])
+    const params = form({ size: { type: 'string', title: 'Size', enum: ['small', 'large'], enumNames: ['Small', 'Large'] } }, ['size'])
+    expect(elicitationFields(params)).toEqual([{ id: 'size', label: 'Size (Small, Large)' }])
     expect(elicitationResponse(params, { accept: true, answers: { size: 'Large' } })).toMatchObject({ content: { size: 'large' } })
     expect(elicitationResponse(params, { accept: true, answers: { size: 'huge' } })).toMatchObject({ action: 'decline' })
   })
@@ -129,6 +130,14 @@ describe('connector approvals', () => {
 describe('docsSafe', () => {
   it('catches provider names run into other words', () => {
     for (const text of ['gpt5', 'GPT4o', 'ChatGPTPlus', 'OpenAIAPI', 'codex_helper', 'askClaude']) expect(docsSafe(text)).toBeNull()
-    expect(docsSafe('Notion · Search pages')).toBe('Notion · Search pages')
+  })
+
+  it('splits acronyms and trailing digits off generic words', () => {
+    expect(docsSafe('getAIResponse')).toBeNull()
+    expect(docsSafe('model2')).toBeNull()
+  })
+
+  it('lets ordinary words that merely contain a name through', () => {
+    for (const text of ['philanthropic', 'Claudette', 'Notion · Search pages']) expect(docsSafe(text)).toBe(text)
   })
 })

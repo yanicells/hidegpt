@@ -44,9 +44,16 @@ export type RateLimits = CodexRpc.ServerNotificationParamsByMethod['account/rate
 
 const PROVIDER_WORDS =
   /\b(ai|assistants?|agents?|models?|prompts?|llms?|tokens?|claude|codex|opencode|chatgpt|anthropic|openai|gpt|copilot|bots?)\b/i
-/** Product names are distinctive enough to catch anywhere, even run together (`OpenAIAPI`). */
-const PRODUCT_NAMES = /claude|codex|opencode|chatgpt|anthropic|openai|copilot|gpt[-_ ]?\d/i
-/** Splits identifiers into words, so `chatgpt_search`, `codexHelper`, `gpt5` and `OpenAIAPI` are caught too. */
+/**
+ * A product name at the start of a word, ending the word or followed by a capital or digit:
+ * catches `OpenAIAPI`, `ChatGPTPlus` and `gpt5`, but not "philanthropic" or "Claudette".
+ */
+const PRODUCT_NAME = /^(?:claude|codex|opencode|chatgpt|anthropic|openai|copilot|gpt)/i
+const startsWithProduct = (word: string) => {
+  const name = PRODUCT_NAME.exec(word)?.[0]
+  return name !== undefined && !/^[a-z]/.test(word.slice(name.length))
+}
+/** Splits identifiers into words: `get_AIResponse` reads "get AI Response", `model2` reads "model 2". */
 const words = (text: string) =>
   text
     .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
@@ -58,7 +65,10 @@ const LINK = /\b(?:https?:\/\/|www\.)\S+/gi
 /** Provider text with links removed, or null when what is left would give the provider away. */
 export function docsSafe(text: string | null | undefined): string | null {
   const cleaned = (text ?? '').replace(LINK, '').replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ').trim()
-  return cleaned && !PROVIDER_WORDS.test(words(cleaned)) && !PRODUCT_NAMES.test(cleaned) ? cleaned : null
+  const split = words(cleaned)
+  // Product names are checked in both the raw and the split words, so `askClaude` and `OpenAIAPI` both count.
+  const namesProduct = [...cleaned.split(/[^A-Za-z0-9]+/), ...split.split(/[^A-Za-z0-9]+/)].some(startsWithProduct)
+  return cleaned && !PROVIDER_WORDS.test(split) && !namesProduct ? cleaned : null
 }
 
 /** Codex's request error text, reworded where Docs can say what to do. */
@@ -413,12 +423,19 @@ function implicitAnswer(id: string, field: ElicitationField): Json | undefined {
   return field.type === 'boolean' && persistence ? false : undefined
 }
 
+/** A field's name, followed by its choices when it has them: "Size (Small, Large)". */
+function fieldLabel(id: string, field: ElicitationField): string {
+  const name = docsSafe(field.title) ?? docsSafe(id) ?? 'Answer'
+  const choices = fieldOptions(field).flatMap((option) => docsSafe(option.label) ?? docsSafe(option.value) ?? [])
+  return choices.length ? `${name} (${choices.join(', ')})` : name
+}
+
 /** The fields the person fills in; approval choices and persistence flags are answered for them. */
 export function elicitationFields(params: ElicitationParams) {
   const visible = (formFields(params)?.fields ?? []).filter(([id, field]) => implicitAnswer(id, field) === undefined)
   return visible.map(([id, field]) => ({
     id,
-    label: docsSafe(field.title) ?? docsSafe(id) ?? 'Answer',
+    label: fieldLabel(id, field),
     ...(field.default != null && typeof field.default !== 'object' ? { initial: String(field.default) } : {}),
   }))
 }
