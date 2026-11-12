@@ -15,6 +15,7 @@ import type { ProviderId } from '../shared/model'
 import { appendStderrTail, stderrExcerpt } from '../vendor/effect-codex-app-server/_internal/stdio'
 import { logDefects } from './DefectReport'
 import { BinaryMissingError, ProcessExitedError, ProviderRequestError } from './errors'
+import { resolveHelper } from './helperBinary'
 import { providerLabel } from '../shared/labels'
 import * as ProcessLedger from './ProcessLedger'
 
@@ -133,12 +134,15 @@ const logLedgerFailure = (effect: Effect.Effect<void>) =>
 const make = (
   spawner: ChildProcessSpawner.ChildProcessSpawner['Service'],
   ledger: ProcessLedger.ProcessLedger['Service'],
+  helpersDirectory: string | null,
 ) =>
   ProcessSupervisor.of({
     spawn: Effect.fn('ProcessSupervisor.spawn')(function* (options, tailStderr = false) {
-      const command = ChildProcess.make(options.command, [...options.args], {
+      // Started as `Docs Helper` where it can be (helperBinary.ts); the ledger records that path.
+      const helper = yield* Effect.sync(() => resolveHelper(options.command, options.env, helpersDirectory))
+      const command = ChildProcess.make(helper.command, [...options.args], {
         ...(options.cwd ? { cwd: options.cwd } : {}),
-        ...(options.env ? { env: options.env, extendEnv: true } : {}),
+        ...(helper.env ? { env: helper.env, extendEnv: true } : {}),
         forceKillAfter: FORCE_KILL_AFTER,
       })
       const handle = yield* spawner.spawn(command).pipe(
@@ -156,7 +160,7 @@ const make = (
       // Released before the spawner's own kill, so this stops the server: its tree is read while
       // it still runs, its group is stopped, then whatever left the group (a `setsid` daemon).
       // The read is capped, so a slow `ps` never delays the kill past quit's deadline.
-      yield* Effect.acquireRelease(ledger.record(handle.pid, options.command, options.args[0] ?? ''), () =>
+      yield* Effect.acquireRelease(ledger.record(handle.pid, helper.command, options.args[0] ?? ''), () =>
         treeReadBeforeKill(ledger).pipe(
           Effect.andThen(Effect.ignore(handle.kill({ forceKillAfter: FORCE_KILL_AFTER }))),
           Effect.andThen(ledger.stop(handle.pid)),
@@ -233,7 +237,10 @@ const make = (
       // services (its logger), so a ledger failure reaches the log.
       const runFork = Effect.runForkWith(yield* Effect.context<never>())
       return (options: CallbackSpawnOptions) => {
-        const child = spawnChild(options.command, [...options.args], {
+        // As in `spawn`, from a `Docs Helper` clone where it can be. The SDK passes a native
+        // binary's full path, so its env is not needed (and stays unread).
+        const { command } = resolveHelper(options.command, undefined, helpersDirectory)
+        const child = spawnChild(command, [...options.args], {
           cwd: options.cwd,
           env: options.env,
           signal: options.signal,
@@ -254,7 +261,7 @@ const make = (
         }
         // The full command path, so another app's copy of the same CLI never matches.
         // Defects are logged here, so a failed record never stops `stopTree` from running.
-        const recorded = runFork(logLedgerFailure(ledger.record(pid, options.command, options.args[0] ?? '')))
+        const recorded = runFork(logLedgerFailure(ledger.record(pid, command, options.args[0] ?? '')))
         running.set(child, { pid, recorded })
         child.once('exit', () => {
           running.delete(child)
@@ -270,12 +277,15 @@ const make = (
     reapOrphans: ledger.reap,
   })
 
-/** The supervisor over Effect's Node spawner; `ledgerPath` null disables the ledger (tests). */
-export const layer = (ledgerPath: string | null) =>
+/**
+ * The supervisor over Effect's Node spawner. `ledgerPath` null disables the ledger, and
+ * `helpersDirectory` null starts each CLI under its own name (tests, demo mode).
+ */
+export const layer = (ledgerPath: string | null, helpersDirectory: string | null = null) =>
   Layer.effect(
     ProcessSupervisor,
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-      return make(spawner, yield* ProcessLedger.ProcessLedger)
+      return make(spawner, yield* ProcessLedger.ProcessLedger, helpersDirectory)
     }),
   ).pipe(Layer.provide(ProcessLedger.layer(ledgerPath)))

@@ -17,10 +17,11 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }))
 const withSupervisor = <A, E>(
   use: (supervisor: ProcessSupervisor['Service']) => Effect.Effect<A, E>,
   ledgerPath: string | null = null,
+  helpersDirectory: string | null = null,
 ) =>
   Effect.gen(function* () {
     return yield* use(yield* ProcessSupervisor)
-  }).pipe(Effect.provide(layer(ledgerPath).pipe(Layer.provideMerge(NodeServices.layer))))
+  }).pipe(Effect.provide(layer(ledgerPath, helpersDirectory).pipe(Layer.provideMerge(NodeServices.layer))))
 
 /** Like an MCP server that daemonizes with setsid: a group kill alone misses it. */
 const WITH_DAEMON = `/usr/bin/perl -MPOSIX -e 'POSIX::setsid(); sleep 30' & wait`
@@ -260,5 +261,55 @@ describe('ProcessSupervisor.callbackSpawner', () => {
         expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))).toEqual({})
       }),
     20_000,
+  )
+})
+
+describe.runIf(process.platform === 'darwin')('ProcessSupervisor under the helper name', () => {
+  // Node stands in for a provider CLI: a signed third-party binary that macOS lets us clone.
+  /** macOS checks a new executable on its first launch, which can take seconds on a busy runner. */
+  const FIRST_LAUNCH = 30_000
+  const sleeper = { command: process.execPath, args: ['-e', 'setTimeout(() => {}, 5000)'] }
+  const processName = (pid: number) =>
+    execFileSync('/bin/ps', ['-o', 'ucomm=', '-p', String(pid)], { encoding: 'utf8' }).trim()
+
+  it.live(
+    'starts a CLI as Docs Helper and records that path in the ledger',
+    () =>
+      Effect.gen(function* () {
+        const ledgerPath = join(dir, 'helper-ledger.json')
+        yield* withSupervisor(
+          (supervisor) =>
+            Effect.scoped(
+              Effect.gen(function* () {
+                const { handle } = yield* supervisor.spawn({ provider: 'codex', ...sleeper })
+                expect(processName(handle.pid)).toBe('Docs Helper')
+                const [entry] = Object.values(JSON.parse(readFileSync(ledgerPath, 'utf8')) as Record<string, object>)
+                expect(entry).toMatchObject({ command: expect.stringMatching(/\/Docs Helper$/) })
+              }),
+            ),
+          ledgerPath,
+          join(dir, 'helpers'),
+        )
+      }),
+    FIRST_LAUNCH,
+  )
+
+  it.live(
+    'starts an SDK’s CLI as Docs Helper too',
+    () =>
+      withSupervisor(
+        (supervisor) =>
+          Effect.scoped(
+            Effect.gen(function* () {
+              const spawn = yield* supervisor.callbackSpawner
+              const child = spawn({ ...sleeper, env: {} })
+              yield* Effect.callback<void>((resume) => void child.once('spawn', () => resume(Effect.void)))
+              expect(processName(child.pid ?? 0)).toBe('Docs Helper')
+            }),
+          ),
+        null,
+        join(dir, 'helpers'),
+      ),
+    FIRST_LAUNCH,
   )
 })
