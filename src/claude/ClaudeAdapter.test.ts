@@ -1,9 +1,12 @@
 import { describe, expect, it } from '@effect/vitest'
+import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
 import * as Fiber from 'effect/Fiber'
+import * as Logger from 'effect/Logger'
 import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
+import { DEFECT_MESSAGE } from '../provider/errors'
 import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
 import * as ClaudeAdapter from './ClaudeAdapter'
 import {
@@ -147,6 +150,24 @@ describe('ClaudeAdapter', () => {
       expect(fake.queries[1]?.options).toMatchObject({ resume: DOC })
       fake.queries[1]?.exit(new Error('boom'))
       yield* until(() => ended(events).length === 2)
+    }),
+  )
+
+  it.effect('ends a turn on a frame Docs cannot read with a plain sentence, and logs the cause', () =>
+    Effect.gen(function* () {
+      const logged: string[] = []
+      const capture = Logger.make(({ cause, logLevel }) => {
+        if (logLevel === 'Error') logged.push(Cause.pretty(cause))
+      })
+      yield* Effect.gen(function* () {
+        const { fake, session, events } = yield* open({ reply: null })
+        yield* send(session, DOC, 'Hi')
+        yield* until(() => fake.queries[0]?.prompts.length === 1)
+        fake.queries[0]?.push({ type: 'assistant', message: null } as never)
+        yield* until(() => ended(events).length === 1)
+        expect(ended(events)[0]).toMatchObject({ error: DEFECT_MESSAGE })
+      }).pipe(Effect.provide(Logger.layer([capture])))
+      expect(logged).toEqual([expect.stringContaining('TypeError')])
     }),
   )
 
