@@ -39,6 +39,9 @@ staged files and knip on the repo.
 | `pnpm protocol`         | Regenerate the Codex app-server schemas from the installed CLI                                                                        |
 | `pnpm protocol --check` | Fail if the committed schemas no longer match the installed CLI                                                                       |
 | `pnpm screenshot`       | Home grid/list, folder picker, open menus, a streaming reply and a suggestion, and desktop/narrow editor PNGs using fictional content |
+| `pnpm fidelity:shots`   | Hidden, deterministic captures plus layout dumps for the fidelity checks (see [Fidelity checks](#fidelity-checks))                    |
+| `pnpm fidelity:check`   | Score those captures against the Google Docs targets, one PASS/FAIL line per metric                                                   |
+| `pnpm fidelity:diff`    | Compare two captures pixel by pixel                                                                                                   |
 | `pnpm dist`             | Package a macOS `.dmg` and `.zip` into `dist/` (see [Packaging](#packaging))                                                          |
 
 **Blank document** or a template creates an "Untitled document" right away, like Docs;
@@ -70,6 +73,37 @@ for you there. Streaming text crosses to the window as deltas in 32 ms frames.
 A provider that crashes restarts with backoff and the document on screen reloads; every
 request has a deadline, so nothing stays on "Working…". See
 [docs/architecture.md](docs/architecture.md) for how this is built.
+
+## Fidelity checks
+
+`pnpm fidelity:shots` builds the app and drives it with the fake providers in
+windows that are never shown: no Dock icon, no focus change (on macOS it launches
+through `open -g -n -W`). Each phase runs in its own Electron, in parallel:
+
+| Phase    | What it captures                                                                                                                          |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `core`   | Home, an empty, a reference and the demo document, streaming, suggestions, the error banner; at 1280, 1402, 1470, 1680, 1920 and 760 wide |
+| `states` | Hovers, focus, every menu, dialogs, banners and narrow widths at 1402                                                                     |
+| `motion` | Frame-by-frame streaming and opening, with layout-shift logs (timing-dependent, so not compared)                                          |
+
+```sh
+pnpm fidelity:shots                    # core and states (about 2 minutes) -> screenshots/fidelity/
+pnpm fidelity:shots --phase motion     # or any comma-separated list; --no-build reuses out/
+pnpm fidelity:check                    # every metric in scripts/fidelity/targets.json
+pnpm fidelity:check --failing --only toolbar
+pnpm fidelity:diff before/ after/      # zero differing pixels, or the screens that changed
+```
+
+Captures are 2x PNGs with a JSON dump beside each: element boxes, computed fonts
+and colours, the faces Chromium actually drew, and the selectors `targets.json`
+probes. The clock, time zone, locale and colour scheme are pinned, so two runs on
+the same commit are pixel-identical. Targets hold the Google Docs values from the
+UI audit. A selector may change when markup changes; a target value may not.
+
+The check and diff tools are Python. With [uv](https://docs.astral.sh/uv/)
+installed (`brew install uv`) the `pnpm` scripts fetch their dependencies
+(Pillow, NumPy) on first run. Without uv, `pip install pillow numpy` and run
+`python3 scripts/fidelity/check.py` directly.
 
 ## Packaging
 
