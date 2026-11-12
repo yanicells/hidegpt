@@ -6,7 +6,11 @@ import { describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
 import * as Stream from 'effect/Stream'
 
-import type { AdapterEvent, ProviderSession, TurnSettings } from '../provider/ProviderAdapter'
+import type { TurnSettings } from '../provider/ProviderAdapter'
+import type {
+  LegacyAdapterEvent as AdapterEvent,
+  LegacyProviderSession as ProviderSession,
+} from '../provider/legacyEvents'
 import { readTranscript, type ReplayEntry, type ReplayTranscript, scrub } from '../provider/replayFixture'
 import * as ClaudeAdapter from './ClaudeAdapter'
 import { makeFakeClaude } from './FakeClaude'

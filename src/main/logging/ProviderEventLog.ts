@@ -19,10 +19,11 @@ const BATCH_WINDOW = '500 millis'
 /**
  * What a provider reported, one JSON line per event, so "the answer stopped"
  * can be debugged after the fact. It never holds text: no prompt or answer
- * (streamed `text` deltas are skipped entirely), no titles, no sign-in links,
- * and no error or notice sentences, which a provider may build from what was
- * sent. A record keeps the event type, the thread and block ids, and whether
- * a turn failed.
+ * (streamed deltas are skipped entirely), no titles, no sign-in links, and no
+ * error or notice sentences, which a provider may build from what was sent.
+ * A record keeps the event type, the thread, turn and item ids, item kinds and
+ * statuses, and a failed turn's failure class (its redacted detail goes to the
+ * main log instead).
  */
 export interface ProviderEventLogShape {
   readonly record: (provider: ProviderId, event: AdapterEvent) => Effect.Effect<void>
@@ -36,31 +37,39 @@ export const ProviderEventLog = Context.Reference<ProviderEventLogShape>('hidegp
 /** The loggable part of an event, or null for events not worth a line. Exported for tests. */
 export function describeEvent(event: AdapterEvent): Record<string, unknown> | null {
   switch (event.type) {
-    case 'text':
+    case 'item.delta':
       return null
-    case 'turnStarted':
-    case 'closed':
-    case 'title':
-      return { type: event.type, threadId: event.threadId }
-    case 'turnEnded':
-      return { type: event.type, threadId: event.threadId, failed: event.error !== undefined }
-    case 'block':
+    case 'turn.started':
+      return { type: event.type, threadId: event.threadId, turnId: event.turnId }
+    case 'turn.ended':
       return {
         type: event.type,
         threadId: event.threadId,
-        blockId: event.block.id,
-        kind: event.block.kind,
+        turnId: event.turnId,
+        status: event.status,
+        ...(event.failure ? { failureClass: event.failure.class } : {}),
+      }
+    case 'item.upserted':
+      return {
+        type: event.type,
+        threadId: event.threadId,
+        turnId: event.turnId,
+        itemId: event.item.id,
+        kind: event.item.kind,
+        ...(event.item.kind === 'tool' ? { tool: event.item.tool, status: event.item.status } : {}),
+        ...(event.item.kind === 'request' ? { request: event.item.request, status: event.item.status } : {}),
         ...(event.replaces ? { replaces: event.replaces } : {}),
       }
-    case 'resolved':
-      return { type: event.type, threadId: event.threadId, blockId: event.blockId, resolved: event.resolved }
-    case 'reset':
+    case 'thread.reset':
       return {
         type: event.type,
         threadId: event.threadId,
-        blocks: event.blocks.length,
-        streaming: event.streaming ?? false,
+        items: event.items.length,
+        activeTurnId: event.activeTurnId,
       }
+    case 'thread.renamed':
+    case 'thread.closed':
+      return { type: event.type, threadId: event.threadId }
     case 'invalidate':
       return { type: event.type, part: event.part }
     case 'notice':

@@ -12,8 +12,9 @@ import type {
 import * as Option from 'effect/Option'
 import * as Schema from 'effect/Schema'
 
-import { finishedTitle, requestTitle, toolTitle, type ToolKind } from '../provider/toolTitles'
-import type { TurnFailure, TurnFailureKind } from '../provider/turnFailure'
+import type { Failure, FailureClass, ToolKind } from '../provider/events'
+import { failureOf } from '../provider/failure'
+import { requestTitle, toolTitle } from '../provider/toolTitles'
 import type { ApprovalBlock, Block, CalloutBlock, DocSummary, ModelOption, Skill, UserBlock } from '../shared/model'
 
 /**
@@ -226,8 +227,8 @@ function resultText(content: unknown): string {
     .join('\n')
 }
 
-/** A tool call on the page: its callout, and the kind that decides how it finishes. */
-type ToolCall = { readonly block: CalloutBlock; readonly kind: ToolKind }
+/** A tool call on the page: its callout, and the kind and name that decide how it finishes. */
+type ToolCall = { readonly block: CalloutBlock; readonly kind: ToolKind; readonly name: string }
 
 /** A running tool's callout, or null for a tool the page does not show. */
 function toolCall(part: ContentBlock): ToolCall | null {
@@ -237,10 +238,10 @@ function toolCall(part: ContentBlock): ToolCall | null {
   const block: CalloutBlock = {
     kind: 'callout',
     id: part.id ?? '',
-    title: toolTitle(kind, false, name),
+    title: toolTitle(kind, 'running', name),
     body: toolBody(kind, part.input),
   }
-  return { block, kind }
+  return { block, kind, name }
 }
 
 /**
@@ -248,9 +249,10 @@ function toolCall(part: ContentBlock): ToolCall | null {
  * subtask's output is its whole report (with Claude Code's own continuation
  * notes), so it keeps only its description.
  */
-function finishedCallout({ block, kind }: ToolCall, result: ContentBlock): CalloutBlock {
+function finishedCallout({ block, kind, name }: ToolCall, result: ContentBlock): CalloutBlock {
   const output = kind === 'subagent' ? '' : resultText(result.content).trim().slice(0, 2000)
-  return { ...block, title: finishedTitle(block.title), body: output ? `${block.body}\n${output}` : block.body }
+  const title = toolTitle(kind, 'completed', name)
+  return { ...block, title, body: output ? `${block.body}\n${output}` : block.body }
 }
 
 /** A person's turn: typed text, pasted images, and any skill invoked with /name. */
@@ -348,7 +350,7 @@ export const emptyStreamState = (): StreamState => ({
 export type Emission =
   | { readonly type: 'block'; readonly block: Block }
   | { readonly type: 'text'; readonly blockId: string; readonly delta: string }
-  | { readonly type: 'result'; readonly failure: TurnFailure | undefined }
+  | { readonly type: 'result'; readonly failure: Failure | undefined }
 
 /** Folds one live SDK frame into page changes. */
 export function readMessage(state: StreamState, message: SDKMessage): Emission[] {
@@ -434,7 +436,7 @@ const PROVIDER_ERRORS = new Set<SDKAssistantMessageError>(['overloaded', 'server
 const VALIDATION_ERRORS = new Set<SDKAssistantMessageError>(['invalid_request', 'model_not_found', 'max_output_tokens'])
 
 /** The failure class from the turn's notice, the API status and the terminal reason. */
-function failureKind(message: SDKResultMessage, notice: SDKAssistantMessageError | null): TurnFailureKind {
+function classOf(message: SDKResultMessage, notice: SDKAssistantMessageError | null): FailureClass {
   const status = message.subtype === 'success' ? (message.api_error_status ?? undefined) : undefined
   const reason = message.terminal_reason
   if (notice === 'rate_limit' || status === 429 || message.subtype === 'error_max_budget_usd') return 'usage_limit'
@@ -458,7 +460,7 @@ const withoutDiagnostics = (texts: ReadonlyArray<string>) =>
 /**
  * Why a turn failed, or nothing when it finished or was stopped on purpose (the
  * SDK reports aborts as errors or as `success`). The provider's text is only the
- * failure's `detail`, for the log; the page shows the class's own sentence.
+ * failure's `detail` (redacted and bounded), for the log; the page shows the class's own sentence.
  * `notice` is the error of a Claude Code notice seen during the turn.
  * Adapted from T3 Code (apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts, terminalStatusFromResult
  * and resultUserFacingError) at commit 5c6f2f12.
@@ -467,16 +469,14 @@ const withoutDiagnostics = (texts: ReadonlyArray<string>) =>
 export function resultError(
   message: SDKResultMessage,
   notice: SDKAssistantMessageError | null = null,
-): TurnFailure | undefined {
+): Failure | undefined {
   if (message.terminal_reason === 'aborted_tools' || message.terminal_reason === 'aborted_streaming') return undefined
   if (message.subtype === 'success') {
-    return message.is_error
-      ? { kind: failureKind(message, notice), detail: withoutDiagnostics([message.result]) }
-      : undefined
+    return message.is_error ? failureOf(classOf(message, notice), withoutDiagnostics([message.result])) : undefined
   }
   const text = withoutDiagnostics(message.errors)
   if (/interrupt|cancel/i.test(text)) return undefined
-  return { kind: failureKind(message, notice), detail: text || message.subtype }
+  return failureOf(classOf(message, notice), text || message.subtype)
 }
 
 export const permissionBlockId = (toolUseId: string) => `approval-${toolUseId}`

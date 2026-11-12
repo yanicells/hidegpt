@@ -87,16 +87,18 @@ There is one interface with three implementations:
 
 `adapter.openSession` is an `Effect<ProviderSession, ProviderError, Scope>`. It spawns or connects, finishes the handshake within a deadline, and returns:
 
-- **`events`**: a `Stream<AdapterEvent>`.
-  - Text and blocks: `text` (append a delta, creating the block if needed), `block` (upsert by id, optionally replacing a local echo), `resolved`.
-  - Turns: `turnStarted`, `turnEnded`. `turnEnded` is always terminal and carries an optional error.
-  - Thread state: `reset` (replace a thread's blocks after a reconnect), `title`, `closed`.
+- **`events`**: a `Stream<AdapterEvent>` of the canonical events in `src/provider/events.ts` (adapted from T3 Code's orchestration-v2 contract).
+  - Turns: `turn.started` and `turn.ended`. Each carries the app's `TurnId`, which the manager allocates before `send`. `turn.ended` is the turn's one terminal and has a `status` (`completed`, `interrupted`, `failed`) and, when failed, a typed `Failure` (`usage_limit`, `auth`, `provider_error`, `transport_error`, `validation_error`, `unknown`). The failure's provider text (`detail`, redacted by `src/provider/failure.ts`) goes to the log only.
+  - Items: `item.upserted` (insert or replace by id, optionally replacing a local echo) and `item.delta` (append streamed text). Items are typed data (`user`, `assistant`, `tool`, `request`, `notice`), never sentences.
+  - Thread state: `thread.reset` (replace a thread's items after a reconnect, with the turn still running, if any), `thread.renamed`, `thread.closed`.
   - Library: `invalidate` (docs, account, projects, skills, or tools changed, so refetch), `notice`, `loginUrl`.
+- **Turn bookkeeping** is shared: `src/provider/turnTracker.ts` (adapted from T3's `pendingRootTurns`) knows each thread's open turn, its native id, and whether Stop was pressed, and emits the turn events itself, so a duplicate provider terminal is dropped and a stopped turn always ends as `interrupted`.
+- **Legacy adapters.** The three adapters still emit the older block events (`src/provider/legacyEvents.ts`); `fromLegacy` wraps each one with a tracker, and `ProviderRegistry` and `demo.ts` apply it. Each adapter moves onto canonical items in ARCH-4.
 - **`awaitExit`**: fails when the backend is gone (a process exit or a dead event stream). The manager races it to restart.
 - **Pull methods**, each with its own timeout:
   - Library: `loadCatalog`, `listDocs(search)` (a stream, so Home paints the first page early), `listSkills(cwd)`.
   - Documents: `openThread`, `createThread`, `loadOlder`, `rename`.
-  - Turns: `send`, `interrupt`, `respond`.
+  - Turns: `send(threadId, turnId, …)`, `interrupt(threadId, turnId)`, `respond`.
   - Cleanup: `releaseThread`.
   - Optional: `createProject`, `login`, `logout`, `connectTool`. Each is present exactly when its `Capabilities` flag is on (`CAPABILITY_METHODS` in `ProviderAdapter.ts`); `src/provider/capabilities.test.ts` checks all three adapters.
 
@@ -124,7 +126,7 @@ The session manager is the one place UI state lives. It owns:
 
 - the active provider, plus each library's catalog, search, settings (model, effort, tier, mode), cwd, and error;
 - the route (`home`, or `doc` + threadId);
-- a `ThreadRuntime` per `provider:threadId`: blocks, streaming and stopping flags, older-page cursor, and last-viewed time. Adapter events update the runtime even when that document isn't on screen. Going Home or opening another doc does **not** interrupt or unsubscribe a running turn;
+- a `ThreadRuntime` per `provider:threadId`: typed items, the open turn (its id and phase: `starting`, `running` or `stopping`), older-page cursor, and last-viewed time. `src/main/session/present.ts` is the one place items become `Block`s and Docs wording, cached per item so an unchanged item keeps its block; `src/shared/stealth.ts` is the banned-word gate its tests run every string through. Adapter events update the runtime even when that document isn't on screen. Going Home or opening another doc does **not** interrupt or unsubscribe a running turn;
 - idle release. A sweep every minute releases runtimes that are off screen, idle, and unseen for 30 minutes, and caps idle runtimes at 12 (T3's ProviderSessionManager pattern). Until then, reopening a doc is instant: no resume and no refetch. The document each library shows counts as on screen, even while another library is active, so switching back never lands on a blank page.
 
 Rules it enforces:
@@ -132,7 +134,9 @@ Rules it enforces:
 - **Commands return a result.** `dispatch` resolves to `{ ok: true }` or `{ ok: false, error }`. The composer only clears its draft when the send was accepted.
 - **Provider switch** is one state write, and each library connects on its own, so a slow connect can't overwrite a newer choice. Each library shows its own account: Codex's ChatGPT account never appears under OpenCode or Claude.
 - **Approvals** belong to their thread runtime. An approval that arrives while you're on Home waits in that document, and the provider waits too. A reply that fails, or that the server rejects, leaves the approval open and shows the error.
-- **Stopping** shows "Stopping…" until the turn's terminal event. After 10 s it settles anyway, so a lost turn end never traps the document.
+- **Turns are named.** A turn event for any turn but the open one is ignored, so a late terminal from an older turn can't end a newer one.
+- **Stopping** shows "Stopping…" until the turn's terminal event. After 10 s it settles anyway, so a lost turn end never traps the document; the timer names its turn, so it never ends a newer one. Stop pressed before the provider confirmed the turn waits for that confirmation (up to 10 s) instead of being lost.
+- **A failed turn** shows Docs' sentence for its failure class on the banner, with a report id the manager gives it ("… (Report 3f2a9c1e)"); the provider's own text goes to the main log under that id. Adapters still on the legacy contract hand over a `failure` they classed from typed fields (Claude's result and notice error, OpenCode's error name and HTTP status) on `turnEnded`; only a bare `error` string is classed by pattern. Their tool and card titles come from `present.ts` too, through `src/provider/toolTitles.ts`, which drops banned parts from connected-app names first.
 - **Errors never replace the whole UI.** A connection failure shows a banner with Refresh. Home and the other libraries keep working.
 - **Defects don't freeze a connection** (T3's `catchCause` pattern). A defect while applying events ends the session like a crash, so it restarts; one anywhere else in supervision, or a provider chunk that fails to load, leaves that library in error with the message (and the shown document stale) until the next command or library switch connects it again.
 
@@ -221,12 +225,12 @@ Fixture shapes come from the installed CLIs (`codex app-server generate-ts`, Ope
 ## 10. Adding a provider
 
 1. Add its id to `ProviderId` and `CAPABILITIES` (`src/shared/`), and its label in `src/shared/labels.ts`.
-2. Write `src/<provider>/mapping.ts`: pure functions from its wire types to `DocSummary`, `Block`, `ModelOption`, and so on.
+2. Write `src/<provider>/mapping.ts`: pure functions from its wire types to `DocSummary`, typed items (`src/provider/events.ts`), `ModelOption`, and so on. Leave the wording to `present.ts`.
 3. Write `src/<provider>/<Name>Adapter.ts`, exporting `make(...)`: `ProviderAdapter`.
    - Spawn through `ProcessSupervisor`, or connect inside the session `Scope`.
    - Put a deadline on every call.
    - Map failures to the tagged errors.
    - Make `awaitExit` fail when the backend dies.
-   - Settle every running turn with `turnEnded` when anything ends.
+   - Use a `TurnTracker` for turns, so each ends exactly once, including when anything else ends.
 4. Register it in `ProviderRegistry.layerAfter` (dynamic import) and in `src/main/demo.ts` with a fake.
 5. Write a fake at the process boundary and focused adapter tests in the style above. Check T3 Code first: it may already have an adapter for that provider.

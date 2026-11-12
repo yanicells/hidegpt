@@ -2,7 +2,10 @@ import { describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
 import * as Stream from 'effect/Stream'
 
-import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
+import type {
+  LegacyAdapterEvent as AdapterEvent,
+  LegacyProviderSession as ProviderSession,
+} from '../provider/legacyEvents'
 import { agentMessage, makeFakeOpenCode, stubSession, userMessage, type FakeOpenCodeOptions } from './FakeOpenCode'
 import * as OpenCodeAdapter from './OpenCodeAdapter'
 
@@ -223,8 +226,11 @@ describe('OpenCodeAdapter parity with T3 Code', () => {
         },
       })
       yield* until(() => ended(events).length > 0)
-      // T3 classes a 429 as a usage limit (adapter.ts:2691-2696); Docs words the class itself.
-      expect(JSON.stringify(ended(events)[0])).not.toMatch(/openai|quota|https?:/i)
+      // T3 classes a 429 as a usage limit (adapter.ts:2691-2696); Docs words the class itself (present.ts),
+      // and the provider's text is only the logged detail.
+      const [end] = ended(events)
+      expect(end).toMatchObject({ failure: { class: 'usage_limit' } })
+      expect(end && 'error' in end).toBe(false)
     }),
   )
 

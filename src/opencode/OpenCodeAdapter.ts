@@ -23,17 +23,18 @@ import {
   type ProviderError,
   ProviderTimeoutError,
 } from '../provider/errors'
-import { logDefects, reportDefect } from '../provider/DefectReport'
+import { logDefects, newReportId, reportDefect } from '../provider/DefectReport'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
-import { reportTurnFailure } from '../provider/turnFailure'
+import type { Failure } from '../provider/events'
+import type { Catalog } from '../provider/ProviderAdapter'
+import { presentFailure } from '../main/session/present'
 import type {
-  AdapterEvent,
-  Catalog,
-  OpenedThread,
-  ProviderAdapter,
-  ProviderSession,
-  ThreadEvent,
-} from '../provider/ProviderAdapter'
+  LegacyAdapterEvent as AdapterEvent,
+  LegacyOpenedThread as OpenedThread,
+  LegacyProviderAdapter as ProviderAdapter,
+  LegacyProviderSession as ProviderSession,
+  LegacyThreadEvent as ThreadEvent,
+} from '../provider/legacyEvents'
 import {
   blocksFromMessages,
   defaultMode,
@@ -330,10 +331,10 @@ export function make(connect: Connect): ProviderAdapter {
         ),
       )
 
-      const endTurn = (sessionId: string, error?: string): ReadonlyArray<AdapterEvent> => {
+      const endTurn = (sessionId: string, failure?: Failure): ReadonlyArray<AdapterEvent> => {
         live.delete(sessionId)
         busy.delete(sessionId)
-        return [{ type: 'turnEnded', threadId: sessionId, ...(error ? { error } : {}) }]
+        return [{ type: 'turnEnded', threadId: sessionId, ...(failure ? { failure } : {}) }]
       }
 
       const onPart = (part: Part): ReadonlyArray<AdapterEvent> => {
@@ -435,12 +436,16 @@ export function make(connect: Connect): ProviderAdapter {
           case 'session.error': {
             const { sessionID, error } = event.properties
             if (error?.name === 'MessageAbortedError') return sessionID ? emitAll(endTurn(sessionID)) : Effect.void
-            // The page gets Docs' sentence and a report id; the provider's text goes to the log.
-            return reportTurnFailure('opencode', providerFailure(error)).pipe(
-              Effect.flatMap((message) =>
-                sessionID ? emitAll(endTurn(sessionID, message)) : emit({ type: 'notice', message }),
-              ),
-            )
+            const failure = providerFailure(error)
+            if (sessionID) return emitAll(endTurn(sessionID, failure))
+            // No turn to end: the banner gets Docs' sentence, the log the provider's text, both one report id.
+            return Effect.gen(function* () {
+              const reportId = yield* newReportId
+              yield* Effect.logWarning('Provider error').pipe(
+                Effect.annotateLogs({ reportId, failureClass: failure.class, detail: failure.detail }),
+              )
+              yield* emit({ type: 'notice', message: presentFailure({ ...failure, reportId }) })
+            })
           }
           case 'permission.asked': {
             const request = event.properties

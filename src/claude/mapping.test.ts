@@ -176,7 +176,10 @@ describe('readMessage with a Claude Code notice', () => {
     } as never
     expect(readMessage(state, synthetic)).toEqual([])
     expect(readMessage(state, resultFrame({ is_error: true, result: 'API Error: 529 overloaded' }))).toEqual([
-      { type: 'result', failure: { kind: 'provider_error', detail: 'API Error: 529 overloaded' } },
+      {
+        type: 'result',
+        failure: { class: 'provider_error', detail: 'API Error: 529 overloaded', retryable: true, resetAt: null },
+      },
     ])
   })
 })
@@ -187,8 +190,10 @@ const result = (fields: Partial<SDKResultMessage>): SDKResultMessage =>
 describe('resultError', () => {
   it('classes a failed turn and keeps the provider text only as detail, without diagnostics', () => {
     expect(resultError(result({ result: 'API Error: 429\n[ede_diagnostic] x' }), 'rate_limit')).toEqual({
-      kind: 'usage_limit',
+      class: 'usage_limit',
       detail: 'API Error: 429',
+      retryable: false,
+      resetAt: null,
     })
     const kinds = [
       resultError(result({ api_error_status: 429 })),
@@ -201,7 +206,7 @@ describe('resultError', () => {
       resultError(result({ terminal_reason: 'blocking_limit' })),
       resultError(result({ subtype: 'error_max_budget_usd', errors: [] } as never)),
       resultError(result({ subtype: 'error_max_turns', errors: [] } as never)),
-    ].map((failure) => failure?.kind)
+    ].map((failure) => failure?.class)
     expect(kinds).toEqual([
       'usage_limit',
       'auth',

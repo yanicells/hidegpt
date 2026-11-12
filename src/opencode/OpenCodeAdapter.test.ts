@@ -7,7 +7,10 @@ import * as Logger from 'effect/Logger'
 import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
-import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
+import type {
+  LegacyAdapterEvent as AdapterEvent,
+  LegacyProviderSession as ProviderSession,
+} from '../provider/legacyEvents'
 import {
   agentMessage,
   makeFakeOpenCode,
@@ -325,6 +328,23 @@ describe('OpenCodeAdapter', () => {
     }),
   )
 
+  it.effect('puts an error with no session on the banner in Docs words, with a report id', () =>
+    Effect.gen(function* () {
+      const { fake, events } = yield* open({ reply: null })
+      fake.push({
+        id: 'evt_e',
+        type: 'session.error',
+        properties: { error: { name: 'ProviderAuthError', data: { providerID: 'openai', message: 'Bad key' } } },
+      })
+      yield* until(() => events.some((event) => event.type === 'notice'))
+      expect(events.find((event) => event.type === 'notice')).toMatchObject({
+        message: expect.stringMatching(
+          /^This account signs in outside Docs\. Sign in, then use Tools → Refresh\. \(Report [0-9a-f]{8}\)$/,
+        ),
+      })
+    }),
+  )
+
   it.effect('ends the turn with the model error, but not when Docs stopped it', () =>
     Effect.gen(function* () {
       const { fake, session, events } = yield* open({ reply: null })
@@ -339,7 +359,7 @@ describe('OpenCodeAdapter', () => {
       })
       yield* until(() => events.some((event) => event.type === 'turnEnded'))
       expect(events.find((event) => event.type === 'turnEnded')).toMatchObject({
-        error: expect.stringMatching(/^Docs couldn't finish\. Try again\. \(Report [0-9a-f]{8}\)$/),
+        failure: { class: 'provider_error', detail: 'Rate limited.' },
       })
 
       events.length = 0
@@ -347,7 +367,7 @@ describe('OpenCodeAdapter', () => {
       yield* session.interrupt(SESSION)
       yield* until(() => events.some((event) => event.type === 'turnEnded'))
       expect(requested(fake, 'POST', `/session/${SESSION}/abort`)).toHaveLength(1)
-      expect(events.find((event) => event.type === 'turnEnded')).not.toHaveProperty('error', expect.any(String))
+      expect(events.find((event) => event.type === 'turnEnded')).toEqual({ type: 'turnEnded', threadId: SESSION })
     }),
   )
 
@@ -476,24 +496,26 @@ describe('OpenCode error sentences', () => {
 
   it("classes a model provider's error, and keeps its readable text for the log", () => {
     const html = '<html><title>Bad   Gateway</title></html>'
-    expect(providerFailure({ name: 'APIError', data: { message: 'Rate limited.', statusCode: 429 } })).toEqual({
-      kind: 'usage_limit',
-      detail: 'Rate limited.',
+    const quota = 'Quota exceeded, see https://x.test/billing?token=abc'
+    expect(providerFailure({ name: 'APIError', data: { message: quota, statusCode: 429 } })).toEqual({
+      class: 'usage_limit',
+      detail: 'Quota exceeded, see https://x.test/billing',
+      retryable: false,
+      resetAt: null,
     })
     expect(
       providerFailure({ name: 'APIError', data: { message: '<none>', statusCode: 502, responseBody: html } }),
-    ).toEqual({ kind: 'provider_error', detail: 'Bad Gateway (HTTP 502).' })
-    expect(providerFailure({ name: 'ProviderAuthError', data: { providerID: 'x', message: 'Bad key' } })).toEqual({
-      kind: 'auth',
-      detail: 'Bad key',
-    })
-    expect(providerFailure({ name: 'APIError', data: { statusCode: 403 } })).toMatchObject({ kind: 'auth' })
-    expect(providerFailure({ name: 'APIError', data: { message: 7 } })).toEqual({
-      kind: 'provider_error',
+    ).toMatchObject({ class: 'provider_error', detail: 'Bad Gateway (HTTP 502).' })
+    expect(providerFailure({ name: 'ProviderAuthError', data: { providerID: 'x', message: 'Bad key' } })).toMatchObject(
+      { class: 'auth', detail: 'Bad key' },
+    )
+    expect(providerFailure({ name: 'APIError', data: { statusCode: 403 } })).toMatchObject({ class: 'auth' })
+    expect(providerFailure({ name: 'APIError', data: { message: 7 } })).toMatchObject({
+      class: 'provider_error',
       detail: 'APIError',
     })
-    expect(providerFailure({ name: 'ContextOverflowError', data: {} })).toMatchObject({ kind: 'validation_error' })
-    expect(providerFailure({ name: 'UnknownError', data: { message: 'x' } })).toMatchObject({ kind: 'unknown' })
-    expect(providerFailure(undefined)).toEqual({ kind: 'unknown', detail: 'No error was given.' })
+    expect(providerFailure({ name: 'ContextOverflowError', data: {} })).toMatchObject({ class: 'validation_error' })
+    expect(providerFailure({ name: 'UnknownError', data: { message: 'x' } })).toMatchObject({ class: 'unknown' })
+    expect(providerFailure(undefined)).toMatchObject({ class: 'unknown', detail: 'No error was given.' })
   })
 })

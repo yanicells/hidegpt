@@ -3,7 +3,10 @@ import * as Effect from 'effect/Effect'
 import * as Fiber from 'effect/Fiber'
 import * as Stream from 'effect/Stream'
 
-import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
+import type {
+  LegacyAdapterEvent as AdapterEvent,
+  LegacyProviderSession as ProviderSession,
+} from '../provider/legacyEvents'
 import * as ClaudeAdapter from './ClaudeAdapter'
 import {
   assistantFrame,
@@ -94,8 +97,10 @@ describe('ClaudeAdapter parity with T3 Code', () => {
       fake.queries[0]?.push(resultFrame({ is_error: true, result: notice, api_error_status: 401 }))
       yield* until(() => ended(events).length === 1)
       expect(pageText(events)).not.toContain('/login')
-      // The error is a class Docs words itself, not the provider's sentence.
-      expect(JSON.stringify(ended(events)[0])).not.toMatch(/\/login|API Error|authentication_error/)
+      // The error is a class Docs words itself (present.ts); the provider's sentence is only the logged detail.
+      const [end] = ended(events)
+      expect(end).toMatchObject({ failure: { class: 'auth' } })
+      expect(end && 'error' in end).toBe(false)
     }),
   )
 

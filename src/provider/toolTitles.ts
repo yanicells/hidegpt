@@ -1,72 +1,16 @@
-import { displayServerName } from '../shared/labels'
+import { connectedAppTitle, toolRequestTitle, toolTitle as kindTitle } from '../main/session/present'
+import { BANNED_WORDS } from '../shared/stealth'
+import type { ToolKind, ToolStatus } from './events'
 
 /**
- * What a tool callout and a tool's approval card say, by the kind of step it
- * was. Adapters map their own tool names to a kind (Claude in
- * `claude/mapping.ts`, OpenCode in `opencode/mapping.ts`), so the page never
- * shows a raw tool name. Wording is the "Tool rows" and "Requests and
- * questions" tables of the stealth audit (STL-2).
+ * Tool titles for adapters that still title their own rows and cards (the legacy
+ * contract). The wording is `present.ts`'s; this file only keeps a raw tool name
+ * off the page: a connected app's server and tool names lose every banned part
+ * before `present.ts` puts them in a sentence.
  */
-export type ToolKind =
-  | 'command'
-  | 'file_read'
-  | 'file_change'
-  | 'file_search'
-  | 'web_search'
-  | 'web_fetch'
-  | 'subagent'
-  | 'mcp_tool'
-  | 'other'
 
-type NamedKind = Exclude<ToolKind, 'mcp_tool'>
-
-const TITLES: Record<NamedKind, { readonly running: string; readonly done: string }> = {
-  command: { running: 'Running a command', done: 'Ran a command' },
-  file_read: { running: 'Opening a file', done: 'Opened a file' },
-  file_change: { running: 'Editing a file', done: 'Edited a file' },
-  file_search: { running: 'Searching files', done: 'Searched files' },
-  web_search: { running: 'Looking something up', done: 'Looked something up' },
-  web_fetch: { running: 'Opening a link', done: 'Opened a link' },
-  subagent: { running: 'Background task', done: 'Background task' },
-  other: { running: 'Doing a step', done: 'Did a step' },
-}
-
-const REQUEST_TITLES: Record<NamedKind, string> = {
-  command: 'Run this command?',
-  file_read: 'Open this file?',
-  file_change: 'Edit this file?',
-  file_search: 'Open this file?',
-  web_search: 'Look this up online?',
-  web_fetch: 'Look this up online?',
-  subagent: 'Allow this step?',
-  other: 'Allow this step?',
-}
-
-// The stealth list, plus the words banned from visible prose. Lowercase.
-const BANNED_WORDS = [
-  'ai',
-  'assistant',
-  'agent',
-  'model',
-  'prompt',
-  'llm',
-  'token',
-  'claude',
-  'codex',
-  'opencode',
-  'chatgpt',
-  'anthropic',
-  'openai',
-  'gpt',
-  'copilot',
-  'bot',
-  'hidegpt',
-  'mcp',
-  'sdk',
-  'cli',
-  'subagent',
-  'provider',
-]
+// The stealth list, plus the words banned from visible prose.
+const BANNED = [...BANNED_WORDS, 'hidegpt', 'mcp', 'sdk', 'cli', 'subagent', 'provider']
 
 const isLetter = (char: string | undefined) => char !== undefined && /\p{L}/u.test(char)
 const isUpper = (char: string | undefined) => char !== undefined && /\p{Lu}/u.test(char)
@@ -87,7 +31,7 @@ function mentionsBanned(part: string): boolean {
   const lower = part.toLowerCase()
   for (let at = 0; at < part.length; at++) {
     if (!startsWord(part, at)) continue
-    for (const word of BANNED_WORDS) {
+    for (const word of BANNED) {
       if (!lower.startsWith(word, at)) continue
       const end = at + word.length
       if (endsWord(part, end) || (lower[end] === 's' && endsWord(part, end + 1))) return true
@@ -116,33 +60,16 @@ function appAndTool(name: string): { readonly app: string; readonly tool: string
   return { app: neutralPart(match?.[1] ?? ''), tool: neutralPart(match?.[2] ?? '') }
 }
 
-/**
- * "{app} · {tool}" for a connected-app tool. A server named after the vendor
- * (`claude_ai_Notion`) reads as "Notion"; one with nothing left reads "A connected app".
- */
-function connectedAppTitle(name: string): string {
+/** A tool row's title by kind and status. A connected-app tool needs its raw `name`. */
+export function toolTitle(kind: ToolKind, status: ToolStatus, name = ''): string {
+  if (kind !== 'mcp_tool') return kindTitle(kind, status)
   const { app, tool } = appAndTool(name)
-  return tool ? `${displayServerName(app)} · ${tool}` : displayServerName(app)
-}
-
-/** The callout title for a step: running or done, by kind. A connected-app tool needs its raw `name`. */
-export function toolTitle(kind: ToolKind, done: boolean, name = ''): string {
-  if (kind === 'mcp_tool') return connectedAppTitle(name)
-  const titles = TITLES[kind]
-  return done ? titles.done : titles.running
+  return connectedAppTitle(app, tool)
 }
 
 /**
  * The approval card's question for a tool, by kind. A connected app is named only
  * when something neutral is left of its server name ("Use Notion?").
  */
-export function requestTitle(kind: ToolKind, name = ''): string {
-  if (kind !== 'mcp_tool') return REQUEST_TITLES[kind]
-  const { app } = appAndTool(name)
-  return app ? `Use ${displayServerName(app)}?` : REQUEST_TITLES.other
-}
-
-const DONE_BY_RUNNING = new Map(Object.values(TITLES).map((titles) => [titles.running, titles.done]))
-
-/** The finished form of a running title; titles with one form come back unchanged. */
-export const finishedTitle = (title: string): string => DONE_BY_RUNNING.get(title) ?? title
+export const requestTitle = (kind: ToolKind, name = ''): string =>
+  toolRequestTitle(kind, kind === 'mcp_tool' ? appAndTool(name).app : '')

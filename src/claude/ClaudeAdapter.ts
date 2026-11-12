@@ -35,15 +35,13 @@ import {
   type ProviderError,
 } from '../provider/errors'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
-import { reportTurnFailure } from '../provider/turnFailure'
+import type { TurnInput, TurnSettings } from '../provider/ProviderAdapter'
 import type {
-  AdapterEvent,
-  OpenedThread,
-  ProviderAdapter,
-  ProviderSession,
-  TurnInput,
-  TurnSettings,
-} from '../provider/ProviderAdapter'
+  LegacyAdapterEvent as AdapterEvent,
+  LegacyOpenedThread as OpenedThread,
+  LegacyProviderAdapter as ProviderAdapter,
+  LegacyProviderSession as ProviderSession,
+} from '../provider/legacyEvents'
 import { CAPABILITIES, type Block, type DocSummary } from '../shared/model'
 import {
   askedQuestions,
@@ -404,9 +402,8 @@ export function make(
               live.turn = false
               const failure = live.stopping ? undefined : emission.failure
               live.stopping = false
-              // The page gets Docs' sentence and a report id; the provider's text goes to the log.
-              const error = failure ? yield* reportTurnFailure('claude', failure) : undefined
-              yield* emit({ type: 'turnEnded', threadId: live.threadId, ...(error ? { error } : {}) })
+              // Classed here; the session manager words it and logs the provider's text.
+              yield* emit({ type: 'turnEnded', threadId: live.threadId, ...(failure ? { failure } : {}) })
             }
           }
         })

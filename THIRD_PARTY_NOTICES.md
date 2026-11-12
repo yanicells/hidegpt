@@ -138,6 +138,15 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     code, signing only when asked and dropping empty signing variables, and the
     sandboxed preload check, from `scripts/build-desktop-artifact.ts` and
     `apps/desktop/scripts/verify-preload-bundle.mjs` (commit 5c6f2f12).
+  - The canonical turn contract (commit 5c6f2f12): `src/provider/events.ts`,
+    the terminal event and typed items after
+    `packages/provider-core/src/server/ProviderAdapter.ts` and the failure
+    classes of `packages/contracts/src/orchestrationV2.ts`;
+    `src/provider/failure.ts`, redaction and bounding from
+    `packages/provider-core/src/server/failure.ts`; and
+    `src/provider/turnTracker.ts`, the pending-turn registration (`pendingRootTurns`,
+    `registerRootTurn`) from
+    `apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts`.
   - `src/main/loginShellPath.ts`: reading PATH from the login shell between
     markers (`-ilc`, a detached probe with a timeout, clearing a DEBUG trap),
     trying the shell candidates in order, merging it ahead of the inherited

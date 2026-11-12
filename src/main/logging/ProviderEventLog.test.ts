@@ -10,6 +10,7 @@ import * as Stream from 'effect/Stream'
 
 import * as CodexAdapter from '../../codex/CodexAdapter'
 import { makeFakeCodex } from '../../codex/FakeCodex'
+import { fromLegacy } from '../../provider/legacyEvents'
 import { layerAdapters } from '../ProviderRegistry'
 import * as Manager from '../ProviderSessionManager'
 import { describeEvent, layer } from './ProviderEventLog'
@@ -22,7 +23,7 @@ describe('ProviderEventLog', () => {
       yield* Effect.gen(function* () {
         const peer = makeFakeCodex({ reply: () => 'Answer-7c1e chlorophyll absorbs red light.' })
         const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
-          Effect.provide(layerAdapters({ codex: CodexAdapter.make(peer.connect) })),
+          Effect.provide(layerAdapters({ codex: fromLegacy(CodexAdapter.make(peer.connect)) })),
         )
         yield* manager.start('codex')
         yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
@@ -39,8 +40,8 @@ describe('ProviderEventLog', () => {
         .trim()
         .split('\n')
         .map((line) => JSON.parse(line).type)
-      expect(types).toEqual(expect.arrayContaining(['turnStarted', 'block', 'turnEnded']))
-      expect(types).not.toContain('text')
+      expect(types).toEqual(expect.arrayContaining(['turn.started', 'item.upserted', 'turn.ended']))
+      expect(types).not.toContain('item.delta')
       expect(log).not.toContain('Prompt-4b9d')
       expect(log).not.toContain('Answer-7c1e')
     }).pipe(Effect.provide(NodeServices.layer)),
@@ -51,15 +52,23 @@ describe('ProviderEventLog', () => {
       type: 'loginUrl',
       pending: true,
     })
-    expect(describeEvent({ type: 'title', threadId: 't1', title: 'My private essay' })).toEqual({
-      type: 'title',
+    expect(describeEvent({ type: 'thread.renamed', threadId: 't1', title: 'My private essay' })).toEqual({
+      type: 'thread.renamed',
       threadId: 't1',
     })
     // A provider can quote what was sent in its error ("invalid input: <prompt>").
-    expect(describeEvent({ type: 'turnEnded', threadId: 't1', error: 'invalid input: my essay' })).toEqual({
-      type: 'turnEnded',
+    const failure = {
+      class: 'validation_error',
+      detail: 'invalid input: my essay',
+      retryable: false,
+      resetAt: null,
+    } as const
+    expect(describeEvent({ type: 'turn.ended', threadId: 't1', turnId: 'turn-1', status: 'failed', failure })).toEqual({
+      type: 'turn.ended',
       threadId: 't1',
-      failed: true,
+      turnId: 'turn-1',
+      status: 'failed',
+      failureClass: 'validation_error',
     })
     expect(describeEvent({ type: 'notice', message: 'Could not read my essay' })).toEqual({ type: 'notice' })
   })

@@ -9,14 +9,17 @@ import * as Effect from 'effect/Effect'
 import * as Exit from 'effect/Exit'
 import * as Fiber from 'effect/Fiber'
 import * as Logger from 'effect/Logger'
-import * as References from 'effect/References'
 import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import { DEFECT_MESSAGE } from '../provider/errors'
-import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
+import type {
+  LegacyAdapterEvent as AdapterEvent,
+  LegacyProviderSession as ProviderSession,
+} from '../provider/legacyEvents'
+import { stealthViolations } from '../shared/stealth'
 import * as ClaudeAdapter from './ClaudeAdapter'
 import {
   assistantFrame,
@@ -201,31 +204,29 @@ describe('ClaudeAdapter', () => {
     }),
   )
 
-  it.effect('reports a failed result in Docs words with a report id, and logs the provider text', () =>
+  it.effect('ends a failed turn with its class, and the provider text only as the redacted detail', () =>
     Effect.gen(function* () {
-      const logged: Array<Record<string, unknown>> = []
-      const capture = Logger.make(({ fiber, logLevel }) => {
-        if (logLevel === 'Warn') logged.push({ ...fiber.getRef(References.CurrentLogAnnotations) })
+      const { fake, session, events } = yield* open({ reply: null })
+      yield* send(session, DOC, 'Hi')
+      yield* until(() => fake.queries[0]?.prompts.length === 1)
+      fake.queries[0]?.push(
+        resultFrame({
+          subtype: 'error_max_turns',
+          is_error: true,
+          errors: ['Claude reached max turns, see https://x.test/a?key=secret', '[ede_diagnostic] trace 42'],
+        }),
+      )
+      yield* until(() => ended(events).length === 1)
+      expect(ended(events)[0]).toEqual({
+        type: 'turnEnded',
+        threadId: DOC,
+        failure: {
+          class: 'unknown',
+          detail: 'Claude reached max turns, see https://x.test/a',
+          retryable: null,
+          resetAt: null,
+        },
       })
-      yield* Effect.gen(function* () {
-        const { fake, session, events } = yield* open({ reply: null })
-        yield* send(session, DOC, 'Hi')
-        yield* until(() => fake.queries[0]?.prompts.length === 1)
-        fake.queries[0]?.push(
-          resultFrame({
-            subtype: 'error_max_turns',
-            is_error: true,
-            errors: ['Claude reached max turns', '[ede_diagnostic] trace 42'],
-          }),
-        )
-        yield* until(() => ended(events).length === 1)
-        expect(ended(events)[0]).toMatchObject({
-          error: expect.stringMatching(/^Docs couldn't finish\. Try again\. \(Report [0-9a-f]{8}\)$/),
-        })
-      }).pipe(Effect.provide(Logger.layer([capture])))
-      expect(logged).toEqual([
-        expect.objectContaining({ provider: 'claude', failure: 'unknown', detail: 'Claude reached max turns' }),
-      ])
     }),
   )
 
@@ -383,8 +384,7 @@ describe('ClaudeAdapter', () => {
         ['Allow this step?', 'Summarize week 3'],
         ['Run this command?', `${'x'.repeat(199)}…`],
       ])
-      for (const card of cards)
-        expect(`${card.title}\n${card.body}`).not.toMatch(/claude|anthropic|openai|gpt|copilot|agent/i)
+      for (const card of cards) expect(stealthViolations(`${card.title}\n${card.body}`)).toEqual([])
     }),
   )
 

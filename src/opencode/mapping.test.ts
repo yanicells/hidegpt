@@ -1,7 +1,7 @@
 import type { PermissionRequest, ToolPart } from '@opencode-ai/sdk/v2/client'
 import { describe, expect, it } from 'vitest'
 
-import { permissionBlock, questionBlock, STEP_FAILED, toolCallout } from './mapping'
+import { permissionBlock, questionBlock, toolCallout } from './mapping'
 
 const part = (tool: string, state: Record<string, unknown>) =>
   ({ id: 'prt_1', sessionID: 's', messageID: 'm', type: 'tool', callID: 'c', tool, state }) as unknown as ToolPart
@@ -56,7 +56,7 @@ describe('toolCallout', () => {
     expect(toolCallout(completed('todowrite', '[]'))).toBeNull()
   })
 
-  it('says a step is running until it finishes, and shows a fixed sentence, not the error, when it fails', () => {
+  it('says a step is running until it finishes, and that it failed without the error text', () => {
     expect(view(toolCallout(part('bash', { status: 'pending', input: {}, raw: '' })))).toEqual([
       'Running a command',
       '',
@@ -68,7 +68,7 @@ describe('toolCallout', () => {
       error: 'OpenCode: tool crashed',
       time: { start: 1, end: 2 },
     })
-    expect(view(toolCallout(failed))).toEqual(['Ran a command', STEP_FAILED])
+    expect(view(toolCallout(failed))).toEqual(['A command didn’t finish', ''])
   })
 
   it("shows a subtask's description only, never its report or session id", () => {

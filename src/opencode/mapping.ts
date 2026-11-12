@@ -18,8 +18,9 @@ import type {
   ToolPart,
 } from '@opencode-ai/sdk/v2/client'
 
-import { requestTitle, toolTitle, type ToolKind } from '../provider/toolTitles'
-import type { TurnFailure, TurnFailureKind } from '../provider/turnFailure'
+import { requestTitle, toolTitle } from '../provider/toolTitles'
+import type { Failure, FailureClass, ToolKind } from '../provider/events'
+import { failureOf } from '../provider/failure'
 import type {
   ApprovalBlock,
   Block,
@@ -192,18 +193,16 @@ function readOutput(output: string): string {
   return envelope === null ? output : envelope[1] + body.slice(envelope[0].length)
 }
 
-/** What a failed or stopped step says, instead of the tool's own error text. */
-export const STEP_FAILED = "This step didn't finish."
-
 /**
  * A tool part as a callout, or null for a tool the page does not show. A pending or
- * running step says so and shows nothing yet; a finished one shows its output.
+ * running step says so and shows nothing yet; a finished one shows its output, and a
+ * failed one says so, never with the tool's own error text.
  */
 export function toolCallout(part: ToolPart): CalloutBlock | null {
   const kind = toolKind(part.tool)
   if (!kind) return null
   const state = part.state
-  const done = state.status === 'completed' || state.status === 'error'
+  const status = state.status === 'completed' ? 'completed' : state.status === 'error' ? 'failed' : 'running'
   // A subtask's output is its whole report, with OpenCode's `<task_metadata>` session id.
   const output =
     state.status !== 'completed' || kind === 'subagent'
@@ -211,8 +210,7 @@ export function toolCallout(part: ToolPart): CalloutBlock | null {
       : kind === 'file_read'
         ? readOutput(state.output)
         : state.output
-  const body = state.status === 'error' ? STEP_FAILED : output.slice(0, 2000)
-  return { kind: 'callout', id: part.id, title: toolTitle(kind, done, part.tool), body }
+  return { kind: 'callout', id: part.id, title: toolTitle(kind, status, part.tool), body: output.slice(0, 2000) }
 }
 
 export function blocksFromMessages(messages: ReadonlyArray<MessageWithParts>): Block[] {
@@ -367,7 +365,7 @@ function readableProviderError(error: ProviderErrorPayload): string {
  * The class of a session error, from its name and HTTP status: a 429 is a usage
  * limit, as in T3 Code (packages/provider-opencode/src/server/adapter.ts, `session.error`).
  */
-function providerFailureKind(error: ProviderErrorPayload): TurnFailureKind {
+function providerFailureClass(error: ProviderErrorPayload): FailureClass {
   if (!error) return 'unknown'
   const status = errorData(error).statusCode
   if (error.name === 'ProviderAuthError' || status === 401 || status === 403) return 'auth'
@@ -377,8 +375,6 @@ function providerFailureKind(error: ProviderErrorPayload): TurnFailureKind {
   return 'unknown'
 }
 
-/** Why a session failed: a class Docs words itself, with the provider's text for the log. */
-export const providerFailure = (error: ProviderErrorPayload): TurnFailure => ({
-  kind: providerFailureKind(error),
-  detail: readableProviderError(error),
-})
+/** Why a session failed: a class Docs words itself, with the provider's text (redacted) for the log. */
+export const providerFailure = (error: ProviderErrorPayload): Failure =>
+  failureOf(providerFailureClass(error), readableProviderError(error))
