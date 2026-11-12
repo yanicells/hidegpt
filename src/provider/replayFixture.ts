@@ -90,12 +90,26 @@ const OTHER_HOME = /\/(?:Users|home)\/(?!replay-user\b)[^\s"'/\\]+/g
 /** Shorter names would match inside ordinary words. */
 const MIN_NAME = 3
 
-/** Each name as a whole word in any case, longest first so a hostname goes before its short form. */
-function namePatterns(machine: Pick<RecordingMachine, 'people' | 'hosts'>): ReadonlyArray<readonly [RegExp, string]> {
+/** The words of every placeholder; see `namePatterns`. */
+const placeholderWords = (scratch: RecordingMachine['scratch']) =>
+  new Set(
+    [REPLAY_HOME, REPLAY_USER, REPLAY_HOST, REPLAY_EMAIL, REDACTED, ...scratch.map(([, placeholder]) => placeholder)]
+      .flatMap((placeholder) => placeholder.toLowerCase().split(/[^a-z0-9]+/))
+      .filter(Boolean),
+  )
+
+/**
+ * Each name as a whole word in any case, longest first so a hostname goes before
+ * its short form. A name that is itself a placeholder word (an account called
+ * "user", a git name with "Example") is left out: it would match every
+ * placeholder, so no recording could pass.
+ */
+function namePatterns(machine: Pick<RecordingMachine, 'people' | 'hosts' | 'scratch'>): ReadonlyArray<readonly [RegExp, string]> {
+  const reserved = placeholderWords(machine.scratch)
   const named: ReadonlyArray<readonly [string, string]> = [
     ...machine.hosts.map((name) => [name.trim(), REPLAY_HOST] as const),
     ...machine.people.map((name) => [name.trim(), REPLAY_USER] as const),
-  ].filter(([name]) => name.length >= MIN_NAME && name.toLowerCase() !== 'localhost')
+  ].filter(([name]) => name.length >= MIN_NAME && name.toLowerCase() !== 'localhost' && !reserved.has(name.toLowerCase()))
   // Patterns ignore case, so one per name in any case.
   const unique = [...new Map(named.map((entry) => [entry[0].toLowerCase(), entry])).values()]
   return unique
@@ -129,10 +143,10 @@ export function scrub(value: unknown, machine: RecordingMachine, key?: string): 
 
 /**
  * What must never appear in a committed fixture: everything `scrub` replaces.
- * Returns the offending matches; the fixture test runs it over every file, and
- * recorders refuse to write a transcript that fails it.
+ * Returns the offending matches. Recorders refuse to write a transcript that
+ * fails it; the fixture test runs the machine-independent part over every file.
  */
-export function leaks(text: string, machine: Omit<RecordingMachine, 'scratch'>): ReadonlyArray<string> {
+export function leaks(text: string, machine: RecordingMachine): ReadonlyArray<string> {
   const found = [
     ...[...text.matchAll(EMAIL)].map((match) => match[0]).filter((email) => email !== REPLAY_EMAIL),
     ...[...text.matchAll(TOKEN)].map((match) => match[0]),
@@ -144,7 +158,7 @@ export function leaks(text: string, machine: Omit<RecordingMachine, 'scratch'>):
   return found
 }
 
-/** The machine this process runs on, for recorders and the committed-fixture check. */
+/** The machine this process runs on, for recorders. */
 export function thisMachine(scratch: RecordingMachine['scratch'] = []): RecordingMachine {
   const run = (command: string, args: ReadonlyArray<string>) => {
     try {
