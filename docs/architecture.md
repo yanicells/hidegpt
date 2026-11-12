@@ -159,6 +159,7 @@ type SnapshotPatch = {
 
 - `session-bridge.ts` is the store over the preload. `dispatch` returns the command's `CommandResult` and never throws. A failure shows on the banner until it is dismissed or a later command succeeds; `request` is the same without the banner, for callers that show the error themselves.
 - Errors never replace the page. Library and command errors sit on a dismissible banner with Refresh.
+- Render errors stay small (`components/layout/RenderErrorBoundary.tsx`, from T3). A block that throws shows "This part of the document couldn't be displayed." in its row, and its next version tries again. A throw anywhere else shows a plain "Something went wrong" page with Reload.
 - `components/home/` and `components/document/` render the snapshot. The UI branches on `capabilities`, never on provider names.
 
 ### Streaming stays cheap at any length
@@ -173,6 +174,12 @@ A streamed delta should cost the same at 300 turns as at 3. Each rule below remo
 - **Markdown parses once.** `markdownRenderer.ts` (from T3) freezes one unified processor and keeps an LRU of rendered elements of about 500k characters. `splitMarkdownBlocks` (from T3) cuts an answer at closed blocks, so streaming re-parses only the last one, and reopening a document parses nothing. Syntax that ties blocks together (definitions, footnotes, raw HTML) keeps an answer whole, but only outside code fences.
 - **Markdown loads after Home.** The Markdown stack is its own chunk (`loadMarkdown.ts`), fetched once the page is idle. An answer shows as plain text for the frame before it arrives.
 - **No client-side reveal.** Main already batches text into 32 ms frames (§6), and T3 Code doesn't reveal text on the client either.
+
+### The window (`src/main/window.ts`)
+
+- A crashed or killed renderer reloads, at most 3 times a minute per window (T3's `DesktopWindow`); the reload's `did-finish-load` resyncs the snapshot. A renderer unresponsive for 15 s is killed, so it reloads the same way.
+- Every permission is denied except clipboard writes (copying a document link).
+- `docs://app` sends the CSP as a header as well as `index.html`'s meta tag. `docs://local` serves only images under `userData/images` (pasted) and images in the open document's questions; anything else gets 403.
 
 ## 8. Rules that don't change
 
