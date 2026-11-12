@@ -13,6 +13,7 @@ import {
   layer,
   parseProcessTable,
   ProcessLedger,
+  run,
   startOf,
   type LedgerEntry,
   type LedgerOptions,
@@ -118,6 +119,31 @@ describe('ProcessLedger', () => {
     expect(parseProcessTable('  123     1    45 Thu Nov  5 14:39:47 2026\n')).toEqual([
       { pid: 123, ppid: 1, pgid: 45, started: Date.UTC(2026, 10, 5, 14, 39, 47), command: '' },
     ])
+  })
+
+  it.live('gives up on a command that ignores SIGTERM and holds its output open, and kills it', () => {
+    const files = mkdtempSync(join(dir, 'case-'))
+    const shell = join(files, 'shell')
+    const held = join(files, 'held')
+    // The shell ignores SIGTERM and waits on a background sleep that shares its stdout.
+    const script = `sleep 30 & echo $! > ${held}; echo $$ > ${shell}; trap '' TERM; wait`
+    // The sleep goes last: while it runs, only a kill can end the shell.
+    const killHolder = Effect.sync(() => {
+      try {
+        process.kill(Number(readFileSync(held, 'utf8')), 'SIGKILL')
+      } catch {
+        // already gone, or never started
+      }
+    })
+    return Effect.gen(function* () {
+      const at = Date.now()
+      const out = yield* run('/bin/sh', ['-c', script], 500)
+      expect(Option.isNone(out)).toBe(true)
+      expect(Date.now() - at).toBeLessThan(1_500)
+      const pid = Number(readFileSync(shell, 'utf8'))
+      for (let i = 0; i < 50 && alive(pid); i += 1) yield* Effect.sleep('20 millis')
+      expect(alive(pid)).toBe(false)
+    }).pipe(Effect.ensuring(killHolder))
   })
 
   it.effect('records start times as epoch ms, the same in every timezone', () =>
