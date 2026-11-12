@@ -48,6 +48,10 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     `packages/provider-opencode/src/server/adapter.ts`; and reading the
     server's "listening" line (`parseServerUrl`, from
     `packages/provider-opencode/src/server/OpenCodeRuntime.ts`) (commit 8a14762c).
+    Also finding a subagent request's document through the server
+    (`resolveRoot` and `routeRequest`, from `resolveSessionOwner` and
+    `routeRuntimeRequest`) and stopping subagent sessions on Stop
+    (`abortDescendants`), from the same `adapter.ts` (commit 5c6f2f12).
   - `src/opencode/mapping.ts`: `readableProviderError`, from
     `packages/provider-opencode/src/server/providerErrorMessage.ts` (commit 8a14762c).
   - `src/claude/ClaudeAdapter.ts`: the streaming-input query per document, the
