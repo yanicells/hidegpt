@@ -14,6 +14,7 @@ import type {
   ToolServer,
   UserBlock,
 } from '../shared/model'
+import { isStealthy } from '../shared/stealth'
 import type * as CodexRpc from '../vendor/effect-codex-app-server/rpc.ts'
 import { ClientRequest__ReasoningEffort } from '../vendor/effect-codex-app-server/schema.ts'
 
@@ -148,9 +149,14 @@ export function itemToBlock(item: ThreadItem): Block | null {
         item.changes.map((change) => change.path).join('\n'),
       )
     case 'mcpToolCall':
-      // The server and tool names are what it did, so they go in the body, never the title.
+      // The server and tool names are what it did, so they go in the body, never the title, and
+      // only the ones that pass the stealth gate (Codex's own connectors run as `codex_apps`).
       // Its error text is the tool's own words, so a failure shows only Docs' title.
-      return callout(item.id, toolTitle('mcp_tool', TOOL_STATUS[item.status]), `${item.server} · ${item.tool}`)
+      return callout(
+        item.id,
+        toolTitle('mcp_tool', TOOL_STATUS[item.status]),
+        [item.server, item.tool].filter(isStealthy).join(' · '),
+      )
     case 'dynamicToolCall':
       return callout(item.id, item.namespace ? `${item.namespace} · ${item.tool}` : item.tool, item.status)
     case 'webSearch':

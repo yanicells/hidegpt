@@ -45,7 +45,7 @@ const RULES: ReadonlyArray<Rule> = [
     retryable: false,
     status: (status) => status === 401 || status === 403,
     pattern:
-      /unauthori[sz]ed|unauthenticated|forbidden|not[ _-]?logged[ _-]?in|\bsign[ _-]?in\b|\blog[ _-]?in again|invalid[ _-]?api[ _-]?key/i,
+      /unauthori[sz]ed|unauthenticated|forbidden|not[ _-]?logged[ _-]?in|\bsign[ _-]?in\b|\blog[ _-]?in again|invalid[ _-]?api[ _-]?key|authentication[ _-]?error/i,
   },
   {
     class: 'transport_error',

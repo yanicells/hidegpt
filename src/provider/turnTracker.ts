@@ -32,8 +32,11 @@ export interface TurnTracker {
    * first. Idempotent. Without `turnId` (a notification), a thread with no open turn adopts
    * one (a turn started elsewhere), unless `nativeTurnId` names a turn that already ended
    * here. With it (the start response, which knows its turn), only that turn is confirmed,
-   * and its `nativeTurnId` is the one that counts. If that turn already closed, the id is
-   * remembered as ended, so the turn's later events can't come back as the next turn's.
+   * and its `nativeTurnId` is the one that counts, even over an id remembered as ended. If
+   * that turn already closed, the id is remembered as ended, so the turn's later events can't
+   * come back as the next turn's. That covers only the response arriving first: a closed
+   * turn's start notification that beats its response is still adopted by the next turn.
+   * ARCH-4a closes that, since its items and terminals carry the native id.
    */
   readonly started: (threadId: string, nativeTurnId: string | null, turnId?: TurnId) => Effect.Effect<void>
   /**
@@ -104,6 +107,11 @@ export const makeTurnTracker = (options: TurnTrackerOptions): Effect.Effect<Turn
     const ended = new Map<string, ReadonlyArray<string>>()
     const remember = (threadId: string, nativeTurnId: string) =>
       void ended.set(threadId, [...(ended.get(threadId) ?? []), nativeTurnId].slice(-ENDED_MEMORY))
+    const unremember = (threadId: string, nativeTurnId: string) =>
+      void ended.set(
+        threadId,
+        (ended.get(threadId) ?? []).filter((id) => id !== nativeTurnId),
+      )
     const hasEnded = (threadId: string, nativeTurnId: string | null | undefined) =>
       nativeTurnId != null && (ended.get(threadId)?.includes(nativeTurnId) ?? false)
     const dropped = (what: string, threadId: string) =>
@@ -203,7 +211,11 @@ export const makeTurnTracker = (options: TurnTrackerOptions): Effect.Effect<Turn
                 if (nativeTurnId !== null && !hasEnded(threadId, nativeTurnId)) remember(threadId, nativeTurnId)
                 return Effect.void
               }
-              if (nativeTurnId !== null) turn.nativeTurnId = nativeTurnId
+              if (nativeTurnId !== null) {
+                // The response is authoritative: an id it names is this turn's, even if remembered as ended.
+                unremember(threadId, nativeTurnId)
+                turn.nativeTurnId = nativeTurnId
+              }
             } else if (hasEnded(threadId, nativeTurnId)) {
               return dropped('start', threadId)
             }
