@@ -7,6 +7,7 @@ import * as NodeServices from '@effect/platform-node/NodeServices'
 import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
 import * as Option from 'effect/Option'
+import * as TestClock from 'effect/testing/TestClock'
 
 import {
   layer,
@@ -254,6 +255,27 @@ describe('ProcessLedger', () => {
           for (let i = 0; i < 50 && alive(daemon); i += 1) yield* Effect.sleep('20 millis')
           expect(alive(daemon)).toBe(false)
           expect(onDisk(path)).toEqual({})
+        }),
+      )
+    }),
+  )
+
+  it.effect('reads a new entry’s tree within 5 s of its record', () =>
+    Effect.gen(function* () {
+      const leader = sleeper()
+      let reads = 0
+      const table = fakeTable(
+        () => [],
+        () => Effect.sync(() => void (reads += 1)),
+      )
+      yield* withLedger(freshPath(), { processTable: table }, (ledger) =>
+        Effect.gen(function* () {
+          // The record lands while the tracking loop is part-way through its wait.
+          yield* TestClock.adjust('3 seconds')
+          yield* ledger.record(leader, '/bin/sleep', '30')
+          expect(reads).toBe(0)
+          yield* TestClock.adjust('5 seconds')
+          expect(reads).toBeGreaterThan(0)
         }),
       )
     }),
