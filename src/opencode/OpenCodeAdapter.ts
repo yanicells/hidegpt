@@ -85,8 +85,13 @@ export const WATCHDOG = Duration.seconds(30)
 /** Quick re-subscribes before giving up and restarting the server. Resets once events flow again. */
 const RESUBSCRIBE = Schedule.exponential('250 millis').pipe(Schedule.upTo({ times: 5 }))
 const SERVER_READY = 20
-/** How far up a subagent's parents `resolveRoot` asks the server, and how long each lookup may take. */
+/** How far up a subagent's parents `resolveRoot` asks the server. */
 const ROUTE_HOPS = 5
+/**
+ * Each parent lookup's deadline. Lookups run inside the event loop so a request stays in order
+ * with the events around it; a stuck one therefore stalls every document's events, by design,
+ * for up to 5 s per level. T3 Code sets no deadline at all.
+ */
 const LOOKUP_SECONDS = 5
 /** Retries for a request whose document is still unknown: 200 ms doubling to 2 s, about 5 s in all. */
 const ROUTE_RETRIES = 5
@@ -227,6 +232,8 @@ export function make(connect: Connect): ProviderAdapter {
       // used here to start each turn once. OpenCode repeats busy and retry during a turn.
       const busy = new Set<string>()
       const approvals = new Map<string, PendingApproval>()
+      /** Requests whose document is still being looked up in the background; none is on screen yet. */
+      const routing = new Set<string>()
       /** Requests Docs answered itself; their `replied` event is not news. */
       const answered = new Set<string>()
       const skillBodies = new Map<string, { location: string; content: string }>()
@@ -274,8 +281,9 @@ export function make(connect: Connect): ProviderAdapter {
       /**
        * Shows a permission or question on its document. The lookup runs before the block is
        * emitted, so it stays in order with the events around it. A subagent's session can be
-       * unknown for a moment after its first request: retry with backoff in the background, and
-       * in the end show it under its own session. A request settled meanwhile is not shown.
+       * unknown for a moment after its first request: retry with backoff in the background, and in
+       * the end give up, as T3 does (the document still shows it when it next opens, from
+       * `pendingFor`). A request settled meanwhile is not shown.
        * Adapted from T3 Code (packages/provider-opencode/src/server/adapter.ts, routeRuntimeRequest) at commit 5c6f2f12.
        * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
        */
@@ -287,12 +295,19 @@ export function make(connect: Connect): ProviderAdapter {
             yield* Effect.sleep(Duration.millis(Math.min(200 * 2 ** attempt, 2_000)))
             if (!approvals.has(block.id)) return
             const root = yield* resolveRoot(sessionId, directory)
-            if (root) return yield* show(root)
+            if (root) {
+              // Shown from here on, so a later answer resolves it.
+              routing.delete(block.id)
+              return yield* show(root)
+            }
           }
-          yield* show(sessionId)
-        })
+        }).pipe(Effect.ensuring(Effect.sync(() => routing.delete(block.id))))
         return resolveRoot(sessionId, directory).pipe(
-          Effect.flatMap((root) => (root ? show(root) : retry.pipe(logDefects, Effect.forkIn(scope), Effect.asVoid))),
+          Effect.flatMap((root) => {
+            if (root) return show(root)
+            routing.add(block.id)
+            return retry.pipe(logDefects, Effect.forkIn(scope), Effect.asVoid)
+          }),
         )
       }
 
@@ -539,7 +554,8 @@ export function make(connect: Connect): ProviderAdapter {
         const blockId = permissionBlockId(requestID)
         const pending = approvals.get(blockId)
         approvals.delete(blockId)
-        if (answered.delete(requestID) || !pending) return Effect.void
+        // A request still being routed was never shown: nothing to resolve, and no lookup needed.
+        if (answered.delete(requestID) || !pending || routing.has(blockId)) return Effect.void
         return resolveRoot(pending.sessionId).pipe(
           Effect.flatMap((root) => emit({ type: 'resolved', threadId: root ?? pending.sessionId, blockId, resolved })),
         )

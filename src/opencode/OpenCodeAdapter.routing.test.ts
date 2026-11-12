@@ -4,7 +4,14 @@ import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
 import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
-import { agentMessage, makeFakeOpenCode, stubSession, userMessage, type FakeOpenCodeOptions } from './FakeOpenCode'
+import {
+  agentMessage,
+  makeFakeOpenCode,
+  stubSession,
+  userMessage,
+  type FakeOpenCode,
+  type FakeOpenCodeOptions,
+} from './FakeOpenCode'
 import * as OpenCodeAdapter from './OpenCodeAdapter'
 
 /**
@@ -63,6 +70,8 @@ const permission = (id: string, sessionID = SESSION) => ({
   always: [],
 })
 
+const replied = (requestID: string, sessionID: string) => ({ sessionID, requestID, reply: 'once' as const })
+
 describe('OpenCodeAdapter subagent routing', () => {
   it.effect("restores a subagent's approval that was waiting when the document opens", () =>
     Effect.gen(function* () {
@@ -85,10 +94,16 @@ describe('OpenCodeAdapter subagent routing', () => {
       // Under the child's id the manager would drop it (no runtime), and the turn would wait forever.
       expect(approvals(events)[0]).toMatchObject({ threadId: SESSION })
 
-      // The lookup is remembered, and its answer reaches the same document.
+      // Answered elsewhere (the TUI): the card on the same document resolves, from the remembered lookup.
       const lookups = () => fake.requests.filter((request) => request.path.startsWith('/session/ses_')).length
       const before = lookups()
-      yield* session.respond(SESSION, 'approval-per_live', { accept: true, answers: {} })
+      fake.push({ id: 'evt_r', type: 'permission.replied', properties: replied('per_live', CHILD) })
+      yield* until(() => events.some((event) => event.type === 'resolved'))
+      expect(events.find((event) => event.type === 'resolved')).toMatchObject({
+        threadId: SESSION,
+        blockId: 'approval-per_live',
+        resolved: 'accepted',
+      })
       fake.permissions.push(permission('per_again', CHILD))
       fake.push({ id: 'evt_p2', type: 'permission.asked', properties: permission('per_again', CHILD) })
       yield* until(() => approvals(events).length === 2)
@@ -129,6 +144,52 @@ describe('OpenCodeAdapter subagent routing', () => {
     }),
   )
 
+  it.effect('shows nothing for a request answered while its document is still being looked up', () =>
+    Effect.gen(function* () {
+      const { fake, session, events } = yield* open()
+      yield* session.openThread(SESSION)
+      const gets = () => fake.requests.filter((request) => request.path === `/session/${CHILD}`).length
+      fake.permissions.push(permission('per_gone', CHILD))
+      fake.push({ id: 'evt_p', type: 'permission.asked', properties: permission('per_gone', CHILD) })
+      yield* until(() => gets() === 1)
+      fake.push({ id: 'evt_r', type: 'permission.replied', properties: replied('per_gone', CHILD) })
+      yield* settle
+
+      // Even once the server could answer, the retries neither look it up again nor show it.
+      fake.sessions.push(child)
+      yield* TestClock.adjust('10 seconds')
+      yield* settle
+      expect(approvals(events)).toEqual([])
+      expect(events.filter((event) => event.type === 'resolved')).toEqual([])
+      expect(gets()).toBe(1)
+    }),
+  )
+
+  it.effect('shows nothing for a request answered during its retried lookup', () =>
+    Effect.gen(function* () {
+      let fake: FakeOpenCode | undefined
+      let lookups = 0
+      // The second lookup (the first retry) is answered only after the request was settled elsewhere.
+      const hold = async (method: string, path: string) => {
+        if (method !== 'GET' || path !== `/session/${CHILD}` || !fake || (lookups += 1) !== 2) return
+        fake.push({ id: 'evt_r', type: 'permission.replied', properties: replied('per_race', CHILD) })
+        for (let i = 0; i < 20; i += 1) await new Promise<void>((resolve) => setImmediate(resolve))
+      }
+      const opened = yield* open({ hold })
+      fake = opened.fake
+      yield* opened.session.openThread(SESSION)
+      fake.permissions.push(permission('per_race', CHILD))
+      fake.push({ id: 'evt_p', type: 'permission.asked', properties: permission('per_race', CHILD) })
+      yield* until(() => lookups === 1)
+      fake.sessions.push(child)
+      yield* TestClock.adjust('200 millis')
+      yield* until(() => lookups === 2)
+      yield* settle
+      expect(approvals(opened.events)).toEqual([])
+      expect(opened.events.filter((event) => event.type === 'resolved')).toEqual([])
+    }),
+  )
+
   it.effect('stops the subagents of a turn it stops', () =>
     Effect.gen(function* () {
       const { fake, session, events } = yield* open(WITH_CHILDREN)
@@ -146,6 +207,22 @@ describe('OpenCodeAdapter subagent routing', () => {
       ])
       expect(fake.status[CHILD]).toEqual({ type: 'idle' })
       expect(fake.status[GRANDCHILD]).toEqual({ type: 'idle' })
+    }),
+  )
+
+  it.effect('still stops when a subagent session is gone mid-walk', () =>
+    Effect.gen(function* () {
+      let fake: FakeOpenCode | undefined
+      // The server deletes the subagent just before listing its children, so that request is a 404.
+      const hold = (method: string, path: string) => {
+        if (method !== 'GET' || path !== `/session/${CHILD}/children` || !fake) return
+        fake.sessions.splice(fake.sessions.indexOf(child), 1)
+      }
+      const opened = yield* open({ ...WITH_CHILDREN, hold })
+      fake = opened.fake
+      yield* opened.session.openThread(SESSION)
+      yield* opened.session.interrupt(SESSION)
+      expect(fake.requests.filter((request) => request.path === `/session/${CHILD}/abort`)).toHaveLength(1)
     }),
   )
 })
