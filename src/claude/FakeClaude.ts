@@ -48,7 +48,12 @@ export type FakeQuery = {
   /** Claude Code exits: the frame stream ends, with or without an error. */
   readonly exit: (error?: Error) => void
   /** Calls the `canUseTool` callback Docs passed, as Claude Code does before a tool runs. */
-  readonly askTool: (tool: string, input: Record<string, unknown>, toolUseID: string) => { result: ReturnType<CanUseTool>; abort: () => void }
+  readonly askTool: (
+    tool: string,
+    input: Record<string, unknown>,
+    toolUseID: string,
+    prompt?: { title?: string; displayName?: string; description?: string; decisionReason?: string },
+  ) => { result: ReturnType<CanUseTool>; abort: () => void }
 }
 
 export type FakeClaude = {
@@ -173,11 +178,11 @@ export function makeFakeClaude(options: FakeClaudeOptions = {}): FakeClaude {
         answering?.stop()
         frames.end(error)
       },
-      askTool: (tool, input, toolUseID) => {
+      askTool: (tool, input, toolUseID, prompt) => {
         const abort = new AbortController()
         const canUseTool = queryOptions.canUseTool
         if (!canUseTool) throw new Error('Docs passed no canUseTool')
-        return { result: canUseTool(tool, input, { signal: abort.signal, toolUseID, requestId: toolUseID }), abort: () => abort.abort() }
+        return { result: canUseTool(tool, input, { ...prompt, signal: abort.signal, toolUseID, requestId: toolUseID }), abort: () => abort.abort() }
       },
     }
     queries.push(fake)

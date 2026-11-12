@@ -59,12 +59,23 @@ const MainLayer = managerLayer({
 const runtime = ManagedRuntime.make(MainLayer)
 /** Where a quit is: `waiting` while scopes close and providers stop, then `allowed` for the real quit. */
 let quitPhase: 'running' | 'waiting' | 'allowed' = 'running'
+/** The code Docs exits with once shutdown ends; a failed screenshot walk sets 1. */
+let exitCode = 0
 
 const decodeFailed: CommandResult = { ok: false, error: 'Docs could not read that request.' }
 
 /** The app: IPC, the window, the menu, and the first library's connection. Runs until quit. */
 const program = Effect.gen(function* () {
   yield* Effect.promise(() => app.whenReady())
+  const shots = process.env.HIDEGPT_SCREENSHOT
+  // The walk drives the demo library; against real providers it would open real documents,
+  // so a screenshot run without the fakes fails at once instead of carrying on as the real app.
+  if (shots && !demo) {
+    console.error('HIDEGPT_SCREENSHOT needs HIDEGPT_FAKE=1.')
+    exitCode = 1
+    app.quit()
+    return
+  }
   registerDocsProtocol()
   const supervisor = yield* ProcessSupervisor.ProcessSupervisor
   const reaped = yield* supervisor.reapOrphans
@@ -151,14 +162,13 @@ const program = Effect.gen(function* () {
   })
 
   yield* manager.start('codex')
-  const shots = process.env.HIDEGPT_SCREENSHOT
   if (shots) {
     // A failed step still quits, with the reason on stderr, so a run never hangs.
     yield* captureScreenshots(win, manager, shots).pipe(
       Effect.catchCause((cause) =>
         Effect.sync(() => {
           console.error('Screenshots failed:', cause)
-          process.exitCode = 1
+          exitCode = 1
         }),
       ),
     )
@@ -200,7 +210,7 @@ app.on('before-quit', (event) => {
   quitPhase = 'waiting'
   const stalled = setTimeout(() => {
     console.error('Docs did not shut down in time; exiting without it.')
-    app.exit(0)
+    app.exit(exitCode)
   }, SHUTDOWN_DEADLINE_MS)
   void runtime
     .runPromise(Fiber.interrupt(main))
@@ -209,6 +219,9 @@ app.on('before-quit', (event) => {
     .finally(() => {
       clearTimeout(stalled)
       quitPhase = 'allowed'
-      app.quit()
+      // Electron ignores process.exitCode, so a failed run exits explicitly; a normal
+      // quit goes through app.quit so windows still close the usual way.
+      if (exitCode === 0) app.quit()
+      else app.exit(exitCode)
     })
 })

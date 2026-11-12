@@ -164,6 +164,17 @@ describe('ProviderSessionManager', () => {
     }),
   )
 
+  it.effect('files a new document where the renderer says, else in the default place, never beside the open one', () =>
+    Effect.gen(function* () {
+      const { peer, manager } = yield* setup()
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* manager.dispatch({ op: 'newDocument', projectId: null })
+      yield* manager.dispatch({ op: 'newDocument', projectId: 'course', cwd: '/tmp/course' })
+      const cwds = peer.calls.filter((call) => call.method === 'thread/start').map((call) => (call.params as { cwd?: string }).cwd)
+      expect(cwds).toEqual(['/tmp/docs', '/tmp/course'])
+    }),
+  )
+
   it.effect('a newer open wins over a slower one', () =>
     Effect.gen(function* () {
       const gate = yield* Deferred.make<void>()

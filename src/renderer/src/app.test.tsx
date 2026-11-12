@@ -486,6 +486,14 @@ describe('project navigation and creation', () => {
     expect(calls.find((call) => call.op === 'newDocument')).toStrictEqual({ op: 'newDocument', projectId: null })
   })
 
+  it('files a document made from inside a folder document in that folder', async () => {
+    const user = userEvent.setup()
+    const inFolder = { ...stubThread('thr_c', 'Week 3 notes', 'Week 3'), cwd: '/tmp/course/week3' }
+    const { calls } = mount({ projects: [projectFixture], threads: [inFolder], route: { kind: 'doc', threadId: 'thr_c' }, title: 'Week 3' })
+    await user.click(screen.getByLabelText('Add tab'))
+    expect(calls).toContainEqual({ op: 'newDocument', projectId: 'course', cwd: '/tmp/course' })
+  })
+
   it('searches folders in the file picker', async () => {
     const user = userEvent.setup()
     mount({ projects: [projectFixture] })
