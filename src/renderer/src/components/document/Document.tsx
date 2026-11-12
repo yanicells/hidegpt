@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useRef } from 'react'
 
 import type { Block, Snapshot } from '../../../../shared/model'
 import { dispatch, useBlocks } from '../../session-bridge'
@@ -6,6 +6,7 @@ import { BlockView } from './BlockView'
 import { Composer } from './Composer'
 import { Tabs } from './Tabs'
 import { useFollowBottom } from './useFollowBottom'
+import { useKeepPlace } from './useKeepPlace'
 import { useProgressiveRows } from './useProgressiveRows'
 
 /**
@@ -46,18 +47,7 @@ export function Document({
     askedId: newest?.kind === 'user' ? newest.id : null,
   })
 
-  // "Load earlier" adds turns above you; keep what you were reading in place.
-  const beforePrepend = useRef<{ height: number; top: number } | null>(null)
-  useLayoutEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    if (snap.loadingOlder) beforePrepend.current = { height: el.scrollHeight, top: el.scrollTop }
-    else if (beforePrepend.current) {
-      el.scrollTop = beforePrepend.current.top + el.scrollHeight - beforePrepend.current.height
-      beforePrepend.current = null
-      release()
-    }
-  }, [snap.loadingOlder, blocks.length, release])
+  useKeepPlace(scrollRef, snap.loadingOlder, release)
 
   // Blocks scrolled past may only take their real height mid-jump, so a jump settles on its
   // target when the smooth scroll ends, unless you take over first or it never moved.
