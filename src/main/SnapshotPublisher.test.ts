@@ -28,7 +28,10 @@ describe('SnapshotPublisher', () => {
 
       // Deltas arrive on separate ticks, as they do from a provider.
       for (let i = 1; i <= 200; i++) {
-        yield* SubscriptionRef.update(state, (s) => ({ ...s, blocks: [{ kind: 'agent' as const, id: 'a', text: 'word '.repeat(i) }] }))
+        yield* SubscriptionRef.update(state, (s) => ({
+          ...s,
+          blocks: [{ kind: 'agent' as const, id: 'a', text: 'word '.repeat(i) }],
+        }))
         yield* Effect.yieldNow
       }
       yield* settle
@@ -38,11 +41,17 @@ describe('SnapshotPublisher', () => {
       // The first delta went out right away; the other 199 land together a frame later, as appended text.
       expect(sent).toHaveLength(3)
       expect(sent[2]).toMatchObject({ fields: {}, blocks: { length: 1 } })
-      const appended = [sent[1], sent[2]].flatMap((patch) => patch.blocks?.append ?? []).map(([, text]) => text).join('')
+      const appended = [sent[1], sent[2]]
+        .flatMap((patch) => patch.blocks?.append ?? [])
+        .map(([, text]) => text)
+        .join('')
       expect(appended).toBe('word '.repeat(200))
 
       // Text that arrives mid-frame waits; the turn's end does not, and carries that text with it.
-      yield* SubscriptionRef.update(state, (s) => ({ ...s, blocks: [{ kind: 'agent' as const, id: 'a', text: 'word '.repeat(201) }] }))
+      yield* SubscriptionRef.update(state, (s) => ({
+        ...s,
+        blocks: [{ kind: 'agent' as const, id: 'a', text: 'word '.repeat(201) }],
+      }))
       yield* settle
       expect(sent).toHaveLength(3)
       yield* SubscriptionRef.update(state, (s) => ({ ...s, streaming: false }))
@@ -61,7 +70,9 @@ describe('SnapshotPublisher', () => {
     Effect.gen(function* () {
       const snapshot = { ...emptySnapshot(), status: 'ready' as const }
       const sent: SnapshotPatch[] = []
-      const publisher = makeSnapshotPublisher(SubscriptionRef.changes(yield* SubscriptionRef.make(snapshot)), (patch) => sent.push(patch))
+      const publisher = makeSnapshotPublisher(SubscriptionRef.changes(yield* SubscriptionRef.make(snapshot)), (patch) =>
+        sent.push(patch),
+      )
       yield* Effect.forkScoped(publisher.run)
       yield* settle
       publisher.resync()
@@ -81,7 +92,9 @@ describe('SnapshotPublisher', () => {
       }
       const state = yield* SubscriptionRef.make(start)
       const sent: Array<{ patch: SnapshotPatch; snapshot: Snapshot }> = []
-      const publisher = makeSnapshotPublisher(SubscriptionRef.changes(state), (patch, snapshot) => sent.push({ patch, snapshot }))
+      const publisher = makeSnapshotPublisher(SubscriptionRef.changes(state), (patch, snapshot) =>
+        sent.push({ patch, snapshot }),
+      )
       yield* Effect.forkScoped(publisher.run)
       yield* settle
       for (const text of ['one two ', 'one two three ']) {

@@ -50,7 +50,9 @@ export function diffSnapshot(previous: Snapshot | null, next: Snapshot): Snapsho
 
 /** Rebuilds the next Snapshot, reusing every unchanged block object. */
 export function applySnapshotPatch(previous: Snapshot, patch: SnapshotPatch): Snapshot {
-  const next = { ...previous, ...(patch.fields as Partial<Snapshot>) } as { -readonly [K in keyof Snapshot]: Snapshot[K] }
+  const next = { ...previous, ...(patch.fields as Partial<Snapshot>) } as {
+    -readonly [K in keyof Snapshot]: Snapshot[K]
+  }
   if (patch.blocks) {
     const blocks = previous.blocks.slice(0, patch.blocks.length)
     for (const [index, block] of patch.blocks.set ?? []) blocks[index] = block

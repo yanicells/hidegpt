@@ -30,7 +30,14 @@ import {
   ProviderTimeoutError,
   type ProviderError,
 } from '../provider/errors'
-import type { AdapterEvent, OpenedThread, ProviderAdapter, ProviderSession, TurnInput, TurnSettings } from '../provider/ProviderAdapter'
+import type {
+  AdapterEvent,
+  OpenedThread,
+  ProviderAdapter,
+  ProviderSession,
+  TurnInput,
+  TurnSettings,
+} from '../provider/ProviderAdapter'
 import { CAPABILITIES, type Block, type DocSummary } from '../shared/model'
 import {
   askedQuestions,
@@ -67,7 +74,10 @@ import {
  */
 
 /** The SDK functions the adapter uses; tests and demo mode pass an in-process fake. */
-export type ClaudeSdk = Pick<typeof ClaudeAgentSdk, 'query' | 'listSessions' | 'getSessionMessages' | 'getSessionInfo' | 'renameSession'>
+export type ClaudeSdk = Pick<
+  typeof ClaudeAgentSdk,
+  'query' | 'listSessions' | 'getSessionMessages' | 'getSessionInfo' | 'renameSession'
+>
 
 const provider = 'claude' as const
 const DEFAULT_DEADLINE = 30
@@ -104,6 +114,7 @@ const request = <A>(operation: string, run: () => Promise<A>, seconds = DEFAULT_
 const rejected = (operation: string, detail: string) => new ProviderRequestError({ provider, operation, detail })
 
 /** A prompt that never yields, so a probe starts Claude Code without sending anything to the model. */
+// oxlint-disable-next-line require-yield -- it must never yield
 async function* silentPrompt(signal: AbortSignal): AsyncGenerator<SDKUserMessage> {
   await new Promise<void>((resolve) => {
     if (signal.aborted) resolve()
@@ -244,7 +255,9 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             yield* Effect.forkIn(
               probe(cwd).pipe(
                 Effect.exit,
-                Effect.flatMap((exit) => Effect.sync(() => probes.delete(cwd)).pipe(Effect.andThen(Deferred.done(created, exit)))),
+                Effect.flatMap((exit) =>
+                  Effect.sync(() => probes.delete(cwd)).pipe(Effect.andThen(Deferred.done(created, exit))),
+                ),
               ),
               scope,
             )
@@ -261,7 +274,12 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
        * Adapted from T3 Code (apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts) at commit 8a14762c.
        * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
        */
-      const askPermission = (threadId: string, tool: string, input: Record<string, unknown>, options: Parameters<CanUseTool>[2]) => {
+      const askPermission = (
+        threadId: string,
+        tool: string,
+        input: Record<string, unknown>,
+        options: Parameters<CanUseTool>[2],
+      ) => {
         const id = permissionBlockId(options.toolUseID)
         return Effect.gen(function* () {
           const questions = tool === 'AskUserQuestion' ? askedQuestions(input) : null
@@ -272,7 +290,11 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
           // Claude Code withdraws the request when the turn stops.
           const withdrawn = Effect.callback<PermissionResult>((resume) => {
             const abort = () =>
-              resume(emit({ type: 'resolved', threadId, blockId: id, resolved: 'skipped' }).pipe(Effect.as(deny('Cancelled.'))))
+              resume(
+                emit({ type: 'resolved', threadId, blockId: id, resolved: 'skipped' }).pipe(
+                  Effect.as(deny('Cancelled.')),
+                ),
+              )
             if (options.signal.aborted) abort()
             else options.signal.addEventListener('abort', abort, { once: true })
             return Effect.sync(() => options.signal.removeEventListener('abort', abort))
@@ -325,16 +347,25 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
           const title = info.pendingTitle
           if (!title) return
           info.pendingTitle = null
-          yield* Effect.ignore(request('renameSession', () => sdk.renameSession(live.threadId, title, dirOption(live.threadId))))
+          yield* Effect.ignore(
+            request('renameSession', () => sdk.renameSession(live.threadId, title, dirOption(live.threadId))),
+          )
         })
 
       const onMessage = (live: Live, message: SDKMessage) =>
         Effect.gen(function* () {
           if (message.type === 'assistant') infoOf(live.threadId).saved = true
           for (const emission of readMessage(live.state, message)) {
-            if (emission.type === 'block') yield* emit({ type: 'block', threadId: live.threadId, block: emission.block })
+            if (emission.type === 'block')
+              yield* emit({ type: 'block', threadId: live.threadId, block: emission.block })
             else if (emission.type === 'text') {
-              yield* emit({ type: 'text', threadId: live.threadId, blockId: emission.blockId, delta: emission.delta, create: { kind: 'agent' } })
+              yield* emit({
+                type: 'text',
+                threadId: live.threadId,
+                blockId: emission.blockId,
+                delta: emission.delta,
+                create: { kind: 'agent' },
+              })
             } else {
               yield* afterTurn(live)
               if (!live.turn) continue
@@ -367,6 +398,8 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             if (existing) info.saved = true
           }
           const prompts = yield* Queue.unbounded<SDKUserMessage, Cause.Done>()
+          // Permission prompts run on the SDK's callback, outside this fiber, with its services.
+          const runPromise = Effect.runPromiseWith(yield* Effect.context<never>())
           const effort = settings.effort && EFFORTS.has(settings.effort) ? (settings.effort as EffortLevel) : null
           const live: Live = {
             threadId,
@@ -387,7 +420,7 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
                 ...(settings.model ? { model: settings.model } : {}),
                 ...(effort ? { effort } : {}),
                 includePartialMessages: true,
-                canUseTool: (tool, input, options) => Effect.runPromise(askPermission(threadId, tool, input, options)),
+                canUseTool: (tool, input, options) => runPromise(askPermission(threadId, tool, input, options)),
                 stderr: (data) => {
                   live.stderr = lastLine(data) ?? live.stderr
                 },
@@ -488,7 +521,10 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             if (hint?.cwd) infoOf(threadId).cwd = hint.cwd
             const known = threads.get(threadId)
             const [blocks, info] = yield* Effect.all(
-              [readHistory(threadId), request('getSessionInfo', () => sdk.getSessionInfo(threadId, dirOption(threadId)))],
+              [
+                readHistory(threadId),
+                request('getSessionInfo', () => sdk.getSessionInfo(threadId, dirOption(threadId))),
+              ],
               { concurrency: 'unbounded' },
             )
             // A document created here has no transcript until its first message.
@@ -516,7 +552,13 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             const title = options.title?.trim() || null
             threads.set(threadId, { cwd, saved: false, pendingTitle: title })
             history.set(threadId, [])
-            return { threadId, title: title ?? 'Untitled document', blocks: [], olderCursor: null, cwd } satisfies OpenedThread
+            return {
+              threadId,
+              title: title ?? 'Untitled document',
+              blocks: [],
+              olderCursor: null,
+              cwd,
+            } satisfies OpenedThread
           }),
 
         loadOlder: (threadId, cursor) =>
@@ -533,13 +575,18 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
           Effect.gen(function* () {
             const content = yield* userContent(input)
             const running = lives.get(threadId)
-            if (running?.turn) return yield* Effect.fail(rejected('send', 'Claude is still answering. Wait for it, or stop it first.'))
+            if (running?.turn)
+              return yield* Effect.fail(rejected('send', 'Claude is still answering. Wait for it, or stop it first.'))
             const live = running && !running.settled ? running : yield* startLive(threadId, settings)
             if (live === running) yield* applySettings(live, settings)
             live.turn = true
             live.turns += 1
             live.stopping = false
-            const queued = yield* Queue.offer(live.prompts, { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null })
+            const queued = yield* Queue.offer(live.prompts, {
+              type: 'user',
+              message: { role: 'user', content },
+              parent_tool_use_id: null,
+            })
             if (!queued) {
               live.turn = false
               return yield* Effect.fail(rejected('send', 'Claude Code stopped. Send your message again to continue.'))
@@ -561,7 +608,11 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             const turn = live.turns
             yield* fork(
               Effect.sleep(Duration.seconds(INTERRUPT_SECONDS)).pipe(
-                Effect.andThen(Effect.suspend(() => (live.turns === turn && live.turn && live.stopping ? settle(live, undefined) : Effect.void))),
+                Effect.andThen(
+                  Effect.suspend(() =>
+                    live.turns === turn && live.turn && live.stopping ? settle(live, undefined) : Effect.void,
+                  ),
+                ),
               ),
             )
             yield* request('interrupt', () => live.query.interrupt(), INTERRUPT_SECONDS).pipe(
@@ -573,7 +624,8 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
         respond: (_threadId, approvalId, reply) =>
           Effect.gen(function* () {
             const pending = approvals.get(approvalId)
-            if (!pending) return yield* Effect.fail(rejected('respond', 'This request is no longer waiting for an answer.'))
+            if (!pending)
+              return yield* Effect.fail(rejected('respond', 'This request is no longer waiting for an answer.'))
             const result: PermissionResult = pending.questions
               ? reply.accept
                 ? questionAnswers(pending.input, pending.questions, reply.answers)

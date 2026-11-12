@@ -1,4 +1,13 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+  type KeyboardEvent,
+} from 'react'
 
 import type { Skill } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
@@ -108,7 +117,12 @@ export const Composer = memo(function Composer({
   const submit = async () => {
     if (streaming || sending || (!draft.trim() && !images.length && !skill)) return
     setSending(true)
-    const result = await dispatch({ op: 'send', text: draft, ...(skill ? { skill } : {}), ...(images.length ? { images } : {}) })
+    const result = await dispatch({
+      op: 'send',
+      text: draft,
+      ...(skill ? { skill } : {}),
+      ...(images.length ? { images } : {}),
+    })
     setSending(false)
     if (!result.ok) return
     setDraft('')

@@ -161,7 +161,11 @@ code on sight; don't comment it out, don't leave TODO shims.
 pnpm install
 pnpm dev          # Electron app with Vite HMR
 pnpm test         # vitest: session/protocol + renderer UI tests
-pnpm typecheck    # tsc --noEmit
+pnpm typecheck    # effect-tsgo: tsc + Effect diagnostics (unrun Effects, bare yield)
+pnpm lint         # oxlint (T3 Code's rules + floating promises)
+pnpm knip         # unused files, exports, dependencies
+pnpm fmt          # oxfmt; pnpm fmt:check verifies it
+pnpm check        # typecheck + lint + fmt:check + knip + test + build, as CI runs it
 pnpm protocol     # regenerate the vendored Codex schemas from the installed CLI
 pnpm screenshot   # PNGs of home + document with a fake session
 ```
@@ -178,4 +182,5 @@ screenshots and the bench.
 - No ChatGPT.com scraping, no protocol guessing. If a method isn't in the
   generated schemas (Codex), the served OpenAPI / SDK types (OpenCode), or
   `sdk.d.ts` (Claude), it doesn't exist.
-- After changes: `pnpm test && pnpm typecheck`, plus `pnpm screenshot` for UI changes.
+- After changes: `pnpm check`, plus `pnpm screenshot` for UI changes. Suppress a
+  lint rule only with a reason: `// oxlint-disable-next-line <rule> -- <why>`.

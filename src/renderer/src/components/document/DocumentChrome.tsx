@@ -39,7 +39,7 @@ export function DocumentChrome({
       return
     }
     const next = (draft ?? snap.title).trim() || 'Untitled document'
-    if (next !== snap.title) dispatch({ op: 'setDocumentName', name: next })
+    if (next !== snap.title) void dispatch({ op: 'setDocumentName', name: next })
     setDraft(null)
   }
 

@@ -136,7 +136,7 @@ export const make = (options: ManagerOptions) =>
           Stream.map((current) => current.libraries[id]),
           Stream.filter((lib) => lib.status === 'error' || (lib.status === 'ready' && sessions.has(id))),
           Stream.runHead,
-          Effect.timeoutOrElse({ duration: READY_DEADLINE, orElse: () => Effect.succeed(Option.none()) }),
+          Effect.timeoutOrElse({ duration: READY_DEADLINE, orElse: () => Effect.succeedNone }),
         )
         const session = sessions.get(id)
         if (Option.isSome(lib) && lib.value.status === 'ready' && session) return session
@@ -161,7 +161,13 @@ export const make = (options: ManagerOptions) =>
           yield* Effect.addFinalizer(() =>
             Effect.sync(() => sessions.delete(id)).pipe(
               // Refreshes run outside this scope; stop the ones still talking to the dead session.
-              Effect.andThen(Effect.forEach(['all', 'docs', 'skills', 'catalog'], (part) => FiberMap.remove(refreshes, `${id}:${part}`), { discard: true })),
+              Effect.andThen(
+                Effect.forEach(
+                  ['all', 'docs', 'skills', 'catalog'],
+                  (part) => FiberMap.remove(refreshes, `${id}:${part}`),
+                  { discard: true },
+                ),
+              ),
             ),
           )
           // A defect while applying an event ends the session like a crash, so it restarts
@@ -175,7 +181,12 @@ export const make = (options: ManagerOptions) =>
               Cause.hasInterrupts(cause)
                 ? Effect.interrupt
                 : Effect.fail(
-                    new ProcessExitedError({ provider: id, code: null, signal: null, stderr: userMessage(Cause.squash(cause)) }),
+                    new ProcessExitedError({
+                      provider: id,
+                      code: null,
+                      signal: null,
+                      stderr: userMessage(Cause.squash(cause)),
+                    }),
                   ),
             ),
             Effect.forkScoped,
@@ -183,7 +194,9 @@ export const make = (options: ManagerOptions) =>
           sessions.set(id, session)
           const startedAt = yield* now
           yield* updateLibrary(id, (lib) => ({ ...lib, status: 'ready', error: null }))
-          yield* Effect.forkScoped(Effect.all([refreshCatalog(id), reloadDisplayed(id, session)], { concurrency: 'unbounded', discard: true }))
+          yield* Effect.forkScoped(
+            Effect.all([refreshCatalog(id), reloadDisplayed(id, session)], { concurrency: 'unbounded', discard: true }),
+          )
           return yield* session.awaitExit.pipe(
             Effect.raceFirst(Fiber.join(pump)),
             // A session that ran a while ends "successfully", so the restart count starts over.
@@ -213,7 +226,12 @@ export const make = (options: ManagerOptions) =>
           const error = userMessage(Cause.squash(cause))
           // One update, so no snapshot shows the library reconnecting first.
           return update((current) =>
-            S.updateLibrary(S.connectionLost(current, id, error), id, (lib) => ({ ...lib, status: 'error', error, opening: null })),
+            S.updateLibrary(S.connectionLost(current, id, error), id, (lib) => ({
+              ...lib,
+              status: 'error',
+              error,
+              opening: null,
+            })),
           )
         }),
       )
@@ -296,7 +314,8 @@ export const make = (options: ManagerOptions) =>
           Effect.andThen(
             Effect.gen(function* () {
               if (part === 'docs') yield* refreshing(id, 'docs', refreshDocs(id))
-              else if (part === 'skills') yield* refreshing(id, 'skills', refreshSkills(id, skillsCwd(yield* read, id), true))
+              else if (part === 'skills')
+                yield* refreshing(id, 'skills', refreshSkills(id, skillsCwd(yield* read, id), true))
               else yield* refreshing(id, 'all', refreshCatalog(id))
             }),
           ),
@@ -358,7 +377,9 @@ export const make = (options: ManagerOptions) =>
         const runtime = S.displayedRuntime(yield* read, id)
         if (!runtime) return
         const at = yield* now
-        yield* update((current) => S.updateRuntime(current, S.keyOf(id, runtime.threadId), (item) => ({ ...item, touchedAt: at })))
+        yield* update((current) =>
+          S.updateRuntime(current, S.keyOf(id, runtime.threadId), (item) => ({ ...item, touchedAt: at })),
+        )
       })
 
     const goHome = (id: ProviderId) =>
@@ -384,7 +405,10 @@ export const make = (options: ManagerOptions) =>
         yield* update((current) => {
           const adopted = S.adopt(current, id, opened, at)
           const shown = S.showThread(adopted, id, opened.threadId)
-          return S.updateLibrary(shown, id, (lib) => ({ ...lib, settings: S.adoptSettings(lib.settings, opened.settings) }))
+          return S.updateLibrary(shown, id, (lib) => ({
+            ...lib,
+            settings: S.adoptSettings(lib.settings, opened.settings),
+          }))
         })
         yield* background(refreshing(id, 'skills', refreshSkills(id, opened.cwd)))
       })
@@ -398,7 +422,11 @@ export const make = (options: ManagerOptions) =>
           yield* FiberHandle.clear(navigation)
           const at = yield* now
           yield* update((current) =>
-            S.showThread(S.updateRuntime(current, S.keyOf(id, threadId), (item) => ({ ...item, touchedAt: at })), id, threadId),
+            S.showThread(
+              S.updateRuntime(current, S.keyOf(id, threadId), (item) => ({ ...item, touchedAt: at })),
+              id,
+              threadId,
+            ),
           )
           yield* refreshing(id, 'skills', refreshSkills(id, cached.cwd))
           return
@@ -426,7 +454,8 @@ export const make = (options: ManagerOptions) =>
           const current = yield* read
           const fromDialog = request.projectId !== undefined || request.cwd !== undefined || request.title !== undefined
           const cwd =
-            request.cwd ?? (fromDialog ? options.defaultCwd(id) : (S.displayedRuntime(current, id)?.cwd ?? current.libraries[id].cwd))
+            request.cwd ??
+            (fromDialog ? options.defaultCwd(id) : (S.displayedRuntime(current, id)?.cwd ?? current.libraries[id].cwd))
           const opened = yield* session.createThread({
             cwd,
             projectId: request.projectId ?? null,
@@ -461,7 +490,12 @@ export const make = (options: ManagerOptions) =>
         const at = yield* now
         yield* update((current) =>
           S.updateLibrary(
-            S.updateRuntime(current, key, (item) => ({ ...item, blocks: [...item.blocks, echo], streaming: true, touchedAt: at })),
+            S.updateRuntime(current, key, (item) => ({
+              ...item,
+              blocks: [...item.blocks, echo],
+              streaming: true,
+              touchedAt: at,
+            })),
             id,
             (latest) => ({ ...latest, error: null }),
           ),
@@ -510,11 +544,16 @@ export const make = (options: ManagerOptions) =>
         const session = yield* ready(id)
         const key = S.keyOf(id, runtime.threadId)
         const mark = (change: Parameters<typeof updateApproval>[2]) =>
-          update((current) => S.updateRuntime(current, key, (item) => ({ ...item, blocks: updateApproval(item.blocks, command.blockId, change) })))
+          update((current) =>
+            S.updateRuntime(current, key, (item) => ({
+              ...item,
+              blocks: updateApproval(item.blocks, command.blockId, change),
+            })),
+          )
         yield* mark({ pending: true })
-        yield* session.respond(runtime.threadId, command.blockId, { accept: command.accept, answers: command.answers ?? {} }).pipe(
-          Effect.tapError(() => mark({ pending: false })),
-        )
+        yield* session
+          .respond(runtime.threadId, command.blockId, { accept: command.accept, answers: command.answers ?? {} })
+          .pipe(Effect.tapError(() => mark({ pending: false })))
         yield* mark({ pending: false, resolved: command.accept ? 'accepted' : 'skipped' })
       })
 
@@ -538,7 +577,9 @@ export const make = (options: ManagerOptions) =>
               })),
             ),
           ),
-          Effect.onError(() => update((current) => S.updateRuntime(current, key, (item) => ({ ...item, loadingOlder: false })))),
+          Effect.onError(() =>
+            update((current) => S.updateRuntime(current, key, (item) => ({ ...item, loadingOlder: false }))),
+          ),
         )
       })
 
@@ -655,9 +696,15 @@ export const make = (options: ManagerOptions) =>
           case 'setModel':
             return yield* updateLibrary(id, (lib) => S.withModel(lib, command.model))
           case 'setEffort':
-            return yield* updateLibrary(id, (lib) => ({ ...lib, settings: { ...lib.settings, effort: command.effort } }))
+            return yield* updateLibrary(id, (lib) => ({
+              ...lib,
+              settings: { ...lib.settings, effort: command.effort },
+            }))
           case 'setServiceTier':
-            return yield* updateLibrary(id, (lib) => ({ ...lib, settings: { ...lib.settings, serviceTier: command.serviceTier } }))
+            return yield* updateLibrary(id, (lib) => ({
+              ...lib,
+              settings: { ...lib.settings, serviceTier: command.serviceTier },
+            }))
           case 'setCollaborationMode':
             return yield* updateLibrary(id, (lib) =>
               lib.catalog.modes.length && !lib.catalog.modes.some((mode) => mode.id === command.name)

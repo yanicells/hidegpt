@@ -184,7 +184,11 @@ export function blocksFromSessionMessages(messages: ReadonlyArray<SessionMessage
       if (part.type === 'text' && part.text) {
         const at = index.get(id)
         const current = at === undefined ? undefined : blocks[at]
-        put(current?.kind === 'agent' ? { ...current, text: `${current.text}\n\n${part.text}` } : { kind: 'agent', id, text: part.text })
+        put(
+          current?.kind === 'agent'
+            ? { ...current, text: `${current.text}\n\n${part.text}` }
+            : { kind: 'agent', id, text: part.text },
+        )
       }
     }
   }
@@ -201,7 +205,12 @@ export type StreamState = {
   readonly callouts: Map<string, CalloutBlock>
 }
 
-export const emptyStreamState = (): StreamState => ({ messageId: null, streamed: new Set(), texts: new Map(), callouts: new Map() })
+export const emptyStreamState = (): StreamState => ({
+  messageId: null,
+  streamed: new Set(),
+  texts: new Map(),
+  callouts: new Map(),
+})
 
 /** What one SDK frame changes on the page; the adapter adds the thread id. */
 export type Emission =
@@ -249,7 +258,8 @@ export function readMessage(state: StreamState, message: SDKMessage): Emission[]
     case 'user': {
       const out: Emission[] = []
       for (const part of partsOf(message.message)) {
-        const callout = part.type === 'tool_result' && part.tool_use_id ? state.callouts.get(part.tool_use_id) : undefined
+        const callout =
+          part.type === 'tool_result' && part.tool_use_id ? state.callouts.get(part.tool_use_id) : undefined
         if (!callout) continue
         state.callouts.delete(callout.id)
         out.push({ type: 'block', block: finishedCallout(callout, part) })
@@ -285,7 +295,8 @@ const RESULT_ERRORS: Record<string, string> = {
  */
 export function resultError(message: SDKResultMessage): string | undefined {
   if (message.terminal_reason === 'aborted_tools' || message.terminal_reason === 'aborted_streaming') return undefined
-  if (message.subtype === 'success') return message.is_error ? message.result.trim() || 'Claude ran into an error.' : undefined
+  if (message.subtype === 'success')
+    return message.is_error ? message.result.trim() || 'Claude ran into an error.' : undefined
   const text = message.errors.join('\n').trim()
   if (/interrupt|cancel/i.test(text)) return undefined
   return text || RESULT_ERRORS[message.subtype] || 'Claude stopped before finishing.'
@@ -296,7 +307,12 @@ const PREVIEW_KEYS = ['command', 'file_path', 'path', 'url', 'pattern', 'descrip
 export const permissionBlockId = (toolUseId: string) => `approval-${toolUseId}`
 
 /** A tool Claude wants to run; `title` is the SDK's own prompt sentence when it sends one. */
-export function permissionBlock(id: string, tool: string, input: Record<string, unknown>, title: string | undefined): ApprovalBlock {
+export function permissionBlock(
+  id: string,
+  tool: string,
+  input: Record<string, unknown>,
+  title: string | undefined,
+): ApprovalBlock {
   const preview = PREVIEW_KEYS.map((key) => input[key]).find((value): value is string => typeof value === 'string')
   return {
     kind: 'approval',
@@ -309,7 +325,11 @@ export function permissionBlock(id: string, tool: string, input: Record<string, 
   }
 }
 
-export type AskedQuestion = { readonly question: string; readonly header: string; readonly options: ReadonlyArray<{ readonly label: string }> }
+export type AskedQuestion = {
+  readonly question: string
+  readonly header: string
+  readonly options: ReadonlyArray<{ readonly label: string }>
+}
 
 /** The questions of an `AskUserQuestion` call, or null when its input is not that shape. */
 export function askedQuestions(input: Record<string, unknown>): AskedQuestion[] | null {

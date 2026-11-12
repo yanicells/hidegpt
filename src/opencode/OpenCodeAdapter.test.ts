@@ -6,14 +6,26 @@ import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
 import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
-import { agentMessage, makeFakeOpenCode, stubSession, userMessage, type FakeOpenCode, type FakeOpenCodeOptions } from './FakeOpenCode'
+import {
+  agentMessage,
+  makeFakeOpenCode,
+  stubSession,
+  userMessage,
+  type FakeOpenCode,
+  type FakeOpenCodeOptions,
+} from './FakeOpenCode'
 import * as OpenCodeAdapter from './OpenCodeAdapter'
 
 const SETTINGS = { model: 'fake/model-a', effort: null, serviceTier: null, mode: 'build' }
 const SESSION = 'ses_1'
 const HISTORY = {
   sessions: [stubSession(SESSION, 'Reading notes', '/tmp/course')],
-  messages: { [SESSION]: [userMessage(SESSION, 'msg_000000000001u', 'Summarise week 3'), agentMessage(SESSION, 'msg_000000000002a', 'Week 3 covers attention.')] },
+  messages: {
+    [SESSION]: [
+      userMessage(SESSION, 'msg_000000000001u', 'Summarise week 3'),
+      agentMessage(SESSION, 'msg_000000000002a', 'Week 3 covers attention.'),
+    ],
+  },
 }
 
 /** Real time for the fake's promise-based HTTP and SSE to run; the TestClock still owns timeouts. */
@@ -83,7 +95,11 @@ describe('OpenCodeAdapter', () => {
       yield* until(() => events.some((event) => event.type === 'turnEnded'))
 
       const prompt = requested(fake, 'POST', `/session/${SESSION}/prompt_async`)[0]
-      expect(prompt?.body).toMatchObject({ messageID: clientId, model: { providerID: 'fake', modelID: 'model-a' }, agent: 'build' })
+      expect(prompt?.body).toMatchObject({
+        messageID: clientId,
+        model: { providerID: 'fake', modelID: 'model-a' },
+        agent: 'build',
+      })
       expect(prompt?.query.get('directory')).toBe('/tmp/course')
       expect(clientId).toMatch(/^msg_[0-9a-f]{12}[0-9A-Za-z]{28}$/)
       // The echo already shows the question: no user block, and no extra GET to reconcile it.
@@ -102,9 +118,20 @@ describe('OpenCodeAdapter', () => {
   it.effect('never shows reasoning, even though its deltas use the text field', () =>
     Effect.gen(function* () {
       const { fake, events } = yield* open({ reply: null })
-      const part = { id: 'prt_r', sessionID: SESSION, messageID: 'msg_r', type: 'reasoning' as const, text: '', time: { start: 0 } }
+      const part = {
+        id: 'prt_r',
+        sessionID: SESSION,
+        messageID: 'msg_r',
+        type: 'reasoning' as const,
+        text: '',
+        time: { start: 0 },
+      }
       fake.push({ id: 'evt_1', type: 'message.part.updated', properties: { sessionID: SESSION, part, time: 0 } })
-      fake.push({ id: 'evt_2', type: 'message.part.delta', properties: { sessionID: SESSION, messageID: 'msg_r', partID: 'prt_r', field: 'text', delta: 'secret plan' } })
+      fake.push({
+        id: 'evt_2',
+        type: 'message.part.delta',
+        properties: { sessionID: SESSION, messageID: 'msg_r', partID: 'prt_r', field: 'text', delta: 'secret plan' },
+      })
       fake.push({ id: 'evt_3', type: 'session.idle', properties: { sessionID: SESSION } })
       yield* until(() => events.some((event) => event.type === 'turnEnded'))
       expect(events.filter((event) => event.type === 'text' || event.type === 'block')).toEqual([])
@@ -116,7 +143,11 @@ describe('OpenCodeAdapter', () => {
       const { fake, events } = yield* open({ reply: null })
       const message = userMessage(SESSION, 'msg_tui', 'Typed in the terminal')
       fake.push({ id: 'evt_m', type: 'message.updated', properties: { sessionID: SESSION, info: message.info } })
-      fake.push({ id: 'evt_p', type: 'message.part.updated', properties: { sessionID: SESSION, part: message.parts[0]!, time: 0 } })
+      fake.push({
+        id: 'evt_p',
+        type: 'message.part.updated',
+        properties: { sessionID: SESSION, part: message.parts[0]!, time: 0 },
+      })
       yield* until(() => events.some((event) => event.type === 'block'))
       expect(events.find((event) => event.type === 'block')).toMatchObject({
         block: { kind: 'user', id: 'msg_tui', text: 'Typed in the terminal' },
@@ -170,7 +201,11 @@ describe('OpenCodeAdapter', () => {
     Effect.gen(function* () {
       const { fake, session, events } = yield* open({ reply: null })
       const child = stubSession('ses_child', 'Subtask', '/tmp/course')
-      fake.push({ id: 'evt_c', type: 'session.created', properties: { sessionID: child.id, info: { ...child, parentID: SESSION } } })
+      fake.push({
+        id: 'evt_c',
+        type: 'session.created',
+        properties: { sessionID: child.id, info: { ...child, parentID: SESSION } },
+      })
       const request = {
         id: 'que_1',
         sessionID: 'ses_child',
@@ -182,7 +217,10 @@ describe('OpenCodeAdapter', () => {
       fake.questions.push(request)
       fake.push({ id: 'evt_q', type: 'question.asked', properties: request })
       yield* until(() => events.some((event) => event.type === 'block' && event.block.kind === 'approval'))
-      expect(events.find((event) => event.type === 'block')).toMatchObject({ threadId: SESSION, block: { id: 'approval-que_1' } })
+      expect(events.find((event) => event.type === 'block')).toMatchObject({
+        threadId: SESSION,
+        block: { id: 'approval-que_1' },
+      })
 
       yield* session.respond(SESSION, 'approval-que_1', { accept: true, answers: { q0: '3' } })
       expect(requested(fake, 'POST', '/question/que_1/reply')[0]?.body).toEqual({ answers: [['3'], []] })
@@ -238,12 +276,25 @@ describe('OpenCodeAdapter', () => {
 
   it.effect('sends a chosen skill as a hidden part and shows its name when reopened', () =>
     Effect.gen(function* () {
-      const skill = { name: 'tutor', description: 'Explains slowly', location: '/skills/tutor/SKILL.md', content: 'Go slowly.' }
+      const skill = {
+        name: 'tutor',
+        description: 'Explains slowly',
+        location: '/skills/tutor/SKILL.md',
+        content: 'Go slowly.',
+      }
       const { fake, session } = yield* open({ reply: null, skills: [skill] })
       const [listed] = yield* session.listSkills('/tmp/course')
-      yield* session.send(SESSION, { text: 'Explain', images: [], skill: listed ?? null, clientId: session.messageId() }, SETTINGS)
+      yield* session.send(
+        SESSION,
+        { text: 'Explain', images: [], skill: listed ?? null, clientId: session.messageId() },
+        SETTINGS,
+      )
 
-      const parts = (requested(fake, 'POST', `/session/${SESSION}/prompt_async`)[0]?.body as { parts: Array<{ synthetic?: boolean; text: string }> }).parts
+      const parts = (
+        requested(fake, 'POST', `/session/${SESSION}/prompt_async`)[0]!.body as {
+          parts: Array<{ synthetic?: boolean; text: string }>
+        }
+      ).parts
       expect(parts[1]).toMatchObject({ synthetic: true })
       expect(parts[1]?.text).toContain('Go slowly.')
       const reopened = yield* session.openThread(SESSION)
@@ -255,7 +306,14 @@ describe('OpenCodeAdapter', () => {
     Effect.gen(function* () {
       const { fake, session, events } = yield* open({ reply: null })
       yield* send(session, 'First')
-      fake.push({ id: 'evt_e', type: 'session.error', properties: { sessionID: SESSION, error: { name: 'APIError', data: { message: 'Rate limited.', isRetryable: false } } } })
+      fake.push({
+        id: 'evt_e',
+        type: 'session.error',
+        properties: {
+          sessionID: SESSION,
+          error: { name: 'APIError', data: { message: 'Rate limited.', isRetryable: false } },
+        },
+      })
       yield* until(() => events.some((event) => event.type === 'turnEnded'))
       expect(events.find((event) => event.type === 'turnEnded')).toMatchObject({ error: 'Rate limited.' })
 
@@ -272,7 +330,14 @@ describe('OpenCodeAdapter', () => {
     Effect.gen(function* () {
       const { fake, session, events } = yield* open({ reply: null })
       const status = (id: string, type: 'busy' | 'retry' | 'idle') =>
-        fake.push({ id, type: 'session.status', properties: { sessionID: SESSION, status: type === 'retry' ? { type, attempt: 1, message: 'Overloaded', next: 0 } : { type } } })
+        fake.push({
+          id,
+          type: 'session.status',
+          properties: {
+            sessionID: SESSION,
+            status: type === 'retry' ? { type, attempt: 1, message: 'Overloaded', next: 0 } : { type },
+          },
+        })
       const started = () => events.filter((event) => event.type === 'turnStarted').length
       yield* send(session, 'First')
       yield* until(() => started() === 1)
@@ -291,7 +356,11 @@ describe('OpenCodeAdapter', () => {
     Effect.gen(function* () {
       const { fake, session } = yield* open({ reply: null })
       fake.permissions.push(permission('per_3'))
-      fake.questions.push({ id: 'que_2', sessionID: SESSION, questions: [{ question: 'Go on?', header: 'Go', options: [] }] })
+      fake.questions.push({
+        id: 'que_2',
+        sessionID: SESSION,
+        questions: [{ question: 'Go on?', header: 'Go', options: [] }],
+      })
       yield* session.openThread(SESSION)
       yield* session.respond(SESSION, 'approval-per_3', { accept: false, answers: {} })
       yield* session.respond(SESSION, 'approval-que_2', { accept: false, answers: {} })
@@ -316,10 +385,19 @@ describe('OpenCodeAdapter', () => {
   it.effect('creates a document in the chosen folder and saves renames', () =>
     Effect.gen(function* () {
       const { fake, session } = yield* open({ reply: null })
-      const created = yield* session.createThread({ cwd: '/tmp/new', projectId: null, title: 'Lab 4', settings: SETTINGS })
+      const created = yield* session.createThread({
+        cwd: '/tmp/new',
+        projectId: null,
+        title: 'Lab 4',
+        settings: SETTINGS,
+      })
       const create = requested(fake, 'POST', '/session')[0]
       expect(create?.query.get('directory')).toBe('/tmp/new')
-      expect(create?.body).toMatchObject({ title: 'Lab 4', agent: 'build', model: { providerID: 'fake', id: 'model-a' } })
+      expect(create?.body).toMatchObject({
+        title: 'Lab 4',
+        agent: 'build',
+        model: { providerID: 'fake', id: 'model-a' },
+      })
       yield* session.rename(created.threadId, 'Lab 4 (final)')
       expect(requested(fake, 'PATCH', `/session/${created.threadId}`)[0]?.body).toEqual({ title: 'Lab 4 (final)' })
     }),
@@ -327,13 +405,17 @@ describe('OpenCodeAdapter', () => {
 
   it.effect('pages earlier messages with the server cursor', () =>
     Effect.gen(function* () {
-      const many = Array.from({ length: 70 }, (_, i) => userMessage(SESSION, `msg_${String(i).padStart(12, '0')}`, `Line ${i}`))
+      const many = Array.from({ length: 70 }, (_, i) =>
+        userMessage(SESSION, `msg_${String(i).padStart(12, '0')}`, `Line ${i}`),
+      )
       const { session } = yield* open({ messages: { [SESSION]: many } })
       const opened = yield* session.openThread(SESSION)
       expect(opened.blocks).toHaveLength(60)
       expect(opened.olderCursor).not.toBeNull()
       const older = yield* session.loadOlder(SESSION, opened.olderCursor ?? '')
-      expect(older.blocks.map((block) => block.kind === 'user' && block.text)).toEqual(Array.from({ length: 10 }, (_, i) => `Line ${i}`))
+      expect(older.blocks.map((block) => block.kind === 'user' && block.text)).toEqual(
+        Array.from({ length: 10 }, (_, i) => `Line ${i}`),
+      )
       expect(older.cursor).toBeNull()
     }),
   )

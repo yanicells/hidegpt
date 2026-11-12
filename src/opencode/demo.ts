@@ -4,7 +4,9 @@ import { agentMessage, makeFakeOpenCode, stubSession, userMessage, type FakeOpen
 /** The OpenCode side of `HIDEGPT_FAKE=1`: the same fictional library over the in-process server. */
 export function makeDemoOpenCode(): FakeOpenCode {
   const now = Date.now()
-  const sessions = DEMO_TITLES.map((title, i) => stubSession(`ses_demo${i}`, title, i % 2 ? '/tmp/workshop' : '/tmp/course', now - i * 86_400_000))
+  const sessions = DEMO_TITLES.map((title, i) =>
+    stubSession(`ses_demo${i}`, title, i % 2 ? '/tmp/workshop' : '/tmp/course', now - i * 86_400_000),
+  )
   return makeFakeOpenCode({
     sessions,
     messages: {

@@ -1,7 +1,13 @@
 import { appendText, openApprovals, updateApproval, upsertBlock } from '../../shared/blocks'
 import { CAPABILITIES, HOME, NO_BLOCKS } from '../../shared/model'
 import type { Block, DocSummary, ProviderId, Route, Skill, Snapshot } from '../../shared/model'
-import { EMPTY_CATALOG, type Catalog, type OpenedThread, type ThreadEvent, type TurnSettings } from '../../provider/ProviderAdapter'
+import {
+  EMPTY_CATALOG,
+  type Catalog,
+  type OpenedThread,
+  type ThreadEvent,
+  type TurnSettings,
+} from '../../provider/ProviderAdapter'
 
 /**
  * The session manager's state as plain immutable data, plus the pure
@@ -171,10 +177,15 @@ export function applyThreadEvent(state: State, provider: ProviderId, event: Thre
         ...settle(touched),
         error: event.error && !shown ? event.error : touched.error,
       }))
-      return event.error && shown ? updateLibrary(next, provider, (lib) => ({ ...lib, error: event.error ?? null })) : next
+      return event.error && shown
+        ? updateLibrary(next, provider, (lib) => ({ ...lib, error: event.error ?? null }))
+        : next
     }
     case 'block':
-      return updateRuntime(state, key, () => ({ ...touched, blocks: upsertBlock(runtime.blocks, event.block, event.replaces) }))
+      return updateRuntime(state, key, () => ({
+        ...touched,
+        blocks: upsertBlock(runtime.blocks, event.block, event.replaces),
+      }))
     case 'text':
       return updateRuntime(state, key, () => ({
         ...touched,
@@ -189,7 +200,12 @@ export function applyThreadEvent(state: State, provider: ProviderId, event: Thre
       const ids = new Set(event.blocks.map((block) => block.id))
       const blocks = [...event.blocks, ...openApprovals(runtime.blocks).filter((block) => !ids.has(block.id))]
       const streaming = event.streaming ?? runtime.streaming
-      return updateRuntime(state, key, () => ({ ...touched, blocks, streaming, stopping: streaming && runtime.stopping }))
+      return updateRuntime(state, key, () => ({
+        ...touched,
+        blocks,
+        streaming,
+        stopping: streaming && runtime.stopping,
+      }))
     }
     case 'title': {
       const next = updateRuntime(state, key, () => ({ ...touched, title: event.title }))
@@ -199,7 +215,11 @@ export function applyThreadEvent(state: State, provider: ProviderId, event: Thre
       const next = removeRuntime(state, key)
       const route = next.libraries[provider].route
       return route.kind === 'doc' && route.threadId === event.threadId
-        ? updateLibrary(next, provider, (lib) => ({ ...lib, route: HOME, error: 'This document is no longer available.' }))
+        ? updateLibrary(next, provider, (lib) => ({
+            ...lib,
+            route: HOME,
+            error: 'This document is no longer available.',
+          }))
         : next
     }
   }
@@ -221,7 +241,9 @@ export function adopt(state: State, provider: ProviderId, opened: OpenedThread, 
     provider,
     threadId: opened.threadId,
     title: opened.title,
-    blocks: previous ? [...opened.blocks, ...openApprovals(previous.blocks).filter((block) => !ids.has(block.id))] : opened.blocks,
+    blocks: previous
+      ? [...opened.blocks, ...openApprovals(previous.blocks).filter((block) => !ids.has(block.id))]
+      : opened.blocks,
     streaming: Boolean(opened.streaming),
     stopping: false,
     olderCursor: opened.olderCursor,
@@ -295,14 +317,21 @@ export function connectionLost(state: State, provider: ProviderId, message: stri
         stopping: false,
         stale: true,
         blocks: runtime.blocks.map((block) =>
-          block.kind === 'approval' && block.resolved === null ? { ...block, resolved: 'skipped', pending: false } : block,
+          block.kind === 'approval' && block.resolved === null
+            ? { ...block, resolved: 'skipped', pending: false }
+            : block,
         ),
       })
     } else {
       runtimes.delete(key)
     }
   }
-  return updateLibrary({ ...state, runtimes }, provider, (lib) => ({ ...lib, status: 'connecting', error: message, opening: null }))
+  return updateLibrary({ ...state, runtimes }, provider, (lib) => ({
+    ...lib,
+    status: 'connecting',
+    error: message,
+    opening: null,
+  }))
 }
 
 const hasOpenApproval = (runtime: ThreadRuntime) =>

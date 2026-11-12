@@ -36,7 +36,12 @@ export function itemToBlock(item: ThreadItem): Block | null {
     case 'userMessage':
       return userBlock(item.id, item.content)
     case 'agentMessage':
-      return { kind: 'agent', id: item.id, text: item.text, ...(item.phase === 'commentary' ? { commentary: true } : {}) }
+      return {
+        kind: 'agent',
+        id: item.id,
+        text: item.text,
+        ...(item.phase === 'commentary' ? { commentary: true } : {}),
+      }
     case 'reasoning':
     case 'plan':
     case 'hookPrompt':

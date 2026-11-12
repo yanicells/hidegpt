@@ -30,14 +30,22 @@ for (const stream of [process.stdout, process.stderr]) {
 }
 
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'docs', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
+  {
+    scheme: 'docs',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
+  },
 ])
 
 /** GUI apps on macOS start with a bare PATH; add where the provider CLIs usually live. */
 function prependPath() {
   if (process.platform !== 'darwin') return
   const home = process.env.HOME ?? ''
-  const extras = ['/opt/homebrew/bin', '/usr/local/bin', home ? `${home}/.bun/bin` : '', home ? `${home}/.local/bin` : ''].filter(Boolean)
+  const extras = [
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    home ? `${home}/.bun/bin` : '',
+    home ? `${home}/.local/bin` : '',
+  ].filter(Boolean)
   process.env.PATH = `${extras.join(':')}:${process.env.PATH ?? ''}`
 }
 
@@ -86,7 +94,11 @@ const program = Effect.gen(function* () {
     if (!win) return
     const current = yield* manager.snapshot
     const picked = yield* Effect.promise(() =>
-      dialog.showOpenDialog(win, { title: 'Open folder', properties: ['openDirectory'], defaultPath: current.cwd || undefined }),
+      dialog.showOpenDialog(win, {
+        title: 'Open folder',
+        properties: ['openDirectory'],
+        defaultPath: current.cwd || undefined,
+      }),
     )
     const folder = picked.canceled ? undefined : picked.filePaths[0]
     if (folder) yield* manager.setFolder(folder)
@@ -124,9 +136,9 @@ const program = Effect.gen(function* () {
     channel: 'save-image',
     payload: Schema.Tuple([Schema.Uint8Array, Schema.String]),
     handler: ([bytes, mime]) =>
-      Effect.tryPromise(() => saveImage(bytes, mime)).pipe(
+      Effect.tryPromise({ try: () => saveImage(bytes, mime), catch: userMessage }).pipe(
         Effect.map((path): { ok: true; path: string } | { ok: false; error: string } => ({ ok: true, path })),
-        Effect.catch((error) => Effect.succeed({ ok: false as const, error: userMessage(error.cause) })),
+        Effect.catch((error) => Effect.succeed({ ok: false as const, error })),
       ),
     invalid: () => ({ ok: false, error: 'Docs could not read that image.' }),
   })

@@ -1,0 +1,104 @@
+# Modelled on T3 Code's CI (.github/workflows/ci.yml): read-only permissions, one run
+# per pull request with stale runs cancelled, and a cached pnpm install. Static checks
+# run on Linux; tests run on macOS, the only platform HideGPT ships for, as T3 runs its
+# macOS-specific checks on a macOS runner. No Electron e2e and no secrets.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # No step launches Electron, so skip its ~100 MB download in postinstall.
+  ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+jobs:
+  static:
+    name: Static checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # Reads the version from package.json's packageManager field.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # effect-tsgo: the TypeScript check plus the Effect language service diagnostics
+      # (tsconfig.effect.json), as T3 Code's server typecheck runs it.
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format
+        run: pnpm fmt:check
+
+      # Files and dependencies are repo-wide, so knip runs on the whole project.
+      - name: Check unused code
+        run: pnpm knip
+
+      # Catches bundle-only breakage (bad imports, Vite config) that tsc misses.
+      - name: Build
+        run: pnpm build
+
+  # Process groups, signals and login shells behave differently on Linux, so the tests
+  # run where the app does.
+  test:
+    name: Test (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        run: pnpm test
+
+  # One required status for branch protection, as T3 Code's final Check job: it passes
+  # only when every job above passed.
+  check:
+    name: Check
+    needs: [static, test]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e 'all(.[]; .result == "success")' > /dev/null

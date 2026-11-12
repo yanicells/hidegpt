@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 
 import { PROVIDERS, providerLabel } from '../../../../shared/labels'
@@ -249,7 +249,7 @@ function Chip({
         ? createPortal(
             <ChipPopover
               anchor={rect}
-              anchorEl={anchorRef.current}
+              anchorRef={anchorRef}
               align={align}
               items={items}
               searchable={searchable}
@@ -265,7 +265,7 @@ function Chip({
 
 function ChipPopover({
   anchor,
-  anchorEl,
+  anchorRef,
   align,
   items,
   searchable,
@@ -273,7 +273,7 @@ function ChipPopover({
   onClose,
 }: {
   anchor: DOMRect
-  anchorEl: HTMLElement | null
+  anchorRef: RefObject<HTMLElement | null>
   align?: 'start' | 'end'
   items: Item[]
   searchable?: boolean
@@ -295,13 +295,13 @@ function ChipPopover({
       const target = event.target as Node
       // Clicks on the chip button toggle via onClick; dismissing here first
       // would let the click reopen the menu instead of closing it.
-      if (anchorEl?.contains(target)) return
+      if (anchorRef.current?.contains(target)) return
       if (ref.current && !ref.current.contains(target)) onClose()
     }
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') {
         onClose()
-        anchorEl?.focus()
+        anchorRef.current?.focus()
       }
     }
     const onScroll = (event: Event) => {
@@ -318,7 +318,7 @@ function ChipPopover({
       window.removeEventListener('resize', onScroll)
       window.removeEventListener('scroll', onScroll, true)
     }
-  }, [onClose])
+  }, [anchorRef, onClose])
 
   const width = Math.min(360, Math.max(240, anchor.width + 48))
   const maxHeight = Math.min(340, window.innerHeight - 16)

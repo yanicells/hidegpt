@@ -9,7 +9,16 @@ import * as TestClock from 'effect/testing/TestClock'
 import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
 import type * as CodexRpc from '../vendor/effect-codex-app-server/rpc.ts'
 import * as CodexAdapter from './CodexAdapter'
-import { agentItem, makeFakeCodex, rpcFailure, stubThread, stubTurn, userItem, type FakeCodex, type FakeCodexOptions } from './FakeCodex'
+import {
+  agentItem,
+  makeFakeCodex,
+  rpcFailure,
+  stubThread,
+  stubTurn,
+  userItem,
+  type FakeCodex,
+  type FakeCodexOptions,
+} from './FakeCodex'
 
 const SETTINGS = { model: null, effort: null, serviceTier: null, mode: null }
 
@@ -125,7 +134,12 @@ describe('CodexAdapter', () => {
     Effect.gen(function* () {
       const { peer, events } = yield* open()
       yield* peer
-        .request('item/fileChange/requestApproval', { threadId: 'thr_1', turnId: 'turn_1', itemId: 'p_1', startedAtMs: 1 })
+        .request('item/fileChange/requestApproval', {
+          threadId: 'thr_1',
+          turnId: 'turn_1',
+          itemId: 'p_1',
+          startedAtMs: 1,
+        })
         .pipe(Effect.forkScoped)
       yield* settle
       const [requestId] = peer.pendingRequests()
@@ -160,11 +174,15 @@ describe('CodexAdapter', () => {
   it.effect('opening a document locked by another writer explains where it is open', () =>
     Effect.gen(function* () {
       const { session } = yield* open({
-        handlers: { 'thread/resume': () => Effect.fail(rpcFailure('thread-store conflict: thr_1 already has an active writer')) },
+        handlers: {
+          'thread/resume': () => Effect.fail(rpcFailure('thread-store conflict: thr_1 already has an active writer')),
+        },
       })
       const error = yield* Effect.flip(session.openThread('thr_1'))
       expect(error._tag).toBe('ProviderRequestError')
-      expect(error.message).toBe('This document is open in ChatGPT or another window. Close it there, then open it here.')
+      expect(error.message).toBe(
+        'This document is open in ChatGPT or another window. Close it there, then open it here.',
+      )
     }),
   )
 
@@ -257,10 +275,16 @@ describe('CodexAdapter', () => {
     Effect.gen(function* () {
       const { peer, session } = yield* open()
       for (const serviceTier of ['fast', null, 'mystery-tier']) {
-        yield* session.send('thr_1', { text: 'go', images: [], skill: null, clientId: `local-${serviceTier}` }, { ...SETTINGS, serviceTier })
+        yield* session.send(
+          'thr_1',
+          { text: 'go', images: [], skill: null, clientId: `local-${serviceTier}` },
+          { ...SETTINGS, serviceTier },
+        )
         yield* settle
       }
-      const tiers = paramsOf(peer, 'turn/start').map((params) => (params as { serviceTierForTurn?: unknown }).serviceTierForTurn)
+      const tiers = paramsOf(peer, 'turn/start').map(
+        (params) => (params as { serviceTierForTurn?: unknown }).serviceTierForTurn,
+      )
       expect(tiers).toEqual(['fast', null, 'mystery-tier'])
     }),
   )
@@ -286,7 +310,12 @@ describe('CodexAdapter', () => {
       yield* peer.notify('item/started', { threadId: 'thr_1', turnId: 'turn_1', item, startedAtMs: 1 })
       yield* settle
       expect(userEchoes(events)).toEqual([
-        { type: 'block', threadId: 'thr_1', replaces: null, block: { kind: 'user', id: 'u-server', text: 'different text' } },
+        {
+          type: 'block',
+          threadId: 'thr_1',
+          replaces: null,
+          block: { kind: 'user', id: 'u-server', text: 'different text' },
+        },
       ])
     }),
   )
@@ -294,7 +323,12 @@ describe('CodexAdapter', () => {
   it.effect('a turn error ends the turn with its message', () =>
     Effect.gen(function* () {
       const { peer, events } = yield* open()
-      const error = { message: 'rate limited', codexErrorInfo: 'rateLimitExceeded' as const, additionalDetails: null, misalignment: null }
+      const error = {
+        message: 'rate limited',
+        codexErrorInfo: 'rateLimitExceeded' as const,
+        additionalDetails: null,
+        misalignment: null,
+      }
       yield* peer.notify('error', { error, willRetry: false, threadId: 'thr_1', turnId: 'turn_1' })
       yield* settle
       expect(events).toEqual([{ type: 'turnEnded', threadId: 'thr_1', error: 'rate limited' }])
@@ -402,8 +436,18 @@ describe('CodexAdapter', () => {
       const opened = yield* open()
       const no = { accept: false, answers: {} }
       const base = { threadId: 'thr_1', turnId: 'turn_1', startedAtMs: 1 }
-      const command = yield* answerRequest(opened, 'item/commandExecution/requestApproval', { ...base, itemId: 'cmd_1', command: 'ls' }, no)
-      const edit = yield* answerRequest(opened, 'item/fileChange/requestApproval', { ...base, itemId: 'patch_1', reason: 'edit files' }, no)
+      const command = yield* answerRequest(
+        opened,
+        'item/commandExecution/requestApproval',
+        { ...base, itemId: 'cmd_1', command: 'ls' },
+        no,
+      )
+      const edit = yield* answerRequest(
+        opened,
+        'item/fileChange/requestApproval',
+        { ...base, itemId: 'patch_1', reason: 'edit files' },
+        no,
+      )
       expect([command, edit]).toEqual([{ decision: 'decline' }, { decision: 'decline' }])
     }),
   )
@@ -411,7 +455,9 @@ describe('CodexAdapter', () => {
   it.effect('does not ask to sign in when Codex already has an account', () =>
     Effect.gen(function* () {
       const account = { type: 'chatgpt' as const, email: 'student@school.edu', planType: 'plus' as const }
-      const signedIn = yield* open({ handlers: { 'account/read': () => Effect.succeed({ account, requiresOpenaiAuth: true }) } })
+      const signedIn = yield* open({
+        handlers: { 'account/read': () => Effect.succeed({ account, requiresOpenaiAuth: true }) },
+      })
       expect((yield* signedIn.session.loadCatalog).requiresAuth).toBe(false)
       const signedOut = yield* open({ account: null })
       expect((yield* signedOut.session.loadCatalog).requiresAuth).toBe(true)
@@ -431,7 +477,12 @@ describe('CodexAdapter', () => {
   it.effect('a new document is filed under the chosen project and folder', () =>
     Effect.gen(function* () {
       const { peer, session } = yield* open()
-      const opened = yield* session.createThread({ cwd: '/tmp/course', projectId: 'course', title: null, settings: SETTINGS })
+      const opened = yield* session.createThread({
+        cwd: '/tmp/course',
+        projectId: 'course',
+        title: null,
+        settings: SETTINGS,
+      })
       expect(paramsOf(peer, 'thread/start')[0]).toMatchObject({ projectId: 'course', cwd: '/tmp/course' })
       expect(opened.cwd).toBe('/tmp/course')
     }),
@@ -452,7 +503,9 @@ describe('CodexAdapter', () => {
         threads: Array.from({ length: 5 }, (_, index) => stubThread(`thr_${index}`, `Doc ${index}`)),
         threadPageSize: 2,
         before: (method, params) =>
-          method === 'thread/list' && (params as { cursor: string | null }).cursor ? Deferred.await(laterPages) : Effect.void,
+          method === 'thread/list' && (params as { cursor: string | null }).cursor
+            ? Deferred.await(laterPages)
+            : Effect.void,
       })
       const seen: string[][] = []
       const listing = yield* Stream.runForEach(session.listDocs(''), (docs) =>

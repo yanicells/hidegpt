@@ -27,6 +27,7 @@ export const AgentMarkdown = memo(function AgentMarkdown({ text, streaming }: { 
     <div className="doc-body">
       {blocks.map((block, index) => (
         // Streamed blocks only change at the end, so the index is a stable key.
+        // oxlint-disable-next-line react/no-array-index-key -- see above
         <MarkdownBlock key={index} text={block} cache={current && (!streaming || index < blocks.length - 1)} />
       ))}
     </div>

@@ -83,7 +83,12 @@ export interface FakeCodex {
 const encoder = new TextEncoder()
 const NOW = 1_700_000_000
 
-export function stubThread(id: string, preview: string, name: string | null = null, projectId: string | null = null): Thread {
+export function stubThread(
+  id: string,
+  preview: string,
+  name: string | null = null,
+  projectId: string | null = null,
+): Thread {
   return {
     id,
     sessionId: id,
@@ -156,9 +161,17 @@ type Connection = {
 }
 
 export const makeFakeCodex = (options: FakeCodexOptions = {}): FakeCodex => {
-  const threads: Thread[] = [...(options.threads ?? [stubThread('thr_1', 'Essay on photosynthesis', 'Photosynthesis'), stubThread('thr_2', 'Lab notes', 'Chem lab')])]
+  const threads: Thread[] = [
+    ...(options.threads ?? [
+      stubThread('thr_1', 'Essay on photosynthesis', 'Photosynthesis'),
+      stubThread('thr_2', 'Lab notes', 'Chem lab'),
+    ]),
+  ]
   const projects: Project[] = [...(options.projects ?? [])]
-  const account = options.account === undefined ? { type: 'chatgpt' as const, email: 'student@school.edu', planType: 'plus' as const } : options.account
+  const account =
+    options.account === undefined
+      ? { type: 'chatgpt' as const, email: 'student@school.edu', planType: 'plus' as const }
+      : options.account
   const turnsByThread = new Map<string, Turn[]>()
   const olderTurns = options.olderTurns ?? []
   const calls: Array<{ method: string; params: unknown }> = []
@@ -179,7 +192,8 @@ export const makeFakeCodex = (options: FakeCodexOptions = {}): FakeCodex => {
     }
     return turns
   }
-  const threadOf = (threadId: string) => threads.find((thread) => thread.id === threadId) ?? stubThread(threadId, 'Untitled')
+  const threadOf = (threadId: string) =>
+    threads.find((thread) => thread.id === threadId) ?? stubThread(threadId, 'Untitled')
 
   const notify = <M extends NotificationMethod>(method: M, params: Notification<M>) =>
     Effect.suspend(() => (live ? live.send({ method, params }) : Effect.void))
@@ -210,26 +224,37 @@ export const makeFakeCodex = (options: FakeCodexOptions = {}): FakeCodex => {
       thread: { ...threadOf(threadId), turns: [] },
       model: 'gpt-5.6-sol',
       cwd: threadOf(threadId).cwd,
-      initialTurnsPage: { data: [...turns].reverse(), nextCursor: null, backwardsCursor: olderTurns.length ? 'older' : null },
+      initialTurnsPage: {
+        data: [...turns].reverse(),
+        nextCursor: null,
+        backwardsCursor: olderTurns.length ? 'older' : null,
+      },
       turnsBackwardsCursor: olderTurns.length ? 'older' : null,
     }
   }
 
   const defaults: Handlers = {
-    initialize: () => Effect.succeed({ userAgent: 'hidegpt-fake', codexHome: '/tmp', platformFamily: 'unix', platformOs: 'macos' }),
+    initialize: () =>
+      Effect.succeed({ userAgent: 'hidegpt-fake', codexHome: '/tmp', platformFamily: 'unix', platformOs: 'macos' }),
     'account/read': () => Effect.succeed({ account, requiresOpenaiAuth: account == null }),
     'model/list': () => Effect.succeed({ data: [stubModel()], nextCursor: null }),
     'thread/list': (params) =>
       Effect.sync(() => {
         const search = params.searchTerm?.toLowerCase()
         const data = search
-          ? threads.filter((thread) => thread.name?.toLowerCase().includes(search) || thread.preview.toLowerCase().includes(search))
+          ? threads.filter(
+              (thread) => thread.name?.toLowerCase().includes(search) || thread.preview.toLowerCase().includes(search),
+            )
           : threads
         const size = options.threadPageSize
         if (!size) return { data, nextCursor: null, backwardsCursor: null }
         const start = Number(params.cursor ?? 0)
         const end = start + size
-        return { data: data.slice(start, end), nextCursor: end < data.length ? String(end) : null, backwardsCursor: null }
+        return {
+          data: data.slice(start, end),
+          nextCursor: end < data.length ? String(end) : null,
+          backwardsCursor: null,
+        }
       }),
     'project/list': () => Effect.succeed({ data: projects, nextCursor: null }),
     'project/create': (params) =>
@@ -260,8 +285,20 @@ export const makeFakeCodex = (options: FakeCodexOptions = {}): FakeCodex => {
           cwd,
           errors: [],
           skills: [
-            { name: 'study-guide', description: 'Turn notes into a study guide', path: '/tmp/skills/study-guide/SKILL.md', scope: 'user', enabled: true },
-            { name: 'humanizer', description: 'Rewrite text so it reads naturally', path: '/tmp/skills/humanizer/SKILL.md', scope: 'user', enabled: true },
+            {
+              name: 'study-guide',
+              description: 'Turn notes into a study guide',
+              path: '/tmp/skills/study-guide/SKILL.md',
+              scope: 'user',
+              enabled: true,
+            },
+            {
+              name: 'humanizer',
+              description: 'Rewrite text so it reads naturally',
+              path: '/tmp/skills/humanizer/SKILL.md',
+              scope: 'user',
+              enabled: true,
+            },
           ],
         })),
       }),
@@ -283,7 +320,11 @@ export const makeFakeCodex = (options: FakeCodexOptions = {}): FakeCodex => {
       Effect.sync(() =>
         params.cursor
           ? { data: olderTurns, nextCursor: null, backwardsCursor: null }
-          : { data: [...turnsOf(params.threadId)].reverse(), nextCursor: null, backwardsCursor: olderTurns.length ? 'older' : null },
+          : {
+              data: [...turnsOf(params.threadId)].reverse(),
+              nextCursor: null,
+              backwardsCursor: olderTurns.length ? 'older' : null,
+            },
       ),
     'thread/unsubscribe': () => Effect.succeed({ status: 'unsubscribed' }),
     'thread/name/set': (params) =>
@@ -297,7 +338,10 @@ export const makeFakeCodex = (options: FakeCodexOptions = {}): FakeCodex => {
         const turnId = `turn_${(nextId += 1)}`
         const connection = live
         if (connection) {
-          const fiber = yield* Effect.forkIn(runTurn(params.threadId, turnId, params.input, params.clientUserMessageId ?? null), connection.scope)
+          const fiber = yield* Effect.forkIn(
+            runTurn(params.threadId, turnId, params.input, params.clientUserMessageId ?? null),
+            connection.scope,
+          )
           running.set(params.threadId, fiber)
         }
         return { turn: { id: turnId, items: [], status: 'inProgress' as const } }
@@ -306,20 +350,33 @@ export const makeFakeCodex = (options: FakeCodexOptions = {}): FakeCodex => {
       Effect.gen(function* () {
         const fiber = running.get(params.threadId)
         if (fiber) yield* Fiber.interrupt(fiber)
-        yield* notify('turn/completed', { threadId: params.threadId, turn: { id: params.turnId, items: [], status: 'interrupted' } })
+        yield* notify('turn/completed', {
+          threadId: params.threadId,
+          turn: { id: params.turnId, items: [], status: 'interrupted' },
+        })
         return {}
       }),
     'thread/increment_elicitation': () => Effect.succeed({ count: 1, paused: true }),
     'thread/decrement_elicitation': () => Effect.succeed({ count: 0, paused: false }),
     'account/logout': () => Effect.succeed({}),
-    'account/login/start': () => Effect.succeed({ type: 'chatgpt' as const, loginId: 'login', authUrl: 'https://example.test/login' }),
+    'account/login/start': () =>
+      Effect.succeed({ type: 'chatgpt' as const, loginId: 'login', authUrl: 'https://example.test/login' }),
     'mcpServer/oauth/login': () => Effect.succeed({ authorizationUrl: 'https://example.test/mcp' }),
   }
-  const handlers = { ...defaults, ...options.handlers } as Record<string, (params: unknown) => Effect.Effect<unknown, RpcFailure>>
+  const handlers = { ...defaults, ...options.handlers } as Record<
+    string,
+    (params: unknown) => Effect.Effect<unknown, RpcFailure>
+  >
 
   const onFrame = (connection: Connection, line: string) =>
     Effect.suspend(() => {
-      const frame = JSON.parse(line) as { id?: number | string; method?: string; params?: unknown; result?: unknown; error?: unknown }
+      const frame = JSON.parse(line) as {
+        id?: number | string
+        method?: string
+        params?: unknown
+        result?: unknown
+        error?: unknown
+      }
       if (frame.method === undefined) {
         const answer = typeof frame.id === 'number' ? answers.get(frame.id) : undefined
         return answer ? Deferred.succeed(answer, frame.result ?? frame.error).pipe(Effect.asVoid) : Effect.void

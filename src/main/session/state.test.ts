@@ -49,7 +49,12 @@ describe('session state', () => {
   })
 
   it('puts a background library’s turn error on that library’s banner', () => {
-    const state = S.applyThreadEvent(twoLibraries(), 'opencode', { type: 'turnEnded', threadId: 'ses_1', error: 'Rate limited.' }, 5)
+    const state = S.applyThreadEvent(
+      twoLibraries(),
+      'opencode',
+      { type: 'turnEnded', threadId: 'ses_1', error: 'Rate limited.' },
+      5,
+    )
     expect(state.libraries.opencode.error).toBe('Rate limited.')
     expect(state.libraries.codex.error).toBeNull()
     expect(runtime(state, 'opencode', 'ses_1')?.error).toBeNull()
@@ -73,20 +78,39 @@ describe('session state', () => {
     state = S.connectionLost(state, 'codex', 'Codex stopped unexpectedly.')
 
     expect(runtime(state, 'codex', 'thr_1')).toMatchObject({ streaming: false, stale: true })
-    expect(runtime(state, 'codex', 'thr_1')?.blocks.at(-1)).toMatchObject({ id: 'ap_1', resolved: 'skipped', pending: false })
+    expect(runtime(state, 'codex', 'thr_1')?.blocks.at(-1)).toMatchObject({
+      id: 'ap_1',
+      resolved: 'skipped',
+      pending: false,
+    })
     expect(runtime(state, 'codex', 'thr_2')).toBeUndefined()
     expect(runtime(state, 'opencode', 'ses_1')).toBeDefined()
     expect(state.libraries.codex).toMatchObject({ status: 'connecting', error: 'Codex stopped unexpectedly.' })
   })
 
   it('a reload or a reset keeps approvals that still wait for an answer', () => {
-    let state = S.applyThreadEvent(twoLibraries(), 'codex', { type: 'block', threadId: 'thr_1', block: approval('ap_1') }, 1)
-    state = S.applyThreadEvent(state, 'codex', { type: 'block', threadId: 'thr_1', block: approval('ap_0', 'accepted') }, 1)
+    let state = S.applyThreadEvent(
+      twoLibraries(),
+      'codex',
+      { type: 'block', threadId: 'thr_1', block: approval('ap_1') },
+      1,
+    )
+    state = S.applyThreadEvent(
+      state,
+      'codex',
+      { type: 'block', threadId: 'thr_1', block: approval('ap_0', 'accepted') },
+      1,
+    )
 
     const reloaded = S.adopt(state, 'codex', opened('thr_1', [agent('a2', 'New.')]), 2)
     expect(runtime(reloaded, 'codex', 'thr_1')?.blocks.map((block) => block.id)).toEqual(['a2', 'ap_1'])
 
-    const reset = S.applyThreadEvent(state, 'codex', { type: 'reset', threadId: 'thr_1', blocks: [agent('a3', 'Reset.')], streaming: true }, 3)
+    const reset = S.applyThreadEvent(
+      state,
+      'codex',
+      { type: 'reset', threadId: 'thr_1', blocks: [agent('a3', 'Reset.')], streaming: true },
+      3,
+    )
     expect(runtime(reset, 'codex', 'thr_1')).toMatchObject({ streaming: true })
     expect(runtime(reset, 'codex', 'thr_1')?.blocks.map((block) => block.id)).toEqual(['a3', 'ap_1'])
   })

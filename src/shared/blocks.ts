@@ -30,7 +30,11 @@ export function upsertBlock(blocks: Blocks, next: Block, replaces?: string | nul
   const previous = blocks[index]
   // A resolved/pending approval keeps its local state when the provider re-sends it.
   if (previous.kind === 'approval' && next.kind === 'approval') {
-    return replaceAt(blocks, index, { ...next, resolved: previous.resolved ?? next.resolved, pending: previous.pending })
+    return replaceAt(blocks, index, {
+      ...next,
+      resolved: previous.resolved ?? next.resolved,
+      pending: previous.pending,
+    })
   }
   return replaceAt(blocks, index, next)
 }

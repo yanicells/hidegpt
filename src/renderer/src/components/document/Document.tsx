@@ -142,7 +142,15 @@ export function Document({
 const JUMP_SETTLE_MS = 3000
 
 /** One block on the page. Unchanged blocks keep their identity, so a delta skips every other row. */
-const BlockRow = memo(function BlockRow({ block, turnStart, streaming }: { block: Block; turnStart: boolean; streaming: boolean }) {
+const BlockRow = memo(function BlockRow({
+  block,
+  turnStart,
+  streaming,
+}: {
+  block: Block
+  turnStart: boolean
+  streaming: boolean
+}) {
   return (
     <div
       className={`doc-block${turnStart ? ' turn-start' : ''}`}

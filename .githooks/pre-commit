@@ -1,0 +1,8 @@
+#!/bin/sh
+# Installed by `pnpm install` (the prepare script points core.hooksPath here).
+# core.hooksPath is shared by every worktree, so fail clearly where deps aren't installed yet.
+if [ ! -x node_modules/.bin/lint-staged ]; then
+  echo "pre-commit: dependencies missing in this checkout. Run 'pnpm install' first." >&2
+  exit 1
+fi
+pnpm exec lint-staged
