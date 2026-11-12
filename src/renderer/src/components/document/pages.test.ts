@@ -8,8 +8,8 @@ import { PAGE_HEIGHT, PAGE_PITCH } from './pageLayout'
 /*
  * jsdom lays nothing out, so these tests stand in a tiny layout: rows stack from the top
  * margin, units stack inside their row, each unit is as tall as its `data-h`, and a pushed
- * unit's top margin is its `--page-break`. Reading a unit inside a skipped row throws, since
- * in Chromium that read would force the row's layout.
+ * unit's top margin is its `--page-break`. Lines are 20px apart. Reading a unit, its style or
+ * its lines inside a skipped row throws, since in Chromium that read would force the row's layout.
  */
 
 const MARGIN = 96
@@ -21,6 +21,14 @@ let paginator: Paginator | undefined
 let frames: FrameRequestCallback[] = []
 let observer: { deliver: (rows: HTMLElement[]) => void } | undefined
 const skipped = new Set<Element>()
+/** Whether `content-visibility` renders a row; tests that scroll replace it. */
+let rendered = (row: Element) => !skipped.has(row)
+
+/** Throws for an element inside a row that isn't rendered. */
+function guard(el: Element) {
+  const row = el.closest('.doc-block')
+  if (row && row !== el && !rendered(row)) throw new Error('read inside a skipped row')
+}
 
 function layout(): Map<Element, Box> {
   const boxes = new Map<Element, Box>()
@@ -69,7 +77,7 @@ const units = (row: Element) => Array.from(row.querySelectorAll<HTMLElement>('.d
 function misplaced(): HTMLElement[] {
   const boxes = layout()
   return Array.from(flow.children)
-    .filter((row) => !skipped.has(row))
+    .filter(rendered)
     .flatMap(units)
     .filter((el) => {
       const { top, height } = boxes.get(el)!
@@ -89,6 +97,7 @@ async function nextFrame() {
 beforeEach(() => {
   frames = []
   skipped.clear()
+  rendered = (row) => !skipped.has(row)
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback))
   vi.stubGlobal('cancelAnimationFrame', () => {})
   vi.stubGlobal(
@@ -111,13 +120,25 @@ beforeEach(() => {
     },
   )
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-    const row = this.closest('.doc-block')
-    if (row && row !== this && skipped.has(row)) throw new Error('read inside a skipped row')
+    guard(this)
     return rect(layout().get(this) ?? { top: 0, height: 0 })
   })
+  const computed = window.getComputedStyle
+  vi.spyOn(window, 'getComputedStyle').mockImplementation((el) => {
+    guard(el)
+    return { width: computed(el).width, lineHeight: '20px' } as CSSStyleDeclaration
+  })
+  // jsdom has no Range.getClientRects: one rect per 20px line of the paragraph's own height.
+  Range.prototype.getClientRects = function (this: Range) {
+    const el = this.startContainer as HTMLElement
+    guard(el)
+    const { top, height } = layout().get(el)!
+    const lines = Array.from({ length: Math.round(height / 20) }, (_, line) => rect({ top: top + line * 20, height: 20 }))
+    return lines as unknown as DOMRectList
+  }
   // jsdom has no checkVisibility; pages.ts asks a row's first child.
   Element.prototype.checkVisibility = function (this: Element) {
-    return !skipped.has(this.parentElement!)
+    return rendered(this.parentElement!)
   }
   paper = document.createElement('div')
   paper.style.width = '816px'
@@ -134,6 +155,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
   delete (Element.prototype as Partial<Element>).checkVisibility
+  delete (Range.prototype as Partial<Range>).getClientRects
 })
 
 describe('Paginator', () => {
@@ -185,5 +207,70 @@ describe('Paginator', () => {
 
     expect(writes).toEqual([])
     expect(pushed.style.getPropertyValue('--page-break')).toBe(margin)
+  })
+
+  it('measures again a row that resized while skipped, once it renders', async () => {
+    const top = block(300)
+    const row = block(300, 100, 100)
+    paginator = new Paginator(paper, () => {})
+    skipped.add(row)
+    row.dispatchEvent(Object.assign(new Event('contentvisibilityautostatechange'), { skipped: true }))
+    units(top)[0].textContent = 'edited'
+    await nextFrame()
+
+    // An image in it loads while it's skipped: it grows with no mutation.
+    units(row)[0].dataset.h = '520'
+    skipped.delete(row)
+    observer!.deliver([row])
+
+    expect(misplaced()).toEqual([])
+  })
+
+  it('never reads lines inside a skipped row', async () => {
+    const top = block(300)
+    const row = block(200)
+    units(row)[0].replaceWith(unit(200, 'p'))
+    paginator = new Paginator(paper, () => {})
+    skipped.add(row)
+    row.dispatchEvent(Object.assign(new Event('contentvisibilityautostatechange'), { skipped: true }))
+
+    // The block above grows, so the skipped paragraph now crosses a page: it moves whole for now.
+    units(top)[0].dataset.h = '700'
+    units(top)[0].textContent = 'grew'
+    await nextFrame()
+
+    expect(units(row)[0].hasAttribute('data-page-break')).toBe(true)
+  })
+
+  it('keeps the break of an element that moved to an earlier row', async () => {
+    const first = block(800)
+    const second = block(100, 50)
+    paginator = new Paginator(paper, () => {})
+    const moved = units(second)[0]
+    expect(moved.hasAttribute('data-page-break')).toBe(true)
+
+    first.querySelector('.doc-body')!.append(moved)
+    await nextFrame()
+
+    expect(moved.hasAttribute('data-page-break')).toBe(true)
+    expect(misplaced()).toEqual([])
+  })
+
+  it('breaks a row its own breaks brought into view, in the same callback', () => {
+    // Rows render while their top is above the window's bottom: the last one never has.
+    rendered = (row) => layout().get(row)!.top < 950
+    const first = block(800)
+    block(100)
+    const last = block(100)
+    paginator = new Paginator(paper, () => {})
+    expect(rendered(last)).toBe(false)
+
+    // An image above shrinks: the row below fits again and drops its break, which brings
+    // the last row into view, where it now crosses the page.
+    units(first)[0].dataset.h = '700'
+    observer!.deliver([first])
+
+    expect(rendered(last)).toBe(true)
+    expect(misplaced()).toEqual([])
   })
 })

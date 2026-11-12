@@ -163,12 +163,13 @@ export class Paginator {
     // A skipped row keeps the size it last rendered at; its breaks wait for it to render.
     if (!this.isLive(row)) return false
     const geometry = this.geometry.get(row)
+    if (!geometry) return true
+    // Its contents changed with no mutation (an image loaded, the wrapping changed), maybe
+    // while it was skipped: measure it again.
+    if (Math.abs(height - geometry.height - this.pushOf(row)) > 1) this.dirty.add(row)
     // Rendering now but not when the last pass placed it: its breaks may never have been
     // written live, and a paragraph can only be split once its lines can be read.
-    if (!geometry || !this.wasLive.has(row)) return true
-    if (Math.abs(height - geometry.height - this.pushOf(row)) <= 1) return false
-    this.dirty.add(row)
-    return true
+    return this.dirty.has(row) || !this.wasLive.has(row)
   }
 
   /**
@@ -237,6 +238,16 @@ export class Paginator {
     return this.skipped.get(row) !== true
   }
 
+  /** Forgets the breaks of elements no longer in `row`, clearing them off any that moved elsewhere. */
+  private dropLeft(row: HTMLElement) {
+    const written = this.written.get(row)
+    for (const el of written?.keys() ?? []) {
+      if (row.contains(el)) continue
+      clearBreak(el)
+      written!.delete(el)
+    }
+  }
+
   /**
    * How far the breaks written into a row move what follows it. An element React removed
    * (a paragraph that became a table mid-stream) took its break with it.
@@ -264,7 +275,10 @@ export class Paginator {
     }
     const paper = this.paper
     const rows = this.rows()
-    // Reads. Nothing above wrote, so the first of these is the frame's only layout.
+    // An element leaves a row only by a mutation in it. One React moved to another row takes
+    // its break off before that row measures it; nothing has been read yet, so this costs nothing.
+    for (const row of this.dirty) this.dropLeft(row)
+    // Reads. The first of these is the frame's only layout.
     const box = paper.getBoundingClientRect()
     // The page zoom scales client rects; layout values stay in page px.
     const scale = box.width / this.width
