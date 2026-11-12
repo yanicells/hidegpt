@@ -161,7 +161,8 @@ export function itemToBlock(item: ThreadItem): Block | null {
     case 'functionCallOutput':
       return callout(item.id, item.name, item.namespace ?? '')
     default: {
-      // An item type newer than these schemas still decodes (as `never` here); show its type.
+      // Unreachable while the ThreadItem union is closed: a newer item type fails to decode, and
+      // the client logs and drops that notification. Kept so a widened union still renders.
       const unknown: { readonly id: string; readonly type: string } = item
       return callout(unknown.id, unknown.type, '')
     }
@@ -217,25 +218,33 @@ const isForm = (params: ElicitationParams) =>
   params.mode === 'form' || params.mode === 'openai/form' || params.mode === 'openaiForm'
 
 /** The part of an elicitation's `requestedSchema` the form reads; `openai/form` sends it as untyped JSON. */
-const ElicitationForm = Schema.Struct({
-  properties: Schema.Record(
-    Schema.String,
-    Schema.Struct({ title: Schema.optionalKey(Schema.Unknown), default: Schema.optionalKey(Schema.Unknown) }),
-  ),
+const ElicitationProperties = Schema.Struct({ properties: Schema.Record(Schema.String, Schema.Unknown) })
+const ElicitationField = Schema.Struct({
+  title: Schema.optionalKey(Schema.Unknown),
+  default: Schema.optionalKey(Schema.Unknown),
 })
-const decodeElicitationForm = Schema.decodeUnknownOption(ElicitationForm)
+const decodeElicitationProperties = Schema.decodeUnknownOption(ElicitationProperties)
+const decodeElicitationField = Schema.decodeUnknownOption(ElicitationField)
 
-function elicitationFields(params: ElicitationParams) {
+/** Form fields from `requestedSchema`. Each property decodes on its own, so one odd entry
+ *  (JSON Schema allows `true` or `null` subschemas) can't hide the rest. */
+export function elicitationFields(params: ElicitationParams) {
   if (!('requestedSchema' in params)) return []
-  const properties = Option.match(decodeElicitationForm(params.requestedSchema), {
+  const properties = Option.match(decodeElicitationProperties(params.requestedSchema), {
     onNone: () => ({}),
     onSome: (form) => form.properties,
   })
-  return Object.entries(properties).map(([id, schema]) => ({
-    id,
-    label: typeof schema.title === 'string' && schema.title ? schema.title : id,
-    ...(schema.default != null ? { initial: String(schema.default) } : {}),
-  }))
+  return Object.entries(properties).map(([id, raw]) => {
+    const schema: { readonly title?: unknown; readonly default?: unknown } = Option.getOrElse(
+      decodeElicitationField(raw),
+      () => ({}),
+    )
+    return {
+      id,
+      label: typeof schema.title === 'string' && schema.title ? schema.title : id,
+      ...(schema.default != null ? { initial: String(schema.default) } : {}),
+    }
+  })
 }
 
 export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {

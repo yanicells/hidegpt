@@ -1,6 +1,5 @@
 // Vendored from T3 Code (https://github.com/pingdotgg/t3code), packages/effect-codex-app-server
 // at commit 5c6f2f12. Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
-// HideGPT changes are marked "HideGPT:".
 import * as NodeUtil from "node:util";
 
 import * as Cause from "effect/Cause";
