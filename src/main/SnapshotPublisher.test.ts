@@ -5,6 +5,7 @@ import * as TestClock from 'effect/testing/TestClock'
 
 import type { SnapshotPatch } from '../shared/contracts'
 import { emptySnapshot, type Snapshot } from '../shared/model'
+import { applySnapshotPatch } from '../shared/snapshot-patch'
 import { makeSnapshotPublisher } from './SnapshotPublisher'
 
 const settle = Effect.yieldNow.pipe(Effect.repeat({ times: 10 }))
@@ -66,7 +67,7 @@ describe('SnapshotPublisher', () => {
       yield* settle
       publisher.resync()
       expect(sent).toHaveLength(2)
-      expect(Object.keys(sent[1].fields)).toContain('blocks')
+      expect(applySnapshotPatch(emptySnapshot('/elsewhere'), sent[1])).toEqual(snapshot)
     }),
   )
 

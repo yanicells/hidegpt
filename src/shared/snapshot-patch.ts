@@ -1,4 +1,4 @@
-import type { Block, Snapshot, SnapshotPatch } from './contracts'
+import type { Block, Snapshot, SnapshotFields, SnapshotPatch } from './contracts'
 
 /**
  * What crosses IPC instead of a whole Snapshot (the `SnapshotPatch` contract).
@@ -27,39 +27,46 @@ export const isEmptyPatch = (patch: SnapshotPatch): boolean =>
   patch.blocks === undefined && Object.keys(patch.fields).length === 0
 
 export function diffSnapshot(previous: Snapshot | null, next: Snapshot): SnapshotPatch {
-  if (!previous) return { fields: next }
-  const fields: Record<string, unknown> = {}
-  for (const key of Object.keys(next) as (keyof Snapshot)[]) {
-    if (key !== 'blocks' && next[key] !== previous[key]) fields[key] = next[key]
+  const { blocks, ...shell } = next
+  if (!previous) {
+    return { fields: shell, blocks: { length: blocks.length, set: blocks.map((block, index) => [index, block]) } }
   }
-  const patch: { fields: Record<string, unknown>; blocks?: SnapshotPatch['blocks'] } = { fields }
-  if (next.blocks !== previous.blocks) {
+  const { blocks: before, ...previousShell } = previous
+  const patch: { fields: SnapshotFields; blocks?: SnapshotPatch['blocks'] } = { fields: changed(previousShell, shell) }
+  if (blocks !== before) {
     const set: [number, Block][] = []
     const append: [number, string][] = []
-    next.blocks.forEach((block, index) => {
-      const before = previous.blocks[index]
-      if (before === block) return
-      const delta = grownBy(before, block)
+    blocks.forEach((block, index) => {
+      const prior = before[index]
+      if (prior === block) return
+      const delta = grownBy(prior, block)
       if (delta !== null) append.push([index, delta])
       else set.push([index, block])
     })
-    patch.blocks = { length: next.blocks.length, ...(set.length ? { set } : {}), ...(append.length ? { append } : {}) }
+    patch.blocks = { length: blocks.length, ...(set.length ? { set } : {}), ...(append.length ? { append } : {}) }
   }
   return patch
 }
 
+/** The values of `next` whose reference differs from `previous`. */
+function changed<T extends object>(previous: T, next: T): Partial<T> {
+  const fields: Partial<T> = {}
+  for (const key in next) {
+    if (next[key] !== previous[key]) fields[key] = next[key]
+  }
+  return fields
+}
+
 /** Rebuilds the next Snapshot, reusing every unchanged block object. */
 export function applySnapshotPatch(previous: Snapshot, patch: SnapshotPatch): Snapshot {
-  const next = { ...previous, ...(patch.fields as Partial<Snapshot>) } as { -readonly [K in keyof Snapshot]: Snapshot[K] }
-  if (patch.blocks) {
-    const blocks = previous.blocks.slice(0, patch.blocks.length)
-    for (const [index, block] of patch.blocks.set ?? []) blocks[index] = block
-    for (const [index, delta] of patch.blocks.append ?? []) {
-      const block = blocks[index]
-      if (block?.kind === 'agent') blocks[index] = { ...block, text: block.text + delta }
-      else if (block?.kind === 'callout') blocks[index] = { ...block, body: block.body + delta }
-    }
-    next.blocks = blocks
+  const next: Snapshot = { ...previous, ...patch.fields }
+  if (!patch.blocks) return next
+  const blocks = previous.blocks.slice(0, patch.blocks.length)
+  for (const [index, block] of patch.blocks.set ?? []) blocks[index] = block
+  for (const [index, delta] of patch.blocks.append ?? []) {
+    const block = blocks[index]
+    if (block?.kind === 'agent') blocks[index] = { ...block, text: block.text + delta }
+    else if (block?.kind === 'callout') blocks[index] = { ...block, body: block.body + delta }
   }
-  return next
+  return { ...next, blocks }
 }
