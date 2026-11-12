@@ -16,7 +16,7 @@ import {
   type FakeOpenCode,
   type FakeOpenCodeOptions,
 } from './FakeOpenCode'
-import { readableProviderError } from './mapping'
+import { providerFailure } from './mapping'
 import * as OpenCodeAdapter from './OpenCodeAdapter'
 
 const SETTINGS = { model: 'fake/model-a', effort: null, serviceTier: null, mode: 'build' }
@@ -173,7 +173,9 @@ describe('OpenCodeAdapter', () => {
       fake.permissions.push(permission('per_1'), permission('per_other', 'ses_elsewhere'))
       const opened = yield* session.openThread(SESSION)
       const approvals = opened.blocks.filter((block) => block.kind === 'approval')
-      expect(approvals).toMatchObject([{ id: 'approval-per_1', title: 'Allow bash: git status?', resolved: null }])
+      expect(approvals).toMatchObject([
+        { id: 'approval-per_1', suggestion: 'add', title: 'Run this command?', body: 'git status', resolved: null },
+      ])
 
       yield* session.respond(SESSION, 'approval-per_1', { accept: true, answers: {} })
       expect(requested(fake, 'POST', '/permission/per_1/reply')[0]?.body).toEqual({ reply: 'once' })
@@ -336,7 +338,9 @@ describe('OpenCodeAdapter', () => {
         },
       })
       yield* until(() => events.some((event) => event.type === 'turnEnded'))
-      expect(events.find((event) => event.type === 'turnEnded')).toMatchObject({ error: 'Rate limited.' })
+      expect(events.find((event) => event.type === 'turnEnded')).toMatchObject({
+        error: expect.stringMatching(/^Docs couldn't finish\. Try again\. \(Report [0-9a-f]{8}\)$/),
+      })
 
       events.length = 0
       yield* send(session, 'Second')
@@ -470,16 +474,26 @@ describe('OpenCode error sentences', () => {
     expect(cases.map(([cause]) => OpenCodeAdapter.errorDetail(cause))).toEqual(cases.map(([, sentence]) => sentence))
   })
 
-  it("decodes a model provider's error data, ignoring a malformed one", () => {
+  it("classes a model provider's error, and keeps its readable text for the log", () => {
     const html = '<html><title>Bad   Gateway</title></html>'
-    expect(readableProviderError({ name: 'APIError', data: { message: 'Rate limited.' } })).toBe('Rate limited.')
+    expect(providerFailure({ name: 'APIError', data: { message: 'Rate limited.', statusCode: 429 } })).toEqual({
+      kind: 'usage_limit',
+      detail: 'Rate limited.',
+    })
     expect(
-      readableProviderError({ name: 'APIError', data: { message: '<none>', statusCode: 502, responseBody: html } }),
-    ).toBe('Bad Gateway (HTTP 502).')
-    expect(readableProviderError({ name: 'APIError', data: { statusCode: 503 } })).toBe(
-      'The model provider failed the request (HTTP 503).',
-    )
-    expect(readableProviderError({ name: 'APIError', data: { message: 7 } })).toBe('APIError')
-    expect(readableProviderError(undefined)).toBe('The assistant ran into an error.')
+      providerFailure({ name: 'APIError', data: { message: '<none>', statusCode: 502, responseBody: html } }),
+    ).toEqual({ kind: 'provider_error', detail: 'Bad Gateway (HTTP 502).' })
+    expect(providerFailure({ name: 'ProviderAuthError', data: { providerID: 'x', message: 'Bad key' } })).toEqual({
+      kind: 'auth',
+      detail: 'Bad key',
+    })
+    expect(providerFailure({ name: 'APIError', data: { statusCode: 403 } })).toMatchObject({ kind: 'auth' })
+    expect(providerFailure({ name: 'APIError', data: { message: 7 } })).toEqual({
+      kind: 'provider_error',
+      detail: 'APIError',
+    })
+    expect(providerFailure({ name: 'ContextOverflowError', data: {} })).toMatchObject({ kind: 'validation_error' })
+    expect(providerFailure({ name: 'UnknownError', data: { message: 'x' } })).toMatchObject({ kind: 'unknown' })
+    expect(providerFailure(undefined)).toEqual({ kind: 'unknown', detail: 'No error was given.' })
   })
 })

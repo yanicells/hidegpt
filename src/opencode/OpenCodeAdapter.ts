@@ -25,6 +25,7 @@ import {
 } from '../provider/errors'
 import { logDefects, reportDefect } from '../provider/DefectReport'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
+import { reportTurnFailure } from '../provider/turnFailure'
 import type {
   AdapterEvent,
   Catalog,
@@ -44,7 +45,7 @@ import {
   permissionBlockId,
   questionBlock,
   questionId,
-  readableProviderError,
+  providerFailure,
   sessionTitle,
   skillPart,
   splitModelKey,
@@ -338,7 +339,10 @@ export function make(connect: Connect): ProviderAdapter {
       const onPart = (part: Part): ReadonlyArray<AdapterEvent> => {
         const state = liveOf(part.sessionID)
         const threadId = part.sessionID
-        if (part.type === 'tool') return [{ type: 'block', threadId, block: toolCallout(part) }]
+        if (part.type === 'tool') {
+          const block = toolCallout(part)
+          return block ? [{ type: 'block', threadId, block }] : []
+        }
         if (part.type !== 'text' && part.type !== 'file') return []
         if (state.own.has(part.messageID)) return []
         if (state.roles.get(part.messageID) === 'user') {
@@ -430,10 +434,13 @@ export function make(connect: Connect): ProviderAdapter {
             return emitAll(endTurn(event.properties.sessionID))
           case 'session.error': {
             const { sessionID, error } = event.properties
-            const aborted = error?.name === 'MessageAbortedError'
-            const message = aborted ? undefined : readableProviderError(error)
-            if (!sessionID) return message ? emit({ type: 'notice', message }) : Effect.void
-            return emitAll(endTurn(sessionID, message))
+            if (error?.name === 'MessageAbortedError') return sessionID ? emitAll(endTurn(sessionID)) : Effect.void
+            // The page gets Docs' sentence and a report id; the provider's text goes to the log.
+            return reportTurnFailure('opencode', providerFailure(error)).pipe(
+              Effect.flatMap((message) =>
+                sessionID ? emitAll(endTurn(sessionID, message)) : emit({ type: 'notice', message }),
+              ),
+            )
           }
           case 'permission.asked': {
             const request = event.properties
