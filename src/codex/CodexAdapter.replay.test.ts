@@ -46,6 +46,8 @@ const replay = (name: string, options: CodexClient.CodexAppServerClientOptions =
     return { session, events, transcript, driver, finished }
   })
 
+const approvalIds = (events: ReadonlyArray<AdapterEvent>) =>
+  new Set(events.flatMap((event) => (event.type === 'block' && event.block.kind === 'approval' ? [event.block.id] : [])))
 const userTexts = (result: TurnResult) => result.opened.blocks.flatMap((block) => (block.kind === 'user' ? [block.text] : []))
 
 /** Runs a scenario over a recording, as the recorder ran it against Codex. */
@@ -77,36 +79,8 @@ describe('CodexAdapter replay', () => {
     }),
   )
 
-  /** Turn fixtures a person records with real prompts; each test is skipped until its file exists. */
-  const recorded: ReadonlyArray<readonly [name: string, scenario: ReplayScenario<TurnResult>, check: (result: TurnResult, events: ReadonlyArray<AdapterEvent>) => void]> = [
-    [
-      'turn',
-      turn,
-      (result, events) => {
-        expect(result.ended.filter((ended) => ended.error)).toEqual([])
-        expect(events.some((event) => event.type === 'text' && event.delta)).toBe(true)
-        expect(userTexts(result)).toEqual(turn.prompts)
-        expect(result.opened.blocks.filter((block) => block.kind === 'agent' && block.text)).toHaveLength(turn.prompts.length)
-      },
-    ],
-    [
-      'stop',
-      stop,
-      (result) => {
-        expect(result.ended).toHaveLength(1)
-        expect(userTexts(result)).toEqual(stop.prompts)
-      },
-    ],
-    [
-      'approval',
-      approval,
-      (result, events) => {
-        expect(result.ended).toHaveLength(approval.prompts.length)
-        expect(events.filter((event) => event.type === 'block' && event.block.kind === 'approval')).toHaveLength(approval.prompts.length)
-      },
-    ],
-  ]
-  for (const [name, scenario, check] of recorded) {
+  /** A fixture a person records with real prompts; its test is skipped until the file exists. */
+  const recorded = <A extends TurnResult>(name: string, scenario: ReplayScenario<A>, check: (result: A, events: ReadonlyArray<AdapterEvent>) => void) => {
     const skip = `needs src/codex/fixtures/${name}.ndjson, which a person records with real prompts (docs/replay-fixtures.md)`
     it.live.skipIf(!existsSync(fixture(name)))(`${name}: ${scenario.description} (${skip})`, () =>
       Effect.gen(function* () {
@@ -116,6 +90,23 @@ describe('CodexAdapter replay', () => {
       }),
     )
   }
+  recorded('turn', turn, (result, events) => {
+    expect(result.ended.filter((ended) => ended.error)).toEqual([])
+    expect(events.some((event) => event.type === 'text' && event.delta)).toBe(true)
+    expect(userTexts(result)).toEqual(turn.prompts)
+    expect(result.opened.blocks.filter((block) => block.kind === 'agent' && block.text)).toHaveLength(turn.prompts.length)
+  })
+  recorded('stop', stop, (result) => {
+    expect(result.ended).toHaveLength(1)
+    expect(userTexts(result)).toEqual(stop.prompts)
+  })
+  // Codex may ask more than once in a turn; each turn has to ask at least once.
+  recorded('approval', approval, (result, events) => {
+    expect(result.ended).toHaveLength(approval.prompts.length)
+    expect(result.asked).toHaveLength(approval.prompts.length)
+    expect(result.asked.filter((count) => count < 1)).toEqual([])
+    expect(approvalIds(events).size).toBe(result.asked.reduce((sum, count) => sum + count, 0))
+  })
 
   it.effect('without the turn gate, the recorder stops turn/start before it reaches Codex', () =>
     Effect.gen(function* () {

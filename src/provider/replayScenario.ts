@@ -109,13 +109,17 @@ export const stopScenario = (prompt: string): ReplayScenario<TurnResult> => ({
  * Fails if a turn ends without asking, since then the recording would show no
  * approval at all.
  */
-export const approvalScenario = (prompts: ReadonlyArray<string>, decisions: ReadonlyArray<boolean>): ReplayScenario<TurnResult> => {
+/** What an approval scenario leaves: a turn result plus how many requests each turn asked. */
+export type ApprovalResult = TurnResult & { readonly asked: ReadonlyArray<number> }
+
+export const approvalScenario = (prompts: ReadonlyArray<string>, decisions: ReadonlyArray<boolean>): ReplayScenario<ApprovalResult> => {
   if (decisions.length < prompts.length) throw new Error(`${prompts.length} approval prompts need as many decisions; got ${decisions.length}.`)
   return {
     description: `A new document and ${prompts.length} turns that each ask before acting: ${decisions.map((accept) => (accept ? 'accepted' : 'denied')).join(', then ')}. Then the document read back.`,
     prompts,
-    run: (context) =>
-      onNewDocument(context, (threadId) =>
+    run: (context) => {
+      const asked: number[] = []
+      return onNewDocument(context, (threadId) =>
         Effect.forEach(prompts, (text, index) =>
           runTurn(context, threadId, text, index, (since) =>
             Effect.gen(function* () {
@@ -136,10 +140,12 @@ export const approvalScenario = (prompts: ReadonlyArray<string>, decisions: Read
               if (answered.size === 0) {
                 return yield* Effect.fail(new Error(`Turn ${index + 1} ended without asking for approval; see docs/replay-fixtures.md.`))
               }
+              asked.push(answered.size)
             }),
           ),
         ),
-      ),
+      ).pipe(Effect.map((result): ApprovalResult => ({ ...result, asked })))
+    },
   }
 }
 
