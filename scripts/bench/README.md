@@ -52,23 +52,35 @@ table says how much noise to expect:
 
 | Tier | Metrics | Under load |
 | --- | --- | --- |
-| `count` | `layouts`, `recalcs` (Blink layout and style passes), `ipc_sends`, `ipc_kb`, `commits`, `renders` (React), `dom_nodes`, bundle sizes | exact |
-| `instr` | `r_ginstr`, `m_ginstr`, `g_ginstr`: billions of CPU instructions retired by the renderer, main and GPU processes | within about 1% |
-| `cpu` | `*_cpu_ms` (process CPU time), `layout_ms`, `recalc_ms`, `script_ms`, `task_ms` (renderer main thread, thread time) | drifts 10-30% |
+| `count` | `layouts`, `recalcs` (Blink layout and style passes), `ipc_sends`, `ipc_kb`, `commits`, `renders` (React), `dom_nodes`, bundle sizes | exact, apart from the passes of `open` and `reopen` |
+| `instr` | `r_ginstr`, `m_ginstr`, `g_ginstr`: billions of CPU instructions retired by the renderer, main and GPU processes | within 2% for streaming and scrolling; more elsewhere (below) |
+| `cpu` | `*_cpu_ms` (process CPU time), `layout_ms`, `recalc_ms`, `script_ms`, `task_ms` (renderer main thread, thread time) | 10-30% at moderate load, about 2x at load 25 |
 | `memory` | `r_heap_mb` (JS heap after GC), `*_footprint_mb` (what Activity Monitor shows) | stable, footprint varies a little |
 | `wall` | `first_ms`, `settled_ms`, `key_p95_ms`, `frame_p95_ms`, `late_frames` (>25 ms), `janky_frames` (>50 ms), `longtask_*`, `end_lag_ms`, `lag_max_ms` (main event loop) | only on a quiet machine |
 
 Instructions retired is the main CPU measure. It comes from the kernel
-(`proc_pid_rusage`, read by `rusage.py`), counts work rather than time, and does not
-move when other programs share the machine or a thread lands on an efficiency core.
-On a machine running ten other builds it repeated within 0.2% while wall time swung 15%.
+(`proc_pid_rusage`, read by `rusage.py`) and counts work rather than time, so the same
+work reads the same when other programs share the machine or a thread lands on an
+efficiency core.
 
-One caveat: it counts the work the app did, and some work is per frame. A phase that
-streams or types drops frames on a loaded machine, so it runs fewer per-frame passes
-and retires fewer instructions (`stream300.r_ginstr` ranged 77 to 110 over five loaded
-runs, with `frames` 417 to 614). Phases with a fixed amount of work (`cold`, `open`,
-`load_all`, every `m_ginstr`) stay within 1 to 2%. Read a per-frame phase next to its
-`frames`, or compare on a quiet machine.
+It counts the work the app did, though, and a busy machine changes how much work some
+phases do. One build measured at load 23 to 29 and again at load 2 to 6 (3 runs each):
+
+| Moved by | Metrics |
+| --- | --- |
+| under 2% | `r_ginstr` and every count of `stream30`, `stream300`, `code30`, `scroll300`; `open.r_ginstr`; `type_idle.r_ginstr`; `m_ginstr` of every streaming phase |
+| 3 to 6% | `cold.m_ginstr`, `load_all.r_ginstr`, `to_home.r_ginstr` |
+| 10% or more | `reopen` (rows mount by time budget: 26 frames and 16 layouts quiet, 50 and 38 loaded), layouts of `open`, `type_stream300.r_ginstr`, `type_idle300.r_ginstr`, `cold.r_ginstr` |
+| about 2x | every `*_ms` of the `cpu` tier |
+
+So streaming and scrolling can be compared by instructions on a busy machine. Opening,
+reopening and typing cannot: compare those from runs taken side by side at the same load.
+
+Always read a per-frame phase next to its `frames`. A phase that drops frames runs fewer
+per-frame passes and retires fewer instructions (`stream300.r_ginstr` ranged 77 to 110
+over five loaded runs, with `frames` 417 to 614). Some sessions also ran a whole phase at
+30 frames a second for no visible reason (`stream300.frames` about 370 for 650,
+`frame_p50_ms` 33): leave those out.
 
 Counts are exact for what the app did, and two byte counts depend on when the app did it.
 `cold.ipc_kb` varies between runs (1,475 to 1,743 KB in 15 messages on one build): the library
@@ -76,10 +88,10 @@ arrives as cumulative pages and the publisher sends whichever is newest at each 
 library is listed again after each turn, so its 270 KB lands in whichever phase is running when
 the list returns (`code30.ipc_kb` reads 304 or 35). Compare those as a sum over phases.
 
-`type_idle300.r_ginstr` is the one instruction count seen to differ between sessions of the
-same build: 2.4 to 3.3 on a quiet machine, 1.87 to 1.90 in four busier ones (probably deferred
-work that only runs when the phase has idle time; not confirmed). Compare typing on `script_ms`,
-`recalc_ms` and key latency from runs taken side by side.
+Typing phases retire more instructions on a quiet machine than on a busy one
+(`type_idle300.r_ginstr` 2.4 to 3.3 quiet, 1.87 to 1.90 in four busier sessions; probably
+deferred work that only runs when the phase has idle time, not confirmed). Compare typing on
+`recalcs`, `script_ms`, `recalc_ms` and key latency from runs taken side by side.
 
 Launch has three marks, all from the process starting: `cold.listed_ms` (the provider
 served the last page of the library; everything before it is the main process and the
