@@ -87,9 +87,14 @@ export function displayedRuntime(state: State, provider: ProviderId = state.acti
   return route.kind === 'doc' ? state.runtimes.get(keyOf(provider, route.threadId)) : undefined
 }
 
+/**
+ * The document its own library shows. Each library keeps its route while
+ * another one is active, so a switch back lands on that document again: it
+ * must not be released, and its errors belong on that library's banner.
+ */
 export function isDisplayed(state: State, runtime: ThreadRuntime): boolean {
   const route = state.libraries[runtime.provider].route
-  return runtime.provider === state.active && route.kind === 'doc' && route.threadId === runtime.threadId
+  return route.kind === 'doc' && route.threadId === runtime.threadId
 }
 
 /** What the window draws. Unchanged parts keep their references, so patches stay small. */
@@ -283,8 +288,7 @@ export function connectionLost(state: State, provider: ProviderId, message: stri
   const runtimes = new Map(state.runtimes)
   for (const [key, runtime] of state.runtimes) {
     if (runtime.provider !== provider) continue
-    const route = state.libraries[provider].route
-    if (route.kind === 'doc' && route.threadId === runtime.threadId) {
+    if (isDisplayed(state, runtime)) {
       runtimes.set(key, {
         ...runtime,
         streaming: false,
