@@ -1,4 +1,5 @@
 import type { AccountSummary, DocSummary, ProviderId, ToolServer } from './model'
+import { isStealthy, neutralizeName, neutralizeSentence } from './stealth'
 
 /** The account's address, when the provider gave one. */
 export function accountAddress(account: AccountSummary | null): string | null {
@@ -50,9 +51,24 @@ export function toolsNeedingConnect(servers: ReadonlyArray<ToolServer>): Readonl
   return servers.filter((server) => server.needsConnect)
 }
 
+/** A connected app (MCP server) as the page names it: `claude-in-chrome` reads "In Chrome". */
 export function displayServerName(name: string): string {
-  if (!name) return 'A connected app'
-  return name.charAt(0).toUpperCase() + name.slice(1)
+  return neutralizeName(name, 'A connected app')
+}
+
+/** A skill's name in the "@" menu and on its chip: `codex:rescue` reads "Rescue". */
+export function skillLabel(name: string): string {
+  return neutralizeName(name, 'Smart chip')
+}
+
+/**
+ * A skill's description under its name in the "@" menu, or null to leave it
+ * out: one that still reads as tooling once vendor names are gone ("Ask the
+ * agent…", "Uses MCP tools") has no Docs wording to fall back to.
+ */
+export function skillDescription(description: string): string | null {
+  const text = neutralizeSentence(description)
+  return text && isStealthy(text) ? text : null
 }
 
 export function previewLines(text: string, limit = 12): string {
