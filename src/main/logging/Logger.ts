@@ -41,7 +41,10 @@ export const layer = (options: LoggingOptions) =>
             window: BATCH_WINDOW,
             flush: (lines) => Effect.ignore(sink.write(lines.map((line) => `${line}\n`).join(''))),
           })
-        }).pipe(Effect.catch(() => Effect.succeed(Logger.consolePretty()))),
+        }).pipe(
+          // No log folder: log to the terminal instead, unless the terminal logger below already does.
+          Effect.catch(() => Effect.succeed(options.console ? Logger.make(() => {}) : Logger.consolePretty())),
+        ),
         ...(options.console ? [Logger.consolePretty()] : []),
       ],
       { mergeWithExisting: false },

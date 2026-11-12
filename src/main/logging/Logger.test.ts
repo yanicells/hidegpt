@@ -6,6 +6,7 @@ import * as NodeServices from '@effect/platform-node/NodeServices'
 import { describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
+import * as TestConsole from 'effect/testing/TestConsole'
 
 import * as Logging from './Logger'
 import { makeRotatingFileSink } from './rotatingFileSink'
@@ -65,5 +66,17 @@ describe('Logger.layer', () => {
       ])
     }),
   )
-})
 
+  it.effect('without a log folder, prints each line to the terminal once', () =>
+    Effect.gen(function* () {
+      // A folder inside a file cannot be made.
+      const file = join(tempDir(), 'not-a-folder')
+      writeFileSync(file, '')
+      yield* Effect.logWarning('Connection lost').pipe(
+        Effect.provide(Logging.layer({ directory: join(file, 'logs'), console: true }).pipe(Layer.provide(NodeServices.layer))),
+      )
+      const printed = [...(yield* TestConsole.logLines), ...(yield* TestConsole.errorLines)].map(String)
+      expect(printed.filter((line) => line.includes('Connection lost'))).toHaveLength(1)
+    }),
+  )
+})
