@@ -201,7 +201,8 @@ export function make(
       yield* Effect.addFinalizer(() => Queue.shutdown(events))
       const emit = (event: AdapterEvent) => Queue.offer(events, event).pipe(Effect.asVoid)
       const scope = yield* Scope.Scope
-      const fork = <A, E>(effect: Effect.Effect<A, E>) => Effect.asVoid(Effect.forkIn(logDefects(Effect.ignore(effect)), scope))
+      const fork = <A, E>(effect: Effect.Effect<A, E>) =>
+        Effect.asVoid(Effect.forkIn(logDefects(Effect.ignore(effect)), scope))
       // SDK callbacks run in the session scope with its services (its logger and log
       // annotations), so closing the library interrupts them.
       const runPromise = yield* FiberSet.makeRuntimePromise()

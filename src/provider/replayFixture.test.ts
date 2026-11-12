@@ -54,13 +54,9 @@ describe('replay fixtures', () => {
   })
 
   it('leaks finds what scrubbing must remove, in any case', () => {
-    expect(leaks('{"email":"ada@school.edu","cwd":"/Users/bob/x","by":"Lovelace","host":"ADAS-MBP"}', MACHINE)).toEqual([
-      'ada@school.edu',
-      '/Users/bob',
-      'ADAS-MBP',
-      'Lovelace',
-      'ada',
-    ])
+    expect(leaks('{"email":"ada@school.edu","cwd":"/Users/bob/x","by":"Lovelace","host":"ADAS-MBP"}', MACHINE)).toEqual(
+      ['ada@school.edu', '/Users/bob', 'ADAS-MBP', 'Lovelace', 'ada'],
+    )
   })
 
   it('an empty home or a short name never counts as a leak', () => {
@@ -75,17 +71,21 @@ describe('replay fixtures', () => {
       hosts: ['host'],
       scratch: [['/private/var/folders/x1/abc/T/w', '/tmp/replay-workspace']],
     }
-    const text = '{"email":"replay-user@example.com","cwd":"/tmp/replay-workspace","host":"replay-host","key":"<redacted>"}'
+    const text =
+      '{"email":"replay-user@example.com","cwd":"/tmp/replay-workspace","host":"replay-host","key":"<redacted>"}'
     expect(leaks(text, machine)).toEqual([])
     expect(scrub(text, machine)).toBe(text)
   })
 
   // Names are per machine (a CI runner is called "runner"), so the recorders check those;
   // this checks what no fixture may hold on any machine.
-  it.each(FIXTURES.map((path) => [path.slice(SRC.length), path]))('%s has no emails, home or temp paths, or tokens', (_name, path) => {
-    const text = readFileSync(path, 'utf8')
-    expect(leaks(text, { home: '', people: [], hosts: [], scratch: [] })).toEqual([])
-  })
+  it.each(FIXTURES.map((path) => [path.slice(SRC.length), path]))(
+    '%s has no emails, home or temp paths, or tokens',
+    (_name, path) => {
+      const text = readFileSync(path, 'utf8')
+      expect(leaks(text, { home: '', people: [], hosts: [], scratch: [] })).toEqual([])
+    },
+  )
 
   it('turns are refused unless a person sets HIDEGPT_RECORD_TURNS=1', () => {
     expect(turnsAllowed({})).toBe(false)

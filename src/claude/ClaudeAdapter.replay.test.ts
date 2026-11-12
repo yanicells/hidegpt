@@ -37,14 +37,26 @@ const open = (sdk: ClaudeAdapter.ClaudeSdk) =>
   })
 
 /** The recorder's turn scenario: a new document, each prompt to the end of its turn, then its history. */
-const turnScenario = (session: ProviderSession, events: ReadonlyArray<AdapterEvent>, prompts: ReadonlyArray<string>, cwd: string) =>
+const turnScenario = (
+  session: ProviderSession,
+  events: ReadonlyArray<AdapterEvent>,
+  prompts: ReadonlyArray<string>,
+  cwd: string,
+) =>
   Effect.gen(function* () {
     const created = yield* session.createThread({ cwd, projectId: null, title: null, settings: SETTINGS })
     for (const [index, text] of prompts.entries()) {
       const ended = () => events.filter((event) => event.type === 'turnEnded').length
       const before = ended()
-      yield* session.send(created.threadId, { text, images: [], skill: null, clientId: `local-replay-${index + 1}` }, SETTINGS)
-      yield* Effect.sleep('5 millis').pipe(Effect.repeat({ until: () => ended() > before }), Effect.timeout('5 seconds'))
+      yield* session.send(
+        created.threadId,
+        { text, images: [], skill: null, clientId: `local-replay-${index + 1}` },
+        SETTINGS,
+      )
+      yield* Effect.sleep('5 millis').pipe(
+        Effect.repeat({ until: () => ended() > before }),
+        Effect.timeout('5 seconds'),
+      )
     }
     return yield* session.openThread(created.threadId)
   })
@@ -67,7 +79,8 @@ describe('ClaudeAdapter replay', () => {
     }),
   )
 
-  const TURN_SKIP = 'needs src/claude/fixtures/turn.ndjson, which a person records with real prompts (docs/replay-fixtures.md)'
+  const TURN_SKIP =
+    'needs src/claude/fixtures/turn.ndjson, which a person records with real prompts (docs/replay-fixtures.md)'
   it.live.skipIf(!existsSync(fixture('turn')))(`turn: two real turns, then their history (${TURN_SKIP})`, () =>
     Effect.gen(function* () {
       const transcript = readTranscript(fixture('turn'))
@@ -102,7 +115,16 @@ describe('ClaudeAdapter replay', () => {
       const scrubbed = entries.map((entry) => scrub(entry, machine) as ReplayEntry)
       expect(JSON.stringify(scrubbed)).toContain(WORKSPACE)
       const replaying = yield* workspace
-      const replay = replaySdk({ provider: 'claude', protocol: 'claude-agent-sdk.query', version: 'fake', scenario: 'turn', entries: scrubbed }, replaying.paths)
+      const replay = replaySdk(
+        {
+          provider: 'claude',
+          protocol: 'claude-agent-sdk.query',
+          version: 'fake',
+          scenario: 'turn',
+          entries: scrubbed,
+        },
+        replaying.paths,
+      )
       const replayed = yield* Effect.scoped(
         Effect.gen(function* () {
           const { session, events } = yield* open(replay.sdk)
@@ -124,13 +146,18 @@ describe('ClaudeAdapter replay', () => {
       const { session, events } = yield* open(recordingSdk(fake.sdk, [], false))
       const created = yield* session.createThread({ cwd: WORKSPACE, projectId: null, title: null, settings: SETTINGS })
       yield* session.send(created.threadId, { text: 'Hello', images: [], skill: null, clientId: 'local-1' }, SETTINGS)
-      yield* Effect.sleep('5 millis').pipe(Effect.repeat({ until: () => events.some((event) => event.type === 'turnEnded') }), Effect.timeout('5 seconds'))
+      yield* Effect.sleep('5 millis').pipe(
+        Effect.repeat({ until: () => events.some((event) => event.type === 'turnEnded') }),
+        Effect.timeout('5 seconds'),
+      )
       expect(fake.queries[0]?.prompts).toEqual([])
-      expect(events.find((event) => event.type === 'turnEnded')).toMatchObject({ error: expect.stringContaining('HIDEGPT_RECORD_TURNS=1') })
+      expect(events.find((event) => event.type === 'turnEnded')).toMatchObject({
+        error: expect.stringContaining('HIDEGPT_RECORD_TURNS=1'),
+      })
     }),
   )
 
-  it('folders are compared as the recorder\'s placeholders, not skipped', async () => {
+  it("folders are compared as the recorder's placeholders, not skipped", async () => {
     const recorded: ReplayTranscript = {
       provider: 'claude',
       protocol: 'claude-agent-sdk.query',
@@ -184,7 +211,10 @@ describe('ClaudeAdapter replay', () => {
     })
 
     it('a new document id binds once, and two recorded ids never share one', async () => {
-      const recorded = transcript([...ask('getSessionInfo', [KNOWN, {}], null), ...ask('getSessionInfo', [OTHER, {}], null)])
+      const recorded = transcript([
+        ...ask('getSessionInfo', [KNOWN, {}], null),
+        ...ask('getSessionInfo', [OTHER, {}], null),
+      ])
       const replay = replaySdk(recorded)
       await replay.sdk.getSessionInfo(MINTED, {})
       await expect(replay.sdk.getSessionInfo(MINTED, {})).rejects.toThrow(/expected/)

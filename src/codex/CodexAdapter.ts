@@ -186,7 +186,11 @@ export function make(connect: Connect): ProviderAdapter {
           Effect.suspend(() => handler(params)).pipe(
             Effect.catchCauseIf(Cause.hasDies, (cause) =>
               endOnDefect(cause).pipe(
-                Effect.andThen(Effect.fail(CodexError.CodexAppServerRequestError.internalError('Docs could not handle this request.'))),
+                Effect.andThen(
+                  Effect.fail(
+                    CodexError.CodexAppServerRequestError.internalError('Docs could not handle this request.'),
+                  ),
+                ),
               ),
             ),
           ),

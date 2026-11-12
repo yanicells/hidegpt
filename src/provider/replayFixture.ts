@@ -107,12 +107,16 @@ const placeholderWords = (scratch: RecordingMachine['scratch']) =>
  * "user", a git name with "Example") is left out: it would match every
  * placeholder, so no recording could pass.
  */
-function namePatterns(machine: Pick<RecordingMachine, 'people' | 'hosts' | 'scratch'>): ReadonlyArray<readonly [RegExp, string]> {
+function namePatterns(
+  machine: Pick<RecordingMachine, 'people' | 'hosts' | 'scratch'>,
+): ReadonlyArray<readonly [RegExp, string]> {
   const reserved = placeholderWords(machine.scratch)
   const named: ReadonlyArray<readonly [string, string]> = [
     ...machine.hosts.map((name) => [name.trim(), REPLAY_HOST] as const),
     ...machine.people.map((name) => [name.trim(), REPLAY_USER] as const),
-  ].filter(([name]) => name.length >= MIN_NAME && name.toLowerCase() !== 'localhost' && !reserved.has(name.toLowerCase()))
+  ].filter(
+    ([name]) => name.length >= MIN_NAME && name.toLowerCase() !== 'localhost' && !reserved.has(name.toLowerCase()),
+  )
   // Patterns ignore case, so one per name in any case.
   const unique = [...new Map(named.map((entry) => [entry[0].toLowerCase(), entry])).values()]
   return unique

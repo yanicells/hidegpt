@@ -175,7 +175,8 @@ function same(expected: unknown, actual: unknown, bindings: Bindings): boolean {
 
 /** Replaces this machine's folders with the placeholders the recorder wrote, as T3's `sanitizedReplayCwd` does. */
 function toPlaceholders(value: unknown, paths: ReadonlyArray<readonly [string, string]>): unknown {
-  if (typeof value === 'string') return paths.reduce((text, [path, placeholder]) => text.replaceAll(path, placeholder), value)
+  if (typeof value === 'string')
+    return paths.reduce((text, [path, placeholder]) => text.replaceAll(path, placeholder), value)
   if (Array.isArray(value)) return value.map((entry) => toPlaceholders(entry, paths))
   if (!isRecord(value)) return value
   return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, toPlaceholders(entry, paths)]))
@@ -238,7 +239,10 @@ export type ClaudeReplay = {
  * are compared as placeholders: the home folder as `REPLAY_HOME`, and each of
  * `paths` (a test's workspace, say) as the placeholder the recorder used for it.
  */
-export function replaySdk(transcript: ReplayTranscript, paths: ReadonlyArray<readonly [path: string, placeholder: string]> = []): ClaudeReplay {
+export function replaySdk(
+  transcript: ReplayTranscript,
+  paths: ReadonlyArray<readonly [path: string, placeholder: string]> = [],
+): ClaudeReplay {
   const entries = transcript.entries
   const local = [...paths, [homedir(), REPLAY_HOME] as const]
     .filter(([path]) => path.length > 1)

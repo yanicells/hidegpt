@@ -39,7 +39,9 @@ async function groupGone(pid: number): Promise<boolean> {
 
 describe('readLoginShellPath', () => {
   it('reads PATH between the markers, ignoring what the profile prints around it', () => {
-    expect(extractPath(`Welcome back!\n__DOCS_PATH_START__\n${NVM}:/usr/bin\n__DOCS_PATH_END__\nlast login`)).toBe(`${NVM}:/usr/bin`)
+    expect(extractPath(`Welcome back!\n__DOCS_PATH_START__\n${NVM}:/usr/bin\n__DOCS_PATH_END__\nlast login`)).toBe(
+      `${NVM}:/usr/bin`,
+    )
     expect(extractPath('no markers here')).toBeUndefined()
   })
 
@@ -68,7 +70,11 @@ describe('readLoginShellPath', () => {
 
 describe('login shell candidates', () => {
   it('tries $SHELL, then the account shell, then /bin/zsh, without repeats', () => {
-    expect(loginShellCandidates({ SHELL: '/opt/homebrew/bin/fish' }, '/bin/bash')).toEqual(['/opt/homebrew/bin/fish', '/bin/bash', '/bin/zsh'])
+    expect(loginShellCandidates({ SHELL: '/opt/homebrew/bin/fish' }, '/bin/bash')).toEqual([
+      '/opt/homebrew/bin/fish',
+      '/bin/bash',
+      '/bin/zsh',
+    ])
     expect(loginShellCandidates({ SHELL: '/bin/zsh' }, '/bin/zsh')).toEqual(['/bin/zsh'])
     expect(loginShellCandidates({}, undefined)).toEqual(['/bin/zsh'])
   })
@@ -92,7 +98,9 @@ describe('login shell candidates', () => {
       clock += Math.min(3_000, timeoutMs)
       return undefined
     }
-    await expect(firstLoginShellPath(['/bin/fish', '/bin/bash', '/bin/zsh'], read, 4_000, () => clock)).resolves.toBeUndefined()
+    await expect(
+      firstLoginShellPath(['/bin/fish', '/bin/bash', '/bin/zsh'], read, 4_000, () => clock),
+    ).resolves.toBeUndefined()
     expect(given).toEqual([
       ['/bin/fish', 4_000],
       ['/bin/bash', 1_000],

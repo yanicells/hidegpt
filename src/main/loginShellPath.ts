@@ -88,13 +88,20 @@ export function mergePaths(...paths: ReadonlyArray<string | undefined>): string 
  * process group, so a profile that leaves a background job holding stdout neither
  * delays it nor leaks the job.
  */
-export function readLoginShellPath(shell: string, timeoutMs: number, spawnShell: Spawn = spawn): Promise<string | undefined> {
+export function readLoginShellPath(
+  shell: string,
+  timeoutMs: number,
+  spawnShell: Spawn = spawn,
+): Promise<string | undefined> {
   return new Promise((resolve) => {
     let child: ChildProcess
     try {
       // Interactive, so profiles that set PATH only for interactive shells run; detached,
       // so it leads its own process group and job control on a terminal can't stop it.
-      child = spawnShell(shell, ['-ilc', pathCaptureCommand(shell)], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] })
+      child = spawnShell(shell, ['-ilc', pathCaptureCommand(shell)], {
+        detached: true,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
     } catch {
       resolve(undefined)
       return
@@ -124,7 +131,9 @@ export function readLoginShellPath(shell: string, timeoutMs: number, spawnShell:
 
 /** `$SHELL`, then the account's shell, then /bin/zsh, without repeats (T3 Code's `listLoginShellCandidates`). */
 export function loginShellCandidates(env: NodeJS.ProcessEnv, accountShell = readAccountShell()): ReadonlyArray<string> {
-  const candidates = [env.SHELL?.trim(), accountShell?.trim(), '/bin/zsh'].filter((shell): shell is string => Boolean(shell))
+  const candidates = [env.SHELL?.trim(), accountShell?.trim(), '/bin/zsh'].filter((shell): shell is string =>
+    Boolean(shell),
+  )
   return [...new Set(candidates)]
 }
 

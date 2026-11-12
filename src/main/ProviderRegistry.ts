@@ -87,8 +87,10 @@ export const layerAfter = (ready: Promise<unknown>) =>
     Effect.gen(function* () {
       const supervisor = yield* ProcessSupervisor
       return fromLoaders({
-        codex: () => ready.then(() => import('../codex/CodexAdapter')).then((m) => m.make(m.spawnAppServer(supervisor))),
-        opencode: () => ready.then(() => import('../opencode/OpenCodeAdapter')).then((m) => m.make(m.spawnServer(supervisor))),
+        codex: () =>
+          ready.then(() => import('../codex/CodexAdapter')).then((m) => m.make(m.spawnAppServer(supervisor))),
+        opencode: () =>
+          ready.then(() => import('../opencode/OpenCodeAdapter')).then((m) => m.make(m.spawnServer(supervisor))),
         claude: PERSONAL_BUILD
           ? () => ready.then(() => import('../claude/ClaudeAdapter')).then((m) => m.make(undefined, supervisor))
           : notInThisBuild,
