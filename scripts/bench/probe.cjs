@@ -249,7 +249,11 @@ function installReactCounter() {
     onPostCommitFiberRoot: () => {},
     onCommitFiberRoot: (_id, root) => {
       if (!state.on) return
-      const rendered = visit(root.current.child)
+      // A commit that did no work (an update left behind by a component that has since
+      // unmounted) hands back the same tree, still flagged by the commit that rendered it.
+      const host = root.current
+      if (host.alternate !== null && host.child === host.alternate.child) return
+      const rendered = visit(host.child)
       if (rendered > 0) state.commits += 1
       state.renders += rendered
     },
