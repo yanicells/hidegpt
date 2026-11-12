@@ -13,26 +13,46 @@ export interface Identity {
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /**
- * Credential shapes that can turn up in an error message or a stack: secrets in
- * URL queries or JSON, Authorization headers, user:password in a URL, and
- * well-known token formats. T3 Code redacts its own WebSocket tickets the same way.
+ * Credential shapes that can turn up in an error message or a stack. Like T3
+ * Code's pattern, each is narrow, so ordinary text such as `code=ENOENT` or
+ * "Basic setup" survives:
+ * - in a URL query (`?` or `&` before the key), OAuth's `code` and `state` and
+ *   signed-URL keys too;
+ * - anywhere, only keys that always mean a secret;
+ * - JSON fields of the same names;
+ * - an Authorization header's value, and a long Bearer token;
+ * - user:password in a URL, and well-known token formats.
  */
 const CREDENTIALS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/(^|[?&"'\s,;{])((?:access_|refresh_|id_)?token|api_?key|secret|password|passwd|auth|code|state|ticket|signature|sig)=[^&#"'\s]*/gi, '$1$2=<redacted>'],
-  [/("(?:(?:access_|refresh_|id_)?token|api_?key|apiKey|secret|password|authorization)"\s*:\s*)"[^"]*"/gi, '$1"<redacted>"'],
-  [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/g, '$1 <redacted>'],
+  [/([?&])((?:access_|refresh_|id_)?token|api_?key|client_secret|secret|password|auth|code|state|ticket|signature|sig|wsTicket|dpop)=[^&#"'\s]*/gi, '$1$2=<redacted>'],
+  [/(^|["'\s,;{])((?:access_|refresh_|id_)?token|api_?key|client_secret|secret|password|passwd)=[^&#"'\s]*/gi, '$1$2=<redacted>'],
+  [/("(?:(?:access_|refresh_|id_)?token|api_?key|apiKey|client_secret|secret|password|authorization)"\s*:\s*)"[^"]*"/gi, '$1"<redacted>"'],
+  [/(Authorization["']?\s*[:=]\s*["']?(?:Bearer|Basic)\s+)[A-Za-z0-9._~+/=-]+/gi, '$1<redacted>'],
+  [/\b(Bearer)\s+[A-Za-z0-9._~+/=-]{16,}/g, '$1 <redacted>'],
   [/(:\/\/)[^/\s:@]+:[^/\s@]+@/g, '$1<redacted>@'],
   [/\bsk-[A-Za-z0-9_-]{16,}/g, '<redacted>'],
   [/\bgh[pousr]_[A-Za-z0-9]{20,}/g, '<redacted>'],
   [/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '<redacted>'],
 ]
 
+/**
+ * Account names that are also common folder or file names. The home folder is
+ * removed anyway, so replacing such a name elsewhere would only mangle paths
+ * (`out/main/index.js`, `src/admin/x.ts`).
+ */
+const PATH_WORDS = new Set(['main', 'admin', 'user', 'dev', 'test', 'root', 'docs', 'app', 'home', 'src', 'lib', 'bin', 'out', 'build', 'node'])
+
 /** Removes the home folder (as `~`), the account name, and credential-looking strings from `text`. */
 export function makeRedactor({ home, username }: Identity): (text: string) => string {
-  // A very short name would match inside ordinary words.
-  const name = username.length >= 3 ? new RegExp(`(?<![A-Za-z0-9])${escape(username)}(?![A-Za-z0-9])`, 'g') : null
+  // Only the whole folder: `/Users/alice` must not match inside `/Users/alicebob`.
+  const homePath = home.length > 1 ? new RegExp(`${escape(home)}(?=[/\\\\"'\\s:)]|$)`, 'g') : null
+  // A very short name, or one that is also a common path word, would match ordinary text.
+  const name =
+    username.length >= 3 && !PATH_WORDS.has(username.toLowerCase())
+      ? new RegExp(`(?<![A-Za-z0-9])${escape(username)}(?![A-Za-z0-9])`, 'g')
+      : null
   return (text) => {
-    let out = home.length > 1 ? text.split(home).join('~') : text
+    let out = homePath ? text.replace(homePath, '~') : text
     if (name) out = out.replace(name, '<user>')
     for (const [pattern, replacement] of CREDENTIALS) out = out.replace(pattern, replacement)
     return out
