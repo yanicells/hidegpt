@@ -207,71 +207,74 @@ describe('SnapshotPublisher', () => {
     }).pipe(Effect.provide(Logger.layer([]))),
   )
 
-  it.effect('restarts with backoff, starts the count over after a stable minute, and past Fatal keeps trying each minute', () => {
-    const levels: string[] = []
-    const reports: unknown[] = []
-    const capture = Logger.make(({ fiber, logLevel }) => {
-      levels.push(logLevel)
-      reports.push(fiber.getRef(References.CurrentLogAnnotations).reportId)
-    })
-    return Effect.gen(function* () {
-      const state = yield* SubscriptionRef.make<Snapshot>({ ...emptySnapshot(), status: 'ready' })
-      let failures = 0
-      const sent: SnapshotPatch[] = []
-      const publisher = makeSnapshotPublisher(SubscriptionRef.changes(state), (patch) => {
-        if (failures > 0) {
-          failures -= 1
-          throw new Error('window gone')
-        }
-        sent.push(patch)
+  it.effect(
+    'restarts with backoff, starts the count over after a stable minute, and past Fatal keeps trying each minute',
+    () => {
+      const levels: string[] = []
+      const reports: unknown[] = []
+      const capture = Logger.make(({ fiber, logLevel }) => {
+        levels.push(logLevel)
+        reports.push(fiber.getRef(References.CurrentLogAnnotations).reportId)
       })
-      yield* Effect.forkScoped(publisher.run)
-      yield* settle
-      // One defect, then a minute of quiet: that run counts as stable.
-      failures = 1
-      yield* SubscriptionRef.update(state, (s) => ({ ...s, title: 'One' }))
-      yield* TestClock.adjust('1 second')
-      yield* settle
-      expect(sent).toHaveLength(2)
-      yield* TestClock.adjust('61 seconds')
+      return Effect.gen(function* () {
+        const state = yield* SubscriptionRef.make<Snapshot>({ ...emptySnapshot(), status: 'ready' })
+        let failures = 0
+        const sent: SnapshotPatch[] = []
+        const publisher = makeSnapshotPublisher(SubscriptionRef.changes(state), (patch) => {
+          if (failures > 0) {
+            failures -= 1
+            throw new Error('window gone')
+          }
+          sent.push(patch)
+        })
+        yield* Effect.forkScoped(publisher.run)
+        yield* settle
+        // One defect, then a minute of quiet: that run counts as stable.
+        failures = 1
+        yield* SubscriptionRef.update(state, (s) => ({ ...s, title: 'One' }))
+        yield* TestClock.adjust('1 second')
+        yield* settle
+        expect(sent).toHaveLength(2)
+        yield* TestClock.adjust('61 seconds')
 
-      // Now every send fails. The full budget is there again: it restarts at once, then
-      // after 1, 2, 4, 8 and 16 seconds, and only then gives up.
-      failures = Infinity
-      yield* SubscriptionRef.update(state, (s) => ({ ...s, title: 'Two' }))
-      yield* settle
-      yield* TestClock.adjust('30 seconds')
-      yield* settle
-      expect(levels.filter((level) => level === 'Fatal')).toEqual([])
-      yield* TestClock.adjust('1 second')
-      yield* settle
-      expect(levels.filter((level) => level === 'Error')).toHaveLength(1 + 1 + 1 + 5)
-      expect(levels.at(-1)).toBe('Fatal')
+        // Now every send fails. The full budget is there again: it restarts at once, then
+        // after 1, 2, 4, 8 and 16 seconds, and only then gives up.
+        failures = Infinity
+        yield* SubscriptionRef.update(state, (s) => ({ ...s, title: 'Two' }))
+        yield* settle
+        yield* TestClock.adjust('30 seconds')
+        yield* settle
+        expect(levels.filter((level) => level === 'Fatal')).toEqual([])
+        yield* TestClock.adjust('1 second')
+        yield* settle
+        expect(levels.filter((level) => level === 'Error')).toHaveLength(1 + 1 + 1 + 5)
+        expect(levels.at(-1)).toBe('Fatal')
 
-      const firstReport = reports.at(-2)
-      expect(reports.at(-1)).toBe(firstReport)
+        const firstReport = reports.at(-2)
+        expect(reports.at(-1)).toBe(firstReport)
 
-      // It keeps trying once a minute, without another Fatal. Each try logs one Debug line
-      // pointing at the last full report; the full report comes again once an hour.
-      const minute = TestClock.adjust('1 minute').pipe(Effect.andThen(settle))
-      yield* minute
-      expect(levels.slice(-2)).toEqual(['Fatal', 'Debug'])
-      expect(reports.at(-1)).toBe(firstReport)
-      yield* Effect.repeat(minute, { times: 57 })
-      expect(levels.filter((level) => level === 'Error')).toHaveLength(8)
-      expect(levels.filter((level) => level === 'Debug')).toHaveLength(59)
-      yield* minute
-      expect(levels.at(-1)).toBe('Error')
-      expect(reports.at(-1)).not.toBe(firstReport)
-      const before = sent.length
-      failures = 0
-      yield* TestClock.adjust('1 minute')
-      yield* settle
-      expect(sent).toHaveLength(before + 1)
-      expect(sent.at(-1)).toMatchObject({ fields: { title: 'Two', status: 'ready' }, blocks: { length: 0 } })
-      expect(levels.filter((level) => level === 'Fatal')).toHaveLength(1)
-    }).pipe(Effect.provide(Logger.layer([capture])), Effect.provideService(References.MinimumLogLevel, 'Debug'))
-  })
+        // It keeps trying once a minute, without another Fatal. Each try logs one Debug line
+        // pointing at the last full report; the full report comes again once an hour.
+        const minute = TestClock.adjust('1 minute').pipe(Effect.andThen(settle))
+        yield* minute
+        expect(levels.slice(-2)).toEqual(['Fatal', 'Debug'])
+        expect(reports.at(-1)).toBe(firstReport)
+        yield* Effect.repeat(minute, { times: 57 })
+        expect(levels.filter((level) => level === 'Error')).toHaveLength(8)
+        expect(levels.filter((level) => level === 'Debug')).toHaveLength(59)
+        yield* minute
+        expect(levels.at(-1)).toBe('Error')
+        expect(reports.at(-1)).not.toBe(firstReport)
+        const before = sent.length
+        failures = 0
+        yield* TestClock.adjust('1 minute')
+        yield* settle
+        expect(sent).toHaveLength(before + 1)
+        expect(sent.at(-1)).toMatchObject({ fields: { title: 'Two', status: 'ready' }, blocks: { length: 0 } })
+        expect(levels.filter((level) => level === 'Fatal')).toHaveLength(1)
+      }).pipe(Effect.provide(Logger.layer([capture])), Effect.provideService(References.MinimumLogLevel, 'Debug'))
+    },
+  )
 
   it.effect('a resync whose send throws rethrows, and the next patch is whole', () =>
     Effect.gen(function* () {
@@ -299,7 +302,8 @@ describe('SnapshotPublisher', () => {
   it.effect('reportingThrows reports a throw under its part, and lets it go no further', () => {
     const logged: Array<{ readonly cause: string; readonly annotations: Record<string, unknown> }> = []
     const capture = Logger.make(({ cause, fiber, logLevel }) => {
-      if (logLevel === 'Error') logged.push({ cause: Cause.pretty(cause), annotations: fiber.getRef(References.CurrentLogAnnotations) })
+      if (logLevel === 'Error')
+        logged.push({ cause: Cause.pretty(cause), annotations: fiber.getRef(References.CurrentLogAnnotations) })
     })
     return Effect.gen(function* () {
       const fork = Effect.runForkWith(yield* Effect.context<never>())
@@ -313,7 +317,10 @@ describe('SnapshotPublisher', () => {
       yield* settle
       expect(ran).toBe(true)
       expect(logged).toEqual([
-        { cause: expect.stringContaining('menu bug'), annotations: { part: 'menu', reportId: expect.stringMatching(/^[0-9a-f]{8}$/) } },
+        {
+          cause: expect.stringContaining('menu bug'),
+          annotations: { part: 'menu', reportId: expect.stringMatching(/^[0-9a-f]{8}$/) },
+        },
       ])
     }).pipe(Effect.provide(Logger.layer([capture])))
   })

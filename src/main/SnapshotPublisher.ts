@@ -126,7 +126,9 @@ export function makeSnapshotPublisher(
             Effect.andThen(Effect.sync(forget)),
             Effect.andThen(Clock.currentTimeMillis),
             Effect.flatMap((at) =>
-              at - startedAt >= Duration.toMillis(STABLE_AFTER) ? Effect.succeed(true) : Effect.fail('restart' as const),
+              at - startedAt >= Duration.toMillis(STABLE_AFTER)
+                ? Effect.succeed(true)
+                : Effect.fail('restart' as const),
             ),
           ),
         ),

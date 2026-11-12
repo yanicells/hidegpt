@@ -6,6 +6,7 @@ import * as NodeServices from '@effect/platform-node/NodeServices'
 import { describe, expect, it } from '@effect/vitest'
 import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
+import * as Layer from 'effect/Layer'
 import * as Logger from 'effect/Logger'
 import { vi } from 'vitest'
 
@@ -20,12 +21,10 @@ vi.mock('./rotatingFileSink', async (importOriginal) => {
     ...real,
     makeRotatingFileSink: (options: Parameters<typeof real.makeRotatingFileSink>[0]) =>
       real.makeRotatingFileSink(options).pipe(
-        Effect.map(
-          (sink): RotatingFileSink => ({
-            ...sink,
-            write: (text) => (text.includes('"threadId":"bad"') ? Effect.die(new Error('sink bug')) : sink.write(text)),
-          }),
-        ),
+        Effect.map((sink): RotatingFileSink => ({
+          ...sink,
+          write: (text) => (text.includes('"threadId":"bad"') ? Effect.die(new Error('sink bug')) : sink.write(text)),
+        })),
       ),
   }
 })
@@ -49,6 +48,6 @@ describe('ProviderEventLog writer', () => {
         expect(readFileSync(join(dir, 'codex.ndjson'), 'utf8')).toContain('"threadId":"good"')
       }).pipe(Effect.provide(layer(dir)))
       expect(logged).toEqual([expect.stringContaining('sink bug')])
-    }).pipe(Effect.provide(NodeServices.layer), Effect.provide(Logger.layer([capture])))
+    }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, Logger.layer([capture]))))
   })
 })

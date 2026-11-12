@@ -24,9 +24,18 @@ const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
  * - user:password in a URL, and well-known token formats.
  */
 const CREDENTIALS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/([?&])((?:access_|refresh_|id_)?token|api_?key|client_secret|secret|password|auth|code|state|ticket|signature|sig|wsTicket|dpop)=[^&#"'\s]*/gi, '$1$2=<redacted>'],
-  [/(^|["'\s,;{])((?:access_|refresh_|id_)?token|api_?key|client_secret|secret|password|passwd)=[^&#"'\s]*/gi, '$1$2=<redacted>'],
-  [/("(?:(?:access_|refresh_|id_)?token|api_?key|apiKey|client_secret|secret|password|authorization)"\s*:\s*)"[^"]*"/gi, '$1"<redacted>"'],
+  [
+    /([?&])((?:access_|refresh_|id_)?token|api_?key|client_secret|secret|password|auth|code|state|ticket|signature|sig|wsTicket|dpop)=[^&#"'\s]*/gi,
+    '$1$2=<redacted>',
+  ],
+  [
+    /(^|["'\s,;{])((?:access_|refresh_|id_)?token|api_?key|client_secret|secret|password|passwd)=[^&#"'\s]*/gi,
+    '$1$2=<redacted>',
+  ],
+  [
+    /("(?:(?:access_|refresh_|id_)?token|api_?key|apiKey|client_secret|secret|password|authorization)"\s*:\s*)"[^"]*"/gi,
+    '$1"<redacted>"',
+  ],
   [/(Authorization["']?\s*[:=]\s*["']?(?:Bearer|Basic)\s+)[A-Za-z0-9._~+/=-]+/gi, '$1<redacted>'],
   [/\b(Bearer)\s+[A-Za-z0-9._~+/=-]{16,}/g, '$1 <redacted>'],
   [/(:\/\/)[^/\s:@]+:[^/\s@]+@/g, '$1<redacted>@'],
@@ -40,7 +49,23 @@ const CREDENTIALS: ReadonlyArray<readonly [RegExp, string]> = [
  * removed anyway, so replacing such a name elsewhere would only mangle paths
  * (`out/main/index.js`, `src/admin/x.ts`).
  */
-const PATH_WORDS = new Set(['main', 'admin', 'user', 'dev', 'test', 'root', 'docs', 'app', 'home', 'src', 'lib', 'bin', 'out', 'build', 'node'])
+const PATH_WORDS = new Set([
+  'main',
+  'admin',
+  'user',
+  'dev',
+  'test',
+  'root',
+  'docs',
+  'app',
+  'home',
+  'src',
+  'lib',
+  'bin',
+  'out',
+  'build',
+  'node',
+])
 
 /** Removes the home folder (as `~`), the account name, and credential-looking strings from `text`. */
 export function makeRedactor({ home, username }: Identity): (text: string) => string {
