@@ -90,7 +90,11 @@ function mount(partial: Partial<Snapshot> = {}, fail: (command: Command) => stri
       return { ok: true }
     },
     pickDirectory: async () => '/tmp/project',
-    saveImage: async ({ mime }) => ({ ok: true, path: `/tmp/pasted.${mime.split('/')[1]}` }),
+    // GIFs stand in for a picture main could not store.
+    saveImage: async ({ mime }) =>
+      mime === 'image/gif'
+        ? { ok: false, error: 'Docs could not save that image. Check your disk space.' }
+        : { ok: true, path: `/tmp/pasted.${mime.split('/')[1]}` },
     platform: 'darwin',
   }
   window.hidegpt = api
@@ -532,6 +536,16 @@ describe('composer attachments', () => {
     expect(await screen.findByTestId('composer-images')).toBeInTheDocument()
     fireEvent.keyDown(composer, { key: 'Enter' })
     expect(calls.at(-1)).toEqual({ op: 'send', text: '', images: ['/tmp/pasted.png'] })
+  })
+
+  it('attaches the pictures that saved and puts the first failure on the banner', async () => {
+    mount({ route: { kind: 'doc', threadId: 'thr_1' }, title: 'Photosynthesis' })
+    const composer = screen.getByTestId('composer')
+    const png = new File([new Uint8Array([1])], 'a.png', { type: 'image/png' })
+    const gif = new File([new Uint8Array([2])], 'b.gif', { type: 'image/gif' })
+    fireEvent.paste(composer, { clipboardData: { files: [png, gif] } })
+    expect(await screen.findByTestId('error-banner')).toHaveTextContent('Docs could not save that image.')
+    expect(screen.getByTestId('composer-images').querySelectorAll('img')).toHaveLength(1)
   })
 
   it('shows images and skills on sent questions', () => {

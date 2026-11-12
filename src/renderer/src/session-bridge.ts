@@ -128,6 +128,11 @@ export function clearCommandError(): void {
   setCommandError(null)
 }
 
+/** Puts a failed window request that is not a command (a pasted image) on the same banner. */
+export function showRequestError(message: string): void {
+  setCommandError(message)
+}
+
 /**
  * Sends a command and settles with its result; it never rejects. Use it when
  * the caller shows the error itself (a dialog, an inline message).
