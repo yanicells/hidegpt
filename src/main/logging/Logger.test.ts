@@ -77,7 +77,9 @@ describe('Logger.layer', () => {
       const file = join(tempDir(), 'not-a-folder')
       writeFileSync(file, '')
       yield* Effect.logWarning('Connection lost').pipe(
-        Effect.provide(Logging.layer({ directory: join(file, 'logs'), console: true }).pipe(Layer.provide(NodeServices.layer))),
+        Effect.provide(
+          Logging.layer({ directory: join(file, 'logs'), console: true }).pipe(Layer.provide(NodeServices.layer)),
+        ),
       )
       const printed = [...(yield* TestConsole.logLines), ...(yield* TestConsole.errorLines)].map(String)
       expect(printed.filter((line) => line.includes('Connection lost'))).toHaveLength(1)

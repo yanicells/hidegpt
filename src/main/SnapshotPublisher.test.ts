@@ -193,7 +193,10 @@ describe('SnapshotPublisher', () => {
       yield* Effect.forkScoped(publisher.run)
       yield* settle
       broken = true
-      yield* SubscriptionRef.update(state, (s) => ({ ...s, blocks: [{ kind: 'agent' as const, id: 'a', text: 'lost ' }] }))
+      yield* SubscriptionRef.update(state, (s) => ({
+        ...s,
+        blocks: [{ kind: 'agent' as const, id: 'a', text: 'lost ' }],
+      }))
       yield* settle
       expect(sent).toHaveLength(1)
       yield* TestClock.adjust('1 second')

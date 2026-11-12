@@ -754,7 +754,8 @@ export const make = (options: ManagerOptions) =>
         Effect.gen(function* () {
           const id = yield* active
           yield* updateLibrary(id, (lib) => ({ ...lib, cwd }))
-          if ((yield* read).libraries[id].route.kind === 'home') yield* refreshing(id, 'skills', logDefects(refreshSkills(id, cwd)))
+          if ((yield* read).libraries[id].route.kind === 'home')
+            yield* refreshing(id, 'skills', logDefects(refreshSkills(id, cwd)))
         }),
       notify: (message) => Effect.flatMap(active, (id) => setError(id, message)),
       runtimeCount: Effect.map(read, (current) => current.runtimes.size),

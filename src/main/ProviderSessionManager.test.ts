@@ -324,7 +324,10 @@ describe('ProviderSessionManager', () => {
       yield* manager.dispatch({ op: 'goHome' })
       yield* manager.setFolder('/tmp/elsewhere')
       yield* settle
-      const report = { cause: expect.stringContaining('skills bug'), annotations: expect.objectContaining({ reportId: expect.any(String) }) }
+      const report = {
+        cause: expect.stringContaining('skills bug'),
+        annotations: expect.objectContaining({ reportId: expect.any(String) }),
+      }
       expect(logged).toEqual([report, report])
     }).pipe(Effect.provide(layer))
   })
