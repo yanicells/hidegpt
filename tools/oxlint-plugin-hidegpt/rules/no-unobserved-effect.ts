@@ -44,21 +44,69 @@ const MESSAGES: Record<string, string> = {
     'Effect.tapError: a Die skips it. For a rollback use undoOnFailure (src/provider/observed.ts); to only log a typed error, disable this line with a reason.',
 }
 
+/** The message for `name` used from Effect (`Effect.name`, an alias, or a named import), if it is banned. */
+const effectMessage = (name: string) =>
+  FORKS.has(name)
+    ? forkMessage(name)
+    : EFFECT_RUNS.has(name)
+      ? runMessage(`Effect.${name}`)
+      : Object.hasOwn(MESSAGES, name)
+        ? MESSAGES[name]
+        : undefined
+
 const rule = {
   meta: {
     type: 'problem',
     docs: { description: 'Disallow Effect forks, runs, ignores and tapError that leave a defect unobserved.' },
   },
   create(context) {
+    // As T3 Code's rule, the bindings come from this file's imports: `Effect` (always), and
+    // `import * as E from 'effect/Effect'` or `import { Effect as Fx } from 'effect'` (namespaces),
+    // `import * as effect from 'effect'` (roots, for `effect.Effect.fork`), and
+    // `import { forkScoped as fork } from 'effect/Effect'` (local name to Effect's name).
+    const namespaces = new Set(['Effect'])
+    const roots = new Set<string>()
+    const named = new Map<string, string>()
+
     return {
+      ImportDeclaration(node) {
+        const source = node.source.value
+        if (source !== 'effect' && source !== 'effect/Effect') return
+        for (const specifier of node.specifiers) {
+          const local = specifier.local.name
+          if (specifier.type !== 'ImportSpecifier') {
+            if (source === 'effect') roots.add(local)
+            else namespaces.add(local)
+            continue
+          }
+          const imported = specifier.imported.type === 'Identifier' ? specifier.imported.name : specifier.imported.value
+          if (source === 'effect' && imported === 'Effect') namespaces.add(local)
+          else if (source === 'effect/Effect') named.set(local, imported)
+        }
+      },
       MemberExpression(node) {
         if (node.computed || node.property.type !== 'Identifier') return
         const name = node.property.name
-        const onEffect = node.object.type === 'Identifier' && node.object.name === 'Effect'
-        if (onEffect && FORKS.has(name)) context.report({ node, message: forkMessage(name) })
-        else if (onEffect && EFFECT_RUNS.has(name)) context.report({ node, message: runMessage(`Effect.${name}`) })
-        else if (onEffect && name in MESSAGES) context.report({ node, message: MESSAGES[name]! })
-        else if (!onEffect && ANY_RUNS.has(name)) context.report({ node, message: runMessage(`.${name}`) })
+        const object = node.object
+        const onEffect =
+          object.type === 'Identifier'
+            ? namespaces.has(object.name)
+            : object.type === 'MemberExpression' &&
+              !object.computed &&
+              object.object.type === 'Identifier' &&
+              roots.has(object.object.name) &&
+              object.property.type === 'Identifier' &&
+              object.property.name === 'Effect'
+        const message = onEffect ? effectMessage(name) : ANY_RUNS.has(name) ? runMessage(`.${name}`) : undefined
+        if (message !== undefined) context.report({ node, message })
+      },
+      // A named import, called (`forkScoped(effect)`) or passed (`effect.pipe(forkScoped)`).
+      CallExpression(node) {
+        for (const used of [node.callee, ...node.arguments]) {
+          const name = used.type === 'Identifier' ? named.get(used.name) : undefined
+          const message = name === undefined ? undefined : effectMessage(name)
+          if (message !== undefined) context.report({ node: used, message })
+        }
       },
     }
   },
