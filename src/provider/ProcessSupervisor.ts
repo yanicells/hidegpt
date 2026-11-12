@@ -109,6 +109,12 @@ const stopGroup = (child: ChildProcessWithoutNullStreams, pid: number) =>
     Effect.timeoutOrElse({ duration: FORCE_KILL_AFTER, orElse: () => Effect.sync(() => signalGroup(pid, 'SIGKILL')) }),
   )
 
+/** The tree read just before a kill, capped so a hung `ps` cannot hold the kill back. */
+const treeReadBeforeKill = (ledger: ProcessLedger.ProcessLedger['Service']) => Effect.asVoid(Effect.timeoutOption(ledger.track, '1 second'))
+
+/** Forked ledger work fails nowhere visible, so a defect is logged instead of lost. */
+const logDefects = (effect: Effect.Effect<void>) => Effect.catchCause(effect, (cause) => Effect.logWarning('ledger', cause))
+
 const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledger: ProcessLedger.ProcessLedger['Service']) =>
   ProcessSupervisor.of({
     spawn: Effect.fn('ProcessSupervisor.spawn')(function* (options, tailStderr = false) {
@@ -131,8 +137,9 @@ const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledge
       )
       // Released before the spawner's own kill, so this stops the server: its tree is read while
       // it still runs, its group is stopped, then whatever left the group (a `setsid` daemon).
+      // The read is capped, so a slow `ps` never delays the kill past quit's deadline.
       yield* Effect.acquireRelease(ledger.record(handle.pid, options.command, options.args[0] ?? ''), () =>
-        ledger.track.pipe(
+        treeReadBeforeKill(ledger).pipe(
           Effect.andThen(Effect.ignore(handle.kill({ forceKillAfter: FORCE_KILL_AFTER }))),
           Effect.andThen(ledger.stop(handle.pid)),
         ),
@@ -171,14 +178,15 @@ const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledge
       const running = new Map<ChildProcessWithoutNullStreams, { readonly pid: number; readonly recorded: Fiber.Fiber<void> }>()
       // Ledger stops forked by exits; a closing scope waits for them, so a quit never leaves a record.
       const stopping = new Set<Fiber.Fiber<void>>()
-      const stopTree = (pid: number, recorded: Fiber.Fiber<void>) => Fiber.join(recorded).pipe(Effect.andThen(ledger.stop(pid)))
+      const stopTree = (pid: number, recorded: Fiber.Fiber<void>) =>
+        Fiber.join(recorded).pipe(Effect.andThen(ledger.stop(pid)), logDefects)
       let closed = false
-      // Trees are read while the CLIs still run, then each group is stopped, then what left it.
+      // Trees are read while the CLIs still run (capped, as in `spawn`), then each group is stopped, then what left it.
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
           closed = true
         }).pipe(
-          Effect.andThen(ledger.track),
+          Effect.andThen(treeReadBeforeKill(ledger)),
           Effect.andThen(
             Effect.suspend(() =>
               Effect.forEach(
@@ -212,7 +220,8 @@ const make = (spawner: ChildProcessSpawner.ChildProcessSpawner['Service'], ledge
           return child
         }
         // The full command path, so another app's copy of the same CLI never matches.
-        const recorded = Effect.runFork(ledger.record(pid, options.command, options.args[0] ?? ''))
+        // Defects are logged here, so a failed record never stops `stopTree` from running.
+        const recorded = Effect.runFork(logDefects(ledger.record(pid, options.command, options.args[0] ?? '')))
         running.set(child, { pid, recorded })
         child.once('exit', () => {
           running.delete(child)

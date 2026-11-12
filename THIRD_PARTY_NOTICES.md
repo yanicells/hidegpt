@@ -40,7 +40,8 @@ or adapted file carries a header naming its source.
     only what is still the same process, after the CLI exits too
     (`trackDescendants` and its `stop`, `claudeDescendants`), from
     `apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts`; the
-    atomic ledger write (`packages/shared/src/atomicWrite.ts`), and one app per
+    atomic ledger write (`packages/shared/src/atomicWrite.ts`), the hard
+    `ps` timeout (`apps/server/src/processRunner.ts`), and one app per
     profile in `src/main/app.ts` (`apps/desktop/src/app/DesktopClerk.ts`), at
     commit 5c6f2f12.
   - `src/main/ProviderSessionManager.ts` and `src/opencode/OpenCodeAdapter.ts`:
