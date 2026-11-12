@@ -310,9 +310,20 @@ describe('ProviderSessionManager', () => {
         ),
       )
       yield* manager.start('codex')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready')
+      const shown = yield* Effect.forkScoped(
+        manager.snapshots.pipe(
+          Stream.takeUntil((snapshot) => snapshot.status === 'error'),
+          Stream.runCollect,
+        ),
+      )
+      yield* settle
       yield* manager.dispatch({ op: 'setProvider', provider: 'claude' })
-      const failed = yield* until(manager, (snapshot) => snapshot.status === 'error')
+      const seen = yield* Fiber.join(shown)
+      const failed = seen[seen.length - 1]!
       expect(failed.error).toBe('Docs could not load Claude: Cannot find module ./ClaudeAdapter')
+      // Not retried, so shown once, as an error: never first as a reconnect.
+      expect(seen.filter((snapshot) => snapshot.error === failed.error && snapshot.status !== 'error')).toEqual([])
       yield* manager.dispatch({ op: 'setProvider', provider: 'codex' })
       expect(yield* until(manager, (snapshot) => snapshot.status === 'ready')).toMatchObject({ provider: 'codex' })
       yield* manager.dispatch({ op: 'setProvider', provider: 'claude' })
