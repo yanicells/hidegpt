@@ -42,6 +42,14 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     and `apps/server/src/provider/ClaudeProvider.ts` (commit 8a14762c).
   - `src/claude/mapping.ts`: `isSignedIn` and `resultError`, from the same two
     files (commit 8a14762c).
+  - Tool kinds and failure classes (commit 5c6f2f12): `toolKind` in
+    `src/claude/mapping.ts` (`CLAUDE_KNOWN_TOOL_CLASSIFICATIONS`) and the
+    `<synthetic>` notice and `[ede_diagnostic]` handling in `resultError`, from
+    `apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts`; `toolKind`
+    and `readOutput` in `src/opencode/mapping.ts`, from
+    `packages/provider-opencode/src/server/toolItems.ts`, and its permission
+    card titles, from `openCodePermissionRequestKind` in
+    `packages/provider-opencode/src/server/adapter.ts`.
   - `src/main/index.ts`: booting through a small entry that turns on Node's
     compile cache before the app loads, from `apps/desktop/src/boot.ts` and
     `apps/desktop/src/compileCache.ts` (commit 8a14762c).
