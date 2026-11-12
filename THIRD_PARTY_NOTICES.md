@@ -28,6 +28,16 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     `apps/server/scripts/codexReplayRecordingRecords.ts`.
   - `src/provider/randomUuid.ts`: v4 UUIDs drawn from Effect's `Random`, from
     `packages/provider-core/src/server/randomUuid.ts` (commit 5c6f2f12).
+  - `src/codex/mapping.ts`: turning Codex errors into Docs sentences and the
+    usage-limit reset time (`codexErrorInfoCode`, `codexUsageLimitError` in
+    `apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts`;
+    `apps/server/src/provider/codexUsageLimits.ts`), MCP elicitation app names
+    and typed replies (`apps/server/src/provider/CodexMcpElicitation.ts`), and
+    MCP tool titles (`apps/server/src/provider/CodexToolPresentation.ts`), from
+    commit 5c6f2f12.
+  - `src/codex/CodexAdapter.ts`: subagent threads linked to their parent, with
+    their requests and Stop routed to the document that started them, from
+    `CodexAdapterV2.ts` (commit 5c6f2f12).
   - `src/opencode/OpenCodeAdapter.ts`: message ids in OpenCode's format
     (`makeMessageIds`) and a set of busy sessions like `busySessionIds`, used
     here so a repeated busy status starts no new turn, both from
@@ -60,11 +70,14 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     only what is still the same process, after the CLI exits too
     (`trackDescendants` and its `stop`, `claudeDescendants`), from
     `apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts`; the
-    atomic ledger write (`packages/shared/src/atomicWrite.ts`), and one app per
+    atomic ledger write (`packages/shared/src/atomicWrite.ts`), the hard
+    `ps` timeout (`apps/server/src/processRunner.ts`), and one app per
     profile in `src/main/app.ts` (`apps/desktop/src/app/DesktopClerk.ts`), at
     commit 5c6f2f12.
   - `src/main/window.ts` and `window.test.ts` (commit 5c6f2f12): bounded
     reloads after a renderer crash, from `apps/desktop/src/window/DesktopWindow.ts`;
+    the static page shown once reloads run out, from
+    `apps/desktop/src/app/DesktopStartupRecovery.ts`;
     the CSP response header and serving local files only under allowed roots,
     from `apps/desktop/src/electron/ElectronProtocol.ts`; deny-by-default
     permission handlers, from `apps/desktop/src/preview/BrowserSession.ts`; and
@@ -86,8 +99,9 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     streamed text, after `packages/client-runtime/src/state/threadDetail.ts`
     (commit 8a14762c).
   - `src/shared/channels.ts`, the IPC tables in `src/shared/contracts.ts`,
-    `src/main/ipc.ts` (with its test) and `src/preload/index.ts`: channel
-    names, typed invoke and sync channels, and the preload bridge, from
+    `src/main/ipc.ts` (with its test), the sender guard in `src/main/app.ts`
+    and `src/preload/index.ts`: channel names, typed invoke and sync channels
+    with result encoding and the trusted-sender check, and the preload bridge, from
     `apps/desktop/src/ipc/channels.ts`, `apps/desktop/src/ipc/DesktopIpc.ts`,
     `packages/contracts/src/ipc.ts` and `apps/desktop/src/preload.ts` (commit
     5c6f2f12).
@@ -117,10 +131,14 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
 
   - Tooling, adapted from T3 Code's repository root (commit 5c6f2f12):
     `.oxlintrc.json` from the `lint` block of `vite.config.ts`; `knip.jsonc`
-    from `knip.jsonc`; `.github/workflows/ci.yml` from
-    `.github/workflows/ci.yml`; and `lint-staged.config.js` with
+    from `knip.jsonc`; `tsconfig.effect.json` (trimmed) and
+    `tsconfig.effect-strict.json` (whole) from `tsconfig.effect.json`, run
+    with `effect-tsgo tsrs` as in `apps/server/package.json`; `.github/workflows/ci.yml` from
+    `.github/workflows/ci.yml`; `lint-staged.config.js` with
     `.githooks/pre-commit` from the `staged` block of `vite.config.ts` and
-    `.vite-hooks/pre-commit`.
+    `.vite-hooks/pre-commit`; and `.vscode/settings.json`,
+    `.vscode/extensions.json` and the `.vscode/tsdk/tsgo` language-server shim
+    from `.vscode/`.
   - `src/main/logging/` (commit 5c6f2f12): the rotating file sink, from
     `packages/shared/src/logging.ts` (`makeAsyncRotatingFileSink`); the main
     NDJSON logger, after `apps/server/src/serverLogger.ts` and
@@ -128,7 +146,11 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     writer and skipped text deltas, after
     `apps/server/src/provider/EventNdjsonLogger.ts`; and logging only defects,
     from `apps/server/src/observability/DefectReporter.ts`, now in
-    `src/provider/DefectReport.ts`.
+    `src/provider/DefectReport.ts`; and redacting logged causes
+    (`src/main/logging/redact.ts`), from `redactCauseCredentials` in
+    `packages/shared/src/observability.ts` and its use in
+    `apps/server/src/serverLogger.ts`, extended to the home folder, the
+    account name, and more credential shapes.
   - `scripts/dist.ts`, `scripts/builder-config.ts` and
     `scripts/verify-preload-bundle.ts`: the electron-builder config built in
     code, signing only when asked and dropping empty signing variables, and the

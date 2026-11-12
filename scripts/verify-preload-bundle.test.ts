@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import { HIDEGPT_API_METHODS } from '../src/shared/api.ts'
 import { verifyPreloadBundle } from './verify-preload-bundle.ts'
 
-const API = ['getSnapshot', 'onSnapshot', 'onMenu', 'dispatch', 'pickDirectory', 'saveImage']
+const API: ReadonlyArray<string> = HIDEGPT_API_METHODS
 
 /** A CJS preload like the built one, exposing `methods` on window.hidegpt. */
 const preload = (methods = API, prelude = '') => `"use strict";

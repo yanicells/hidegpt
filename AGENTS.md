@@ -194,10 +194,11 @@ code on sight; don't comment it out, don't leave TODO shims.
 pnpm install
 pnpm dev          # Electron app with Vite HMR
 pnpm test         # vitest: session/protocol + renderer UI tests
-pnpm typecheck    # tsc --noEmit
-pnpm lint         # oxlint (T3 Code's rules)
+pnpm typecheck    # effect-tsgo: tsc + Effect diagnostics (unrun Effects, bare yield)
+pnpm lint         # oxlint (T3 Code's rules + floating promises)
 pnpm knip         # unused files, exports, dependencies
-pnpm check        # typecheck + lint + knip + test, as CI runs it
+pnpm fmt          # oxfmt; pnpm fmt:check verifies it
+pnpm check        # typecheck + lint + fmt:check + knip + test + build, as CI runs it
 pnpm protocol     # regenerate the vendored Codex schemas from the installed CLI
 pnpm protocol --check  # fail if the committed schemas drift from the installed CLI
 pnpm record:codex library   # re-record a no-prompt replay fixture (also record:claude)

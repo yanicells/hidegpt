@@ -14,6 +14,8 @@
     "tailwindcss",
     // Run by .githooks/pre-commit, which knip does not read.
     "lint-staged",
+    // The tsconfig plugin name; @effect/tsgo bundles it.
+    "@effect/language-service",
   ],
   "ignoreIssues": {
     // Vendored from T3 Code and kept whole, so it stays easy to re-sync.

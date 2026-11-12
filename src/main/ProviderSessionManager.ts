@@ -134,7 +134,7 @@ export const make = (options: ManagerOptions) =>
           Stream.map((current) => current.libraries[id]),
           Stream.filter((lib) => lib.status === 'error' || (lib.status === 'ready' && sessions.has(id))),
           Stream.runHead,
-          Effect.timeoutOrElse({ duration: READY_DEADLINE, orElse: () => Effect.succeed(Option.none()) }),
+          Effect.timeoutOrElse({ duration: READY_DEADLINE, orElse: () => Effect.succeedNone }),
         )
         const session = sessions.get(id)
         if (Option.isSome(lib) && lib.value.status === 'ready' && session) return session
@@ -321,15 +321,17 @@ export const make = (options: ManagerOptions) =>
       FiberMap.run(
         invalidations,
         `${id}:${part}`,
-        Effect.sleep(INVALIDATE_DEBOUNCE).pipe(
-          Effect.andThen(
-            // Nobody joins these refreshes, so their defects are logged here.
-            Effect.gen(function* () {
-              if (part === 'docs') yield* refreshing(id, 'docs', logDefects(refreshDocs(id)))
-              else if (part === 'skills')
-                yield* refreshing(id, 'skills', logDefects(refreshSkills(id, skillsCwd(yield* read, id), true)))
-              else yield* refreshing(id, 'all', logDefects(refreshCatalog(id)))
-            }),
+        // Nobody joins the debounce or the refreshes it starts, so each logs its own defects.
+        logDefects(
+          Effect.sleep(INVALIDATE_DEBOUNCE).pipe(
+            Effect.andThen(
+              Effect.gen(function* () {
+                if (part === 'docs') yield* refreshing(id, 'docs', logDefects(refreshDocs(id)))
+                else if (part === 'skills')
+                  yield* refreshing(id, 'skills', logDefects(refreshSkills(id, skillsCwd(yield* read, id), true)))
+                else yield* refreshing(id, 'all', logDefects(refreshCatalog(id)))
+              }),
+            ),
           ),
         ),
         { onlyIfMissing: true },
@@ -361,6 +363,8 @@ export const make = (options: ManagerOptions) =>
               return yield* invalidate(id, event.part)
             case 'notice':
               return yield* setError(id, event.message)
+            case 'clearNotice':
+              return yield* updateLibrary(id, (lib) => (lib.error === event.message ? { ...lib, error: null } : lib))
             case 'loginUrl':
               yield* updateLibrary(id, (lib) => ({ ...lib, loginUrl: event.url }))
               if (event.url) yield* options.openExternal(event.url)
@@ -548,7 +552,12 @@ export const make = (options: ManagerOptions) =>
         yield* FiberMap.run(
           stopTimers,
           key,
-          Effect.sleep(STOP_SETTLE).pipe(Effect.andThen(update((current) => S.updateRuntime(current, key, S.settle)))),
+          // Nobody joins the timer; a defect in it would otherwise leave "Stopping…" up silently.
+          logDefects(
+            Effect.sleep(STOP_SETTLE).pipe(
+              Effect.andThen(update((current) => S.updateRuntime(current, key, S.settle))),
+            ),
+          ),
           { onlyIfMissing: true },
         )
         // If the provider rejects the stop (it lost track of the turn), the timer still frees the document.

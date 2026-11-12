@@ -1,0 +1,69 @@
+// Adapted from T3 Code (packages/shared/src/observability.ts, redactCauseCredentials, and its
+// use in apps/server/src/serverLogger.ts) at commit 5c6f2f12.
+// Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+import * as Cause from 'effect/Cause'
+import * as Logger from 'effect/Logger'
+
+/** Who the log must not name: the home folder and the account name. */
+export interface Identity {
+  readonly home: string
+  readonly username: string
+}
+
+const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * Credential shapes that can turn up in an error message or a stack: secrets in
+ * URL queries or JSON, Authorization headers, user:password in a URL, and
+ * well-known token formats. T3 Code redacts its own WebSocket tickets the same way.
+ */
+const CREDENTIALS: ReadonlyArray<readonly [RegExp, string]> = [
+  [
+    /(^|[?&"'\s,;{])((?:access_|refresh_|id_)?token|api_?key|secret|password|passwd|auth|code|state|ticket|signature|sig)=[^&#"'\s]*/gi,
+    '$1$2=<redacted>',
+  ],
+  [
+    /("(?:(?:access_|refresh_|id_)?token|api_?key|apiKey|secret|password|authorization)"\s*:\s*)"[^"]*"/gi,
+    '$1"<redacted>"',
+  ],
+  [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/g, '$1 <redacted>'],
+  [/(:\/\/)[^/\s:@]+:[^/\s@]+@/g, '$1<redacted>@'],
+  [/\bsk-[A-Za-z0-9_-]{16,}/g, '<redacted>'],
+  [/\bgh[pousr]_[A-Za-z0-9]{20,}/g, '<redacted>'],
+  [/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '<redacted>'],
+]
+
+/** Removes the home folder (as `~`), the account name, and credential-looking strings from `text`. */
+export function makeRedactor({ home, username }: Identity): (text: string) => string {
+  // A very short name would match inside ordinary words.
+  const name = username.length >= 3 ? new RegExp(`(?<![A-Za-z0-9])${escape(username)}(?![A-Za-z0-9])`, 'g') : null
+  return (text) => {
+    let out = home.length > 1 ? text.split(home).join('~') : text
+    if (name) out = out.replace(name, '<user>')
+    for (const [pattern, replacement] of CREDENTIALS) out = out.replace(pattern, replacement)
+    return out
+  }
+}
+
+/**
+ * The cause as `redact` leaves it. Like T3 Code's `redactCauseCredentials`, it
+ * renders the cause (message and stack), and when anything was removed, logs
+ * that text instead of the original.
+ */
+export function redactCause(cause: Cause.Cause<unknown>, redact: (text: string) => string): Cause.Cause<unknown> {
+  if (cause.reasons.length === 0 || Cause.hasInterruptsOnly(cause)) return cause
+  const pretty = Cause.pretty(cause)
+  const redacted = redact(pretty)
+  if (redacted === pretty) return cause
+  // An error that renders as exactly that text: its first line as name and message, and the
+  // whole text as its stack (which already holds the original stacks).
+  const head = /^([A-Za-z]*Error): (.*)$/.exec(redacted.split('\n', 1)[0] ?? '')
+  const error = new Error(head ? head[2] : redacted.split('\n', 1)[0])
+  if (head) error.name = head[1]!
+  error.stack = redacted
+  return Cause.die(error)
+}
+
+/** `logger`, writing causes only after `redact`. */
+export const redacting = <Output>(logger: Logger.Logger<unknown, Output>, redact: (text: string) => string) =>
+  Logger.make<unknown, Output>((options) => logger.log({ ...options, cause: redactCause(options.cause, redact) }))

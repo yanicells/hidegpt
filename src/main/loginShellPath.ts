@@ -129,8 +129,12 @@ export function readLoginShellPath(
   })
 }
 
-/** `$SHELL`, then the account's shell, then /bin/zsh, without repeats (T3 Code's `listLoginShellCandidates`). */
-export function loginShellCandidates(env: NodeJS.ProcessEnv, accountShell = readAccountShell()): ReadonlyArray<string> {
+/**
+ * `$SHELL`, then the account's shell, then /bin/zsh, without repeats (T3 Code's
+ * `listLoginShellCandidates`). The caller passes the account shell (from
+ * `readAccountShell`), so the result depends only on the arguments.
+ */
+export function loginShellCandidates(env: NodeJS.ProcessEnv, accountShell: string | undefined): ReadonlyArray<string> {
   const candidates = [env.SHELL?.trim(), accountShell?.trim(), '/bin/zsh'].filter((shell): shell is string =>
     Boolean(shell),
   )
@@ -171,7 +175,8 @@ export async function firstLoginShellPath(
 export function hydratePath(
   env: NodeJS.ProcessEnv,
   packaged: boolean,
-  findShellPath: () => Promise<string | undefined> = () => firstLoginShellPath(loginShellCandidates(env)),
+  findShellPath: () => Promise<string | undefined> = () =>
+    firstLoginShellPath(loginShellCandidates(env, readAccountShell())),
 ): Promise<void> {
   const home = env.HOME ?? ''
   const fallback = ['/opt/homebrew/bin', '/usr/local/bin', home && `${home}/.bun/bin`, home && `${home}/.local/bin`]

@@ -16,6 +16,8 @@ type Events = typeof IpcEvents
 
 /** What the renderer sends on an invoke channel (main decodes it). */
 export type InvokePayload<K extends keyof Invoke> = Invoke[K]['payload']['Encoded']
+/** What main's handler receives once the payload is decoded. */
+export type InvokeInput<K extends keyof Invoke> = Invoke[K]['payload']['Type']
 /** What main answers on an invoke channel. */
 export type InvokeResult<K extends keyof Invoke> = Invoke[K]['result']['Type']
 /** What main pushes on an event channel. */
@@ -48,6 +50,23 @@ export type HideGptApi = InvokeMethods &
     readonly getSnapshot: () => SequencedSnapshot
     readonly platform: NodeJS.Platform
   }
+
+type ApiMethod = {
+  [K in keyof HideGptApi]: HideGptApi[K] extends (...args: never) => unknown ? K : never
+}[keyof HideGptApi]
+
+// A record, so the compiler rejects a method missing from the list as well as an extra one.
+const methods: Record<ApiMethod, true> = {
+  getSnapshot: true,
+  onSnapshot: true,
+  onMenu: true,
+  dispatch: true,
+  pickDirectory: true,
+  saveImage: true,
+}
+
+/** Every function on `window.hidegpt`; `pnpm dist` checks the built preload exposes them all. */
+export const HIDEGPT_API_METHODS = Object.keys(methods) as ReadonlyArray<ApiMethod>
 
 declare global {
   interface Window {
