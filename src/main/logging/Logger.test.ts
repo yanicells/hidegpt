@@ -75,18 +75,28 @@ describe('Logger.layer', () => {
     }),
   )
 
-  it.effect('without a log folder, prints each line to the terminal once', () =>
+  it.effect('without a log folder, prints each line to the terminal once, redacted but not cut', () =>
     Effect.gen(function* () {
       // A folder inside a file cannot be made.
       const file = join(tempDir(), 'not-a-folder')
       writeFileSync(file, '')
-      yield* Effect.logWarning('Connection lost').pipe(
+      const identity = { home: '/Users/alice-k', username: 'alice-k' }
+      // Over the file's 2 KB cap, so a terminal cut would drop the tail marker.
+      const error = new Error(`open /Users/alice-k/x key sk-proj-0123456789abcdefghij ${'y'.repeat(3_000)} END`)
+      yield* Effect.logWarning('Connection lost', Cause.die(error)).pipe(
         Effect.provide(
-          Logging.layer({ directory: join(file, 'logs'), console: true }).pipe(Layer.provide(NodeServices.layer)),
+          Logging.layer({ directory: join(file, 'logs'), console: true, identity }).pipe(
+            Layer.provide(NodeServices.layer),
+          ),
         ),
       )
-      const printed = [...(yield* TestConsole.logLines), ...(yield* TestConsole.errorLines)].map(String)
-      expect(printed.filter((line) => line.includes('Connection lost'))).toHaveLength(1)
+      const printed = [...(yield* TestConsole.logLines), ...(yield* TestConsole.errorLines)]
+        .map((line) => (typeof line === 'string' ? line : JSON.stringify(line)))
+        .join('\n')
+      expect(printed.split('Connection lost')).toHaveLength(2)
+      expect(printed).toContain('open ~/x')
+      expect(printed).toContain(' END')
+      for (const secret of ['alice-k', 'sk-proj-0123456789abcdefghij']) expect(printed).not.toContain(secret)
     }),
   )
 
