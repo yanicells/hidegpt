@@ -6,6 +6,8 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { extname, join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+import { SCREENSHOT_SIZE } from './screenshots'
+
 let window: BrowserWindow | null = null
 
 export function getWindow(): BrowserWindow | null {
@@ -30,7 +32,7 @@ export function resolvePreload(): string {
  * 1280x840 so captures and benchmarks stay comparable across machines.
  */
 function initialBounds(): { width: number; height: number; x?: number; y?: number } {
-  if (process.env.HIDEGPT_SCREENSHOT) return { width: 1280, height: 840 }
+  if (process.env.HIDEGPT_SCREENSHOT) return { ...SCREENSHOT_SIZE }
   return screen.getPrimaryDisplay().workArea
 }
 
