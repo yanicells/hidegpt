@@ -8,6 +8,7 @@ import * as Layer from 'effect/Layer'
 import * as Path from 'effect/Path'
 import * as Queue from 'effect/Queue'
 
+import { logDefects } from '../../provider/DefectReport'
 import type { AdapterEvent } from '../../provider/ProviderAdapter'
 import type { ProviderId } from '../../shared/model'
 import { makeRotatingFileSink, type RotatingFileSink } from './rotatingFileSink'
@@ -96,8 +97,11 @@ export const make = (directory: string) =>
                   .join(''),
               ),
             ),
-            // A log that cannot be written must never stop Docs.
+            // A log that cannot be written must never stop Docs, nor this writer: a defect is
+            // logged and dropped, so `record` never queues into a writer that is gone.
             Effect.ignore,
+            logDefects,
+            Effect.catchCause(() => Effect.void),
           ),
         { discard: true },
       )

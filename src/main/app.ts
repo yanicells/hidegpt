@@ -12,7 +12,7 @@ import * as Schema from 'effect/Schema'
 
 import { Command, type CommandResult, type MenuAction } from '../shared/contracts'
 import type { ProviderId } from '../shared/model'
-import { describeFailure, reportDefect } from '../provider/DefectReport'
+import { describeFailure, logDefects, reportDefect } from '../provider/DefectReport'
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import * as Demo from './demo'
 import { handle } from './ipc'
@@ -108,7 +108,7 @@ const program = Effect.gen(function* () {
   // Menu commands have no caller to show an error to, so a failure lands on the banner.
   const dispatchFromMenu = (command: Command) =>
     runtime.runFork(
-      run(command).pipe(Effect.flatMap((result) => (result.ok ? Effect.void : manager.notify(result.error)))),
+      logDefects(run(command).pipe(Effect.flatMap((result) => (result.ok ? Effect.void : manager.notify(result.error))))),
     )
   const updateMenu = makeMenu({
     dispatch: dispatchFromMenu,

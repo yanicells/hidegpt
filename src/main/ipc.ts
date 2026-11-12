@@ -5,6 +5,8 @@ import * as Effect from 'effect/Effect'
 import * as Schema from 'effect/Schema'
 import type * as Scope from 'effect/Scope'
 
+import { logDefects } from '../provider/DefectReport'
+
 /**
  * One invoke channel: its payload schema and an Effect handler. The payload
  * is decoded before the handler runs, so nothing the renderer sends reaches
@@ -35,6 +37,8 @@ export const handle = <A, I, R>(ipcMain: IpcMain, method: IpcMethod<A, I, R>): E
                 onFailure: (error) => Effect.succeed(method.invalid(error)),
                 onSuccess: (input) => method.handler(input, event),
               }),
+              // The rejection goes to the renderer, which cannot log it; log the defect here.
+              logDefects,
             ),
           ),
         )
