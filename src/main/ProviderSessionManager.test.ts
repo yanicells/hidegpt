@@ -264,6 +264,40 @@ describe('ProviderSessionManager', () => {
     }),
   )
 
+  it.effect('keeps sweeping idle documents after one release hits a defect, and logs it', () => {
+    const { logged, layer } = captureErrorLogs()
+    return Effect.gen(function* () {
+      const peer = makeFakeCodex()
+      const codex = CodexAdapter.make(peer.connect)
+      let broken = true
+      const flaky: ProviderAdapter = {
+        ...codex,
+        openSession: Effect.map(codex.openSession, (session) => ({
+          ...session,
+          releaseThread: (threadId: string) =>
+            broken ? ((broken = false), Effect.die(new Error('release bug'))) : session.releaseThread(threadId),
+        })),
+      }
+      const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
+        Effect.provide(layerAdapters({ codex: flaky })),
+      )
+      yield* manager.start('codex')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready')
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* manager.dispatch({ op: 'goHome' })
+      yield* TestClock.adjust('31 minutes')
+      yield* settle
+      expect(logged).toEqual([{ cause: expect.stringContaining('release bug'), annotations: expect.objectContaining({ reportId: expect.any(String) }) }])
+
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_2' })
+      yield* manager.dispatch({ op: 'goHome' })
+      yield* TestClock.adjust('31 minutes')
+      yield* settle
+      expect(yield* manager.runtimeCount).toBe(0)
+      expect(countCalls(peer, 'thread/unsubscribe')).toBe(1)
+    }).pipe(Effect.provide(layer))
+  })
+
   it.effect('keeps each library’s document and account across a switch, and never releases the one it shows', () =>
     Effect.gen(function* () {
       const claude = makeFakeClaude()
