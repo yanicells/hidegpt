@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 
 import { LoadingDocument } from './components/document/LoadingDocument'
 import { Banners } from './components/layout/Banners'
@@ -33,7 +33,9 @@ export function App() {
   // One stable callback that reads the latest snapshot, so the memoized Tabs panel
   // and the menu listener never re-render or re-register when a new snapshot lands.
   const latest = useRef({ snap, activeProjectId })
-  latest.current = { snap, activeProjectId }
+  useLayoutEffect(() => {
+    latest.current = { snap, activeProjectId }
+  })
   const onNew = useCallback(() => void createDocument(latest.current.snap, latest.current.activeProjectId), [])
   const [view, setView] = useHomeView()
   const titleRef = useRef<HTMLInputElement>(null)

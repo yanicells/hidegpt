@@ -18,7 +18,7 @@ vi.mock('electron', () => ({
   protocol: { handle: handleMock },
   screen: {},
   shell: { openExternal: vi.fn() },
-  BrowserWindow: class {},
+  BrowserWindow: vi.fn(),
 }))
 
 import {

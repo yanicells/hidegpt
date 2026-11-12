@@ -26,7 +26,8 @@ function connect(): void {
     if (next === current) return
     current = next
     snapshot = next.snapshot
-    for (const listener of [...listeners]) listener()
+    // A copy: a listener that subscribes another component must not run it this round.
+    for (const listener of Array.from(listeners)) listener()
   })
 }
 
@@ -42,11 +43,6 @@ function subscribe(onChange: () => void): () => void {
     detach?.()
     detach = null
   }
-}
-
-/** The latest snapshot, for event handlers that must not hold a stale render's copy. */
-export function currentSnapshot(): Snapshot {
-  return snapshot
 }
 
 /**
@@ -82,8 +78,7 @@ function sameApartFromBlocks(a: Snapshot, b: Snapshot): boolean {
 
 /**
  * The snapshot for the page shell. It skips changes that only touch the open
- * document's blocks, so its `blocks` can be behind: read them with `useBlocks`,
- * or `currentSnapshot()` in a handler.
+ * document's blocks, so its `blocks` can be behind: read them with `useBlocks`.
  */
 export function useShellSnapshot(): Snapshot {
   return useSnapshotSelector(whole, sameApartFromBlocks)

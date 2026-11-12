@@ -231,6 +231,8 @@ export function replaySdk(transcript: ReplayTranscript): ClaudeReplay {
 
   /** Delivers recorded answers and messages up to the next thing Docs must send. */
   const pump = () => {
+    // `fail` (called from the frames this loop delivers) sets `failure`.
+    // oxlint-disable-next-line no-unmodified-loop-condition
     while (!failure && cursor < entries.length) {
       const entry = entries[cursor]!
       if (entry.type === 'expect_outbound') return

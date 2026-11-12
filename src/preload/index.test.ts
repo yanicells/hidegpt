@@ -14,7 +14,7 @@ const electron = vi.hoisted(() => {
     exposed,
     sendSync: vi.fn(),
     emit: (channel: string, value: unknown) => {
-      for (const listener of [...(listeners.get(channel) ?? [])]) listener({}, value)
+      for (const listener of Array.from(listeners.get(channel) ?? [])) listener({}, value)
     },
   }
 })
