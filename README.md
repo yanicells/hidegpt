@@ -24,11 +24,18 @@ pnpm install
 pnpm dev
 ```
 
+`pnpm install` also points Git at `.githooks/`, so each commit runs oxlint on the
+staged files and knip on the repo.
+
 | Script | What it does |
 |---|---|
 | `pnpm dev` | Electron app with Vite HMR |
 | `pnpm test` | Provider adapter, session manager, and renderer UI tests |
 | `pnpm typecheck` | `tsc --noEmit` |
+| `pnpm lint` | oxlint, with T3 Code's rules |
+| `pnpm knip` | Unused files, exports, and dependencies |
+| `pnpm check` | Typecheck, lint, knip, and tests: what CI runs |
+| `pnpm fmt` | oxfmt (not yet applied repo-wide) |
 | `pnpm protocol` | Regenerate the Codex app-server schemas from the installed CLI |
 | `pnpm screenshot` | Home grid/list, folder picker, open menus, a streaming reply and a suggestion, and desktop/narrow editor PNGs using fictional content |
 
@@ -97,5 +104,7 @@ T3 Code, and the provider adapters, session manager, process supervision, and
 replay tests follow its patterns, as do smaller pieces of the OpenCode and Claude
 adapters (each marked in place). In the window, the cached Markdown renderer and
 streaming block splitter come from T3 Code's web app, and the store's selectors
-follow its thread-detail state. T3 Code is MIT licensed, Copyright (c) 2026
+follow its thread-detail state. The tooling follows T3 Code too: the oxlint rules,
+knip config, CI workflow, and pre-commit checks are adapted from its setup.
+T3 Code is MIT licensed, Copyright (c) 2026
 T3 Tools Inc.; the full notice is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

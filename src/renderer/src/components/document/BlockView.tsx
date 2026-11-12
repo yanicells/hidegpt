@@ -14,6 +14,7 @@ export const BlockView = memo(
           {block.images?.length ? (
             <div className="doc-images">
               {block.images.map((ref, index) => (
+                // oxlint-disable-next-line react/no-array-index-key -- a sent turn's images never reorder, and may repeat
                 <span className="doc-image" key={index}>
                   <img src={imageSrc(ref)} alt="" loading="lazy" decoding="async" />
                 </span>

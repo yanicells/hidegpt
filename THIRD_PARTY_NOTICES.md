@@ -63,6 +63,12 @@ projects below. Each copied or adapted file carries a header naming its source.
     | `popover.tsx` | `popover.tsx` |
     | `dialog.tsx` | `dialog.tsx` |
     | `tooltip.tsx` | `tooltip.tsx` |
+  - Tooling, adapted from T3 Code's repository root (commit 5c6f2f12):
+    `.oxlintrc.json` from the `lint` block of `vite.config.ts`; `knip.jsonc`
+    from `knip.jsonc`; `.github/workflows/ci.yml` from
+    `.github/workflows/ci.yml`; and `lint-staged.config.js` with
+    `.githooks/pre-commit` from the `staged` block of `vite.config.ts` and
+    `.vite-hooks/pre-commit`.
 - License: MIT
 
 ```

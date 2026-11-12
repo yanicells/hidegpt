@@ -104,6 +104,7 @@ const request = <A>(operation: string, run: () => Promise<A>, seconds = DEFAULT_
 const rejected = (operation: string, detail: string) => new ProviderRequestError({ provider, operation, detail })
 
 /** A prompt that never yields, so a probe starts Claude Code without sending anything to the model. */
+// oxlint-disable-next-line require-yield -- it must never yield
 async function* silentPrompt(signal: AbortSignal): AsyncGenerator<SDKUserMessage> {
   await new Promise<void>((resolve) => {
     if (signal.aborted) resolve()

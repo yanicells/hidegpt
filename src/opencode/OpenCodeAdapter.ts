@@ -532,7 +532,7 @@ export function make(connect: Connect): ProviderAdapter {
           ),
 
         listSkills: (cwd) =>
-          request('app.skills', (signal) => client.app.skills({ ...(cwd ? { directory: cwd } : {}) }, opts(signal))).pipe(
+          request('app.skills', (signal) => client.app.skills(cwd ? { directory: cwd } : {}, opts(signal))).pipe(
             Effect.map((result) => {
               const skills = new Map<string, Skill>()
               for (const skill of result.data) {
