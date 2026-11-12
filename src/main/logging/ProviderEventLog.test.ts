@@ -45,8 +45,8 @@ const items: ReadonlyArray<Item> = [
     status: 'pending',
     subject: SECRET,
     detail: SECRET,
-    fields: [{ id: 'f1', label: SECRET, initial: SECRET }],
-    questions: [{ id: 'q1', question: SECRET, options: [SECRET], allowText: true }],
+    fields: [{ id: `${SECRET} field`, label: SECRET, initial: SECRET }],
+    questions: [{ id: `${SECRET} question`, question: SECRET, options: [SECRET], allowText: true }],
     legacy: { title: SECRET },
   },
   { kind: 'notice', id: 'n1', notice: 'warning', detail: SECRET },
@@ -110,6 +110,14 @@ describe('ProviderEventLog', () => {
       failure: { class: 'usage_limit', detail: failure.detail.length, retryable: true, resetAt: 1_700_000 },
     })
     expect(encodeEvent({ type: 'loginUrl', url: null })).toEqual({ type: 'loginUrl', url: null })
+    // A question's or field's id is the provider's own wording, so nothing under them is kept.
+    expect(encodeEvent(events[4]!)).toMatchObject({
+      item: {
+        id: 'r1',
+        fields: [{ id: `${SECRET} field`.length, label: SECRET.length }],
+        questions: [{ id: `${SECRET} question`.length, options: [SECRET.length], allowText: true }],
+      },
+    })
   })
 
   it('drops fields the contract does not declare', () => {
@@ -128,6 +136,13 @@ describe('ProviderEventLog', () => {
       expect(encodeEvent(read!.event)).toEqual(encodeEvent(event))
     }
     expect(readLogLine('{"timestamp":')).toBeNull()
+  })
+
+  it('reads a line whose lengths cannot be lengths as null, without throwing', () => {
+    const renamed = (title: string) =>
+      `{"timestamp":"2026-11-12T00:00:00.000Z","provider":"codex","event":{"type":"thread.renamed","threadId":"thr_1","title":${title}}}`
+    expect(readLogLine(renamed('3'))?.event).toEqual({ type: 'thread.renamed', threadId: 'thr_1', title: '···' })
+    for (const length of ['-1', '1.5', '1e400', '1e15']) expect(readLogLine(renamed(length))).toBeNull()
   })
 
   it.effect('a session writes to the library file: no prompt or answer, and one delta per item', () =>

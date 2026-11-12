@@ -63,22 +63,42 @@ const KEPT_STRINGS: ReadonlySet<string> = new Set([
   'part',
 ])
 
+/**
+ * Keys below which no string is kept, ids included: a question's or field's
+ * id is the provider's own wording (`which_essay_topic`, an elicitation
+ * property name). The reducer and the replay never need them.
+ */
+const NOTHING_KEPT_BELOW: ReadonlySet<string> = new Set(['fields', 'questions'])
+
 /** The contract's own numbers. Any other number in a logged event is a text length. */
 const KEPT_NUMBERS: ReadonlySet<string> = new Set(['resetAt'])
 
-/** `value` with every string not under a kept key replaced by its length. Array entries are never kept. */
-export function textAsLength(value: unknown, key: string | null = null): unknown {
-  if (typeof value === 'string') return key !== null && KEPT_STRINGS.has(key) ? value : value.length
-  if (Array.isArray(value)) return value.map((entry) => textAsLength(entry))
+/**
+ * `value` with every string written as its length, unless its key is kept and
+ * no ancestor is in `NOTHING_KEPT_BELOW`. Array entries are never kept.
+ */
+export function textAsLength(value: unknown, key: string | null = null, keep = true): unknown {
+  if (typeof value === 'string') return keep && key !== null && KEPT_STRINGS.has(key) ? value : value.length
+  const below = keep && !(key !== null && NOTHING_KEPT_BELOW.has(key))
+  if (Array.isArray(value)) return value.map((entry) => textAsLength(entry, null, below))
   if (typeof value === 'object' && value !== null) {
-    return Object.fromEntries(Object.entries(value).map(([name, entry]) => [name, textAsLength(entry, name)]))
+    return Object.fromEntries(Object.entries(value).map(([name, entry]) => [name, textAsLength(entry, name, below)]))
   }
   return value
 }
 
-/** The inverse, for replay: each length becomes a placeholder string of that length. */
+/** Longest placeholder a replay builds; a larger length is not one this log wrote. */
+const MAX_TEXT_LENGTH = 64 * 1024 * 1024
+
+/**
+ * The inverse, for replay: each length becomes a placeholder string of that
+ * length. A number that cannot be a length stays a number, so the line fails to decode.
+ */
 function lengthAsText(value: unknown, key: string | null = null): unknown {
-  if (typeof value === 'number') return key !== null && KEPT_NUMBERS.has(key) ? value : '·'.repeat(value)
+  if (typeof value === 'number') {
+    if (key !== null && KEPT_NUMBERS.has(key)) return value
+    return Number.isSafeInteger(value) && value >= 0 && value <= MAX_TEXT_LENGTH ? '·'.repeat(value) : value
+  }
   if (Array.isArray(value)) return value.map((entry) => lengthAsText(entry))
   if (typeof value === 'object' && value !== null) {
     return Object.fromEntries(Object.entries(value).map(([name, entry]) => [name, lengthAsText(entry, name)]))
@@ -99,7 +119,7 @@ export function encodeEvent(event: AdapterEvent): unknown {
     return Option.getOrNull(Option.map(encodeThreadEvent(event), (encoded) => textAsLength(encoded)))
   switch (event.type) {
     case 'invalidate':
-      return { type: event.type, part: event.part }
+      return textAsLength({ type: event.type, part: event.part })
     case 'notice':
       return textAsLength({ type: event.type, message: event.message })
     case 'loginUrl':
