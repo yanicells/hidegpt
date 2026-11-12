@@ -92,10 +92,15 @@ export function template(snap: Snapshot, handlers: MenuHandlers): Electron.MenuI
         { role: 'zoomOut' },
         { type: 'separator' },
         { role: 'togglefullscreen' },
-        // Development keeps a renderer reload, off Cmd+R, which reloads the page's data above.
+        // Development keeps a renderer reload on Alt+Cmd+R: Cmd+R reloads the page's
+        // data above, and forceReload's default Shift+Cmd+R is File → Rename….
         ...(app.isPackaged
           ? []
-          : [{ type: 'separator' as const }, { role: 'forceReload' as const }, { role: 'toggleDevTools' as const }]),
+          : [
+              { type: 'separator' as const },
+              { role: 'forceReload' as const, accelerator: 'Alt+CmdOrCtrl+R' },
+              { role: 'toggleDevTools' as const },
+            ]),
       ],
     },
     {
@@ -103,8 +108,10 @@ export function template(snap: Snapshot, handlers: MenuHandlers): Electron.MenuI
       submenu: [{ label: 'Back', accelerator: 'CmdOrCtrl+[', enabled: inDoc, click: () => dispatch({ op: 'goHome' }) }],
     },
     {
-      // Spelled out rather than `windowMenu`, whose macOS default adds a second Cmd+W next to File's.
-      label: 'Window',
+      // The role marks this as the Window menu, so macOS adds the open windows and
+      // Move & Resize. The submenu replaces Electron's default, which adds a Ctrl+W
+      // close role off macOS (as in T3 Code's DesktopApplicationMenu.ts).
+      role: 'windowMenu',
       submenu: isMac
         ? [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }]
         : [{ role: 'minimize' }],

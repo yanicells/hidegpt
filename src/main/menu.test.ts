@@ -1,11 +1,12 @@
-// The template walks follow T3 Code's apps/desktop/src/window/DesktopApplicationMenu.test.ts
-// at commit 5c6f2f12. Copyright (c) 2026 T3 Tools Inc. MIT License.
+// Adapted from T3 Code (apps/desktop/src/window/DesktopApplicationMenu.test.ts) at commit 5c6f2f12.
+// Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { HOME } from '../shared/model'
 import type { Snapshot } from '../shared/contracts'
 
-vi.mock('electron', () => ({ app: { isPackaged: true }, Menu: {} }))
+const electronApp = vi.hoisted(() => ({ isPackaged: true }))
+vi.mock('electron', () => ({ app: electronApp, Menu: {} }))
 
 const { template } = await import('./menu')
 
@@ -33,7 +34,10 @@ function find(items: readonly Item[], label: string): Item {
 
 const click = (item: Item) => item.click?.({} as Electron.MenuItem, undefined, {} as Electron.KeyboardEvent)
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.restoreAllMocks()
+  electronApp.isPackaged = true
+})
 
 describe('menu', () => {
   it('reads like an installed Docs app: no Tools or Account menu', () => {
@@ -43,7 +47,7 @@ describe('menu', () => {
       'Edit',
       'View',
       'History',
-      'Window',
+      'windowMenu',
       'help',
     ])
     expect(build(home, 'win32').menu.map((item) => item.label ?? item.role)).toEqual([
@@ -51,7 +55,7 @@ describe('menu', () => {
       'Edit',
       'View',
       'History',
-      'Window',
+      'windowMenu',
       'help',
     ])
   })
@@ -68,9 +72,25 @@ describe('menu', () => {
   })
 
   it('binds Cmd+W only once, to File → Close', () => {
-    const items = flatten(build(doc).menu)
-    expect(items.filter((item) => item.role === 'close')).toHaveLength(1)
-    expect(items.find((item) => item.role === 'windowMenu')).toBeUndefined()
+    const { menu } = build(doc)
+    expect(flatten(menu).filter((item) => item.role === 'close')).toHaveLength(1)
+    // An explicit submenu replaces Electron's default Window menu and the close role it adds off macOS.
+    for (const platform of ['darwin', 'win32', 'linux'] as const) {
+      const windowMenu = build(doc, platform).menu.find((item) => item.role === 'windowMenu')
+      expect(Array.isArray(windowMenu?.submenu), platform).toBe(true)
+    }
+  })
+
+  it('binds every shortcut once, development items included', () => {
+    electronApp.isPackaged = false
+    for (const platform of ['darwin', 'win32'] as const) {
+      const items = flatten(build(doc, platform).menu)
+      // forceReload's default Shift+Cmd+R would collide with Rename…, so it must name its own.
+      expect(items.find((item) => item.role === 'forceReload')?.accelerator, platform).toBe('Alt+CmdOrCtrl+R')
+      const accelerators = items.flatMap((item) => (item.accelerator ? [item.accelerator] : []))
+      expect(accelerators.length, platform).toBeGreaterThan(0)
+      expect(new Set(accelerators).size, platform).toBe(accelerators.length)
+    }
   })
 
   it('History → Back returns from a document to Home', () => {
