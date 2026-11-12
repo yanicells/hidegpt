@@ -43,7 +43,21 @@ const TURN_PROMPTS = ['Reply with one short sentence about tea.', 'Now say it ag
 type Scenario = {
   readonly description: string
   readonly sendsTurns: boolean
-  readonly run: (session: ProviderSession, events: ReadonlyArray<AdapterEvent>, workspace: string) => Effect.Effect<void, unknown>
+  readonly run: (
+    session: ProviderSession,
+    events: ReadonlyArray<AdapterEvent>,
+    workspace: string,
+    entries: ReadonlyArray<ReplayEntry>,
+  ) => Effect.Effect<void, unknown>
+}
+
+/** `account` from the recorded `account/read` answer: null when signed out, a description otherwise. */
+function accountOf(entries: ReadonlyArray<ReplayEntry>): string | null {
+  const answer = entries.find((entry) => entry.type === 'emit_inbound' && entry.label === 'account/read')
+  const frame = answer?.type === 'emit_inbound' ? (answer.frame as { result?: { account?: unknown } }) : undefined
+  if (frame?.result === undefined) return 'no answer'
+  const account = frame.result.account
+  return account === null ? null : account === undefined ? 'missing' : `type ${String((account as { type?: unknown }).type)}`
 }
 
 const SCENARIOS: Record<string, Scenario> = {
@@ -51,9 +65,13 @@ const SCENARIOS: Record<string, Scenario> = {
     description:
       'Handshake, catalog and document list, signed out; then a new document, which Codex cannot resume before its first turn. No prompt.',
     sendsTurns: false,
-    run: (session, _events, workspace) =>
+    run: (session, _events, workspace, entries) =>
       Effect.gen(function* () {
         yield* session.loadCatalog
+        // Judged on Codex's own answer: an account at all means the empty CODEX_HOME
+        // found a login after all, so stop before anything personal is written.
+        const account = accountOf(entries)
+        if (account !== null) return yield* Effect.die(new Error(`Codex reported an account (${account}) in the empty CODEX_HOME; nothing was written.`))
         yield* Stream.runHead(session.listDocs(''))
         const created = yield* session.createThread({ cwd: workspace, projectId: null, title: null, settings: SETTINGS })
         // Codex keeps no transcript until the first turn, so this records its real "no rollout" error.
@@ -135,7 +153,7 @@ async function main() {
         const session = yield* CodexAdapter.make(recordingConnect(spawner, env, workspace, entries, allowTurns)).openSession
         const events: AdapterEvent[] = []
         yield* Stream.runForEach(session.events, (event) => Effect.sync(() => events.push(event))).pipe(Effect.forkScoped)
-        yield* scenario.run(session, events, workspace)
+        yield* scenario.run(session, events, workspace, entries)
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
     )
   } finally {
