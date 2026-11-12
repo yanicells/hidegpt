@@ -28,8 +28,13 @@ or adapted file carries a header naming its source.
     compile cache before the app loads, from `apps/desktop/src/boot.ts` and
     `apps/desktop/src/compileCache.ts`.
   - `src/main/app.ts`: quitting after shutdown (cancel the first
-    `before-quit`, close every scope, then quit; exit if shutdown stalls),
-    from `apps/desktop/src/app/DesktopLifecycle.ts`.
+    `before-quit`, close every scope, then quit; exit if shutdown stalls; open
+    no window on activation meanwhile), from
+    `apps/desktop/src/app/DesktopLifecycle.ts`.
+  - `src/main/ProviderSessionManager.ts` and `src/opencode/OpenCodeAdapter.ts`:
+    handling a defect in a long-lived fiber with `Effect.catchCause` and
+    re-interrupting on interruption, from
+    `packages/provider-opencode/src/server/adapter.ts`.
   - `src/renderer/src/session-bridge.ts` and `components/document/Approval.tsx`:
     failed commands kept as a local error and replies tracked while they are
     on their way, from `apps/web/src/components/chat/usePendingThreadRequests.ts`
