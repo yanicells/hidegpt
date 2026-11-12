@@ -36,13 +36,12 @@ type ContentBlock = {
   readonly source?: { readonly type?: string | undefined; readonly media_type?: string | undefined; readonly data?: string | undefined } | undefined
 }
 
-const field = <S extends Schema.Top & { readonly DecodingServices: never }>(schema: S) => {
-  const decode = Schema.decodeUnknownOption(schema)
-  return (value: unknown): S['Type'] | undefined => Option.getOrUndefined(decode(value))
-}
-const asString = field(Schema.String)
-const asRecord = field(Schema.Record(Schema.String, Schema.Unknown))
-const asContent = field(Schema.Union([Schema.String, Schema.Array(Schema.Unknown)]))
+/** Each field is checked on its own: a wrong type drops that field, not the block. */
+const asString = (value: unknown) => (typeof value === 'string' ? value : undefined)
+const asRecord = (value: unknown): Readonly<Record<string, unknown>> | undefined =>
+  typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
+const asContent = (value: unknown): string | ReadonlyArray<unknown> | undefined =>
+  typeof value === 'string' || Array.isArray(value) ? value : undefined
 
 function decodeBlock(value: unknown): ContentBlock | undefined {
   const part = asRecord(value)
