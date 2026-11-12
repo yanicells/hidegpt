@@ -105,7 +105,10 @@ export function template(snap: Snapshot, handlers: MenuHandlers): Electron.MenuI
     },
     {
       label: 'History',
-      submenu: [{ label: 'Back', accelerator: 'CmdOrCtrl+[', enabled: inDoc, click: () => dispatch({ op: 'goHome' }) }],
+      // No shortcut: menu shortcuts fire before the page sees the key, and in Docs
+      // Cmd+[ decreases indent, so binding it here would leave the document (and its
+      // unsent draft) on one keystroke.
+      submenu: [{ label: 'Back', enabled: inDoc, click: () => dispatch({ op: 'goHome' }) }],
     },
     {
       // The role marks this as the Window menu, so macOS adds the open windows and
