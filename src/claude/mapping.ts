@@ -86,13 +86,14 @@ const COMMAND_ARGS = /<command-args>([\s\S]*?)<\/command-args>/
 const INJECTED = /^(Base directory for this skill:|<system-reminder>|<local-command|Caveat: )/
 
 /**
- * The session's name, when it has one: a custom title, or a summary Claude
- * wrote. The SDK's `summary` falls back to the first prompt, which is not a
- * name; a document without one reads "Untitled document" (Home still lists
- * its first line, from `preview`).
+ * The session's name, when it has one: its custom title, which already holds a
+ * title Claude wrote (`aiTitle`) or one set with /rename. Never `summary`: the
+ * SDK fills it from the custom title, else the latest prompt, a compaction
+ * summary or the first prompt, so it is often what was asked. A document
+ * without a name reads "Untitled document" (Home still lists its first line,
+ * from `preview`).
  */
-export const sessionName = (info: SDKSessionInfo): string | null =>
-  info.customTitle || (info.summary && info.summary !== info.firstPrompt ? info.summary : null)
+export const sessionName = (info: SDKSessionInfo): string | null => info.customTitle || null
 
 export function toDoc(info: SDKSessionInfo): DocSummary {
   return {

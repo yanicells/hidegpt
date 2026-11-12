@@ -127,9 +127,9 @@ class Frames implements AsyncIterableIterator<SDKMessage> {
   }
 }
 
-/** A session Claude has named `title` (its summary differs from its first prompt). */
+/** A session named `title` (its custom title, as the SDK reports a title Claude wrote or a /rename). */
 export function stubSession(sessionId: string, title: string, cwd: string, lastModified = Date.now()): SDKSessionInfo {
-  return { sessionId, summary: title, firstPrompt: `About ${title}`, lastModified, cwd }
+  return { sessionId, summary: title, customTitle: title, firstPrompt: `About ${title}`, lastModified, cwd }
 }
 
 export function transcriptUser(sessionId: string, uuid: string, text: string): SessionMessage {
@@ -202,7 +202,9 @@ export function makeFakeClaude(options: FakeClaudeOptions = {}): FakeClaude {
       existing.lastModified = Date.now()
       return
     }
-    sessions.unshift(stubSession(sessionId, prompt ?? 'Untitled', cwd))
+    // A session the CLI just wrote has no name yet: its summary is only what was asked.
+    const asked = prompt ?? ''
+    sessions.unshift({ sessionId, summary: asked, firstPrompt: asked, lastModified: Date.now(), cwd })
   }
 
   const query: ClaudeSdk['query'] = ({ prompt, options: queryOptions = {} }) => {

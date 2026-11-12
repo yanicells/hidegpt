@@ -18,7 +18,7 @@ import {
   type FakeOpenCode,
   type FakeOpenCodeOptions,
 } from './FakeOpenCode'
-import { readableProviderError } from './mapping'
+import { readableProviderError, toDoc } from './mapping'
 import * as OpenCodeAdapter from './OpenCodeAdapter'
 
 const SETTINGS = { model: 'fake/model-a', effort: null, serviceTier: null, mode: 'build' }
@@ -352,6 +352,8 @@ describe('OpenCodeAdapter', () => {
       const opened = yield* session.openThread(SESSION)
       expect(opened.title).toBe('Untitled document')
       expect(opened.blocks[0]).toMatchObject({ kind: 'user', text: 'Summarise week 3' })
+      // Home's list gives it no name either.
+      expect(toDoc(stubSession(SESSION, '')).name).toBeNull()
     }),
   )
 

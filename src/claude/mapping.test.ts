@@ -47,9 +47,14 @@ describe('document titles', () => {
     expect(toDoc(info({}))).toMatchObject({ name: null, preview: prompt })
   })
 
-  it('takes a custom title, or a summary Claude wrote', () => {
-    expect(sessionTitle(info({ customTitle: 'Bio essay' }))).toBe('Bio essay')
-    expect(sessionTitle(info({ summary: 'Photosynthesis essay' }))).toBe('Photosynthesis essay')
-    expect(toDoc(info({ summary: 'Photosynthesis essay' })).name).toBe('Photosynthesis essay')
+  it('takes the custom title (a /rename, or a title Claude wrote)', () => {
+    expect(sessionTitle(info({ customTitle: 'Bio essay', summary: 'Bio essay' }))).toBe('Bio essay')
+    expect(toDoc(info({ customTitle: 'Bio essay' })).name).toBe('Bio essay')
+  })
+
+  it('never names a document after a later prompt, which the SDK reports as its summary', () => {
+    const later = info({ summary: 'Now make it shorter and add sources' })
+    expect(sessionTitle(later)).toBe('Untitled document')
+    expect(toDoc(later)).toMatchObject({ name: null, preview: prompt })
   })
 })
