@@ -111,10 +111,13 @@ describe('replaying the activity log', () => {
       const [thread] = replay.threads
       expect(thread).toMatchObject({ provider: 'codex', threadId: 'thr_1' })
 
-      // The same working/idle sequence the page showed, one stretch per turn, and nothing left open.
+      // The page's working/idle stretches against the replay's turns: one stretch per turn, none left open.
+      const turns = thread!.turns
       const working = changes(shown.map((snapshot) => snapshot.streaming))
-      expect(working).toEqual([false, true, false, true, false, true, false])
-      expect(thread!.turns.map((turn) => [turn.status, turn.failure])).toEqual([
+      const replayed = changes([false, ...turns.flatMap((turn) => [true, turn.endedAt === null])])
+      expect(working).toEqual(replayed)
+      expect(working.filter(Boolean)).toHaveLength(turns.length)
+      expect(turns.map((turn) => [turn.status, turn.failure])).toEqual([
         ['completed', null],
         ['failed', 'usage_limit'],
         ['interrupted', null],
@@ -122,9 +125,11 @@ describe('replaying the activity log', () => {
       const runtime = replayedRuntime(replay, 'codex', 'thr_1')!
       expect(runtime.turn).toBeNull()
 
-      // The banner the failed turn raised comes back word for word: the page never shows provider text.
+      // The banner the failed turn raised comes back word for word from the replayed class:
+      // the page never shows provider text.
       const banner = shown.find((snapshot) => snapshot.error)?.error
-      expect(presentFailure({ class: 'usage_limit', detail: '', retryable: null, resetAt: null })).toBe(banner)
+      const failed = turns.find((turn) => turn.status === 'failed')!
+      expect(presentFailure({ class: failed.failure!, detail: '', retryable: null, resetAt: null })).toBe(banner)
 
       // The same blocks in the same order.
       const last = shown.at(-1)!

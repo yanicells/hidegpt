@@ -1,7 +1,8 @@
 /**
  * Replays an activity log through the app's reducer and prints, per document,
  * each turn (when it started, how it ended) and the items it was left with.
- * A turn still open at the end is the "Working…" that never went away.
+ * A turn that started and is still open at the end is a "Working…" that never
+ * went away. A send the provider never confirmed has no line, so it does not show.
  *
  *   pnpm replay:events ~/Library/Application\ Support/<app>/logs/activity/personal.ndjson
  *

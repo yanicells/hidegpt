@@ -11,10 +11,16 @@ import { adopt, applyThreadEvent, initialState, keyOf, type State, type ThreadRu
  * reproduced without the provider. Like T3's projection replay, the log is
  * the source and the reducer is the projection.
  *
- * What the log cannot hold, the replay cannot show: text comes back as
- * placeholders of the right length, and what main does without an event
- * (the optimistic echo, "Stopping", the stop deadline, the items a document
- * opened with) is not in it. A turn starts at its `turn.started`.
+ * Where it differs from the page:
+ * - Text comes back as placeholders of the right length.
+ * - What main does without an event is not in the log: the optimistic echo,
+ *   "Stopping", the stop deadline, how the person answered a question, and
+ *   what a document opened with, its items and the turn already running
+ *   (`activeTurnId`).
+ * - A turn starts at its `turn.started`. A send the provider never confirmed
+ *   has no line, so a page stuck in "Working…" before that point replays as idle.
+ * - Every thread in the log is adopted, including ones main ignored because
+ *   no document had them open.
  */
 
 /** One turn as the page showed it: when it started working and how it stopped. */
