@@ -59,8 +59,20 @@ export function previewLines(text: string, limit = 12): string {
   return trimmed.split(/\n+/).slice(0, limit).join('\n')
 }
 
-/** Every library the app can open, in switcher order. */
-export const PROVIDERS: ReadonlyArray<ProviderId> = ['codex', 'opencode', 'claude']
+/**
+ * Whether this build may carry the Claude library. Set at build time from
+ * `HIDEGPT_PERSONAL` (see electron.vite.config.ts): runs from source keep it,
+ * a shared `pnpm dist` build leaves it out unless `HIDEGPT_PERSONAL=1`.
+ */
+export const PERSONAL_BUILD: boolean = __HIDEGPT_PERSONAL__
+
+/** The libraries a build can open, in switcher order. Claude only in a personal build. */
+export function providersFor(personal: boolean): ReadonlyArray<ProviderId> {
+  return personal ? ['codex', 'opencode', 'claude'] : ['codex', 'opencode']
+}
+
+/** Every library this build can open, in switcher order. */
+export const PROVIDERS: ReadonlyArray<ProviderId> = providersFor(PERSONAL_BUILD)
 
 export function providerLabel(provider: ProviderId): string {
   return provider === 'codex' ? 'Codex' : provider === 'opencode' ? 'OpenCode' : 'Claude'

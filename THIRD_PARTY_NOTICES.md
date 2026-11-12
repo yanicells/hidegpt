@@ -53,6 +53,17 @@ or adapted file carries a header naming its source.
     box scrolls, and on any other upward scroll (the upward-scroll detector),
     from `apps/web/src/components/chat/timelineViewport.ts` and
     `timelineScrollTarget.ts`.
+  - `scripts/dist.ts`, `scripts/builder-config.ts` and
+    `scripts/verify-preload-bundle.ts`: the electron-builder config built in
+    code, signing only when asked and dropping empty signing variables, and the
+    sandboxed preload check, from `scripts/build-desktop-artifact.ts` and
+    `apps/desktop/scripts/verify-preload-bundle.mjs` (commit 5c6f2f12).
+  - `src/main/loginShellPath.ts`: reading PATH from the login shell between
+    markers (`-ilc`, a detached probe with a timeout, clearing a DEBUG trap),
+    trying the shell candidates in order, merging it ahead of the inherited
+    PATH, and not blocking launch on it, from `packages/shared/src/shell.ts`,
+    `apps/server/src/os-jank.ts` and
+    `apps/desktop/src/shell/DesktopShellEnvironment.ts` (commit 5c6f2f12).
 - License: MIT
 
 ```

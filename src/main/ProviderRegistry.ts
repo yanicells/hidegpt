@@ -3,7 +3,7 @@ import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
 
 import type { ProviderId } from '../shared/model'
-import { providerLabel } from '../shared/labels'
+import { PERSONAL_BUILD, providerLabel } from '../shared/labels'
 import { ProviderRequestError, userMessage } from '../provider/errors'
 import { ProcessSupervisor } from '../provider/ProcessSupervisor'
 import type { ProviderAdapter } from '../provider/ProviderAdapter'
@@ -54,18 +54,36 @@ export const layerLoaders = (loaders: Loaders) => {
   return Layer.succeed(ProviderRegistry, fromLoaders({ codex: once('codex'), opencode: once('opencode'), claude: once('claude') }))
 }
 
-/** The real providers, each spawned under the shared process supervisor. */
-export const layer = Layer.effect(
-  ProviderRegistry,
-  Effect.gen(function* () {
-    const supervisor = yield* ProcessSupervisor
-    return fromLoaders({
-      codex: () => import('../codex/CodexAdapter').then((m) => m.make(m.spawnAppServer(supervisor))),
-      opencode: () => import('../opencode/OpenCodeAdapter').then((m) => m.make(m.spawnServer(supervisor))),
-      claude: () => import('../claude/ClaudeAdapter').then((m) => m.make()),
-    })
-  }),
-)
+/**
+ * The Claude loader of a shared build. `PERSONAL_BUILD` is a build-time constant,
+ * so the bundler drops the Claude import from such a build entirely.
+ */
+export const notInThisBuild = (): Promise<ProviderAdapter> =>
+  Promise.reject(new Error('this library is not part of this build'))
+
+/**
+ * The real providers, each spawned under the shared process supervisor. No adapter
+ * loads (so no CLI is looked up on PATH) until `ready` settles; main passes its
+ * login-shell PATH lookup here, so a provider can start before the window has
+ * painted without ever missing a CLI installed under nvm and the like.
+ */
+export const layerAfter = (ready: Promise<unknown>) =>
+  Layer.effect(
+    ProviderRegistry,
+    Effect.gen(function* () {
+      const supervisor = yield* ProcessSupervisor
+      return fromLoaders({
+        codex: () => ready.then(() => import('../codex/CodexAdapter')).then((m) => m.make(m.spawnAppServer(supervisor))),
+        opencode: () => ready.then(() => import('../opencode/OpenCodeAdapter')).then((m) => m.make(m.spawnServer(supervisor))),
+        claude: PERSONAL_BUILD
+          ? () => ready.then(() => import('../claude/ClaudeAdapter')).then((m) => m.make())
+          : notInThisBuild,
+      })
+    }),
+  )
+
+/** The real providers, with nothing to wait for. */
+export const layer = layerAfter(Promise.resolve())
 
 /** Fixed adapters (tests and demo mode). */
 export const layerAdapters = (adapters: Partial<Record<ProviderId, ProviderAdapter>>) =>
