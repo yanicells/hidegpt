@@ -7,19 +7,42 @@ import * as Random from 'effect/Random'
 import { bannerMessage, type CommandRejectedError, DEFECT_MESSAGE, isExpectedError, type ProviderError } from './errors'
 
 /**
+ * The report id each defect value was logged under. A defect is often seen
+ * twice: by `observed` where the work was forked, and again by whoever the
+ * failure travels on to. Keyed weakly by the thrown value, so a thrown string
+ * or number is not deduplicated.
+ */
+const reportedIds = new WeakMap<object, string>()
+
+const defectValue = (reason: Cause.Reason<unknown>): unknown =>
+  reason._tag === 'Die' ? reason.defect : reason._tag === 'Fail' ? reason.error : undefined
+
+/** Only an object or function can key the WeakMap. */
+const isReference = (value: unknown): value is object =>
+  (typeof value === 'object' && value !== null) || typeof value === 'function'
+
+/**
  * Logs the defect parts of a cause under a fresh report id, and returns the
  * id. Like T3 Code's `DefectReporter`, only defects are logged: a die, or a
  * failure that is not one of Docs' tagged errors (a rejected promise).
- * Tagged errors and interruptions in the same cause are left out.
+ * Tagged errors and interruptions in the same cause are left out. A cause
+ * whose defects were all reported before logs nothing and returns the
+ * earlier id, so the same defect is one line in the log however many
+ * observers see it.
  */
 export const reportDefect = (cause: Cause.Cause<unknown>): Effect.Effect<string> =>
   Effect.gen(function* () {
-    const reportId = (yield* Random.nextIntBetween(0, 0xffff_ffff)).toString(16).padStart(8, '0')
     const defects = cause.reasons.filter(
       (reason) => reason._tag === 'Die' || (reason._tag === 'Fail' && !isExpectedError(reason.error)),
     )
+    const values = defects.map(defectValue)
+    const earlier = values.map((value) => (isReference(value) ? reportedIds.get(value) : undefined))
+    const [first] = earlier
+    if (first !== undefined && earlier.every((id) => id !== undefined)) return first
+    const reportId = (yield* Random.nextIntBetween(0, 0xffff_ffff)).toString(16).padStart(8, '0')
     if (defects.length > 0) {
       yield* Effect.logError('Unhandled defect', Cause.fromReasons(defects)).pipe(Effect.annotateLogs({ reportId }))
+      for (const value of values) if (isReference(value) && !reportedIds.has(value)) reportedIds.set(value, reportId)
     }
     return reportId
   })
