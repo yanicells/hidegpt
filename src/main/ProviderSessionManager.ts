@@ -198,8 +198,11 @@ export const make = (options: ManagerOptions) =>
 
     const supervise = (id: ProviderId) =>
       connectOnce(id).pipe(
-        Effect.tapError((error) => update((current) => S.connectionLost(current, id, error.message))),
-        // Only a dead or wedged process is worth restarting; a missing binary or a bad config is not.
+        // Only a dead or wedged process is worth restarting; a missing binary or a bad config is not,
+        // and is shown once, by the catch below.
+        Effect.tapError((error) =>
+          endsConnection(error) ? update((current) => S.connectionLost(current, id, error.message)) : Effect.void,
+        ),
         Effect.retry({ schedule: RESTART_SCHEDULE, while: endsConnection }),
         Effect.tap((error) => update((current) => S.connectionLost(current, id, error.message))),
         Effect.forever,
@@ -313,10 +316,10 @@ export const make = (options: ManagerOptions) =>
             const at = yield* now
             if (known) yield* update((current) => S.applyThreadEvent(current, id, event, at))
             // A stop timer belongs to one turn: a new turn (say, after a crash ended the stopped one
-          // silently) must not be settled by it.
-          if (event.type === 'turnStarted' || event.type === 'turnEnded' || event.type === 'closed') {
-            yield* FiberMap.remove(stopTimers, key)
-          }
+            // silently) must not be settled by it.
+            if (event.type === 'turnStarted' || event.type === 'turnEnded' || event.type === 'closed') {
+              yield* FiberMap.remove(stopTimers, key)
+            }
             // A thread with no runtime (released, never opened here) only moves Home's ordering.
             if (event.type === 'turnEnded' || (!known && event.type === 'title')) yield* invalidate(id, 'docs')
             return
