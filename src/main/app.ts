@@ -25,7 +25,7 @@ import * as Demo from './demo'
 import { handle, handleSync } from './ipc'
 import * as Logging from './logging/Logger'
 import * as ProviderEventLog from './logging/ProviderEventLog'
-import { launchPath } from './loginShellPath'
+import { hydratePath, killLoginShellProbe } from './loginShellPath'
 import { makeMenu } from './menu'
 import * as ProviderRegistry from './ProviderRegistry'
 import { ProviderSessionManager, layer as managerLayer } from './ProviderSessionManager'
@@ -47,8 +47,10 @@ protocol.registerSchemesAsPrivileged([
   },
 ])
 
-// GUI apps on macOS start with a bare PATH; find the provider CLIs the way a terminal would.
-if (process.platform === 'darwin') process.env.PATH = launchPath(process.env, app.isPackaged)
+// GUI apps on macOS start with a bare PATH; find the provider CLIs the way a terminal
+// would. The login-shell lookup runs while the window paints; providers wait for it.
+const pathReady = process.platform === 'darwin' ? hydratePath(process.env, app.isPackaged) : Promise.resolve()
+app.on('will-quit', killLoginShellProbe)
 
 const demo = process.env.HIDEGPT_FAKE === '1'
 /** Where a quit is: `waiting` while scopes close and providers stop, then `allowed` for the real quit. */
@@ -81,7 +83,7 @@ const MainLayer = managerLayer({
   defaultCwd,
   openExternal: (url) => Effect.sync(() => openExternal(url)),
 }).pipe(
-  Layer.provideMerge(demo ? Demo.layer : ProviderRegistry.layer),
+  Layer.provideMerge(demo ? Demo.layer : ProviderRegistry.layerAfter(pathReady)),
   Layer.provideMerge(ProcessSupervisor.layer(demo ? null : join(app.getPath('userData'), 'provider-processes.json'))),
   Layer.provideMerge(ProviderEventLog.layer(join(logsDirectory, 'providers'))),
   Layer.provideMerge(Logging.layer({ directory: logsDirectory, console: !app.isPackaged })),
@@ -240,6 +242,8 @@ app.on('before-quit', (event) => {
   quitPhase = 'waiting'
   const stalled = setTimeout(() => {
     console.error('Docs did not shut down in time; exiting without it.')
+    // app.exit skips will-quit, so stop the PATH probe here too.
+    killLoginShellProbe()
     app.exit(exitCode)
   }, SHUTDOWN_DEADLINE_MS)
   void runtime
@@ -251,7 +255,8 @@ app.on('before-quit', (event) => {
       quitPhase = 'allowed'
       // Electron ignores process.exitCode, so a failed run exits explicitly; a normal
       // quit goes through app.quit so windows still close the usual way.
-      if (exitCode === 0) app.quit()
-      else app.exit(exitCode)
+      if (exitCode === 0) return void app.quit()
+      killLoginShellProbe()
+      app.exit(exitCode)
     })
 })

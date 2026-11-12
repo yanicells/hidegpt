@@ -65,6 +65,7 @@ if (!personal) {
     const archives = packagedArchives(dir)
     if (archives.length === 0) throw new Error(`No packaged app found in ${dir}/ to check`)
     archives.forEach(assertNoClaude)
+    console.log(`Checked ${archives.length} app archive(s): no Claude code`)
   } catch (error) {
     // Leave nothing shareable behind.
     clearOutput(dir)
