@@ -5,6 +5,7 @@ import * as Effect from 'effect/Effect'
 import * as Schema from 'effect/Schema'
 import type * as Scope from 'effect/Scope'
 
+import { logDefects } from '../provider/DefectReport'
 import type { IpcInvokeSpec } from '../shared/contracts'
 
 /** The part of Electron's `ipcMain` these helpers use, so tests can pass a fake. */
@@ -41,6 +42,8 @@ export const handle = <Payload, PayloadEncoded, Result, R>(
                 onFailure: () => Effect.succeed(spec.invalid),
                 onSuccess: (input) => handler(input, event),
               }),
+              // The rejection goes to the renderer, which cannot log it; log the defect here.
+              logDefects,
             ),
           ),
         )

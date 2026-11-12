@@ -19,7 +19,7 @@ import {
   type SaveImageResult,
 } from '../shared/contracts'
 import type { ProviderId } from '../shared/model'
-import { describeFailure } from '../provider/DefectReport'
+import { describeFailure, logDefects, reportDefect } from '../provider/DefectReport'
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import * as Demo from './demo'
 import { handle, handleSync } from './ipc'
@@ -142,7 +142,9 @@ const program = Effect.gen(function* () {
   // Menu commands have no caller to show an error to, so a failure lands on the banner.
   const dispatchFromMenu = (command: Command) =>
     runtime.runFork(
-      run(command).pipe(Effect.flatMap((result) => (result.ok ? Effect.void : manager.notify(result.error)))),
+      logDefects(
+        run(command).pipe(Effect.flatMap((result) => (result.ok ? Effect.void : manager.notify(result.error)))),
+      ),
     )
   const updateMenu = makeMenu({
     dispatch: dispatchFromMenu,
@@ -175,11 +177,21 @@ const program = Effect.gen(function* () {
     ),
   )
 
+  /** Runs `part` outside any fiber's error handling: a throw is reported under its name and goes no further. */
+  const reportingThrows = (part: string, run: () => void) => {
+    try {
+      run()
+    } catch (error) {
+      runtime.runFork(reportDefect(Cause.die(error)).pipe(Effect.annotateLogs({ part })))
+    }
+  }
+
   const publisher = makeSnapshotPublisher(manager.snapshots, (patch, snapshot) => {
     const win = getWindow()
-    win?.setTitle(snapshot.route.kind === 'home' ? 'Docs' : snapshot.title || 'Docs')
+    // The title and the menu are extras: a bug in either costs only that part, never the page.
+    reportingThrows('title', () => win?.setTitle(snapshot.route.kind === 'home' ? 'Docs' : snapshot.title || 'Docs'))
     win?.webContents.send(IpcEvents.onSnapshot.channel, patch)
-    updateMenu(snapshot)
+    reportingThrows('menu', () => updateMenu(snapshot))
   })
   // A defect is reported inside `run`, which then starts over.
   yield* Effect.forkScoped(publisher.run)
@@ -189,7 +201,9 @@ const program = Effect.gen(function* () {
   // Local images load only if the window was handed them: the open document's, or pasted ones.
   registerDocsProtocol((ref) => documentHasImage(publisher.delivered()?.snapshot ?? null, ref))
 
-  const open = () => createWindow({ onDidFinishLoad: publisher.resync })
+  // Runs in an Electron event, outside any fiber. On a throw the publisher has already
+  // forgotten what the window has, so its next patch is whole.
+  const open = () => createWindow({ onDidFinishLoad: () => reportingThrows('resync', publisher.resync) })
   const win = open()
   // While a quit waits on shutdown, activation opens nothing (T3 Code's DesktopLifecycle).
   app.on('activate', () => {

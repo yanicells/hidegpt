@@ -13,6 +13,7 @@ import { ChildProcess, ChildProcessSpawner } from 'effect/process'
 
 import type { ProviderId } from '../shared/model'
 import { appendStderrTail, stderrExcerpt } from '../vendor/effect-codex-app-server/_internal/stdio'
+import { logDefects } from './DefectReport'
 import { BinaryMissingError, ProcessExitedError, ProviderRequestError } from './errors'
 import { providerLabel } from '../shared/labels'
 import * as ProcessLedger from './ProcessLedger'
@@ -147,6 +148,7 @@ const make = (
           Stream.decodeText(),
           Stream.runForEach((chunk) => Ref.update(tail, (current) => appendStderrTail(current, chunk))),
           Effect.ignore,
+          logDefects,
           Effect.forkScoped,
         )
       }
