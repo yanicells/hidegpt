@@ -44,18 +44,25 @@ const AUTH_VARIABLES = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_COD
 type Scenario = {
   readonly description: string
   readonly sendsTurns: boolean
-  readonly run: (session: ProviderSession, events: ReadonlyArray<AdapterEvent>, workspace: string) => Effect.Effect<void, unknown>
+  readonly run: (
+    session: ProviderSession,
+    events: ReadonlyArray<AdapterEvent>,
+    workspace: string,
+    entries: ReadonlyArray<ReplayEntry>,
+  ) => Effect.Effect<void, unknown>
 }
 
 const SCENARIOS: Record<string, Scenario> = {
   library: {
     description: 'Catalog probe with no login (Docs shows the sign-in hint), an empty document list, and a document that does not exist. No prompt.',
     sendsTurns: false,
-    run: (session) =>
+    run: (session, _events, _workspace, entries) =>
       Effect.gen(function* () {
-        const catalog = yield* Effect.exit(session.loadCatalog)
-        // Claude Code found a login after all: stop before anything personal is written.
-        if (catalog._tag === 'Success') return yield* Effect.die(new Error('Claude Code reported a login in the empty home; nothing was written.'))
+        yield* Effect.exit(session.loadCatalog)
+        // Judged on Claude Code's own answer, not Docs' reading of it: any login source at all
+        // means it found credentials after all, so stop before anything personal is written.
+        const source = tokenSource(entries)
+        if (source !== 'none') return yield* Effect.die(new Error(`Claude Code reported token source "${source}" in the empty home; nothing was written.`))
         yield* Stream.runHead(session.listDocs(''))
         yield* Effect.exit(session.openThread(MISSING_SESSION))
       }),
@@ -75,6 +82,14 @@ const SCENARIOS: Record<string, Scenario> = {
         yield* session.openThread(created.threadId)
       }),
   },
+}
+
+/** `account.tokenSource` from the recorded probe answer, or "missing" when there is none. */
+function tokenSource(entries: ReadonlyArray<ReplayEntry>): string {
+  const answer = entries.find((entry) => entry.type === 'emit_inbound' && entry.label === 'query.initializationResult')
+  const frame = answer?.type === 'emit_inbound' ? (answer.frame as { result?: { account?: { tokenSource?: unknown } } }) : undefined
+  const source = frame?.result?.account?.tokenSource
+  return typeof source === 'string' ? source : 'missing'
 }
 
 /**
@@ -134,7 +149,7 @@ async function main() {
         const session = yield* ClaudeAdapter.make(async () => sdk).openSession
         const events: AdapterEvent[] = []
         yield* Stream.runForEach(session.events, (event) => Effect.sync(() => events.push(event))).pipe(Effect.forkScoped)
-        yield* scenario.run(session, events, workspace)
+        yield* scenario.run(session, events, workspace, entries)
       }).pipe(Effect.scoped),
     )
   } finally {
