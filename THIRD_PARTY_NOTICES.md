@@ -48,6 +48,10 @@ or adapted file carries a header naming its source.
   - `src/renderer/src/components/ui/markdownRenderer.ts` and
     `markdownStreamBlocks.ts`, with their tests: the cached Markdown renderer and
     the streaming block splitter, from `apps/web/src/components/chat/`.
+  - `src/renderer/src/components/document/useFollowBottom.ts`: letting go of the
+    bottom on upward input (wheel, up keys, the scrollbar) unless a nested box
+    scrolls, from `apps/web/src/components/chat/timelineViewport.ts` and
+    `timelineScrollTarget.ts`.
 - License: MIT
 
 ```
