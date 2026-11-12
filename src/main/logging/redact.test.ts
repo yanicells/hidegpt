@@ -18,9 +18,16 @@ describe('makeRedactor', () => {
   })
 
   it('takes linear time on a long message', () => {
-    // 1 MB with no address or key; a pattern that retried from each character would not finish.
-    const text = `${'x'.repeat(1_000_000)} ${'a.b-'.repeat(100_000)}`
+    // 30 KB with no address or key: about a millisecond. A pattern retried from each character took
+    // seconds per 10 KB; measured rather than left to hang, since a running regex cannot be stopped.
+    const text = `${'x'.repeat(30_000)} ${'a.b-'.repeat(1_000)}`
+    const start = performance.now()
     expect(redact(text)).toBe(text)
+    expect(performance.now() - start).toBeLessThan(250)
+  })
+
+  it('removes addresses with non-ASCII letters', () => {
+    expect(redact('from jösé@exämple.com and 用户@例子.中国')).toBe('from <email> and <email>')
   })
 
   it('keeps ordinary text that only looks like a key', () => {

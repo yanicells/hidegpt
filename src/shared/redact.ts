@@ -18,11 +18,12 @@ export const wholeWord = (name: string, flags: string) =>
   new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(name)}(?![A-Za-z0-9])`, flags)
 
 /**
- * An email address. It starts only where a run of address characters starts:
- * the leftmost match never starts later, and without it a long run with no `@`
- * is retried from every character (seconds for 10 KB of text).
+ * An email address, in any script (`jösé@exämple.com`). It starts only where a
+ * run of address characters starts: the leftmost match never starts later,
+ * and without it a long run with no `@` is retried from every character
+ * (seconds for 10 KB of text).
  */
-export const EMAIL = /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g
+export const EMAIL = /(?<![\p{L}\p{N}._%+-])[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.\p{L}{2,}/gu
 
 /** Well-known token formats: JWTs, provider API keys (`sk-…`, `sk-ant-…`) and GitHub tokens. */
 export const TOKEN =

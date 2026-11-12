@@ -10,6 +10,7 @@ import * as Layer from 'effect/Layer'
 import * as TestConsole from 'effect/testing/TestConsole'
 
 import * as Logging from './Logger'
+import { MAX_CAUSE_BYTES } from './redact'
 import { makeRotatingFileSink } from './rotatingFileSink'
 
 const root = mkdtempSync(join(tmpdir(), 'docs-logs-'))
@@ -128,6 +129,33 @@ describe('Logger.layer', () => {
       expect(Buffer.byteLength(log)).toBeLessThan(3 * 1024)
       expect(JSON.parse(log).cause).toMatch(/^Error: request for <email> from ~\/Documents failed: x+\n… \(cut\)$/)
       for (const secret of ['alice.k@example.com', '/Users/alice-k', 'END']) expect(log).not.toContain(secret)
+    }),
+  )
+
+  it.effect('cuts only after redacting: no part of a key or an address that crosses 2 KB is written', () =>
+    Effect.gen(function* () {
+      const dir = tempDir()
+      const secrets = 'sk-proj0123456789abcdefghij alice.k@example.com'
+      // Every padding from well before the cut to just after it, so the cut falls inside each secret.
+      const pads = Array.from({ length: 80 }, (_, i) => MAX_CAUSE_BYTES - 90 + i)
+      yield* Effect.forEach(pads, (pad) =>
+        Effect.logError('Unhandled defect', Cause.die(new Error(`${'x'.repeat(pad)} ${secrets}`))),
+      ).pipe(
+        Effect.provide(
+          Logging.layer({
+            directory: dir,
+            console: false,
+            identity: { home: '/Users/alice-k', username: 'alice-k' },
+          }).pipe(Layer.provide(NodeServices.layer)),
+        ),
+      )
+      const lines = readFileSync(join(dir, 'main.ndjson'), 'utf8').trim().split('\n')
+      expect(lines).toHaveLength(pads.length)
+      for (const line of lines) {
+        const cause: string = JSON.parse(line).cause
+        expect(Buffer.byteLength(cause)).toBeLessThanOrEqual(MAX_CAUSE_BYTES)
+        for (const fragment of ['sk-', 'alice.k', '@example', 'example.com']) expect(cause).not.toContain(fragment)
+      }
     }),
   )
 })

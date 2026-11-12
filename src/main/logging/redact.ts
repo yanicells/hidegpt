@@ -70,14 +70,25 @@ export function capCause(text: string): string {
 }
 
 /**
- * The cause as `redact` and `capCause` leave it. Like T3 Code's
- * `redactCauseCredentials`, it renders the cause (message and stack), and when
- * anything was removed or cut, logs that text instead of the original.
+ * `redact`, then `capCause`, for the log file. Cutting first could leave the
+ * start of a secret that crosses the limit (an `sk-` key too short to match,
+ * an address without its `.com`) where `redact` no longer recognizes it. The
+ * terminal (`pnpm dev`) keeps whole stacks.
+ */
+export const redactThenCap =
+  (redact: (text: string) => string) =>
+  (text: string): string =>
+    capCause(redact(text))
+
+/**
+ * The cause as `redact` leaves it. Like T3 Code's `redactCauseCredentials`, it
+ * renders the cause (message and stack), and when anything was removed (or,
+ * with `redactThenCap`, cut), logs that text instead of the original.
  */
 export function redactCause(cause: Cause.Cause<unknown>, redact: (text: string) => string): Cause.Cause<unknown> {
   if (cause.reasons.length === 0 || Cause.hasInterruptsOnly(cause)) return cause
   const pretty = Cause.pretty(cause)
-  const redacted = capCause(redact(pretty))
+  const redacted = redact(pretty)
   if (redacted === pretty) return cause
   // An error that renders as exactly that text: its first line as name and message, and the
   // whole text as its stack (which already holds the original stacks).
