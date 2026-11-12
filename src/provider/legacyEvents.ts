@@ -242,11 +242,17 @@ const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession) =>
           // The provider accepted it, so it knows the turn. Only this turn: it may already have ended.
           yield* tracker.started(threadId, typeof nativeTurnId === 'string' ? nativeTurnId : null, turnId)
         }),
+      // A Stop that crosses the answer's natural end is not an error: the session state may not
+      // have seen the end yet, and there is nothing left to stop. Only a start that never comes fails.
       interrupt: (threadId, turnId) =>
         Effect.gen(function* () {
-          yield* tracker.requestStop(threadId, turnId)
-          yield* tracker.awaitStarted(threadId, turnId, STOP_WAITS_FOR_START)
-          yield* legacy.interrupt(threadId)
+          if (!(yield* tracker.requestStop(threadId, turnId))) return
+          const started = yield* tracker.awaitStarted(threadId, turnId, STOP_WAITS_FOR_START).pipe(
+            Effect.as(true),
+            // It ended (or was abandoned) while Stop waited for it to start.
+            Effect.catchTag('ProviderRequestError', () => Effect.succeed(false)),
+          )
+          if (started) yield* legacy.interrupt(threadId)
         }),
       respond: legacy.respond,
       rename: legacy.rename,

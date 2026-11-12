@@ -114,6 +114,16 @@ describe('fromLegacy', () => {
     }).pipe(Effect.scoped),
   )
 
+  it.effect('a Stop that crosses the turn’s natural end succeeds without stopping anything', () =>
+    Effect.gen(function* () {
+      const { session, push, interrupts } = yield* setup()
+      yield* session.send('t', 'turn-1', INPUT, SETTINGS)
+      yield* push({ type: 'turnEnded', threadId: 't' })
+      yield* session.interrupt('t', 'turn-1')
+      expect(interrupts).toEqual([])
+    }).pipe(Effect.scoped),
+  )
+
   it.effect('drops a late start or end from a stopped turn that the next send already closed', () =>
     Effect.gen(function* () {
       const { session, push, turnEvents } = yield* setup()
