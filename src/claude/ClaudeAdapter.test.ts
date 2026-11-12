@@ -1,9 +1,17 @@
-import { describe, expect, it } from '@effect/vitest'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import * as NodeServices from '@effect/platform-node/NodeServices'
+import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
+import * as Exit from 'effect/Exit'
 import * as Fiber from 'effect/Fiber'
+import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
+import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
 import * as ClaudeAdapter from './ClaudeAdapter'
 import {
@@ -283,4 +291,53 @@ describe('ClaudeAdapter', () => {
       expect(events.find((event) => event.type === 'resolved')).toMatchObject({ blockId: 'approval-toolu_2', resolved: 'skipped' })
     }),
   )
+
+  describe('under the process supervisor', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'hidegpt-claude-'))
+    afterAll(() => rmSync(dir, { recursive: true, force: true }))
+    const groupAlive = (pid: number) => {
+      try {
+        process.kill(-pid, 0)
+        return true
+      } catch {
+        return false
+      }
+    }
+    const ledgerAt = (path: string): Record<string, { owner: number }> => {
+      try {
+        return JSON.parse(readFileSync(path, 'utf8'))
+      } catch {
+        return {}
+      }
+    }
+    const waitFor = (check: () => boolean) =>
+      Effect.gen(function* () {
+        for (let i = 0; i < 150 && !check(); i += 1) yield* Effect.sleep('20 millis')
+        expect(check()).toBe(true)
+      })
+
+    it.live('spawns Claude Code through the supervisor: in the ledger while it runs, its group killed when the library closes', () =>
+      Effect.gen(function* () {
+        const ledger = join(dir, 'provider-processes.json')
+        // `sleep` stands in for the CLI, with a grandchild in its group; no prompt reaches any model.
+        const fake = makeFakeClaude({ ...HISTORY, reply: null, process: { command: 'sh', args: ['-c', 'sleep 30 & wait'] } })
+        const supervisor = yield* ProcessSupervisor.ProcessSupervisor
+        const scope = yield* Scope.make()
+        const session = yield* ClaudeAdapter.make(() => Promise.resolve(fake.sdk), supervisor).openSession.pipe(Scope.provide(scope))
+        yield* send(session, DOC, 'Summarise week 4')
+        const pid = fake.queries[0]?.child?.pid ?? 0
+        expect(pid).toBeGreaterThan(0)
+        expect(fake.queries[0]?.options.stderr).toBeUndefined()
+        yield* waitFor(() => ledgerAt(ledger)[pid]?.owner === process.pid)
+        expect(groupAlive(pid)).toBe(true)
+
+        yield* Scope.close(scope, Exit.void)
+        yield* waitFor(() => !groupAlive(pid))
+        yield* waitFor(() => ledgerAt(ledger)[pid] === undefined)
+      }).pipe(
+        Effect.provide(ProcessSupervisor.layer(join(dir, 'provider-processes.json'))),
+        Effect.provide(NodeServices.layer),
+      ),
+    )
+  })
 })

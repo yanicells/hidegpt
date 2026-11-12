@@ -11,6 +11,7 @@ import type {
   SDKUserMessage,
   SessionMessage,
   SlashCommand,
+  SpawnedProcess,
 } from '@anthropic-ai/claude-agent-sdk'
 
 import type { ClaudeSdk } from './ClaudeAdapter'
@@ -35,6 +36,11 @@ export type FakeClaudeOptions = {
   readonly hangInit?: boolean
   /** `interrupt()` never answers. */
   readonly hangInterrupt?: boolean
+  /**
+   * A harmless command that stands in for the Claude Code CLI: when Docs passes
+   * `spawnClaudeCodeProcess`, each query starts it through that hook, as the SDK does.
+   */
+  readonly process?: { readonly command: string; readonly args: ReadonlyArray<string>; readonly env?: Record<string, string | undefined> }
 }
 
 /** One `query()` call: what Docs started it with and what it sent. */
@@ -42,6 +48,8 @@ export type FakeQuery = {
   readonly options: Options
   readonly prompts: SDKUserMessage[]
   readonly calls: string[]
+  /** What `spawnClaudeCodeProcess` returned (a Node child, so it has a pid), when the fake started one. */
+  readonly child: (SpawnedProcess & { readonly pid?: number }) | null
   closed: boolean
   /** Writes a frame as Claude Code would. */
   readonly push: (message: SDKMessage) => void
@@ -163,10 +171,24 @@ export function makeFakeClaude(options: FakeClaudeOptions = {}): FakeClaude {
     const sessionId = queryOptions.resume ?? queryOptions.sessionId ?? randomUUID()
     const cwd = queryOptions.cwd ?? '/'
     let answering: { timer: ReturnType<typeof setTimeout> | null; stop: () => void } | null = null
+    // Like the SDK's forwarded signal: it aborts once the query closes.
+    const forwarded = new AbortController()
+    const spawn = queryOptions.spawnClaudeCodeProcess
+    const child =
+      options.process && spawn
+        ? spawn({
+            command: options.process.command,
+            args: [...options.process.args],
+            cwd,
+            env: options.process.env ?? { ...process.env },
+            signal: forwarded.signal,
+          })
+        : null
     const fake: FakeQuery = {
       options: queryOptions,
       prompts: [],
       calls: [],
+      child,
       closed: false,
       push: (message) => frames.push(message),
       exit: (error) => {
@@ -268,8 +290,11 @@ export function makeFakeClaude(options: FakeClaudeOptions = {}): FakeClaude {
         fake.closed = true
         answering?.stop()
         frames.end()
+        forwarded.abort()
       },
     }
+    // The frame stream ends when the CLI exits, as the SDK's transport does.
+    child?.once('exit', (code) => frames.end(fake.closed ? undefined : new Error(`Claude Code process exited with code ${code}`)))
     queryOptions.abortController?.signal.addEventListener('abort', () => methods.close(), { once: true })
     return Object.assign(frames, methods) as unknown as Query
   }

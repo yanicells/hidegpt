@@ -62,7 +62,7 @@ export const layer = Layer.effect(
     return fromLoaders({
       codex: () => import('../codex/CodexAdapter').then((m) => m.make(m.spawnAppServer(supervisor))),
       opencode: () => import('../opencode/OpenCodeAdapter').then((m) => m.make(m.spawnServer(supervisor))),
-      claude: () => import('../claude/ClaudeAdapter').then((m) => m.make()),
+      claude: () => import('../claude/ClaudeAdapter').then((m) => m.make(undefined, supervisor)),
     })
   }),
 )

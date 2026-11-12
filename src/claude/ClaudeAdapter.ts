@@ -13,12 +13,14 @@ import type {
   SDKControlInitializeResponse,
   SDKMessage,
   SDKUserMessage,
+  SpawnOptions as ClaudeSpawnOptions,
 } from '@anthropic-ai/claude-agent-sdk'
 import * as Cause from 'effect/Cause'
 import * as Deferred from 'effect/Deferred'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 import type * as Exit from 'effect/Exit'
+import * as FiberSet from 'effect/FiberSet'
 import * as Queue from 'effect/Queue'
 import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
@@ -30,6 +32,7 @@ import {
   ProviderTimeoutError,
   type ProviderError,
 } from '../provider/errors'
+import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
 import type { AdapterEvent, OpenedThread, ProviderAdapter, ProviderSession, TurnInput, TurnSettings } from '../provider/ProviderAdapter'
 import { CAPABILITIES, type Block, type DocSummary } from '../shared/model'
 import {
@@ -77,7 +80,8 @@ export const INTERRUPT_SECONDS = 10
 const PAGE = 60
 const MAX_DOCS = 500
 const SIGN_IN = 'Claude signs in outside Docs. Run `claude` in a terminal and log in, then use Tools → Refresh.'
-const EFFORTS: ReadonlySet<string> = new Set<EffortLevel>(['low', 'medium', 'high', 'xhigh', 'max'])
+const EFFORTS: ReadonlyArray<EffortLevel> = ['low', 'medium', 'high', 'xhigh', 'max']
+const effortOf = (value: string | null): EffortLevel | null => EFFORTS.find((effort) => effort === value) ?? null
 const IMAGE_TYPES: Record<string, 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -132,7 +136,7 @@ type Live = {
   readonly prompts: Queue.Queue<SDKUserMessage, Cause.Done>
   readonly state: StreamState
   model: string | null
-  effort: string | null
+  effort: EffortLevel | null
   turn: boolean
   /** Counts sends, so a stop timer only settles the turn it was started for. */
   turns: number
@@ -159,8 +163,12 @@ type PendingApproval = {
 
 const loadRealSdk = (): Promise<ClaudeSdk> => import('@anthropic-ai/claude-agent-sdk')
 
-/** `loadSdk` defaults to a lazy import, so the SDK loads only when the Claude library connects. */
-export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderAdapter {
+/**
+ * `loadSdk` defaults to a lazy import, so the SDK loads only when the Claude library connects.
+ * With a `supervisor`, every Claude Code process is spawned through it (own process group,
+ * orphan ledger, stopped with the session); without one (tests, demo) the SDK spawns its own.
+ */
+export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk, supervisor?: ProcessSupervisor['Service']): ProviderAdapter {
   return {
     id: provider,
     capabilities: CAPABILITIES.claude,
@@ -174,6 +182,17 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
       const emit = (event: AdapterEvent) => Queue.offer(events, event).pipe(Effect.asVoid)
       const scope = yield* Scope.Scope
       const fork = <A, E>(effect: Effect.Effect<A, E>) => Effect.asVoid(Effect.forkIn(Effect.ignore(effect), scope))
+      // SDK callbacks run in the session scope, so closing the library interrupts them.
+      const runPromise = yield* FiberSet.makeRuntimePromise()
+      const spawn = supervisor ? yield* supervisor.callbackSpawner : null
+      /**
+       * Starts Claude Code under the supervisor. The SDK's env is passed through untouched;
+       * only its stderr is read, for the last line of a failed start.
+       */
+      const spawnOptions = (onStderr: (text: string) => void) =>
+        spawn
+          ? { spawnClaudeCodeProcess: (options: ClaudeSpawnOptions) => spawn({ ...options, onStderr }) }
+          : { stderr: onStderr }
 
       const threads = new Map<string, ThreadInfo>()
       const lives = new Map<string, Live>()
@@ -216,7 +235,7 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
                 mcpServers: {},
                 strictMcpConfig: true,
                 settings: { disableAllHooks: true },
-                stderr: () => {},
+                ...spawnOptions(() => {}),
               },
             })
             return { abort, query }
@@ -367,7 +386,7 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             if (existing) info.saved = true
           }
           const prompts = yield* Queue.unbounded<SDKUserMessage, Cause.Done>()
-          const effort = settings.effort && EFFORTS.has(settings.effort) ? (settings.effort as EffortLevel) : null
+          const effort = effortOf(settings.effort)
           const live: Live = {
             threadId,
             prompts,
@@ -387,10 +406,10 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
                 ...(settings.model ? { model: settings.model } : {}),
                 ...(effort ? { effort } : {}),
                 includePartialMessages: true,
-                canUseTool: (tool, input, options) => Effect.runPromise(askPermission(threadId, tool, input, options)),
-                stderr: (data) => {
+                canUseTool: (tool, input, options) => runPromise(askPermission(threadId, tool, input, options)),
+                ...spawnOptions((data) => {
                   live.stderr = lastLine(data) ?? live.stderr
-                },
+                }),
               },
             }),
           }
@@ -407,7 +426,7 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             yield* request('setModel', () => live.query.setModel(model), 10)
             live.model = model
           }
-          const effort = settings.effort && EFFORTS.has(settings.effort) ? (settings.effort as EffortLevel) : null
+          const effort = effortOf(settings.effort)
           if (effort && effort !== live.effort) {
             yield* request('applyFlagSettings', () => live.query.applyFlagSettings({ effortLevel: effort }), 10)
             live.effort = effort
