@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Block } from '../shared/model'
 import { assistantFrame, resultFrame, streamEvent } from './FakeClaude'
-import { blocksFromSessionMessages, emptyStreamState, readMessage, resultError } from './mapping'
+import { blocksFromSessionMessages, emptyStreamState, permissionBlock, readMessage, resultError } from './mapping'
 
 const assistant = (uuid: string, message: unknown): SessionMessage => ({
   type: 'assistant',
@@ -33,9 +33,14 @@ describe('blocksFromSessionMessages', () => {
     ])
   })
 
-  it('shows a failed tool in Docs’ words, never its error text', () => {
+  it('shows a failed tool in Docs’ words, never its error text or a connected app’s name', () => {
     const blocks = blocksFromSessionMessages([
-      assistant('a1', { content: [{ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'ls /root' } }] }),
+      assistant('a1', {
+        content: [
+          { type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'ls /root' } },
+          { type: 'tool_use', id: 'toolu_2', name: 'mcp__claude_ai_Notion__x', input: {} },
+        ],
+      }),
       {
         type: 'user',
         uuid: 'u1',
@@ -45,11 +50,30 @@ describe('blocksFromSessionMessages', () => {
         message: {
           content: [
             { type: 'tool_result', tool_use_id: 'toolu_1', is_error: true, content: 'ls: /root: Permission denied' },
+            { type: 'tool_result', tool_use_id: 'toolu_2', is_error: true, content: 'Notion: unauthorized' },
           ],
         },
       } as SessionMessage,
     ])
-    expect(blocks).toEqual([{ kind: 'callout', id: 'toolu_1', title: 'A command didn’t finish', body: 'ls /root' }])
+    expect(blocks).toEqual([
+      { kind: 'callout', id: 'toolu_1', title: 'A command didn’t finish', body: 'ls /root' },
+      { kind: 'callout', id: 'toolu_2', title: 'A connected app didn’t respond', body: '' },
+    ])
+  })
+})
+
+describe('permissionBlock', () => {
+  it('shows the same one field a callout does, so a subtask card never shows its brief', () => {
+    const card = (tool: string, input: Record<string, unknown>) => {
+      const { title, body } = permissionBlock('approval-1', tool, input)
+      return [title, body]
+    }
+    expect(card('Task', { prompt: 'Search the repo for the grading rubric' })).toEqual(['Allow this step?', ''])
+    expect(card('Agent', { description: 'Find readings', prompt: 'Search the repo' })).toEqual([
+      'Allow this step?',
+      'Find readings',
+    ])
+    expect(card('Bash', { command: 'git status' })).toEqual(['Run this command?', 'git status'])
   })
 })
 
@@ -116,6 +140,9 @@ describe('tool callouts', () => {
     ['mcp__srv__AIsearch', {}, 'Srv', 'Srv', ''],
     ['mcp__myBot__findTokens', {}, 'A connected app', 'A connected app', ''],
     ['mcp__Maintainers__Botanical_list', {}, 'Maintainers · Botanical list', 'Maintainers · Botanical list', ''],
+    // A vendor name run into another word is dropped from a tool name too.
+    ['mcp__claudecode__search', {}, 'A connected app · search', 'A connected app · search', ''],
+    ['mcp__docs__OpenAIAPI_ask', {}, 'Docs · ask', 'Docs · ask', ''],
     ['SomeNewTool', { flag: true, nested: { a: 1 } }, 'Doing a step', 'Did a step', ''],
   ]
   const hidden = ['TodoWrite', 'TaskStop', 'ToolSearch', 'SendMessage', 'Monitor', 'AskUserQuestion', 'ExitPlanMode']

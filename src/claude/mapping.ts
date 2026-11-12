@@ -496,8 +496,9 @@ export function permissionBlock(id: string, tool: string, input: Record<string, 
   if (tool === 'ExitPlanMode') {
     return { ...card, title: 'Review the plan?', body: typeof input.plan === 'string' ? input.plan : '' }
   }
-  const preview = firstString(input, PREVIEW_KEYS)
-  return { ...card, title: requestTitle(toolKind(tool) ?? 'other', tool), body: preview ? clip(preview) : '' }
+  // The same one field a callout shows, so a subtask's card shows its description, never its brief.
+  const kind = toolKind(tool) ?? 'other'
+  return { ...card, title: requestTitle(kind, tool), body: clip(toolBody(kind, input)) }
 }
 
 export type AskedQuestion = {

@@ -160,7 +160,7 @@ describe('ClaudeAdapter parity with T3 Code', () => {
         event.type === 'block' && event.block.kind === 'approval' ? [event.block] : [],
       )[0]
       // T3 captures the plan from ExitPlanMode (ClaudeAdapterV2.ts:11237-11255) instead of a bare tool prompt.
-      expect(card?.title).not.toMatch(/ExitPlanMode/)
+      expect(card?.title).toBe('Review the plan?')
       expect(card?.body).toContain('Read the notes')
     }),
   )
