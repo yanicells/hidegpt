@@ -34,14 +34,115 @@ export type ThreadItem = CodexRpc.ServerNotificationParamsByMethod['item/complet
 export type Turn = Result<'thread/turns/list'>['data'][number]
 type UserInput = Extract<ThreadItem, { type: 'userMessage' }>['content'][number]
 type ReasoningEffort = typeof ClientRequest__ReasoningEffort.Type
+type McpToolCall = Extract<ThreadItem, { type: 'mcpToolCall' }>
+export type TurnError = NonNullable<CodexRpc.ServerNotificationParamsByMethod['turn/completed']['turn']['error']>
+export type ErrorInfo = TurnError['codexErrorInfo']
+export type RateLimits = CodexRpc.ServerNotificationParamsByMethod['account/rateLimits/updated']['rateLimits']
 
-/** Codex's error text, reworded where Docs can say what to do. */
+// ---- Docs wording -------------------------------------------------------------
+// Text that reaches the page or a banner must read like Docs: no product or AI words, no links.
+// These helpers are the only way provider text gets there; ARCH-5 moves them into `present.ts`.
+
+const PROVIDER_WORDS =
+  /\b(ai|assistants?|agents?|models?|prompts?|llms?|tokens?|claude|codex|opencode|chatgpt|anthropic|openai|gpt|copilot|bots?)\b/i
+/** Splits identifiers into words, so `chatgpt_search` and `codexHelper` are caught too. */
+const words = (text: string) => text.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ')
+const LINK = /\b(?:https?:\/\/|www\.)\S+/gi
+
+/** Provider text with links removed, or null when what is left would give the provider away. */
+export function docsSafe(text: string | null | undefined): string | null {
+  const cleaned = (text ?? '')
+    .replace(LINK, '')
+    .replace(/\(\s*\)/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+  return cleaned && !PROVIDER_WORDS.test(words(cleaned)) ? cleaned : null
+}
+
+/** Codex's request error text, reworded where Docs can say what to do. */
 export function formatCodexError(message: string): string {
   if (/active writer|thread-store conflict/i.test(message)) {
-    return 'This document is open in ChatGPT or another window. Close it there, then open it here.'
+    return 'This document is open in another window. Close it there, then open it here.'
   }
-  return message
+  return docsSafe(message) ?? 'Docs could not do that. Try again.'
 }
+
+// Adapted from T3 Code (https://github.com/pingdotgg/t3code), apps/server/src/orchestration-v2/
+// Adapters/CodexAdapterV2.ts (`codexErrorInfoCode`, `codexUsageLimitError`) and
+// apps/server/src/provider/codexUsageLimits.ts (`codexUsageLimitResetAt`) at commit 5c6f2f12.
+// Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+
+function errorCode(info: ErrorInfo | undefined): string | null {
+  if (typeof info === 'string') return info
+  return info && typeof info === 'object' ? (Object.keys(info)[0] ?? null) : null
+}
+
+function errorHttpStatus(info: ErrorInfo | undefined): number | null {
+  const detail: unknown = info && typeof info === 'object' ? Object.values(info)[0] : undefined
+  return detail && typeof detail === 'object' && 'httpStatusCode' in detail && typeof detail.httpStatusCode === 'number'
+    ? detail.httpStatusCode
+    : null
+}
+
+function isUsageLimit(error: TurnError): boolean {
+  const code = errorCode(error.codexErrorInfo)
+  return (
+    code === 'usageLimitExceeded' ||
+    code === 'rateLimitExceeded' ||
+    (code === 'responseTooManyFailedAttempts' && errorHttpStatus(error.codexErrorInfo) === 429) ||
+    /usage limit|rate limit/i.test(error.message)
+  )
+}
+
+/** When every exhausted allowance window has reset (epoch ms), or null when that isn't known. */
+export function usageLimitResetAt(limits: RateLimits | null): number | null {
+  if (!limits || (limits.limitId && limits.limitId !== 'codex')) return null
+  const exhausted = [limits.primary, limits.secondary].filter((window) => window != null && window.usedPercent >= 100)
+  if (exhausted.length === 0 || exhausted.some((window) => !window?.resetsAt)) return null
+  return Math.max(...exhausted.map((window) => (window?.resetsAt ?? 0) * 1000))
+}
+
+const clockTime = (epochMs: number) => {
+  const at = new Date(epochMs)
+  return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+}
+
+/** A failed turn as one Docs sentence: a known cause gets its own, anything else a neutral one. */
+export function docsFailure(error: TurnError, resetAt: number | null): string {
+  if (isUsageLimit(error))
+    return resetAt ? `Limit reached. Try again at ${clockTime(resetAt)}.` : 'Limit reached. Try again later.'
+  const code = errorCode(error.codexErrorInfo)
+  if (code === 'contextWindowExceeded') return 'This document is too long to continue. Start a new document.'
+  if (code === 'unauthorized') return 'Sign in again to continue.'
+  if (code === 'serverOverloaded' || code?.startsWith('http') || code?.startsWith('responseStream')) {
+    return 'Docs could not connect. Try again in a moment.'
+  }
+  return 'Something went wrong. Try again.'
+}
+
+/** The banner while Codex retries on its own; "Reconnecting… 2/5" keeps its count. */
+export function retryNotice(message: string): string {
+  const progress = /(\d+)\s*\/\s*(\d+)/.exec(message)
+  return progress ? `Reconnecting… ${progress[1]}/${progress[2]}` : 'Reconnecting…'
+}
+
+const CONNECTOR_SERVER = 'codex_apps'
+
+/** A tool source as the person knows it: the app's own name, never the connector plumbing. */
+const sourceName = (appName: string | null | undefined, server: string | null | undefined) =>
+  docsSafe(appName) ?? (server && server !== CONNECTOR_SERVER ? docsSafe(server) : null) ?? 'Connected app'
+
+// Adapted from T3 Code (https://github.com/pingdotgg/t3code),
+// apps/server/src/provider/CodexToolPresentation.ts (`mcpToolPresentation`) at commit
+// 5c6f2f12. Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+/** Title for an MCP tool call: the app's name, never the connector server, then the action. */
+function mcpToolTitle(item: McpToolCall): string {
+  const app = item.appContext
+  const action = docsSafe(app?.actionName) ?? docsSafe(item.tool) ?? 'Action'
+  return `${sourceName(app?.appName, item.server)} · ${action}`
+}
+
+const STATUS = { inProgress: 'Running', completed: 'Done', failed: 'Did not finish' } as const
 
 /** The toolbar's effort as `turn/start` accepts it; anything Codex would reject inherits the thread's effort. */
 export const toReasoningEffort = (effort: string | null): ReasoningEffort | null =>
@@ -85,7 +186,7 @@ export function toTool(server: McpServer): ToolServer {
 
 export function toAccount(account: Account): AccountSummary | null {
   if (!account) return null
-  if (account.type === 'chatgpt') return { kind: 'chatgpt', label: account.email ?? 'ChatGPT' }
+  if (account.type === 'chatgpt') return { kind: 'chatgpt', label: account.email ?? 'Signed in' }
   if (account.type === 'apiKey') return { kind: 'apiKey', label: 'API key' }
   return { kind: 'other', label: 'Account' }
 }
@@ -130,6 +231,8 @@ export function itemToBlock(item: ThreadItem): Block | null {
     case 'plan':
     case 'hookPrompt':
     case 'subAgentActivity':
+    case 'collabAgentToolCall':
+    case 'contextCompaction':
     case 'sleep':
       return null
     case 'commandExecution': {
@@ -147,19 +250,18 @@ export function itemToBlock(item: ThreadItem): Block | null {
         item.changes.map((change) => change.path).join('\n'),
       )
     case 'mcpToolCall':
-      return callout(item.id, `${item.server} · ${item.tool}`, item.error?.message ?? item.status)
-    case 'dynamicToolCall':
-      return callout(item.id, item.namespace ? `${item.namespace} · ${item.tool}` : item.tool, item.status)
+      return callout(item.id, mcpToolTitle(item), (item.error && docsSafe(item.error.message)) ?? STATUS[item.status])
+    case 'dynamicToolCall': {
+      const tool = docsSafe(item.tool) ?? 'Action'
+      const namespace = docsSafe(item.namespace)
+      return callout(item.id, namespace ? `${namespace} · ${tool}` : tool, STATUS[item.status])
+    }
     case 'webSearch':
       return callout(item.id, 'Looked something up', item.query)
     case 'imageView':
       return callout(item.id, 'Image', item.path)
     case 'imageGeneration':
       return callout(item.id, 'Generated image', item.savedPath ?? item.revisedPrompt ?? item.status)
-    case 'collabAgentToolCall':
-      return callout(item.id, `Agent · ${item.tool}`, item.prompt ?? item.status)
-    case 'contextCompaction':
-      return callout(item.id, 'Compacted context', '')
     case 'enteredReviewMode':
       return callout(item.id, 'Review', item.review)
     case 'exitedReviewMode':
@@ -206,6 +308,8 @@ export type ApprovalSpec<M extends ApprovalMethod> = {
   readonly threadId: (params: ApprovalParams<M>) => string
   readonly block: (id: string, params: ApprovalParams<M>) => ApprovalBlock
   readonly response: (params: ApprovalParams<M>, reply: ApprovalReply) => ApprovalResponse<M>
+  /** A reply Docs gives at once, without showing the request; null to ask the person. */
+  readonly answerAtOnce?: (params: ApprovalParams<M>) => ApprovalResponse<M> | null
 }
 
 const block = (
@@ -230,37 +334,116 @@ const legacyDecision = (reply: ApprovalReply) =>
   reply.accept ? ('approved' as const) : { denied: { rejection: 'skipped' } }
 
 type ElicitationParams = ApprovalParams<'mcpServer/elicitation/request'>
+type ElicitationResponse = ApprovalResponse<'mcpServer/elicitation/request'>
+type Json = typeof Schema.Json.Type
 
-const isForm = (params: ElicitationParams) =>
-  params.mode === 'form' || params.mode === 'openai/form' || params.mode === 'openaiForm'
+// Adapted from T3 Code (https://github.com/pingdotgg/t3code),
+// apps/server/src/provider/CodexMcpElicitation.ts (`describeMcpElicitation`,
+// `toMcpElicitationResponse`) at commit 5c6f2f12. Copyright (c) 2026 T3 Tools Inc.
+// MIT License; see THIRD_PARTY_NOTICES.md. HideGPT drops the persistence options
+// (Docs asks once) and fills fields from what the person typed.
 
-/** The part of an elicitation's `requestedSchema` the form reads; `openai/form` sends it as untyped JSON. */
-const ElicitationProperties = Schema.Struct({ properties: Schema.Record(Schema.String, Schema.Unknown) })
-const ElicitationField = Schema.Struct({
-  title: Schema.optionalKey(Schema.Unknown),
-  default: Schema.optionalKey(Schema.Unknown),
+const NullableString = Schema.optionalKey(Schema.NullOr(Schema.String))
+const ElicitationMetadata = Schema.Struct({
+  app: NullableString,
+  app_name: NullableString,
+  appName: NullableString,
+  connector_name: NullableString,
+  connectorName: NullableString,
+  target: Schema.optionalKey(Schema.NullOr(Schema.Struct({ app: NullableString, name: NullableString }))),
+  tool_params: Schema.optionalKey(Schema.NullOr(Schema.Struct({ app: NullableString, app_name: NullableString }))),
 })
-const decodeElicitationProperties = Schema.decodeUnknownOption(ElicitationProperties)
-const decodeElicitationField = Schema.decodeUnknownOption(ElicitationField)
+const ElicitationField = Schema.Struct({
+  type: NullableString,
+  title: NullableString,
+  default: Schema.optionalKey(Schema.Json),
+})
+type ElicitationField = typeof ElicitationField.Type
+const ElicitationForm = Schema.Struct({
+  properties: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
+  required: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.String))),
+})
+const decodeMetadata = Schema.decodeUnknownOption(ElicitationMetadata)
+const decodeForm = Schema.decodeUnknownOption(ElicitationForm)
+const decodeField = Schema.decodeUnknownOption(ElicitationField)
 
-/** Form fields from `requestedSchema`. Each property decodes on its own, so one odd entry
- *  (JSON Schema allows `true` or `null` subschemas) can't hide the rest. */
+/** The app an MCP request is for, by the name the person knows (never the connector's). */
+export function elicitationAppName(params: ElicitationParams): string {
+  const meta = Option.getOrUndefined(decodeMetadata(params._meta))
+  const fromMessage = 'message' in params ? /^Allow \S+ to use (.+?)\?$/i.exec(params.message)?.[1] : undefined
+  const name =
+    meta?.app_name ??
+    meta?.appName ??
+    meta?.app ??
+    meta?.target?.app ??
+    meta?.target?.name ??
+    meta?.tool_params?.app_name ??
+    meta?.tool_params?.app ??
+    fromMessage ??
+    meta?.connector_name ??
+    meta?.connectorName
+  return sourceName(name, params.serverName)
+}
+
+/**
+ * The form's fields, each decoded on its own so one odd entry can't hide the rest.
+ * JSON Schema allows `true` or `null` subschemas; those describe no field and are skipped.
+ */
+function formFields(params: ElicitationParams): {
+  readonly fields: ReadonlyArray<readonly [string, ElicitationField]>
+  readonly required: ReadonlyArray<string>
+} | null {
+  if (!('requestedSchema' in params)) return null
+  const form = Option.getOrUndefined(decodeForm(params.requestedSchema))
+  if (!form) return null
+  const fields = Object.entries(form.properties ?? {}).flatMap(([id, raw]) =>
+    raw !== null && typeof raw === 'object' && !Array.isArray(raw)
+      ? Option.match(decodeField(raw), { onNone: () => [], onSome: (field) => [[id, field] as const] })
+      : [],
+  )
+  return { fields, required: form.required ?? [] }
+}
+
 export function elicitationFields(params: ElicitationParams) {
-  if (!('requestedSchema' in params)) return []
-  const properties = Option.match(decodeElicitationProperties(params.requestedSchema), {
-    onNone: () => ({}),
-    onSome: (form) => form.properties,
-  })
-  return Object.entries(properties).map(([id, raw]) => {
-    const schema: { readonly title?: unknown; readonly default?: unknown } = Option.getOrElse(
-      decodeElicitationField(raw),
-      () => ({}),
-    )
-    return {
-      id,
-      label: typeof schema.title === 'string' && schema.title ? schema.title : id,
-      ...(schema.default != null ? { initial: String(schema.default) } : {}),
-    }
+  return (formFields(params)?.fields ?? []).map(([id, field]) => ({
+    id,
+    label: docsSafe(field.title) ?? docsSafe(id) ?? 'Answer',
+    ...(field.default != null && typeof field.default !== 'object' ? { initial: String(field.default) } : {}),
+  }))
+}
+
+/** What the person typed, as the field's JSON type; undefined when it is empty or doesn't fit. */
+function typedAnswer(field: ElicitationField, text: string | undefined): Json | undefined {
+  const value = text?.trim()
+  if (!value) return field.default ?? undefined
+  if (field.type === 'boolean')
+    return /^(true|yes|on|1)$/i.test(value) ? true : /^(false|no|off|0)$/i.test(value) ? false : undefined
+  if (field.type === 'number' || field.type === 'integer') {
+    const number = Number(value)
+    return Number.isFinite(number) && (field.type === 'number' || Number.isInteger(number)) ? number : undefined
+  }
+  return value
+}
+
+/** The reply Codex expects: typed content, and a decline when a required field is missing. */
+export function elicitationResponse(params: ElicitationParams, reply: ApprovalReply): ElicitationResponse {
+  if (!reply.accept) return { action: 'cancel', content: null, _meta: null }
+  const form = formFields(params)
+  if (!form) return { action: 'accept', content: null, _meta: null }
+  const content: Record<string, Json> = {}
+  for (const [id, field] of form.fields) {
+    const value = typedAnswer(field, reply.answers[id])
+    if (value !== undefined) content[id] = value
+  }
+  if (form.required.some((id) => !Object.hasOwn(content, id))) return { action: 'decline', content: null, _meta: null }
+  return { action: 'accept', content, _meta: null }
+}
+
+function elicitationBlock(id: string, params: ElicitationParams): ApprovalBlock {
+  const app = elicitationAppName(params)
+  const text = params.mode === 'openai/userVerification' ? params.description || params.title : params.message
+  return block(id, 'add', `Allow ${app}?`, docsSafe(text) ?? `${app} needs your OK to continue.`, {
+    fields: elicitationFields(params),
   })
 }
 
@@ -277,20 +460,18 @@ export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {
   },
   'item/fileChange/requestApproval': {
     threadId: (params) => params.threadId,
-    block: (id, params) =>
-      block(id, 'replace', 'Apply file changes?', params.reason ?? 'The assistant wants to edit files.'),
+    block: (id, params) => block(id, 'replace', 'Edit files?', params.reason ?? 'Some files will change.'),
     response: (_params, reply) => ({ decision: reply.accept ? 'accept' : 'decline' }),
   },
   applyPatchApproval: {
     threadId: (params) => params.conversationId,
-    block: (id, params) =>
-      block(id, 'replace', 'Apply file changes?', params.reason ?? 'The assistant wants to edit files.'),
+    block: (id, params) => block(id, 'replace', 'Edit files?', params.reason ?? 'Some files will change.'),
     response: (_params, reply) => ({ decision: legacyDecision(reply) }),
   },
   'item/permissions/requestApproval': {
     threadId: (params) => params.threadId,
     block: (id, params) =>
-      block(id, 'format', 'Grant extra access?', params.reason ?? 'The assistant needs more permissions.'),
+      block(id, 'format', 'Allow more access?', params.reason ?? 'More access is needed to continue.'),
     response: (params, reply) => ({
       permissions: reply.accept
         ? {
@@ -303,18 +484,10 @@ export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {
   },
   'mcpServer/elicitation/request': {
     threadId: (params) => params.threadId,
-    block: (id, params) =>
-      block(
-        id,
-        'add',
-        `Continue with ${params.serverName}?`,
-        params.mode === 'openai/userVerification' ? params.description || params.title : params.message,
-        { fields: elicitationFields(params) },
-      ),
-    response: (params, reply) =>
-      reply.accept
-        ? { action: 'accept', content: isForm(params) ? { ...reply.answers } : null, _meta: null }
-        : { action: 'cancel', content: null, _meta: null },
+    block: elicitationBlock,
+    response: elicitationResponse,
+    // A URL request would open a site before the person agreed to anything; T3 declines it too.
+    answerAtOnce: (params) => (params.mode === 'url' ? { action: 'decline', content: null, _meta: null } : null),
   },
   'item/tool/requestUserInput': {
     threadId: (params) => params.threadId,
@@ -322,7 +495,7 @@ export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {
       block(
         id,
         'question',
-        'The assistant needs input',
+        'Input needed',
         params.questions
           .map((q) => q.question)
           .filter(Boolean)

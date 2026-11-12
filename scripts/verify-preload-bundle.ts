@@ -6,6 +6,8 @@ import { runInNewContext } from 'node:vm'
 
 import { parse } from 'acorn'
 
+import { HIDEGPT_API_METHODS } from '../src/shared/api.ts'
+
 /**
  * Checks the built preload the way a sandboxed renderer will load it: it may
  * `require` only `electron`, with a literal name and no dynamic `import()`, and
@@ -15,7 +17,6 @@ import { parse } from 'acorn'
  * Run alone with `node scripts/verify-preload-bundle.ts` after `pnpm build`.
  */
 
-const EXPECTED_API = ['getSnapshot', 'onSnapshot', 'onMenu', 'dispatch', 'pickDirectory', 'saveImage'] as const
 const EXECUTION_TIMEOUT_MS = 1_000
 
 type SyntaxNode = { readonly type: string; readonly [key: string]: unknown }
@@ -84,7 +85,7 @@ export function verifyPreloadBundle(source: string): void {
   }
   const api = execute(source).get('hidegpt') as Record<string, unknown> | undefined
   if (!api) throw new Error('The preload bundle does not expose window.hidegpt')
-  const missing = EXPECTED_API.filter((name) => typeof api[name] !== 'function')
+  const missing = HIDEGPT_API_METHODS.filter((name) => typeof api[name] !== 'function')
   if (missing.length > 0) throw new Error(`The preload bundle is missing: ${missing.join(', ')}`)
 }
 

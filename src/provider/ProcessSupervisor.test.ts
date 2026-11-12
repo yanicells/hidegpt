@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import * as NodeServices from '@effect/platform-node/NodeServices'
 import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
+import * as Layer from 'effect/Layer'
 
 import { ProcessSupervisor, layer } from './ProcessSupervisor'
 
@@ -19,7 +20,7 @@ const withSupervisor = <A, E>(
 ) =>
   Effect.gen(function* () {
     return yield* use(yield* ProcessSupervisor)
-  }).pipe(Effect.provide(layer(ledgerPath)), Effect.provide(NodeServices.layer))
+  }).pipe(Effect.provide(layer(ledgerPath).pipe(Layer.provideMerge(NodeServices.layer))))
 
 /** Like an MCP server that daemonizes with setsid: a group kill alone misses it. */
 const WITH_DAEMON = `/usr/bin/perl -MPOSIX -e 'POSIX::setsid(); sleep 30' & wait`
@@ -43,17 +44,25 @@ const daemonOf = (pid: number) => {
   if (found) daemons.push(found)
   return found
 }
+/** Running and not a zombie: on Linux an orphan waits for init (or the CI runner) to reap it, and still answers kill 0. */
 const running = (pid: number) => {
   try {
     process.kill(pid, 0)
-    return true
+  } catch {
+    return false
+  }
+  try {
+    return !execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' })
+      .trim()
+      .startsWith('Z')
   } catch {
     return false
   }
 }
+// Up to 6 s: a loaded CI runner can take seconds to start or reap a process.
 const until = (check: () => boolean) =>
   Effect.gen(function* () {
-    for (let i = 0; i < 100 && !check(); i += 1) yield* Effect.sleep('20 millis')
+    for (let i = 0; i < 300 && !check(); i += 1) yield* Effect.sleep('20 millis')
     expect(check()).toBe(true)
   })
 
@@ -82,27 +91,30 @@ describe('ProcessSupervisor', () => {
     }),
   )
 
-  it.live('stops a daemon that left the server’s group when the scope closes, and leaves no record', () =>
-    Effect.gen(function* () {
-      const ledgerPath = join(dir, 'spawn-daemon-ledger.json')
-      let daemon = 0
-      yield* withSupervisor(
-        (supervisor) =>
-          Effect.scoped(
-            Effect.gen(function* () {
-              const { handle } = yield* supervisor.spawn({
-                provider: 'codex',
-                command: '/bin/sh',
-                args: ['-c', WITH_DAEMON],
-              })
-              yield* until(() => (daemon = daemonOf(handle.pid)) > 0)
-            }),
-          ),
-        ledgerPath,
-      )
-      yield* until(() => !running(daemon))
-      expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))).toEqual({})
-    }),
+  it.live(
+    'stops a daemon that left the server’s group when the scope closes, and leaves no record',
+    () =>
+      Effect.gen(function* () {
+        const ledgerPath = join(dir, 'spawn-daemon-ledger.json')
+        let daemon = 0
+        yield* withSupervisor(
+          (supervisor) =>
+            Effect.scoped(
+              Effect.gen(function* () {
+                const { handle } = yield* supervisor.spawn({
+                  provider: 'codex',
+                  command: '/bin/sh',
+                  args: ['-c', WITH_DAEMON],
+                })
+                yield* until(() => (daemon = daemonOf(handle.pid)) > 0)
+              }),
+            ),
+          ledgerPath,
+        )
+        yield* until(() => !running(daemon))
+        expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))).toEqual({})
+      }),
+    20_000,
   )
 
   it.effect('ends with the exit code and the last stderr line', () =>
@@ -124,6 +136,25 @@ describe('ProcessSupervisor', () => {
       Effect.map((error) => {
         expect(error).toMatchObject({ _tag: 'ProcessExitedError', code: 3, stderr: 'Error: config.toml is invalid' })
       }),
+    ),
+  )
+
+  it.live('does not hold the exit back on a stderr pipe a child still has open', () =>
+    withSupervisor((supervisor) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          // The background sleep keeps stderr open after the shell exits. A clean exit (0) leaves
+          // the group alone (a failing one would kill it and close the pipe); the scope's kill ends it.
+          const child = yield* supervisor.spawn(
+            { provider: 'codex', command: '/bin/sh', args: ['-c', 'sleep 30 & echo "Error: bad flag" >&2; exit 0'] },
+            true,
+          )
+          const at = Date.now()
+          const error = yield* Effect.flip(child.awaitExit)
+          expect(Date.now() - at).toBeLessThan(1_000)
+          expect(error).toMatchObject({ _tag: 'ProcessExitedError', code: 0, stderr: 'Error: bad flag' })
+        }),
+      ),
     ),
   )
 })
@@ -208,23 +239,26 @@ describe('ProcessSupervisor.callbackSpawner', () => {
     }),
   )
 
-  it.live('also stops a daemon that left the group, and leaves no record', () =>
-    Effect.gen(function* () {
-      const ledgerPath = join(dir, 'daemon-ledger.json')
-      let daemon = 0
-      yield* withSupervisor(
-        (supervisor) =>
-          Effect.scoped(
-            Effect.gen(function* () {
-              const spawn = yield* supervisor.callbackSpawner
-              const child = spawn({ command: '/bin/sh', args: ['-c', WITH_DAEMON], env: {} })
-              yield* until(() => (daemon = daemonOf(child.pid ?? 0)) > 0)
-            }),
-          ),
-        ledgerPath,
-      )
-      yield* until(() => !running(daemon))
-      expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))).toEqual({})
-    }),
+  it.live(
+    'also stops a daemon that left the group, and leaves no record',
+    () =>
+      Effect.gen(function* () {
+        const ledgerPath = join(dir, 'daemon-ledger.json')
+        let daemon = 0
+        yield* withSupervisor(
+          (supervisor) =>
+            Effect.scoped(
+              Effect.gen(function* () {
+                const spawn = yield* supervisor.callbackSpawner
+                const child = spawn({ command: '/bin/sh', args: ['-c', WITH_DAEMON], env: {} })
+                yield* until(() => (daemon = daemonOf(child.pid ?? 0)) > 0)
+              }),
+            ),
+          ledgerPath,
+        )
+        yield* until(() => !running(daemon))
+        expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))).toEqual({})
+      }),
+    20_000,
   )
 })

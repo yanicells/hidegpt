@@ -14,6 +14,8 @@
     "tailwindcss",
     // Run by .githooks/pre-commit, which knip does not read.
     "lint-staged",
+    // The tsconfig plugin name; @effect/tsgo bundles it.
+    "@effect/language-service",
   ],
   // The fidelity check and diff tools are Python, run through uv (README, Fidelity checks).
   "ignoreBinaries": ["uv"],

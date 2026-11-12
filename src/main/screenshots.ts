@@ -14,6 +14,13 @@ type Point = { x: number; y: number }
 /** The window size the shots are taken at, whatever the display's work area. */
 export const SCREENSHOT_SIZE = { width: 1280, height: 840 } as const
 
+/** How long the walk waits on the page for one step; past it the step fails and the run quits. */
+const PAGE_TIMEOUT = '15 seconds'
+
+/** A plain 24 px blue square, pasted into the composer by the walk. */
+const PASTED_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAIAAABvFaqvAAAAH0lEQVR42mNwav1CFcQwatCoQaMGjRo0atCoQQNvEAD/F+TuO4//gwAAAABJRU5ErkJggg=='
+
 /**
  * `HIDEGPT_SCREENSHOT=<dir>` (with `HIDEGPT_FAKE=1`): with `HIDEGPT_PHASE` set,
  * runs that fidelity phase in a hidden window (`src/main/fidelity/harness.ts`,
@@ -37,15 +44,26 @@ export const captureScreenshots = (
       return yield* runPhase(phase, win, manager, stage, dir)
     }
     mkdirSync(dir, { recursive: true })
+    // A page that never answers (a hung or gone renderer) must fail the step, not hang the run.
+    const answered = <A>(what: string, ask: () => Promise<A>) =>
+      Effect.promise(ask).pipe(
+        Effect.timeoutOrElse({
+          duration: PAGE_TIMEOUT,
+          orElse: () => Effect.die(new Error(`The page did not answer in time: ${what}`)),
+        }),
+      )
     const js = <A = unknown>(script: string) =>
-      Effect.promise(() => win.webContents.executeJavaScript(script) as Promise<A>)
+      answered(
+        script.replace(/\s+/g, ' ').trim().slice(0, 80),
+        () => win.webContents.executeJavaScript(script) as Promise<A>,
+      )
     const pause = (ms = 150) => Effect.sleep(`${ms} millis`)
     const shot = (name: string) =>
       Effect.gen(function* () {
         yield* pause()
         win.webContents.invalidate()
         yield* js('new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))')
-        const image = yield* Effect.promise(() => win.capturePage())
+        const image = yield* answered(`capturing ${name}`, () => win.capturePage())
         writeFileSync(join(dir, `${name}.png`), image.toPNG())
       })
     const waitUntil = (condition: string, what: string) =>
@@ -141,6 +159,22 @@ export const captureScreenshots = (
       'The new document focusing its composer',
     )
     yield* shot('new-document-ready')
+
+    // A pasted picture goes through main's image IPC (and its sender check), then loads back
+    // through docs://, which serves only pasted images.
+    yield* js(`(() => {
+      const bytes = Uint8Array.from(atob(${JSON.stringify(PASTED_PNG)}), (char) => char.charCodeAt(0))
+      const data = new DataTransfer()
+      data.items.add(new File([bytes], 'square.png', { type: 'image/png' }))
+      document.querySelector('[data-testid="composer"]').dispatchEvent(
+        new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }),
+      )
+    })()`)
+    yield* waitUntil(
+      `document.querySelector('[data-testid="composer-images"] img')?.naturalWidth > 0`,
+      'The pasted image saving and loading',
+    )
+    yield* shot('composer-image')
 
     yield* Option.match(Option.fromNullishOr(before.threads[0]), {
       onNone: () => manager.dispatch({ op: 'newDocument' }),

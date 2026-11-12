@@ -8,6 +8,7 @@ import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
 import * as Exit from 'effect/Exit'
 import * as Fiber from 'effect/Fiber'
+import * as Layer from 'effect/Layer'
 import * as Logger from 'effect/Logger'
 import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
@@ -478,8 +479,9 @@ describe('ClaudeAdapter', () => {
           yield* waitFor(() => !groupAlive(pid))
           yield* waitFor(() => ledgerAt(ledger)[pid] === undefined)
         }).pipe(
-          Effect.provide(ProcessSupervisor.layer(join(dir, 'provider-processes.json'))),
-          Effect.provide(NodeServices.layer),
+          Effect.provide(
+            ProcessSupervisor.layer(join(dir, 'provider-processes.json')).pipe(Layer.provideMerge(NodeServices.layer)),
+          ),
         ),
     )
   })

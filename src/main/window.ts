@@ -62,28 +62,53 @@ export function createWindow(opts: { onDidFinishLoad: () => void }): BrowserWind
     if (window === win) window = null
   })
   const appUrl = process.env.ELECTRON_RENDERER_URL ?? APP_URL
-  // Links in answers open in the browser; the window itself never leaves the app.
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    openExternal(url)
-    return { action: 'deny' }
-  })
-  win.webContents.on('will-navigate', (event, url) => {
-    if (isAppNavigation(appUrl, url)) return
-    event.preventDefault()
-    openExternal(url)
-  })
-  win.webContents.on('did-finish-load', opts.onDidFinishLoad)
+  wireNavigation(win, appUrl, opts.onDidFinishLoad)
   win.webContents.on('did-fail-load', (_event, code, desc) => {
     console.error('load failed', code, desc)
   })
   denyPermissions(win.webContents.session)
   recoverRenderer(win, appUrl)
 
-  void win.loadURL(appUrl)
+  loadApp(win, appUrl)
   return win
 }
 
 const APP_URL = 'docs://app/index.html'
+
+/** The crash page is the only `data:` page a window ever shows. */
+const isCrashPage = (url: string) => url.startsWith('data:')
+
+/**
+ * Keeps the window on the app. Links in answers open in the browser. The
+ * crash page's "Try again" is cancelled and done from main, as T3 Code's
+ * startup recovery window does (apps/desktop/src/app/DesktopStartupRecovery.ts),
+ * and only the app's own loads resync the snapshot.
+ */
+export function wireNavigation(win: BrowserWindow, appUrl: string, onAppLoad: () => void): void {
+  const { webContents } = win
+  webContents.setWindowOpenHandler(({ url }) => {
+    openExternal(url)
+    return { action: 'deny' }
+  })
+  webContents.on('will-navigate', (event, url) => {
+    if (isCrashPage(webContents.getURL())) {
+      event.preventDefault()
+      if (isAppNavigation(appUrl, url)) loadApp(win, appUrl)
+      return
+    }
+    if (isAppNavigation(appUrl, url)) return
+    event.preventDefault()
+    openExternal(url)
+  })
+  webContents.on('did-finish-load', () => {
+    if (!isCrashPage(webContents.getURL())) onAppLoad()
+  })
+}
+
+/** Loads `url` unless the window is gone; a failed load is logged, as in T3's DesktopWindow. */
+function loadApp(win: BrowserWindow, url: string): void {
+  if (!win.isDestroyed()) win.loadURL(url).catch((error: unknown) => console.warn('window reload failed', error))
+}
 const EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 
 // `isAppNavigation` and `safeExternalUrl` are adapted from T3 Code
@@ -135,23 +160,25 @@ const UNRESPONSIVE_KILL_MS = 15_000
  */
 export function recoverRenderer(win: BrowserWindow, appUrl: string, now: () => number = Date.now): void {
   let reloads: number[] = []
-  win.webContents.on('render-process-gone', (_event, details) => {
-    const at = now()
-    reloads = reloads.filter((time) => at - time < RECOVERY_WINDOW_MS)
-    const recovering =
-      RECOVERABLE_REASONS.has(details.reason) && !win.isDestroyed() && reloads.length < RECOVERY_MAX_RELOADS
-    console.warn('window renderer gone', { reason: details.reason, exitCode: details.exitCode, recovering })
-    if (!recovering) return
-    reloads.push(at)
-    setTimeout(() => {
-      if (!win.isDestroyed()) void win.loadURL(appUrl)
-    }, RECOVERY_RELOAD_DELAY_MS)
-  })
   let hung: ReturnType<typeof setTimeout> | undefined
   const settle = () => {
     clearTimeout(hung)
     hung = undefined
   }
+  win.webContents.on('render-process-gone', (_event, details) => {
+    // A hang timer from the dead renderer must not kill the one that replaces it.
+    settle()
+    const at = now()
+    reloads = reloads.filter((time) => at - time < RECOVERY_WINDOW_MS)
+    const recoverable = RECOVERABLE_REASONS.has(details.reason) && !win.isDestroyed()
+    const recovering = recoverable && reloads.length < RECOVERY_MAX_RELOADS
+    console.warn('window renderer gone', { reason: details.reason, exitCode: details.exitCode, recovering })
+    if (!recoverable) return
+    // Out of reloads: a static page with a link back, not a white window with no way out.
+    if (recovering) reloads.push(at)
+    const url = recovering ? appUrl : crashPage(appUrl)
+    setTimeout(() => loadApp(win, url), RECOVERY_RELOAD_DELAY_MS)
+  })
   win.on('unresponsive', () => {
     // In development a paused debugger also reads as unresponsive; only kill in a packaged app.
     if (!app.isPackaged) return
@@ -162,6 +189,32 @@ export function recoverRenderer(win: BrowserWindow, appUrl: string, now: () => n
   })
   win.on('responsive', settle)
   win.on('closed', settle)
+}
+
+// `crashPage` is adapted from T3 Code (apps/desktop/src/app/DesktopStartupRecovery.ts
+// `buildStartupRecoveryHtml`) at commit 5c6f2f12. Copyright (c) 2026 T3 Tools Inc. MIT License.
+const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)
+
+/**
+ * The page a window shows once its reloads run out: self-contained, no script
+ * (its CSP allows only inline styles), Docs-styled, with one link back to the
+ * app that `wireNavigation` turns into a load from main. The top strip drags
+ * the window, since the title bar is hidden on macOS.
+ */
+export function crashPage(appUrl: string): string {
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>Docs</title><style>
+html,body{margin:0;height:100%;background:#fff;color:#1f1f1f}
+body{font:14px/1.5 'Google Sans',Roboto,Arial,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center}
+h1{margin:0;font-size:22px;font-weight:400}
+.drag{position:fixed;top:0;left:0;right:0;height:40px;-webkit-app-region:drag}
+a{display:inline-block;height:36px;line-height:36px;padding:0 24px;border:1px solid #747775;border-radius:18px;color:#0b57d0;font-weight:500;text-decoration:none}
+a:hover{background:rgba(11,87,208,.08)}
+</style></head><body>
+<div class="drag"></div>
+<h1>Docs couldn't load this document.</h1>
+<a href="${escapeHtml(appUrl)}">Try again</a>
+</body></html>`
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
 }
 
 // `denyPermissions` follows T3 Code's preview session handlers
