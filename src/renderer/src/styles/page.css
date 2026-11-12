@@ -1,7 +1,11 @@
 /* ---------- The page ---------- */
 
-/* US Letter at 96dpi with 1in margins; Arial 11pt, Docs' 1.15 spacing (~19.8px pitch). */
+/*
+ * US Letter at 96dpi with 1in margins; Arial 11pt at Docs' 1.15 spacing, which
+ * is 1.15 times Arial's natural line height (1.149em): a 19.38px body line.
+ */
 .paper {
+  --page-line: 1.3216;
   @apply relative;
   isolation: isolate;
   width: var(--paper-width);
@@ -11,7 +15,7 @@
   zoom: var(--page-zoom, 1);
   font-family: var(--font-page);
   font-size: 11pt;
-  line-height: 1.35;
+  line-height: var(--page-line);
   color: var(--page-ink);
 }
 
@@ -47,7 +51,7 @@
   right: 0;
   height: 1056px;
   background: var(--surface);
-  box-shadow: var(--shadow-page);
+  box-shadow: var(--page-edge);
 }
 
 /* Earlier turns load from a line of page text styled as a Docs hyperlink (#1155cc, underlined). */
@@ -70,9 +74,20 @@
   margin: 20pt 0 6pt;
   font-size: 20pt;
   font-weight: 400;
-  line-height: 1.2;
   color: var(--page-ink);
   overflow-wrap: anywhere;
+}
+
+/*
+ * Docs puts a line's extra leading (0.15 x 1.149em) above the text; CSS splits
+ * it above and below. Body lines are all shifted alike, so only a heading's
+ * extra half-leading beyond body text's (0.0862em versus 0.0862 x 11pt) shows:
+ * nudge heading text down by that, without moving anything after it.
+ */
+.doc-question,
+.doc-body :is(h1, h2, h3, h4, h5, h6) {
+  position: relative;
+  top: calc((1em - 11pt) * 0.0862);
 }
 
 .doc-body {
@@ -100,7 +115,6 @@
  */
 .doc-body :is(h1, h2, h3, h4, h5, h6) {
   font-weight: 400;
-  line-height: 1.2;
 }
 
 .doc-body :is(h1, h2, h3) {
@@ -158,12 +172,11 @@
   @apply m-0;
 }
 
+/* Docs draws the marker at the text's size, so the disc is about 6px; it shares the first line's baseline. */
 .doc-body ul > li::before {
   content: '●';
   @apply absolute;
   left: -24px;
-  font-size: 0.75em;
-  line-height: 1.8;
 }
 
 .doc-body ul ul > li::before {
@@ -173,7 +186,7 @@
 .doc-body ul ul ul > li::before {
   content: '■';
   font-size: 0.6em;
-  line-height: 2.25;
+  line-height: calc(var(--page-line) / 0.6);
 }
 
 .doc-body ol > li {
