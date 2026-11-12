@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { makeRedactor } from './redact'
+import { capCause, MAX_CAUSE_BYTES, makeRedactor } from './redact'
 
 describe('makeRedactor', () => {
   const redact = makeRedactor({ home: '/Users/alice', username: 'alice' })
@@ -11,6 +11,10 @@ describe('makeRedactor', () => {
     expect(redact('Authorization: Basic dXNlcjpwYXNz')).toBe('Authorization: Basic <redacted>')
     expect(redact('{"password": "hunter2"}')).toBe('{"password": "<redacted>"}')
     expect(redact('retry with api_key=abc123')).toBe('retry with api_key=<redacted>')
+  })
+
+  it('removes emails, including one made of the account name', () => {
+    expect(redact('sent to bob.lee+docs@mail.example.org, cc alice@example.com')).toBe('sent to <email>, cc <email>')
   })
 
   it('keeps ordinary text that only looks like a key', () => {
@@ -39,5 +43,15 @@ describe('makeRedactor', () => {
     expect(main('/Applications/Docs.app/Contents/Resources/app.asar/out/main/index.js')).toBe(
       '/Applications/Docs.app/Contents/Resources/app.asar/out/main/index.js',
     )
+  })
+})
+
+describe('capCause', () => {
+  it('keeps short text and cuts long text on a character boundary', () => {
+    expect(capCause('short')).toBe('short')
+    // Three-byte characters: the limit falls inside one.
+    const cut = capCause('€'.repeat(MAX_CAUSE_BYTES))
+    expect(Buffer.byteLength(cut)).toBeLessThanOrEqual(MAX_CAUSE_BYTES)
+    expect(cut).toMatch(/^€+\n… \(cut\)$/)
   })
 })

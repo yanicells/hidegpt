@@ -109,4 +109,23 @@ describe('Logger.layer', () => {
         expect(log).not.toContain(secret)
     }),
   )
+
+  it.effect('writes a long defect cut to 2 KB, without the email or the home folder', () =>
+    Effect.gen(function* () {
+      const dir = tempDir()
+      const identity = { home: '/Users/alice-k', username: 'alice-k' }
+      const error = new Error(
+        `request for alice.k@example.com from /Users/alice-k/Documents failed: ${'x'.repeat(10 * 1024)} END`,
+      )
+      yield* Effect.logError('Unhandled defect', Cause.die(error)).pipe(
+        Effect.provide(
+          Logging.layer({ directory: dir, console: false, identity }).pipe(Layer.provide(NodeServices.layer)),
+        ),
+      )
+      const log = readFileSync(join(dir, 'main.ndjson'), 'utf8')
+      expect(Buffer.byteLength(log)).toBeLessThan(3 * 1024)
+      expect(JSON.parse(log).cause).toMatch(/^Error: request for <email> from ~\/Documents failed: x+\n… \(cut\)$/)
+      for (const secret of ['alice.k@example.com', '/Users/alice-k', 'END']) expect(log).not.toContain(secret)
+    }),
+  )
 })
