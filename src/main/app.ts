@@ -12,7 +12,7 @@ import * as Schema from 'effect/Schema'
 
 import { Command, type CommandResult, type MenuAction } from '../shared/contracts'
 import type { ProviderId } from '../shared/model'
-import { describeFailure } from '../provider/DefectReport'
+import { describeFailure, reportDefect } from '../provider/DefectReport'
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import * as Demo from './demo'
 import { handle } from './ipc'
@@ -165,7 +165,16 @@ const program = Effect.gen(function* () {
     event.returnValue = publisher.delivered()
   })
 
-  const open = () => createWindow({ onDidFinishLoad: publisher.resync })
+  // Runs in an Electron event, outside any fiber: a throw is reported here, and the publisher
+  // has already forgotten what the window has, so its next patch is whole.
+  const resync = () => {
+    try {
+      publisher.resync()
+    } catch (error) {
+      runtime.runFork(reportDefect(Cause.die(error)))
+    }
+  }
+  const open = () => createWindow({ onDidFinishLoad: resync })
   const win = open()
   // While a quit waits on shutdown, activation opens nothing (T3 Code's DesktopLifecycle).
   app.on('activate', () => {
