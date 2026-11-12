@@ -19,7 +19,7 @@ import {
   type SaveImageResult,
 } from '../shared/contracts'
 import type { ProviderId } from '../shared/model'
-import { describeFailure } from '../provider/DefectReport'
+import { describeFailure, logDefects } from '../provider/DefectReport'
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import * as Demo from './demo'
 import { handle, handleSync } from './ipc'
@@ -170,7 +170,7 @@ const program = Effect.gen(function* () {
     win?.webContents.send(IpcEvents.onSnapshot.channel, patch)
     updateMenu(snapshot)
   })
-  yield* Effect.forkScoped(publisher.run)
+  yield* Effect.forkScoped(logDefects(publisher.run))
   // The preload asks synchronously before the first paint, so this must exist before any window.
   yield* handleSync(ipcMain, IpcSnapshotNow, publisher.delivered)
 

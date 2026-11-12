@@ -383,7 +383,14 @@ export const make = (options: ManagerOptions) =>
       const idle = S.idleRuntimes(yield* read, yield* now, idleMs, MAX_IDLE_RUNTIMES)
       yield* Effect.forEach(idle, release, { discard: true })
     })
-    yield* Effect.forkScoped(Effect.repeat(logDefects(sweep), Schedule.spaced(SWEEP_EVERY)))
+    // A sweep that fails or dies is logged, and the next one still runs.
+    const sweepOnce = sweep.pipe(
+      Effect.catchCauseIf(
+        (cause) => !Cause.hasInterruptsOnly(cause),
+        (cause) => Effect.asVoid(describeFailure(cause)),
+      ),
+    )
+    yield* Effect.forkScoped(Effect.repeat(sweepOnce, Schedule.spaced(SWEEP_EVERY)))
 
     // ---- commands -------------------------------------------------------------------
 

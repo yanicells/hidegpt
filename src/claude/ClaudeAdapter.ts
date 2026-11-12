@@ -25,7 +25,7 @@ import * as Queue from 'effect/Queue'
 import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
 
-import { reportDefect } from '../provider/DefectReport'
+import { logDefects, reportDefect } from '../provider/DefectReport'
 import {
   BinaryMissingError,
   DEFECT_MESSAGE,
@@ -201,8 +201,9 @@ export function make(
       yield* Effect.addFinalizer(() => Queue.shutdown(events))
       const emit = (event: AdapterEvent) => Queue.offer(events, event).pipe(Effect.asVoid)
       const scope = yield* Scope.Scope
-      const fork = <A, E>(effect: Effect.Effect<A, E>) => Effect.asVoid(Effect.forkIn(Effect.ignore(effect), scope))
-      // SDK callbacks run in the session scope, so closing the library interrupts them.
+      const fork = <A, E>(effect: Effect.Effect<A, E>) => Effect.asVoid(Effect.forkIn(logDefects(Effect.ignore(effect)), scope))
+      // SDK callbacks run in the session scope with its services (its logger and log
+      // annotations), so closing the library interrupts them.
       const runPromise = yield* FiberSet.makeRuntimePromise()
       const spawn = supervisor ? yield* supervisor.callbackSpawner : null
       /**
@@ -453,7 +454,16 @@ export function make(
                 ...(settings.model ? { model: settings.model } : {}),
                 ...(effort ? { effort } : {}),
                 includePartialMessages: true,
-                canUseTool: (tool, input, options) => runPromise(askPermission(threadId, tool, input, options)),
+                canUseTool: (tool, input, options) =>
+                  runPromise(
+                    askPermission(threadId, tool, input, options).pipe(
+                      // A Docs bug building the request: report it and refuse the tool, so the turn goes on.
+                      Effect.catchCauseIf(
+                        (cause) => !Cause.hasInterruptsOnly(cause),
+                        (cause) => Effect.as(reportDefect(cause), deny(DEFECT_MESSAGE)),
+                      ),
+                    ),
+                  ),
                 ...spawnOptions((data) => {
                   live.stderr = lastLine(data) ?? live.stderr
                 }),
