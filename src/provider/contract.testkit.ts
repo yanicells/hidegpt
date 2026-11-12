@@ -393,8 +393,10 @@ const failureScenario = (kind: FailureClass & ('provider_error' | 'usage_limit')
 
 /** What a `passthrough_*` scenario fails with: each leaked `where: text` line, sorted. A gap's `leaks` lists them. */
 export class Leaked extends Error {
-  constructor(readonly lines: ReadonlyArray<string>) {
+  readonly lines: ReadonlyArray<string>
+  constructor(lines: ReadonlyArray<string>) {
     super(['Provider text on the page:', ...lines].join('\n  '))
+    this.lines = lines
   }
 }
 
