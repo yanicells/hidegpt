@@ -45,3 +45,8 @@
   --rail-width: 56px;
   --scrollbar-w: 14px;
 }
+
+/* UI-14 (menus): Docs' menu shadow, one soft neutral layer measured from its 2x menu captures. */
+:root {
+  --shadow-menu-docs: 0 2px 6px 2px rgb(0 0 0 / 15%);
+}
