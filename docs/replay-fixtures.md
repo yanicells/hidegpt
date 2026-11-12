@@ -2,8 +2,13 @@
 
 Replay tests run the real Codex and Claude adapters against conversations
 recorded from the real CLIs. The fakes (`FakeCodex`, `FakeClaude`) are written
-by hand. A recording is what the CLI actually sent, so when a CLI update
-changes a reply, the replay test fails before you see the change in the app.
+by hand; a recording is what the CLI actually sent. A replay pins two things:
+what the adapter sends, and how it handles the CLI's real answers. It plays
+back a fixed recording, so it can't notice a CLI update by itself. Re-record
+after updating a CLI (see the end of this page).
+
+The recorders run the app's TypeScript directly with Node, so they need
+Node 22.18 or later (`engines` in package.json), as does the app.
 
 | Provider | Fixture | Recorder | Test |
 |---|---|---|---|
@@ -62,7 +67,8 @@ Without `HIDEGPT_RECORD_TURNS=1` the recorders refuse to send a turn:
 
 ## Re-recording after a CLI update
 
-Run `pnpm record:codex library` and `pnpm record:claude library`, then
+Do this whenever you update Codex or Claude Code. Run
+`pnpm record:codex library` and `pnpm record:claude library`, then
 `pnpm test`. A replay failure shows the first frame that differs.
 
 - If the CLI changed, fix the adapter (and run `pnpm protocol` for Codex).
