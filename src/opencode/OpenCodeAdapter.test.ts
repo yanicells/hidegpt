@@ -4,6 +4,7 @@ import * as Effect from 'effect/Effect'
 import * as Exit from 'effect/Exit'
 import * as Fiber from 'effect/Fiber'
 import * as Logger from 'effect/Logger'
+import * as References from 'effect/References'
 import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
@@ -328,8 +329,13 @@ describe('OpenCodeAdapter', () => {
     }),
   )
 
-  it.effect('puts an error with no session on the banner in Docs words, with a report id', () =>
-    Effect.gen(function* () {
+  it.effect('puts an error with no session on the banner in Docs words, and logs it under the same report id', () => {
+    const logged: Array<Record<string, unknown>> = []
+    const capture = Logger.make(({ fiber, logLevel, message }) => {
+      if (logLevel === 'Warn' && String(message) === 'Provider error')
+        logged.push({ ...fiber.getRef(References.CurrentLogAnnotations) })
+    })
+    return Effect.gen(function* () {
       const { fake, events } = yield* open({ reply: null })
       fake.push({
         id: 'evt_e',
@@ -337,13 +343,15 @@ describe('OpenCodeAdapter', () => {
         properties: { error: { name: 'ProviderAuthError', data: { providerID: 'openai', message: 'Bad key' } } },
       })
       yield* until(() => events.some((event) => event.type === 'notice'))
-      expect(events.find((event) => event.type === 'notice')).toMatchObject({
-        message: expect.stringMatching(
-          /^This account signs in outside Docs\. Sign in, then use Tools → Refresh\. \(Report [0-9a-f]{8}\)$/,
-        ),
-      })
-    }),
-  )
+      const notice = events.find((event) => event.type === 'notice')
+      const reportId =
+        /^This account signs in outside Docs\. Sign in, then use Tools → Refresh\. \(Report ([0-9a-f]{8})\)$/.exec(
+          notice?.type === 'notice' ? notice.message : '',
+        )?.[1]
+      expect(reportId).toBeDefined()
+      expect(logged).toEqual([expect.objectContaining({ reportId, failureClass: 'auth', detail: 'Bad key' })])
+    }).pipe(Effect.provide(Logger.layer([capture])))
+  })
 
   it.effect('ends the turn with the model error, but not when Docs stopped it', () =>
     Effect.gen(function* () {
