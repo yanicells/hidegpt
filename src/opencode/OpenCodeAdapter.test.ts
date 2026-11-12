@@ -323,6 +323,15 @@ describe('OpenCodeAdapter', () => {
     }),
   )
 
+  it.effect('titles a document OpenCode has not named "Untitled document", not after its first message', () =>
+    Effect.gen(function* () {
+      const { session } = yield* open({ sessions: [stubSession(SESSION, '', '/tmp/course')] })
+      const opened = yield* session.openThread(SESSION)
+      expect(opened.title).toBe('Untitled document')
+      expect(opened.blocks[0]).toMatchObject({ kind: 'user', text: 'Summarise week 3' })
+    }),
+  )
+
   it.effect('ends the turn with the model error, but not when Docs stopped it', () =>
     Effect.gen(function* () {
       const { fake, session, events } = yield* open({ reply: null })

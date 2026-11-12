@@ -1,4 +1,4 @@
-import type { AccountSummary, DocSummary, ProviderId, ToolServer } from './model'
+import type { AccountSummary, DocSummary, ProviderId, Route, ToolServer } from './model'
 
 /** The account's address, when the provider gave one. */
 export function accountAddress(account: AccountSummary | null): string | null {
@@ -26,6 +26,16 @@ export function threadTitle(thread: Pick<DocSummary, 'name' | 'preview'>): strin
   if (name) return name
   const firstLine = thread.preview?.trim().split('\n')[0]?.trim()
   return firstLine || 'Untitled document'
+}
+
+/**
+ * The window's title, as a Google Docs tab reads: the document's name, then
+ * the product. Until the provider names a document, its title is
+ * "Untitled document", never the first line of what was asked.
+ */
+export function windowTitle(route: Route, title: string): string {
+  if (route.kind === 'home') return 'Google Docs'
+  return `${title.trim() || 'Untitled document'} - Google Docs`
 }
 
 function sameDay(date: Date, now: Date): boolean {

@@ -392,7 +392,7 @@ export function make(connect: Connect): ProviderAdapter {
             if (running) activeTurns.set(id, running.id)
             return {
               threadId: id,
-              title: resumed.thread.name?.trim() || resumed.thread.preview?.trim() || 'Untitled document',
+              title: resumed.thread.name?.trim() || 'Untitled document',
               blocks: blocksFromTurns([...(page?.data ?? [])].reverse()),
               olderCursor: page?.backwardsCursor ?? resumed.turnsBackwardsCursor ?? null,
               cwd: resumed.cwd,

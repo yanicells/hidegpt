@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { accountLabel, avatarLetter, libraryName, PROVIDERS, providersFor } from './labels'
+import { accountLabel, avatarLetter, libraryName, PROVIDERS, providersFor, windowTitle } from './labels'
 
 describe('account labels', () => {
   it('shows an address as it is', () => {
@@ -33,5 +33,18 @@ describe('providersFor', () => {
 
   it('follows the build flag (tests build as personal)', () => {
     expect(PROVIDERS).toEqual(providersFor(true))
+  })
+})
+
+describe('windowTitle', () => {
+  const doc = { kind: 'doc', threadId: 'thr_1' } as const
+
+  it('reads like a Google Docs tab', () => {
+    expect(windowTitle({ kind: 'home' }, 'Essay')).toBe('Google Docs')
+    expect(windowTitle(doc, ' Essay on photosynthesis ')).toBe('Essay on photosynthesis - Google Docs')
+  })
+
+  it('names a document without a title "Untitled document"', () => {
+    expect(windowTitle(doc, '  ')).toBe('Untitled document - Google Docs')
   })
 })

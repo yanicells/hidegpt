@@ -223,6 +223,19 @@ describe('CodexAdapter', () => {
     }),
   )
 
+  it.effect('titles a document Codex has not named "Untitled document", not after its first prompt', () =>
+    Effect.gen(function* () {
+      const { session } = yield* open({
+        threads: [
+          stubThread('thr_1', 'Write a 500-word essay on photosynthesis'),
+          stubThread('thr_2', 'x', 'Chem lab'),
+        ],
+      })
+      expect((yield* session.openThread('thr_1')).title).toBe('Untitled document')
+      expect((yield* session.openThread('thr_2')).title).toBe('Chem lab')
+    }),
+  )
+
   it.effect('shows only outputs: reasoning and plans stay off the page', () =>
     Effect.gen(function* () {
       const { peer, session, events } = yield* open({

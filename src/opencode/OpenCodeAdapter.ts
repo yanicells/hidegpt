@@ -624,7 +624,7 @@ export function make(connect: Connect): ProviderAdapter {
             const agent = info.data.agent && info.data.agent.toLowerCase() !== 'plan' ? info.data.agent : null
             return {
               threadId,
-              title: sessionTitle(info.data.title, page.messages),
+              title: sessionTitle(info.data.title),
               blocks: [...blocksFromMessages(page.messages), ...pending],
               olderCursor: page.cursor,
               cwd: info.data.directory,

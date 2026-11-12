@@ -127,8 +127,9 @@ class Frames implements AsyncIterableIterator<SDKMessage> {
   }
 }
 
+/** A session Claude has named `title` (its summary differs from its first prompt). */
 export function stubSession(sessionId: string, title: string, cwd: string, lastModified = Date.now()): SDKSessionInfo {
-  return { sessionId, summary: title, firstPrompt: title, lastModified, cwd }
+  return { sessionId, summary: title, firstPrompt: `About ${title}`, lastModified, cwd }
 }
 
 export function transcriptUser(sessionId: string, uuid: string, text: string): SessionMessage {
