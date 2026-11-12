@@ -15,7 +15,7 @@ import { userMessage } from '../provider/errors'
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import * as Demo from './demo'
 import { handle } from './ipc'
-import { hydratePath } from './loginShellPath'
+import { hydratePath, killLoginShellProbe } from './loginShellPath'
 import { makeMenu } from './menu'
 import * as ProviderRegistry from './ProviderRegistry'
 import { ProviderSessionManager, layer as managerLayer } from './ProviderSessionManager'
@@ -37,6 +37,7 @@ protocol.registerSchemesAsPrivileged([
 // GUI apps on macOS start with a bare PATH; find the provider CLIs the way a terminal
 // would. The login-shell lookup runs while the window paints; providers wait for it.
 const pathReady = process.platform === 'darwin' ? hydratePath(process.env, app.isPackaged) : Promise.resolve()
+app.on('will-quit', killLoginShellProbe)
 
 const demo = process.env.HIDEGPT_FAKE === '1'
 const home = () => process.env.HOME ?? process.env.USERPROFILE ?? process.cwd()

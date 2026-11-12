@@ -16,8 +16,29 @@ import { basename } from 'node:path'
 
 const START = '__DOCS_PATH_START__'
 const END = '__DOCS_PATH_END__'
-/** A slow profile delays the first provider start by at most this much per shell. */
-const SHELL_TIMEOUT_MS = 2_000
+/**
+ * How long all candidate shells get together; each gets what the ones before it left.
+ * A slow profile delays the first provider start by at most this much. It's generous
+ * because a miss lasts until relaunch (T3 Code allows 5 s per shell).
+ */
+const LOOKUP_BUDGET_MS = 4_000
+
+/** The probe still running, so a quit can kill it (and its process group). */
+let live: ChildProcess | undefined
+
+function killGroup(child: ChildProcess): void {
+  if (!child.pid) return
+  try {
+    process.kill(-child.pid, 'SIGKILL')
+  } catch {
+    // The group is already gone.
+  }
+}
+
+/** Kills a lookup still running; main calls this on `will-quit`. */
+export function killLoginShellProbe(): void {
+  if (live) killGroup(live)
+}
 
 type Spawn = (file: string, args: ReadonlyArray<string>, options: SpawnOptions) => ChildProcess
 
@@ -67,7 +88,7 @@ export function mergePaths(...paths: ReadonlyArray<string | undefined>): string 
  * process group, so a profile that leaves a background job holding stdout neither
  * delays it nor leaks the job.
  */
-export function readLoginShellPath(shell: string, spawnShell: Spawn = spawn, timeoutMs = SHELL_TIMEOUT_MS): Promise<string | undefined> {
+export function readLoginShellPath(shell: string, timeoutMs: number, spawnShell: Spawn = spawn): Promise<string | undefined> {
   return new Promise((resolve) => {
     let child: ChildProcess
     try {
@@ -78,20 +99,16 @@ export function readLoginShellPath(shell: string, spawnShell: Spawn = spawn, tim
       resolve(undefined)
       return
     }
+    live = child
     let output = ''
     let done = false
     const finish = (path: string | undefined) => {
       if (done) return
       done = true
       clearTimeout(timer)
+      if (live === child) live = undefined
       child.stdout?.destroy()
-      if (child.pid) {
-        try {
-          process.kill(-child.pid, 'SIGKILL')
-        } catch {
-          // The group is already gone.
-        }
-      }
+      killGroup(child)
       resolve(path)
     }
     const timer = setTimeout(() => finish(undefined), timeoutMs)
@@ -119,13 +136,18 @@ function readAccountShell(): string | undefined {
   }
 }
 
-/** The first PATH a candidate shell gives, trying them in order. */
+/** The first PATH a candidate shell gives, trying them in order within one time budget. */
 export async function firstLoginShellPath(
   shells: ReadonlyArray<string>,
-  read: (shell: string) => Promise<string | undefined> = readLoginShellPath,
+  read: (shell: string, timeoutMs: number) => Promise<string | undefined> = readLoginShellPath,
+  budgetMs = LOOKUP_BUDGET_MS,
+  now: () => number = Date.now,
 ): Promise<string | undefined> {
+  const deadline = now() + budgetMs
   for (const shell of shells) {
-    const path = await read(shell)
+    const left = deadline - now()
+    if (left <= 0) break
+    const path = await read(shell, left)
     if (path) return path
   }
   return undefined

@@ -88,7 +88,7 @@ includes Claude.
 
 An app opened from Finder doesn't get your terminal's PATH, so at launch the
 packaged app asks your login shell for it (`$SHELL -ilc`, then your account's
-shell, then `/bin/zsh`, at most 2 seconds each). That way `codex` and `opencode`
+shell, then `/bin/zsh`, within 4 seconds in all). That way `codex` and `opencode`
 installed under nvm, Volta, fnm, npm globals or `~/.opencode/bin` are found.
 The window opens meanwhile; only provider starts wait for the answer. Homebrew,
 `~/.bun/bin` and `~/.local/bin` stay as the fallback.

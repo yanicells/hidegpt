@@ -2,7 +2,14 @@ import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 
 import { describe, expect, it } from 'vitest'
 
-import { extractPath, firstLoginShellPath, hydratePath, loginShellCandidates, readLoginShellPath } from './loginShellPath'
+import {
+  extractPath,
+  firstLoginShellPath,
+  hydratePath,
+  killLoginShellProbe,
+  loginShellCandidates,
+  readLoginShellPath,
+} from './loginShellPath'
 
 const NVM = '/Users/me/.nvm/versions/node/v24.16.0/bin'
 
@@ -39,14 +46,22 @@ describe('readLoginShellPath', () => {
   it('answers at the end marker and kills a background job the profile left holding stdout', async () => {
     const shell = fakeShell(`sleep 30 & printf '__DOCS_PATH_START__\\n${NVM}\\n__DOCS_PATH_END__\\n'; wait`)
     const startedAt = Date.now()
-    await expect(readLoginShellPath('/bin/zsh', shell.spawnShell, 5_000)).resolves.toBe(NVM)
+    await expect(readLoginShellPath('/bin/zsh', 5_000, shell.spawnShell)).resolves.toBe(NVM)
     expect(Date.now() - startedAt).toBeLessThan(1_500)
     expect(await groupGone(shell.spawned[0]!.pid!)).toBe(true)
   })
 
   it('gives up after the timeout and kills the shell', async () => {
     const shell = fakeShell('sleep 30')
-    await expect(readLoginShellPath('/bin/zsh', shell.spawnShell, 150)).resolves.toBeUndefined()
+    await expect(readLoginShellPath('/bin/zsh', 150, shell.spawnShell)).resolves.toBeUndefined()
+    expect(await groupGone(shell.spawned[0]!.pid!)).toBe(true)
+  })
+
+  it('kills a lookup still running when the app quits', async () => {
+    const shell = fakeShell('sleep 30')
+    const lookup = readLoginShellPath('/bin/zsh', 5_000, shell.spawnShell)
+    killLoginShellProbe()
+    await expect(lookup).resolves.toBeUndefined()
     expect(await groupGone(shell.spawned[0]!.pid!)).toBe(true)
   })
 })
@@ -66,6 +81,22 @@ describe('login shell candidates', () => {
     }
     await expect(firstLoginShellPath(['/usr/local/bin/nu', '/bin/zsh', '/bin/bash'], read)).resolves.toBe(NVM)
     expect(asked).toEqual(['/usr/local/bin/nu', '/bin/zsh'])
+  })
+
+  it('gives each shell what is left of one 4 s budget', async () => {
+    let clock = 0
+    const given: Array<[string, number]> = []
+    // Each failing shell uses 3 s of the budget.
+    const read = async (shell: string, timeoutMs: number) => {
+      given.push([shell, timeoutMs])
+      clock += Math.min(3_000, timeoutMs)
+      return undefined
+    }
+    await expect(firstLoginShellPath(['/bin/fish', '/bin/bash', '/bin/zsh'], read, 4_000, () => clock)).resolves.toBeUndefined()
+    expect(given).toEqual([
+      ['/bin/fish', 4_000],
+      ['/bin/bash', 1_000],
+    ])
   })
 })
 
