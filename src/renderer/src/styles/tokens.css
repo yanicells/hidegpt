@@ -44,4 +44,6 @@
   --paper-margin: 96px;
   --rail-width: 56px;
   --scrollbar-w: 14px;
+  /* UI-07: the page's crisp 1px edge, and Docs' scrollbars as Chrome draws them. */
+  --page-edge: 0 0 0 1px #c4c7c5;
 }
