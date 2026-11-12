@@ -62,24 +62,31 @@ export function recordingOptions(entries: ReplayEntry[], allowTurns: boolean): C
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
-/** Empties every `disabledPluginIds`, at any depth. */
-const withoutPluginIds = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(withoutPluginIds)
+/** Empties every `disabledPluginIds` and sets every `planType` to "unknown" (as T3 does), at any depth. */
+const withoutPluginsOrPlan = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(withoutPluginsOrPlan)
   if (!isRecord(value)) return value
   return Object.fromEntries(
-    Object.entries(value).map(([key, entry]) => [key, key === 'disabledPluginIds' && Array.isArray(entry) ? [] : withoutPluginIds(entry)]),
+    Object.entries(value).map(([key, entry]) => [
+      key,
+      key === 'disabledPluginIds' && Array.isArray(entry)
+        ? []
+        : key === 'planType' && typeof entry === 'string'
+          ? 'unknown'
+          : withoutPluginsOrPlan(entry),
+    ]),
   )
 }
 
 /**
  * A recording made with the person's own Codex home names their MCP servers
- * (with startup errors that can hold paths or URLs) and the plugins they turned
- * off. Docs reads neither, so the fixture keeps the shape and drops the names,
- * as the Claude recorder does for Claude's start-up lists.
+ * (with startup errors that can hold paths or URLs), the plugins they turned
+ * off and their ChatGPT plan. The fixture keeps the shape and drops the
+ * details, as `withoutPersonalDetails` in src/claude/replay.ts does for Claude.
  */
-export function withoutPersonalLists(entry: ReplayEntry): ReplayEntry {
+export function withoutPersonalDetails(entry: ReplayEntry): ReplayEntry {
   if (entry.type === 'runtime_exit') return entry
-  const frame = withoutPluginIds(entry.frame)
+  const frame = withoutPluginsOrPlan(entry.frame)
   if (isRecord(frame) && frame.method === 'mcpServer/startupStatus/updated' && isRecord(frame.params)) {
     const { error, ...params } = frame.params
     return { ...entry, frame: { ...frame, params: { ...params, name: 'replay-mcp', ...(error === undefined ? {} : { error: error === null ? null : '<redacted>' }) } } }
