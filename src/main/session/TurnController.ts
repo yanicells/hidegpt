@@ -30,13 +30,14 @@ import * as S from './state'
  * - Opening a turn is one state write that checks no turn is open, opens it
  *   and adds the echo, so two sends can never both pass the check.
  * - Stop is answered. A refused stop restores the turn and fails the command
- *   (the banner says why). An accepted stop waits `STOP_SETTLE` for the
- *   provider's terminal; past that the turn ends here as interrupted and the
- *   document re-reads on its next open, since the provider's work may still be
- *   running (T3's `unresponsive` case).
+ *   (the banner says why). Otherwise the turn waits `STOP_SETTLE` from the
+ *   click for the provider's terminal, even if the stop request never returns;
+ *   past that the turn ends here as interrupted and the document re-reads on
+ *   its next open, since the provider's work may still be running (T3's
+ *   `unresponsive` case).
  */
 
-/** How long an accepted stop waits for the provider to end the turn. */
+/** How long a stop waits for the provider to end the turn. */
 export const STOP_SETTLE = Duration.seconds(10)
 
 /**
@@ -186,32 +187,36 @@ export const make = (options: TurnControllerOptions): Effect.Effect<TurnControll
           Effect.timeoutOrElse({ duration: REFUSED_STOP_GRACE, orElse: () => Effect.succeed(Option.none()) }),
           Effect.map(Option.isSome),
         )
-        const accepted = yield* session.interrupt(threadId, stopping.id).pipe(
-          Effect.as(true),
+        // The deadline starts at the click, so a stop request that never returns still settles.
+        // Nobody joins it, so it reports its own failures.
+        const deadline = `${key}#${stopping.id}`
+        yield* FiberMap.run(
+          deadlines,
+          deadline,
+          observed(settle(key, provider, threadId, stopping.id), { name: 'turns.settleStop' }),
+          { onlyIfMissing: true },
+        )
+        yield* session.interrupt(threadId, stopping.id).pipe(
           // Refused: the turn runs on, if nothing has moved it since. It shows as running even if the
           // click came before the provider confirmed the start; that looks the same, and the start is
           // idempotent on a running turn.
           undoOnFailure(() =>
-            update((current) =>
-              S.updateRuntime(current, key, (item) =>
-                item.turn?.id === stopping.id && item.turn.phase === 'stopping'
-                  ? { ...item, turn: { ...stopping, phase: 'running' } }
-                  : item,
+            FiberMap.remove(deadlines, deadline).pipe(
+              Effect.andThen(
+                update((current) =>
+                  S.updateRuntime(current, key, (item) =>
+                    item.turn?.id === stopping.id && item.turn.phase === 'stopping'
+                      ? { ...item, turn: { ...stopping, phase: 'running' } }
+                      : item,
+                  ),
+                ),
               ),
             ),
           ),
           // The answer ended on its own while the stop was on its way, so the provider had nothing
           // left to stop: not an error. Typed failures only; a defect still travels.
-          Effect.catch((error) => Effect.flatMap(ended, (done) => (done ? Effect.succeed(false) : Effect.fail(error)))),
+          Effect.catch((error) => Effect.flatMap(ended, (done) => (done ? Effect.void : Effect.fail(error)))),
         )
-        if (!accepted) return
-        // Nobody joins the deadline, so it reports its own failures.
-        yield* FiberMap.run(
-          deadlines,
-          `${key}#${stopping.id}`,
-          observed(settle(key, provider, threadId, stopping.id), { name: 'turns.settleStop' }),
-          { onlyIfMissing: true },
-        ).pipe(Effect.asVoid)
       })
 
     const resolveApproval = (command: Extract<Command, { op: 'resolveApproval' }>) =>
