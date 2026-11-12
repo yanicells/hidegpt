@@ -8,6 +8,7 @@ import * as Stream from 'effect/Stream'
 import { reportDefect } from '../provider/DefectReport'
 import type { SequencedSnapshot, Snapshot, SnapshotDiff, SnapshotPatch } from '../shared/contracts'
 import { diffSnapshot, isEmptyPatch } from '../shared/snapshot-patch'
+import { filterSnapshot } from './session/stealthFilter'
 
 /**
  * Sends snapshot changes to the window as patches against what it last got.
@@ -74,7 +75,8 @@ export function makeSnapshotPublisher(
   const once = Effect.scoped(
     Effect.gen(function* () {
       const frames = yield* FiberHandle.make<void, never>()
-      yield* Stream.runForEach(snapshots, (snapshot) => {
+      // Every snapshot leaves main in Docs wording (see stealthFilter).
+      yield* Stream.runForEach(Stream.map(snapshots, filterSnapshot), (snapshot) => {
         if (delivered !== null && delivered.streaming && snapshot.streaming && sameShape(delivered, snapshot)) {
           pending = snapshot
           return FiberHandle.run(frames, frame, { onlyIfMissing: true })

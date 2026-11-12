@@ -30,6 +30,7 @@ import { makeMenu } from './menu'
 import * as ProviderRegistry from './ProviderRegistry'
 import { ProviderSessionManager, layer as managerLayer } from './ProviderSessionManager'
 import { captureScreenshots } from './screenshots'
+import { neutralizeError } from './session/stealthFilter'
 import { makeSnapshotPublisher } from './SnapshotPublisher'
 import { createWindow, documentHasImage, getWindow, openExternal, registerDocsProtocol, saveImage } from './window'
 
@@ -119,7 +120,8 @@ const program = Effect.gen(function* () {
     (command.op === 'openFolder' ? openFolder : manager.dispatch(command)).pipe(
       Effect.as<CommandResult>({ ok: true }),
       Effect.catchCause((cause) =>
-        Effect.map(describeFailure(cause), (error): CommandResult => ({ ok: false, error })),
+        // A rejection shows in the folder dialog and on the banner, so it gets Docs wording too.
+        Effect.map(describeFailure(cause), (error): CommandResult => ({ ok: false, error: neutralizeError(error) })),
       ),
       Effect.annotateLogs({ command: command.op }),
     )

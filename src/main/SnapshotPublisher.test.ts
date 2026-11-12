@@ -86,6 +86,27 @@ describe('SnapshotPublisher', () => {
     }),
   )
 
+  it.effect('sends only filtered snapshots: the window title, the patch and later reads', () =>
+    Effect.gen(function* () {
+      const raw: Snapshot = { ...emptySnapshot(), route: { kind: 'doc', threadId: 't' }, title: 'Claude Code session' }
+      const titles: string[] = []
+      const sent: SnapshotPatch[] = []
+      // app.ts sets the window title from the snapshot `send` gets.
+      const publisher = makeSnapshotPublisher(
+        SubscriptionRef.changes(yield* SubscriptionRef.make(raw)),
+        (patch, snapshot) => {
+          sent.push(patch)
+          titles.push(snapshot.title)
+        },
+      )
+      yield* Effect.forkScoped(publisher.run)
+      yield* settle
+      expect(titles).toEqual(['session'])
+      expect(sent[0]?.fields.title).toBe('session')
+      expect(publisher.delivered()?.snapshot.title).toBe('session')
+    }),
+  )
+
   it.effect('resync sends the whole snapshot to a reloaded window', () =>
     Effect.gen(function* () {
       const snapshot = { ...emptySnapshot(), status: 'ready' as const }
