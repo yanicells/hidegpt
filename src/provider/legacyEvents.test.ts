@@ -124,6 +124,20 @@ describe('fromLegacy', () => {
     }).pipe(Effect.scoped),
   )
 
+  it.effect('a turn that ends while Stop waits for its start needs no native interrupt', () =>
+    Effect.gen(function* () {
+      const gate = yield* Deferred.make<void>()
+      const { session, push, interrupts } = yield* setup(() => Deferred.await(gate))
+      yield* Effect.forkChild(session.send('t', 'turn-1', INPUT, SETTINGS))
+      yield* Effect.yieldNow
+      const stopping = yield* Effect.forkChild(session.interrupt('t', 'turn-1'))
+      yield* Effect.yieldNow
+      yield* push({ type: 'turnEnded', threadId: 't' })
+      yield* Fiber.join(stopping)
+      expect(interrupts).toEqual([])
+    }).pipe(Effect.scoped),
+  )
+
   it.effect('drops a late start or end from a stopped turn that the next send already closed', () =>
     Effect.gen(function* () {
       const { session, push, turnEvents } = yield* setup()
