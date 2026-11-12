@@ -135,6 +135,11 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     `.vite-hooks/pre-commit`; and `.vscode/settings.json`,
     `.vscode/extensions.json` and the `.vscode/tsdk/tsgo` language-server shim
     from `.vscode/`.
+  - `tools/oxlint-plugin-hidegpt/` (commit 5c6f2f12): a JS plugin for
+    oxlint with the plugin and rule shape of `oxlint-plugin-t3code/index.ts`
+    and `rules/no-global-process-runtime.ts`; the "Background work" and
+    "Callback bridges" conventions in `docs/architecture.md` follow
+    `docs/internals/effect-services.md`.
   - `src/main/logging/` (commit 5c6f2f12): the rotating file sink, from
     `packages/shared/src/logging.ts` (`makeAsyncRotatingFileSink`); the main
     NDJSON logger, after `apps/server/src/serverLogger.ts` and
