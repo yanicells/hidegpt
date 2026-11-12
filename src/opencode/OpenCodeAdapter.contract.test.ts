@@ -246,10 +246,6 @@ contractSuite('OpenCode', driver, {
     why: 'Stop aborts only the root session; a busy child keeps running (O-9).',
     fails: 'Stop reaches the busy subagent',
   },
-  passthrough_tools: {
-    why: "The raw tool name titles the callout (O-6), and the tool's error is its body.",
-    fails: leakMessage(['callout.body: ZZPROV tool error', 'callout.title: Ran ZZPROV_search']),
-  },
   passthrough_requests: {
     why: 'The permission name titles the card.',
     fails: leakMessage(['approval.title: Allow ZZPROV: rm -r build?']),

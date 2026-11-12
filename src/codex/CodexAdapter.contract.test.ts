@@ -275,10 +275,10 @@ contractSuite('Codex', driver, {
     fails: 'Stop reaches the busy subagent',
   },
   passthrough_tools: {
-    why: 'Dynamic and function tool names and namespaces title or fill callouts; the MCP server and tool names and the MCP tool error fill its body.',
+    why: 'Dynamic and function tool names and namespaces title or fill callouts; the MCP server and tool names fill its body.',
     fails: leakMessage([
       'callout.body: ZZPROV_functions',
-      'callout.body: ZZPROV_server · ZZPROV_search\nZZPROV tool error',
+      'callout.body: ZZPROV_server · ZZPROV_search',
       'callout.title: ZZPROV_function',
       'callout.title: ZZPROV_space · ZZPROV_dynamic',
     ]),
