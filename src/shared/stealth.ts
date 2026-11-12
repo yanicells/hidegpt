@@ -39,6 +39,8 @@ const BANNED = new Set([...BANNED_WORDS, ...PROSE_WORDS])
 
 /** A run of letters split where its case changes: "ChatGPTPlus" is "Chat", "GPT", "Plus". */
 const CASE_PARTS = /\p{Lu}+(?=\p{Lu}\p{Ll})|\p{Lu}?\p{Ll}+|\p{Lu}+/gu
+/** A capital run right before lower case, read as a word of its own: "AIsearch", "myGPTs". */
+const CAPITAL_RUNS = /\p{Lu}{2,}(?=\p{Ll})/gu
 
 /** `word` lowercased, if it (or it less a plural "s") is banned. */
 function banned(word: string): string | null {
@@ -52,13 +54,21 @@ function banned(word: string): string | null {
  * Case-insensitive and on whole words, where a word is a run of letters, so "_", "-" and
  * digits split words ("claude_ai", "gpt5", "GPT-4o"). A run that is not banned whole is
  * also checked by its case parts ("OpenAI", "ChatGPTPlus"), so "said" and "maintain" pass
- * but "OpenCode" and "useMcp" do not. A plural "s" counts too ("agents", "models").
+ * but "OpenCode" and "useMcp" do not. A capital run before lower case is checked whole
+ * too ("AIsearch", "myGPTs"), while an all-caps word stays one word ("AIRTABLE", "GMAIL").
+ * A plural "s" counts too ("agents", "models"). The text is NFKC-normalized and stripped of
+ * invisible format characters first, so fullwidth letters and soft hyphens hide nothing.
  */
 export function stealthViolations(text: string): string[] {
-  return Array.from(text.matchAll(/\p{L}+/gu), ([run]) => {
+  const visible = text.normalize('NFKC').replace(/\p{Cf}/gu, '')
+  return Array.from(visible.matchAll(/\p{L}+/gu), ([run]) => {
     const whole = banned(run)
     if (whole) return [whole]
-    return Array.from(run.matchAll(CASE_PARTS), ([part]) => banned(part)).filter((word) => word !== null)
+    const parts = Array.from(run.matchAll(CASE_PARTS), ([part]) => banned(part)).filter((word) => word !== null)
+    const capitals = Array.from(run.matchAll(CAPITAL_RUNS), ([part]) => banned(part)).filter(
+      (word): word is string => word !== null && !parts.includes(word),
+    )
+    return [...parts, ...capitals]
   }).flat()
 }
 

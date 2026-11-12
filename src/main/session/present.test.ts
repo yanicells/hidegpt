@@ -14,7 +14,7 @@ import {
 } from '../../provider/events'
 import type { Block } from '../../shared/model'
 import { stealthViolations } from '../../shared/stealth'
-import { presentFailure, presentItem, presentItems } from './present'
+import { connectedAppTitle, presentFailure, presentItem, presentItems, toolRequestTitle, toolTitle } from './present'
 
 const tool = (kind: ToolItem['tool'], status: ToolItem['status'], extra: Partial<ToolItem> = {}): ToolItem => ({
   kind: 'tool',
@@ -60,6 +60,34 @@ describe('present', () => {
     expect(new Set(ToolStatus.literals.map((status) => wording(presentItem(tool('command', status)))[0])).size).toBe(3)
   })
 
+  it('words a failure by class, with its report id so the log line can be found', () => {
+    const failure = { class: 'auth', detail: 'Please run /login', retryable: false, resetAt: null } as const
+    expect(presentFailure(failure)).toBe('This account signs in outside Docs. Sign in, then use Tools → Refresh.')
+    expect(presentFailure({ ...failure, reportId: '3f2a9c1e' })).toBe(
+      'This account signs in outside Docs. Sign in, then use Tools → Refresh. (Report 3f2a9c1e)',
+    )
+  })
+
+  it('words the titles and card questions adapters still take from here', () => {
+    const sentences = [
+      ...ToolKind.literals.flatMap((kind) => [
+        toolRequestTitle(kind),
+        ...ToolStatus.literals.map((status) => toolTitle(kind, status)),
+      ]),
+      connectedAppTitle('', ''),
+      connectedAppTitle('notion', 'search'),
+      toolRequestTitle('mcp_tool', 'notion'),
+    ]
+    for (const sentence of sentences) expect(stealthViolations(sentence), sentence).toEqual([])
+    expect([connectedAppTitle('notion', 'search'), connectedAppTitle('', '')]).toEqual([
+      'Notion · search',
+      'A connected app',
+    ])
+    expect([toolRequestTitle('mcp_tool', 'notion'), toolRequestTitle('mcp_tool'), toolRequestTitle('command')]).toEqual(
+      ['Use Notion?', 'Allow this step?', 'Run this command?'],
+    )
+  })
+
   it('shows a request’s status the way the suggestion card expects', () => {
     const shown = (status: RequestItem['status']) => presentItem(request('command', status))
     expect(shown('pending')).toMatchObject({ suggestion: 'add', resolved: null, pending: false })
@@ -73,7 +101,7 @@ describe('present', () => {
     const titled = (title: string) => tool('other', 'completed', { legacy: { title } })
     expect(presentItem(titled('Searched the web'))).toMatchObject({ title: 'Searched the web' })
     for (const leak of ['Agent · spawn', 'Using mcp__github__create_issue', 'collabAgentToolCall', 'gpt5 · CLI']) {
-      expect(presentItem(titled(leak)), leak).toMatchObject({ title: 'Finished a step' })
+      expect(presentItem(titled(leak)), leak).toMatchObject({ title: 'Did a step' })
     }
     expect(presentItem(tool('command', 'running', { subject: 'ls', output: 'a\nb' }))).toMatchObject({
       body: 'ls\na\nb',

@@ -2,6 +2,7 @@ import type {
   AccountInfo,
   ModelInfo,
   PermissionResult,
+  SDKAssistantMessageError,
   SDKMessage,
   SDKResultMessage,
   SDKSessionInfo,
@@ -11,6 +12,9 @@ import type {
 import * as Option from 'effect/Option'
 import * as Schema from 'effect/Schema'
 
+import type { Failure, FailureClass, ToolKind } from '../provider/events'
+import { failureOf } from '../provider/failure'
+import { requestTitle, toolTitle } from '../provider/toolTitles'
 import type { ApprovalBlock, Block, CalloutBlock, DocSummary, ModelOption, Skill, UserBlock } from '../shared/model'
 
 /**
@@ -73,11 +77,17 @@ function decodeBlock(value: unknown): ContentBlock | undefined {
   }
 }
 
-/** A message's `id` and `content`, each read on its own. */
+/** A message's `id`, `model` and `content`, each read on its own. */
 const decodeMessage = (value: unknown) => {
   const message = asRecord(value)
-  return { id: asString(message?.id), content: asContent(message?.content) }
+  return { id: asString(message?.id), model: asString(message?.model), content: asContent(message?.content) }
 }
+
+/**
+ * Claude Code writes its own notices (a usage limit, "Please run /login", an API
+ * error) as assistant messages from this model. They are never document text.
+ */
+const SYNTHETIC_MODEL = '<synthetic>'
 
 /** Each block of `content` that has a type; one malformed block never hides the rest. */
 const blocksOf = (content: ReadonlyArray<unknown>): ContentBlock[] => content.flatMap((part) => decodeBlock(part) ?? [])
@@ -144,15 +154,70 @@ function partsOf(message: unknown): ContentBlock[] {
   return content ? blocksOf(content) : []
 }
 
-function toolTitle(name: string, done: boolean): string {
-  if (name === 'Bash') return done ? 'Ran a command' : 'Running a command'
-  return done ? `Used ${name}` : `Using ${name}`
+// The input field that best shows what a tool will touch, first match wins. A Task's
+// short `description` comes before its `prompt`, which is the whole subagent brief.
+const PREVIEW_KEYS = [
+  'command',
+  'file_path',
+  'notebook_path',
+  'path',
+  'url',
+  'query',
+  'pattern',
+  'description',
+  'prompt',
+] as const
+/** A card shows a glimpse of the input, not all of it. */
+const PREVIEW_MAX = 200
+
+const clip = (text: string) => (text.length > PREVIEW_MAX ? `${text.slice(0, PREVIEW_MAX - 1).trimEnd()}…` : text)
+
+const firstString = (input: Record<string, unknown>, keys: ReadonlyArray<string>) =>
+  keys.map((key) => input[key]).find((value): value is string => typeof value === 'string')
+
+/**
+ * Claude Code's tools by kind; `null` draws no callout (bookkeeping tools, and the
+ * question and plan tools, whose card already shows them).
+ * Adapted from T3 Code (apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts,
+ * CLAUDE_KNOWN_TOOL_CLASSIFICATIONS) at commit 5c6f2f12.
+ * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+ */
+const TOOL_KINDS = new Map<string, ToolKind | null>([
+  ['bash', 'command'],
+  ['edit', 'file_change'],
+  ['multiedit', 'file_change'],
+  ['write', 'file_change'],
+  ['notebookedit', 'file_change'],
+  ['read', 'file_read'],
+  ['glob', 'file_search'],
+  ['grep', 'file_search'],
+  ['ls', 'file_search'],
+  ['websearch', 'web_search'],
+  ['webfetch', 'web_fetch'],
+  ['agent', 'subagent'],
+  ['task', 'subagent'],
+  ['todowrite', null],
+  ['taskstop', null],
+  ['toolsearch', null],
+  ['sendmessage', null],
+  ['monitor', null],
+  ['askuserquestion', null],
+  ['exitplanmode', null],
+])
+
+/** The kind of step a tool call is, or null when it draws no callout. */
+function toolKind(name: string): ToolKind | null {
+  if (name.startsWith('mcp__')) return 'mcp_tool'
+  const kind = TOOL_KINDS.get(name.toLowerCase().replace(/[\s_-]/g, ''))
+  return kind === undefined ? 'other' : kind
 }
 
-function toolBody(input: Record<string, unknown> | undefined): string {
+/** What the step touched: one input field, never the input as JSON, and never a subagent's brief. */
+function toolBody(kind: ToolKind, input: Record<string, unknown> | undefined): string {
   if (!input) return ''
-  const main = input.command ?? input.file_path ?? input.path ?? input.pattern ?? input.url ?? input.query
-  return typeof main === 'string' ? main : JSON.stringify(input).slice(0, 400)
+  const value = firstString(input, kind === 'subagent' ? ['description'] : PREVIEW_KEYS)
+  if (value === undefined) return ''
+  return kind === 'subagent' || kind === 'mcp_tool' || kind === 'other' ? clip(value) : value
 }
 
 function resultText(content: unknown): string {
@@ -164,23 +229,34 @@ function resultText(content: unknown): string {
     .join('\n')
 }
 
-const toolCallout = (part: ContentBlock): CalloutBlock => ({
-  kind: 'callout',
-  id: part.id ?? '',
-  title: toolTitle(part.name ?? 'a tool', false),
-  body: toolBody(part.input),
-})
+/** A tool call on the page: its callout, and the kind and name that decide how it finishes. */
+type ToolCall = { readonly block: CalloutBlock; readonly kind: ToolKind; readonly name: string }
 
-/** The callout once its tool finished, with the output under the command. */
-/** A tool's result added to its callout. A failed tool shows Docs' sentence, never its error text. */
-function finishedCallout(callout: CalloutBlock, result: ContentBlock): CalloutBlock {
-  if (result.is_error) return { ...callout, title: 'A step didn’t finish' }
-  const output = resultText(result.content).trim().slice(0, 2000)
-  return {
-    ...callout,
-    title: callout.title.replace(/^Running/, 'Ran').replace(/^Using/, 'Used'),
-    body: output ? `${callout.body}\n${output}` : callout.body,
+/** A running tool's callout, or null for a tool the page does not show. */
+function toolCall(part: ContentBlock): ToolCall | null {
+  const name = part.name ?? ''
+  const kind = toolKind(name)
+  if (!kind) return null
+  const block: CalloutBlock = {
+    kind: 'callout',
+    id: part.id ?? '',
+    title: toolTitle(kind, 'running', name),
+    body: toolBody(kind, part.input),
   }
+  return { block, kind, name }
+}
+
+/**
+ * The callout once its tool finished, with the output under the command. A
+ * subtask's output is its whole report (with Claude Code's own continuation
+ * notes), so it keeps only its description. A failed tool says so in Docs'
+ * words and never shows its error text.
+ */
+function finishedCallout({ block, kind, name }: ToolCall, result: ContentBlock): CalloutBlock {
+  if (result.is_error) return { ...block, title: toolTitle(kind, 'failed', name) }
+  const output = kind === 'subagent' ? '' : resultText(result.content).trim().slice(0, 2000)
+  const title = toolTitle(kind, 'completed', name)
+  return { ...block, title, body: output ? `${block.body}\n${output}` : block.body }
 }
 
 /** A person's turn: typed text, pasted images, and any skill invoked with /name. */
@@ -210,6 +286,7 @@ function userTurn(id: string, parts: ReadonlyArray<ContentBlock>): UserBlock | n
 export function blocksFromSessionMessages(messages: ReadonlyArray<SessionMessage>): Block[] {
   const blocks: Block[] = []
   const index = new Map<string, number>()
+  const calls = new Map<string, ToolCall>()
   const put = (block: Block) => {
     const at = index.get(block.id)
     if (at === undefined) {
@@ -222,18 +299,23 @@ export function blocksFromSessionMessages(messages: ReadonlyArray<SessionMessage
     const parts = partsOf(message.message)
     if (message.type === 'user') {
       for (const part of parts) {
-        const at = part.type === 'tool_result' && part.tool_use_id ? index.get(part.tool_use_id) : undefined
-        const callout = at === undefined ? undefined : blocks[at]
-        if (callout?.kind === 'callout') put(finishedCallout(callout, part))
+        const call = part.type === 'tool_result' && part.tool_use_id ? calls.get(part.tool_use_id) : undefined
+        if (call) put(finishedCallout(call, part))
       }
       const turn = userTurn(message.uuid, parts)
       if (turn) put(turn)
       continue
     }
     if (message.type !== 'assistant') continue
-    const id = decodeMessage(message.message).id ?? message.uuid
+    const decoded = decodeMessage(message.message)
+    if (decoded.model === SYNTHETIC_MODEL) continue
+    const id = decoded.id ?? message.uuid
     for (const part of parts) {
-      if (part.type === 'tool_use' && part.id) put(toolCallout(part))
+      const call = part.type === 'tool_use' && part.id ? toolCall(part) : null
+      if (call) {
+        calls.set(call.block.id, call)
+        put(call.block)
+      }
       if (part.type === 'text' && part.text) {
         const at = index.get(id)
         const current = at === undefined ? undefined : blocks[at]
@@ -255,7 +337,9 @@ export type StreamState = {
   /** Messages whose text arrived as deltas, so the final frame is not drawn twice. */
   readonly streamed: Set<string>
   readonly texts: Map<string, string>
-  readonly callouts: Map<string, CalloutBlock>
+  readonly callouts: Map<string, ToolCall>
+  /** The error of the turn's last Claude Code notice, which classes the turn's failure. */
+  notice: SDKAssistantMessageError | null
 }
 
 export const emptyStreamState = (): StreamState => ({
@@ -263,13 +347,14 @@ export const emptyStreamState = (): StreamState => ({
   streamed: new Set(),
   texts: new Map(),
   callouts: new Map(),
+  notice: null,
 })
 
 /** What one SDK frame changes on the page; the adapter adds the thread id. */
 export type Emission =
   | { readonly type: 'block'; readonly block: Block }
   | { readonly type: 'text'; readonly blockId: string; readonly delta: string }
-  | { readonly type: 'result'; readonly error: string | undefined }
+  | { readonly type: 'result'; readonly failure: Failure | undefined }
 
 /** Folds one live SDK frame into page changes. */
 export function readMessage(state: StreamState, message: SDKMessage): Emission[] {
@@ -277,7 +362,9 @@ export function readMessage(state: StreamState, message: SDKMessage): Emission[]
   switch (message.type) {
     case 'stream_event': {
       const event = message.event
-      if (event.type === 'message_start') state.messageId = event.message.id
+      // A Claude Code notice never streams onto the page; its final frame classes the turn.
+      if (event.type === 'message_start')
+        state.messageId = event.message.model === SYNTHETIC_MODEL ? null : event.message.id
       const id = state.messageId
       if (!id) return []
       if (event.type === 'content_block_start' && event.content_block.type === 'text' && state.texts.get(id)) {
@@ -291,12 +378,17 @@ export function readMessage(state: StreamState, message: SDKMessage): Emission[]
     }
     case 'assistant': {
       const id = message.message.id
+      if (message.message.model === SYNTHETIC_MODEL) {
+        // Kept as data for the result, never drawn.
+        state.notice = message.error ?? state.notice
+        return []
+      }
       const out: Emission[] = []
       for (const part of partsOf(message.message)) {
-        if (part.type === 'tool_use' && part.id) {
-          const callout = toolCallout(part)
-          state.callouts.set(callout.id, callout)
-          out.push({ type: 'block', block: callout })
+        const call = part.type === 'tool_use' && part.id ? toolCall(part) : null
+        if (call) {
+          state.callouts.set(call.block.id, call)
+          out.push({ type: 'block', block: call.block })
         }
         // With partial messages on, the deltas already drew this text.
         if (part.type === 'text' && part.text && !state.streamed.has(id)) {
@@ -311,19 +403,21 @@ export function readMessage(state: StreamState, message: SDKMessage): Emission[]
     case 'user': {
       const out: Emission[] = []
       for (const part of partsOf(message.message)) {
-        const callout =
-          part.type === 'tool_result' && part.tool_use_id ? state.callouts.get(part.tool_use_id) : undefined
-        if (!callout) continue
-        state.callouts.delete(callout.id)
-        out.push({ type: 'block', block: finishedCallout(callout, part) })
+        const call = part.type === 'tool_result' && part.tool_use_id ? state.callouts.get(part.tool_use_id) : undefined
+        if (!call) continue
+        state.callouts.delete(call.block.id)
+        out.push({ type: 'block', block: finishedCallout(call, part) })
       }
       return out
     }
-    case 'result':
+    case 'result': {
+      const failure = resultError(message, state.notice)
       state.messageId = null
       state.streamed.clear()
       state.texts.clear()
-      return [{ type: 'result', error: resultError(message) }]
+      state.notice = null
+      return [{ type: 'result', failure }]
+    }
     default:
       return []
   }
@@ -334,82 +428,76 @@ function append(state: StreamState, id: string, delta: string): Emission {
   return { type: 'text', blockId: id, delta }
 }
 
-const RESULT_ERRORS: Record<string, string> = {
-  error_max_turns: 'Claude stopped after reaching its step limit.',
-  error_max_budget_usd: 'Claude stopped after reaching its spending limit.',
-  error_max_structured_output_retries: 'Claude could not finish the answer.',
+const AUTH_ERRORS = new Set<SDKAssistantMessageError>([
+  'authentication_failed',
+  'oauth_org_not_allowed',
+  'account_on_hold',
+  'verification_required',
+  'billing_error',
+  'cloud_credential_error',
+])
+const PROVIDER_ERRORS = new Set<SDKAssistantMessageError>(['overloaded', 'server_error'])
+const VALIDATION_ERRORS = new Set<SDKAssistantMessageError>(['invalid_request', 'model_not_found', 'max_output_tokens'])
+
+/** The failure class from the turn's notice, the API status and the terminal reason. */
+function classOf(message: SDKResultMessage, notice: SDKAssistantMessageError | null): FailureClass {
+  const status = message.subtype === 'success' ? (message.api_error_status ?? undefined) : undefined
+  const reason = message.terminal_reason
+  if (notice === 'rate_limit' || status === 429 || message.subtype === 'error_max_budget_usd') return 'usage_limit'
+  if ((notice && AUTH_ERRORS.has(notice)) || status === 401 || status === 403) return 'auth'
+  if ((notice && PROVIDER_ERRORS.has(notice)) || (status !== undefined && status >= 500)) return 'provider_error'
+  if (reason === 'api_error' || reason === 'model_error') return 'provider_error'
+  // Without rate-limit evidence (above), `blocking_limit` means the context is full.
+  if (notice && VALIDATION_ERRORS.has(notice)) return 'validation_error'
+  if (reason === 'prompt_too_long' || reason === 'image_error' || reason === 'blocking_limit') return 'validation_error'
+  return 'unknown'
 }
+
+/** The error text without Claude Code's internal telemetry lines. */
+const withoutDiagnostics = (texts: ReadonlyArray<string>) =>
+  texts
+    .flatMap((text) => text.split('\n'))
+    .filter((line) => !line.startsWith('[ede_diagnostic]'))
+    .join('\n')
+    .trim()
 
 /**
- * The sentence to show when a turn failed, or nothing when it finished or was
- * stopped on purpose (the SDK reports aborts as errors or as `success`).
- * Adapted from T3 Code (apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts, terminalStatusFromResult) at commit 8a14762c.
+ * Why a turn failed, or nothing when it finished or was stopped on purpose (the
+ * SDK reports aborts as errors or as `success`). The provider's text is only the
+ * failure's `detail` (redacted and bounded), for the log; the page shows the class's own sentence.
+ * `notice` is the error of a Claude Code notice seen during the turn.
+ * Adapted from T3 Code (apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts, terminalStatusFromResult
+ * and resultUserFacingError) at commit 5c6f2f12.
  * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
  */
-export function resultError(message: SDKResultMessage): string | undefined {
+export function resultError(
+  message: SDKResultMessage,
+  notice: SDKAssistantMessageError | null = null,
+): Failure | undefined {
   if (message.terminal_reason === 'aborted_tools' || message.terminal_reason === 'aborted_streaming') return undefined
-  if (message.subtype === 'success')
-    return message.is_error ? message.result.trim() || 'Claude ran into an error.' : undefined
-  const text = message.errors.join('\n').trim()
+  if (message.subtype === 'success') {
+    return message.is_error ? failureOf(classOf(message, notice), withoutDiagnostics([message.result])) : undefined
+  }
+  const text = withoutDiagnostics(message.errors)
   if (/interrupt|cancel/i.test(text)) return undefined
-  return text || RESULT_ERRORS[message.subtype] || 'Claude stopped before finishing.'
+  return failureOf(classOf(message, notice), text || message.subtype)
 }
-
-// The input field that best shows what a tool will touch, first match wins. A Task's
-// short `description` comes before its `prompt`, which is the whole subagent brief.
-const PREVIEW_KEYS = [
-  'command',
-  'file_path',
-  'notebook_path',
-  'path',
-  'url',
-  'query',
-  'pattern',
-  'description',
-  'prompt',
-] as const
-/** A card shows a glimpse of the input, not all of it. */
-const PREVIEW_MAX = 200
 
 export const permissionBlockId = (toolUseId: string) => `approval-${toolUseId}`
 
-const MENTIONS_VENDOR = /claude|anthropic/i
-
 /**
- * A short name for the tool, never the SDK's own sentences: its `title` and
- * `description` speak as the assistant ("Claude wants to search the web"),
- * which the page must never show. MCP tools drop their `mcp__server__` prefix,
- * since a server key such as `claude_ai_Notion` names the vendor too. Null when
- * even the final name mentions the vendor (`mcp__x__claude_search`).
+ * A tool Claude wants to run, as a suggestion card asking by the tool's kind
+ * (never its name, or the SDK's `title` and `displayName`, which can name the
+ * vendor or another product). The plan tool's card shows the whole plan, since
+ * that is what the person approves.
  */
-export function toolLabel(tool: string, displayName: string | undefined): string | null {
-  if (displayName && !MENTIONS_VENDOR.test(displayName)) return displayName
-  const mcp = /^mcp__.+?__(.+)$/.exec(tool)
-  const label = mcp ? mcp[1]!.replace(/_/g, ' ') : tool
-  return MENTIONS_VENDOR.test(label) ? null : label
-}
-
-const clip = (text: string) => (text.length > PREVIEW_MAX ? `${text.slice(0, PREVIEW_MAX - 1).trimEnd()}…` : text)
-
-/** A tool Claude wants to run, as a suggestion card asking to allow it. */
-export function permissionBlock(
-  id: string,
-  tool: string,
-  input: Record<string, unknown>,
-  displayName: string | undefined,
-): ApprovalBlock {
-  const preview = PREVIEW_KEYS.map((key) => input[key]).find((value): value is string => typeof value === 'string')
-  const label = toolLabel(tool, displayName)
-  return {
-    kind: 'approval',
-    id,
-    suggestion: 'add',
-    title: label ? `Allow ${label}?` : 'Allow this tool?',
-    body: preview ? clip(preview) : '',
-    fields: [],
-    questions: [],
-    resolved: null,
+export function permissionBlock(id: string, tool: string, input: Record<string, unknown>): ApprovalBlock {
+  const card = { kind: 'approval', id, suggestion: 'add', fields: [], questions: [], resolved: null } as const
+  if (tool === 'ExitPlanMode') {
+    return { ...card, title: 'Review the plan?', body: typeof input.plan === 'string' ? input.plan : '' }
   }
+  const preview = firstString(input, PREVIEW_KEYS)
+  return { ...card, title: requestTitle(toolKind(tool) ?? 'other', tool), body: preview ? clip(preview) : '' }
 }
 
 export type AskedQuestion = {
@@ -450,7 +538,7 @@ export function questionBlock(id: string, questions: ReadonlyArray<AskedQuestion
     kind: 'approval',
     id,
     suggestion: 'question',
-    title: 'Waiting for your response',
+    title: 'Needs your reply',
     body: questions.map((item) => item.question).join('\n') || 'Continue?',
     fields: [],
     // Claude adds its own "Other" choice, so free text is always allowed.
