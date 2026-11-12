@@ -38,6 +38,8 @@ export interface Observed {
 export const observed = <A, E, R>(effect: Effect.Effect<A, E, R>, options: Observed): Effect.Effect<void, never, R> =>
   Effect.catchCause(Effect.asVoid(effect), (cause) => {
     if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt
+    // Nothing failed (an empty cause): nothing to report, as in ARCH-8's copy.
+    if (cause.reasons.length === 0) return Effect.void
     // Every failure counts, not only the first: one untagged failure beside a tagged one is a defect.
     const defect = cause.reasons.some(
       (reason) => reason._tag === 'Die' || (reason._tag === 'Fail' && !isExpectedError(reason.error)),

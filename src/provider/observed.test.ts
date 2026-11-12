@@ -1,4 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
+import * as Cause from 'effect/Cause'
 import * as Clock from 'effect/Clock'
 import * as Effect from 'effect/Effect'
 import * as Exit from 'effect/Exit'
@@ -82,6 +83,28 @@ describe('observed, beyond tagged errors', () => {
     return Effect.gen(function* () {
       yield* observed(Effect.fail({ rejected: true }), { name: 'test.untagged', quiet: 'only tagged errors' })
       expect(reported()).toEqual([expect.objectContaining({ where: 'test.untagged' })])
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect('reports a cause that mixes a tagged error with an untagged failure, whichever comes first', () => {
+    const { layer, reported } = captureReports()
+    return Effect.gen(function* () {
+      const mixed = Cause.combine(Cause.fail(refused), Cause.fail({ rejected: true }))
+      yield* observed(Effect.failCause(mixed), { name: 'test.mixed', quiet: 'only tagged errors' })
+      expect(reported()).toEqual([expect.objectContaining({ where: 'test.mixed' })])
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect('reports nothing, and runs no onDefect, for a cause with nothing in it', () => {
+    const { layer, reported } = captureReports()
+    return Effect.gen(function* () {
+      let ran = false
+      yield* observed(Effect.failCause(Cause.empty), {
+        name: 'test.empty',
+        onDefect: () => Effect.sync(() => (ran = true)),
+      })
+      expect(reported()).toEqual([])
+      expect(ran).toBe(false)
     }).pipe(Effect.provide(layer))
   })
 
