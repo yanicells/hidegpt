@@ -5,15 +5,16 @@ import { join } from 'node:path'
 import type { CanUseTool, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { describe, expect, it } from '@effect/vitest'
 import * as Cause from 'effect/Cause'
+import type * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 import * as Stream from 'effect/Stream'
 
 import type { AdapterEvent } from '../provider/ProviderAdapter'
-import { readTranscript, type ReplayEntry, type ReplayTranscript, scrub } from '../provider/replayFixture'
-import type { ReplayScenario, TurnResult } from '../provider/replayScenario'
+import { readTranscript, type RecordingMachine, type ReplayEntry, type ReplayTranscript, scrub } from '../provider/replayFixture'
+import { approvalScenario, type ReplayScenario, type TurnResult } from '../provider/replayScenario'
 import * as ClaudeAdapter from './ClaudeAdapter'
-import { type FakeClaudeOptions, makeFakeClaude } from './FakeClaude'
-import { recordingSdk, replaySdk } from './replay'
+import { assistantFrame, type FakeClaude, type FakeClaudeOptions, makeFakeClaude, resultFrame } from './FakeClaude'
+import { recordingSdk, replaySdk, withoutPersonalDetails } from './replay'
 import { approval, library, stop, turn } from './replayScenarios'
 
 /**
@@ -32,16 +33,49 @@ const workspace = Effect.acquireRelease(
 ).pipe(Effect.map((dir) => ({ dir, paths: [[dir, WORKSPACE]] as const })))
 
 /** Runs a scenario against `sdk` in its own scope, as the recorder does. */
-const run = <A>(scenario: ReplayScenario<A>, sdk: ClaudeAdapter.ClaudeSdk, dir: string) =>
+const run = <A>(scenario: ReplayScenario<A>, sdk: ClaudeAdapter.ClaudeSdk, dir: string, wait: Duration.Input = '5 seconds') =>
   Effect.scoped(
     Effect.gen(function* () {
       const session = yield* ClaudeAdapter.make(async () => sdk).openSession
       const events: AdapterEvent[] = []
       yield* Stream.runForEach(session.events, (event) => Effect.sync(() => events.push(event))).pipe(Effect.forkScoped)
-      const result = yield* scenario.run({ session, events, workspace: dir, wait: '5 seconds', afterCatalog: Effect.void })
+      const result = yield* scenario.run({ session, events, workspace: dir, wait, afterCatalog: Effect.void })
       return { result, events }
     }),
   )
+
+/** Cleaned and scrubbed as the recorder does, then ready to replay from another folder. */
+const asRecorded = (entries: ReadonlyArray<ReplayEntry>, scratch: RecordingMachine['scratch'], scenario: string): ReplayTranscript => {
+  const machine: RecordingMachine = { home: homedir(), people: [], hosts: [], scratch }
+  return {
+    provider: 'claude',
+    protocol: 'claude-agent-sdk.query',
+    version: 'fake',
+    scenario,
+    entries: entries.map((entry) => scrub(withoutPersonalDetails(entry), machine) as ReplayEntry),
+  }
+}
+
+/**
+ * Plays Claude Code for the approval scenario: after each of `turns` prompts, it
+ * asks to write tea.txt `asks` times in a row, then ends the turn.
+ */
+const askingClaudeCode = (fake: FakeClaude, turns: number, asks: number, dir: string) => {
+  const sent = () => fake.queries.flatMap((query) => query.prompts).length
+  return Effect.forEach(Array.from({ length: turns }, (_, index) => index), (index) =>
+    Effect.gen(function* () {
+      yield* Effect.sleep('5 millis').pipe(Effect.repeat({ until: () => sent() > index }), Effect.timeout('5 seconds'))
+      const query = fake.queries.at(-1)!
+      let allowed = false
+      for (let ask = 0; ask < asks; ask++) {
+        const asked = query.askTool('Write', { file_path: join(dir, 'tea.txt'), content: 'tea' }, `toolu_${index + 1}_${ask + 1}`)
+        allowed = (yield* Effect.promise(() => asked.result))?.behavior === 'allow'
+      }
+      query.push(assistantFrame(`msg_${index + 1}`, [{ type: 'text', text: allowed ? 'Made tea.txt.' : 'Left it.' }]))
+      query.push(resultFrame())
+    }),
+  )
+}
 
 const userTexts = (result: TurnResult) => result.opened.blocks.flatMap((block) => (block.kind === 'user' ? [block.text] : []))
 
@@ -117,12 +151,10 @@ describe('ClaudeAdapter replay', () => {
         const recording = yield* workspace
         const recorded = yield* run(scenario, recordingSdk(makeFakeClaude(fakeOptions).sdk, entries, true), recording.dir)
 
-        // Scrubbed as the recorder does, then replayed from another folder.
-        const machine = { home: homedir(), people: [], hosts: [], scratch: recording.paths }
-        const scrubbed = entries.map((entry) => scrub(entry, machine) as ReplayEntry)
-        expect(JSON.stringify(scrubbed)).toContain(WORKSPACE)
+        const transcript = asRecorded(entries, recording.paths, name)
+        expect(JSON.stringify(transcript.entries)).toContain(WORKSPACE)
         const replaying = yield* workspace
-        const replay = replaySdk({ provider: 'claude', protocol: 'claude-agent-sdk.query', version: 'fake', scenario: name, entries: scrubbed }, replaying.paths)
+        const replay = replaySdk(transcript, replaying.paths)
         const replayed = yield* run(scenario, replay.sdk, replaying.dir)
 
         const shape = (result: TurnResult) => result.opened.blocks.map((block) => [block.kind, 'text' in block ? block.text : null])
@@ -139,6 +171,49 @@ describe('ClaudeAdapter replay', () => {
       }),
     )
   }
+
+  // FakeClaude asks for a tool mid-turn, so this drives the adapter's real canUseTool, the
+  // approval block, session.respond and the recorded permissionResult, both ways.
+  it.live('the approval scenario recorded through recordingSdk replays, and a flipped decision fails', () =>
+    Effect.gen(function* () {
+      const fake = makeFakeClaude({ reply: null })
+      const entries: ReplayEntry[] = []
+      const recording = yield* workspace
+      const [recorded] = yield* Effect.all(
+        [run(approval, recordingSdk(fake.sdk, entries, true), recording.dir), askingClaudeCode(fake, approval.prompts.length, 1, recording.dir)],
+        { concurrency: 2 },
+      )
+      const answers = entries.flatMap((entry) => (entry.type === 'expect_outbound' && entry.label === 'permissionResult' ? [entry.frame] : []))
+      expect(answers).toMatchObject([{ permissionResult: { behavior: 'allow' } }, { permissionResult: { behavior: 'deny' } }])
+
+      const transcript = asRecorded(entries, recording.paths, 'approval')
+      const replaying = yield* workspace
+      const replay = replaySdk(transcript, replaying.paths)
+      const replayed = yield* run(approval, replay.sdk, replaying.dir)
+      const approvals = (events: ReadonlyArray<AdapterEvent>) => events.filter((event) => event.type === 'block' && event.block.kind === 'approval')
+      expect(approvals(replayed.events)).toHaveLength(approvals(recorded.events).length)
+      expect(replayed.result.ended.map((ended) => ended.error ?? null)).toEqual(recorded.result.ended.map((ended) => ended.error ?? null))
+      expect(replay.finished()).toEqual({ failure: null, unused: 0 })
+
+      // Accepting what was denied must fail the replay, not pass it.
+      const flipped = replaySdk(transcript, replaying.paths)
+      yield* Effect.exit(run(approvalScenario(approval.prompts, [true, true]), flipped.sdk, replaying.dir, '1 second'))
+      expect(flipped.finished().failure).toMatch(/expected .*"deny".*but Docs sent .*"allow"/)
+    }),
+  )
+
+  it.live('the approval scenario answers every request in a turn, not just the first', () =>
+    Effect.gen(function* () {
+      const fake = makeFakeClaude({ reply: null })
+      const entries: ReplayEntry[] = []
+      const { dir } = yield* workspace
+      yield* Effect.all([run(approvalScenario(['Make tea.'], [true]), recordingSdk(fake.sdk, entries, true), dir), askingClaudeCode(fake, 1, 2, dir)], {
+        concurrency: 2,
+      })
+      const answers = entries.flatMap((entry) => (entry.type === 'expect_outbound' && entry.label === 'permissionResult' ? [entry.frame] : []))
+      expect(answers).toMatchObject([{ permissionResult: { behavior: 'allow' } }, { permissionResult: { behavior: 'allow' } }])
+    }),
+  )
 
   it.live('without the turn gate, a prompt never reaches Claude Code', () =>
     Effect.gen(function* () {
