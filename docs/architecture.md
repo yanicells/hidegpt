@@ -104,8 +104,8 @@ Adapters hold no UI state and know nothing about routes. Every thread event carr
   - Pending permission and question requests are loaded when a document opens. A subagent's requests route to its root document.
   - A `false` reply from the server keeps the approval open.
 - **Claude.** One long-lived `query()` per document that is answering, fed by a prompt queue (T3's streaming-input pattern). It starts on the first send.
-  - A turn settles on the `result` frame. If Claude Code exits first, the turn settles as failed, and the next send resumes the transcript.
-  - A stop that Claude Code ignores closes the query after 10 s.
+  - A turn settles on the `result` frame. If Claude Code exits first, the turn settles as failed, and the next send resumes the transcript (checked with `getSessionInfo` when no answer had arrived yet).
+  - A stop that doesn't end the turn within 10 s (no answer, or no `result` frame) closes the query, so the next send works.
   - Models, commands, and login status come from a probe: Claude Code starts with a prompt that never yields and is closed after `initializationResult()`. It has a 25 s deadline, and there is one probe per folder at a time.
   - `canUseTool` becomes an approval block backed by a `Deferred`. `AskUserQuestion` maps onto approval questions.
   - The SDK is `import()`ed lazily.
@@ -117,7 +117,7 @@ The session manager is the one place UI state lives. It owns:
 - the active provider, plus each library's catalog, search, settings (model, effort, tier, mode), cwd, and error;
 - the route (`home`, or `doc` + threadId);
 - a `ThreadRuntime` per `provider:threadId`: blocks, streaming and stopping flags, older-page cursor, and last-viewed time. Adapter events update the runtime even when that document isn't on screen. Going Home or opening another doc does **not** interrupt or unsubscribe a running turn;
-- idle release. A sweep every minute releases runtimes that are off screen, idle, and unseen for 30 minutes, and caps idle runtimes at 12 (T3's ProviderSessionManager pattern). Until then, reopening a doc is instant: no resume and no refetch.
+- idle release. A sweep every minute releases runtimes that are off screen, idle, and unseen for 30 minutes, and caps idle runtimes at 12 (T3's ProviderSessionManager pattern). Until then, reopening a doc is instant: no resume and no refetch. The document each library shows counts as on screen, even while another library is active, so switching back never lands on a blank page.
 
 Rules it enforces:
 
@@ -126,18 +126,19 @@ Rules it enforces:
 - **Approvals** belong to their thread runtime. An approval that arrives while you're on Home waits in that document, and the provider waits too. A reply that fails, or that the server rejects, leaves the approval open and shows the error.
 - **Stopping** shows "Stopping…" until the turn's terminal event. After 10 s it settles anyway, so a lost turn end never traps the document.
 - **Errors never replace the whole UI.** A connection failure shows a banner with Refresh. Home and the other libraries keep working.
+- **Defects don't freeze a connection** (T3's `catchCause` pattern). A defect while applying events ends the session like a crash, so it restarts; one anywhere else in supervision, or a provider chunk that fails to load, leaves that library in error with the message.
 
 ## 5. Processes (`src/provider/ProcessSupervisor.ts`)
 
 Codex and OpenCode run as child processes. Effect's Node spawner gives each child its own process group. When the session scope closes, it sends SIGTERM to the group, then SIGKILL after 2 s, so a CLI's own children die with it. The supervisor adds:
 
-- `BinaryMissingError` when the CLI is not on PATH;
+- `BinaryMissingError` when the CLI is not on PATH, and a `ProviderRequestError` saying what failed for any other spawn error;
 - an 8 KiB stderr tail on every `ProcessExitedError`, so "exited (1)" comes with the reason;
 - **an orphan ledger** (`userData/provider-processes.json`). If main is hard-killed and no finalizers run, the next launch kills a recorded pid, but only if its command line still matches what was spawned.
 
 The Claude SDK spawns its own Claude Code processes. Each `query()` is closed when its document is released, its library closes, or the app quits.
 
-Quitting follows T3 Code's desktop lifecycle. The first `before-quit` is cancelled, every scope closes (so the processes above get their SIGTERM), and then the app quits for real. A shutdown that takes longer than 5 s exits anyway, and the ledger cleans up on the next launch.
+Quitting follows T3 Code's desktop lifecycle. The first `before-quit` is cancelled, every scope closes (so the processes above get their SIGTERM), and then the app quits for real. Activation opens no window while that shutdown runs. A shutdown that takes longer than 5 s exits anyway, and the ledger cleans up on the next launch.
 
 ## 6. Slim IPC (`src/main/SnapshotPublisher.ts`, `src/shared/snapshot-patch.ts`)
 
