@@ -1,4 +1,3 @@
-import { spawn as spawnChild } from 'node:child_process'
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,7 +6,7 @@ import * as NodeServices from '@effect/platform-node/NodeServices'
 import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
 
-import { ProcessLedger, ProcessSupervisor, layer } from './ProcessSupervisor'
+import { ProcessSupervisor, layer } from './ProcessSupervisor'
 
 /** Real processes: the supervisor's job is the boundary with the OS, so nothing here is faked. */
 const dir = mkdtempSync(join(tmpdir(), 'hidegpt-supervisor-'))
@@ -17,22 +16,6 @@ const withSupervisor = <A, E>(use: (supervisor: ProcessSupervisor['Service']) =>
   Effect.gen(function* () {
     return yield* use(yield* ProcessSupervisor)
   }).pipe(Effect.provide(layer(null)), Effect.provide(NodeServices.layer))
-
-const alive = (pid: number) => {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
-
-/** A `sleep` in its own process group, as the supervisor spawns servers. */
-const sleeper = () => {
-  const child = spawnChild('sleep', ['30'], { detached: true, stdio: 'ignore' })
-  child.unref()
-  return child.pid ?? 0
-}
 
 describe('ProcessSupervisor', () => {
   it.effect('reports a command that is not on PATH as not installed', () =>
@@ -78,33 +61,57 @@ describe('ProcessSupervisor', () => {
   )
 })
 
-describe('ProcessLedger', () => {
-  it('kills a previous run’s server only while its command still matches', () => {
-    const path = join(dir, 'ledger.json')
-    const server = sleeper()
-    const reused = sleeper()
+describe('ProcessSupervisor.callbackSpawner', () => {
+  const groupAlive = (pid: number) => {
     try {
-      // `reused` stands for a PID the OS gave to an unrelated program since the crash.
-      writeFileSync(path, JSON.stringify({ [server]: 'sleep 30', [reused]: 'opencode serve' }))
-      expect(new ProcessLedger(path).reap()).toBe(1)
-      expect(alive(reused)).toBe(true)
-    } finally {
-      for (const pid of [server, reused]) {
-        try {
-          process.kill(pid, 'SIGKILL')
-        } catch {
-          // already gone
-        }
-      }
+      process.kill(-pid, 0)
+      return true
+    } catch {
+      return false
     }
-  })
+  }
+  const until = (check: () => boolean) =>
+    Effect.gen(function* () {
+      for (let i = 0; i < 100 && !check(); i += 1) yield* Effect.sleep('20 millis')
+      expect(check()).toBe(true)
+    })
 
-  it('records and forgets live entries, and reaps nothing without a ledger file', () => {
-    const path = join(dir, 'fresh.json')
-    const ledger = new ProcessLedger(path)
-    expect(ledger.reap()).toBe(0)
-    ledger.record(4242, 'codex app-server')
-    ledger.forget(4242)
-    expect(new ProcessLedger(path).reap()).toBe(0)
-  })
+  it.live('passes the env exactly as given and drains stderr', () =>
+    withSupervisor((supervisor) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const spawn = yield* supervisor.callbackSpawner
+          let stderr = ''
+          const child = spawn({
+            command: 'sh',
+            args: ['-c', 'printf "%s|%s" "$MARKER" "$HOME" >&2'],
+            env: { MARKER: 'kept', PATH: process.env.PATH },
+            onStderr: (text) => (stderr += text),
+          })
+          yield* Effect.callback<void>((resume) => void child.once('close', () => resume(Effect.void)))
+          // Nothing from Docs' own environment (HOME) reaches the child.
+          expect(stderr).toBe('kept|')
+        }),
+      ),
+    ),
+  )
+
+  it.live('runs each child in its own group and kills the whole group when the scope closes', () =>
+    Effect.gen(function* () {
+      let pid = 0
+      yield* withSupervisor((supervisor) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const spawn = yield* supervisor.callbackSpawner
+            // A shell that ignores nothing, with a grandchild in its group (like an MCP server).
+            const child = spawn({ command: 'sh', args: ['-c', 'sleep 30 & wait'], env: { PATH: process.env.PATH } })
+            pid = child.pid ?? 0
+            expect(pid).toBeGreaterThan(0)
+            yield* until(() => groupAlive(pid))
+          }),
+        ),
+      )
+      yield* until(() => !groupAlive(pid))
+    }),
+  )
 })
