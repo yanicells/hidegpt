@@ -16,6 +16,8 @@ try {
 } catch {
   // Starting without the cache is only slower.
 }
+// A hidden fidelity capture (`pnpm fidelity:shots`) sets itself up first; other runs never load it.
+if (process.env.HIDEGPT_HIDDEN === '1') await import('./fidelity/boot')
 
 // Electron waits for this before emitting `ready`, so the app's
 // before-ready setup (privileged schemes) still runs in time.
