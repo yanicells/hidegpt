@@ -1,4 +1,5 @@
 import type * as Cause from 'effect/Cause'
+import * as Deferred from 'effect/Deferred'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 import * as Exit from 'effect/Exit'
@@ -199,6 +200,12 @@ const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession) =>
     const queue = yield* Queue.unbounded<AdapterEvent, Cause.Done>()
     const emit = (event: AdapterEvent) => Effect.asVoid(Queue.offer(queue, event))
     const tracker = yield* makeTurnTracker({ provider, emit })
+    /**
+     * Stops still owed to a turn, per thread, done once the stop went out or the turn is gone. The
+     * next send waits for one: the tracker holds one turn per thread, so sending first would close
+     * the stopped turn unsent and leave it running at the provider.
+     */
+    const owedStops = new Map<string, Deferred.Deferred<void>>()
     const openRequests = makeOpenRequests()
 
     const toItems = (threadId: string, blocks: ReadonlyArray<Block>): Item[] =>
@@ -240,6 +247,10 @@ const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession) =>
       messageId: legacy.messageId,
       send: (threadId, turnId, input, settings) =>
         Effect.gen(function* () {
+          // Bounded: the owed stop ends when its start lands and the stop goes out, when that
+          // start fails at its own deadline, or when the session dies (`failAll`).
+          const owed = owedStops.get(threadId)
+          if (owed) yield* Deferred.await(owed)
           yield* tracker.begin(threadId, turnId)
           const nativeTurnId = yield* legacy
             .send(threadId, input, settings)
@@ -254,12 +265,23 @@ const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession) =>
       interrupt: (threadId, turnId) =>
         Effect.gen(function* () {
           if (!(yield* tracker.requestStop(threadId, turnId))) return
-          const started = yield* tracker.awaitStarted(threadId, turnId, STOP_WAITS_FOR_START).pipe(
-            Effect.as(true),
-            // It ended (or was abandoned) while Stop waited for it to start.
-            Effect.catchTag('ProviderRequestError', () => Effect.succeed(false)),
+          const owed = yield* Deferred.make<void>()
+          owedStops.set(threadId, owed)
+          yield* Effect.gen(function* () {
+            const started = yield* tracker.awaitStarted(threadId, turnId, STOP_WAITS_FOR_START).pipe(
+              Effect.as(true),
+              // It ended (or was abandoned) while Stop waited for it to start.
+              Effect.catchTag('ProviderRequestError', () => Effect.succeed(false)),
+            )
+            if (started) yield* legacy.interrupt(threadId)
+          }).pipe(
+            Effect.ensuring(
+              Effect.suspend(() => {
+                if (owedStops.get(threadId) === owed) owedStops.delete(threadId)
+                return Deferred.succeed(owed, undefined)
+              }),
+            ),
           )
-          if (started) yield* legacy.interrupt(threadId)
         }),
       respond: legacy.respond,
       rename: legacy.rename,

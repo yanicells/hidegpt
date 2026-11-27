@@ -38,8 +38,9 @@ export type ThreadRuntime = {
   /** The provider lost this thread's server state (crash); reopening reloads it. */
   readonly stale: boolean
   /**
-   * The turn a stop deadline ended here before the provider confirmed it. Its late
-   * `turn.started` (a slow start landing after the deadline) must not reopen it.
+   * The turn a stop deadline ended here while the provider may still run it, until the next turn
+   * starts. Its late `turn.started` must not reopen it, its late output must not reach the page,
+   * and its send failing later keeps its question.
    */
   readonly settledTurnId?: TurnId
 }
@@ -182,8 +183,16 @@ export function removeRuntime(state: State, key: string): State {
   return { ...state, runtimes }
 }
 
-/** True when a turn event names a turn other than the open one, so the reducer ignores it. */
+/**
+ * True when the reducer ignores the event: a turn event for a turn other than the open one, or
+ * output from a turn the stop deadline settled. With no turn open, a delta (which names no turn)
+ * can only be that turn's.
+ */
 export function isStaleTurnEvent(runtime: ThreadRuntime, event: ThreadEvent): boolean {
+  if (runtime.turn === null && runtime.settledTurnId !== undefined) {
+    if (event.type === 'item.delta') return true
+    if (event.type === 'item.upserted' && event.turnId === runtime.settledTurnId) return true
+  }
   if (event.type === 'turn.started') {
     return runtime.turn === null ? runtime.settledTurnId === event.turnId : runtime.turn.id !== event.turnId
   }
@@ -206,7 +215,11 @@ export function applyThreadEvent(state: State, provider: ProviderId, event: Thre
   const touched = { ...runtime, touchedAt: now }
   switch (event.type) {
     case 'turn.started':
-      return updateRuntime(state, key, () => ({ ...touched, turn: startedTurn(runtime.turn, event.turnId) }))
+      return updateRuntime(state, key, () => ({
+        ...touched,
+        turn: startedTurn(runtime.turn, event.turnId),
+        settledTurnId: undefined,
+      }))
     case 'turn.ended': {
       const error = event.failure ? presentFailure(event.failure) : null
       const shown = isDisplayed(state, runtime)

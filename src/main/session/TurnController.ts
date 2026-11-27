@@ -48,7 +48,8 @@ import * as S from './state'
  *   the provider did not answer in time is a `ProviderTimeoutError`, which
  *   leaves the turn to the deadline instead of putting it back to running.
  *   Only for a stop actually sent: a stop pressed before the start is held
- *   until the start lands (no clock of its own), never timed out unsent.
+ *   until the start lands (no clock of its own), never timed out unsent, and
+ *   the thread's next send waits until that held stop has gone out.
  * - End the turn with `turn.ended` for that turn id. A terminal within
  *   `REFUSED_STOP_GRACE` of a refusal cancels the refusal's banner.
  * - Keep no stop timer of its own (ARCH-4b deletes Claude's
@@ -165,13 +166,19 @@ export const make = (options: TurnControllerOptions): Effect.Effect<TurnControll
         })
         if (!opened.ok) return yield* Effect.fail(rejected(opened.reason))
         yield* session.send(threadId, turnId, { text, images, skill, clientId }, opened.settings).pipe(
+          // A turn the stop deadline already settled keeps its question: the page showed it as
+          // asked and stopped, and the provider may still have run it.
           undoOnFailure(() =>
             update((current) =>
-              S.updateRuntime(current, key, (item) => ({
-                ...item,
-                turn: item.turn?.id === turnId ? null : item.turn,
-                items: item.items.filter((entry) => entry.id !== clientId),
-              })),
+              S.updateRuntime(current, key, (item) =>
+                item.settledTurnId === turnId
+                  ? item
+                  : {
+                      ...item,
+                      turn: item.turn?.id === turnId ? null : item.turn,
+                      items: item.items.filter((entry) => entry.id !== clientId),
+                    },
+              ),
             ),
           ),
         )
