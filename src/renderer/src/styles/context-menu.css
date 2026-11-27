@@ -1,0 +1,7 @@
+/* ---------- Right-click menu over the page (DocContextMenu.tsx) ----------
+ * Rows, icons, separators and the shadow are the shared Docs menu (menus.css);
+ * Docs' context menu is 322px wide (gdocs-ref/menu-context.png at 1402).
+ */
+.doc-context-menu {
+  min-width: 322px;
+}
