@@ -87,6 +87,8 @@ type OpenTurn = {
   nativeTurnId: string | null
   phase: 'starting' | 'running'
   stopRequested: boolean
+  /** Opened from a start notification with no send behind it, so no start response will name its id. */
+  readonly adopted: boolean
   /** Succeeds with the native id on start; fails if the turn ends or is abandoned first. */
   readonly started: Deferred.Deferred<string | null, ProviderRequestError>
 }
@@ -143,7 +145,7 @@ export const makeTurnTracker = (options: TurnTrackerOptions): Effect.Effect<Turn
           const turnId = yield* allocateId
           const started = yield* Deferred.make<string | null, ProviderRequestError>()
           yield* Deferred.succeed(started, nativeTurnId)
-          open.set(threadId, { turnId, nativeTurnId, phase: 'running', stopRequested: false, started })
+          open.set(threadId, { turnId, nativeTurnId, phase: 'running', stopRequested: false, adopted: true, started })
           yield* emit({ type: 'turn.started', threadId, turnId })
           return turnId
         }
@@ -177,7 +179,14 @@ export const makeTurnTracker = (options: TurnTrackerOptions): Effect.Effect<Turn
             yield* close(threadId, previous, { status: 'interrupted', failure: null })
           }
           const started = yield* Deferred.make<string | null, ProviderRequestError>()
-          open.set(threadId, { turnId, nativeTurnId: null, phase: 'starting', stopRequested: false, started })
+          open.set(threadId, {
+            turnId,
+            nativeTurnId: null,
+            phase: 'starting',
+            stopRequested: false,
+            adopted: false,
+            started,
+          })
         }),
       )
 
@@ -208,9 +217,11 @@ export const makeTurnTracker = (options: TurnTrackerOptions): Effect.Effect<Turn
             if (turnId !== undefined) {
               if (turn?.turnId !== turnId) {
                 // A late response for a turn that already closed: its native events must not land on the next one.
-                // Unless the open turn already took that id (its start notification came first): remembering
-                // it would drop that turn's own terminal and leave it running.
-                if (nativeTurnId !== null && turn?.nativeTurnId !== nativeTurnId && !hasEnded(threadId, nativeTurnId))
+                // A sent turn that took the id from that turn's notification gets its own id from its own
+                // response. An adopted turn has no response coming, so the id is its own: remembering it would
+                // drop its terminal and leave it running.
+                const ownedByAdopted = turn?.adopted === true && turn.nativeTurnId === nativeTurnId
+                if (nativeTurnId !== null && !ownedByAdopted && !hasEnded(threadId, nativeTurnId))
                   remember(threadId, nativeTurnId)
                 return Effect.void
               }

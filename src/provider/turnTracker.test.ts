@@ -69,14 +69,40 @@ describe('TurnTracker', () => {
     }),
   )
 
-  it.effect('a closed turn’s late start response does not strand the turn that already took its id', () =>
+  it.effect('a closed turn’s late start response does not strand an adopted turn that took its id', () =>
     Effect.gen(function* () {
       const { tracker, types } = yield* setup
-      // A's start notification beat its response, so the next turn on the thread holds A's id.
+      // A's start notification beat its response, and with no turn open the thread adopted it.
       yield* tracker.started('t', 'native-a')
       yield* tracker.started('t', 'native-a', 'turn-a')
       yield* tracker.end('t', { status: 'completed', failure: null, nativeTurnId: 'native-a' })
       expect(types()).toEqual(['turn.started', 'ended:completed'])
+      expect(tracker.current('t')).toBeNull()
+    }),
+  )
+
+  it.effect('a sent turn that took a stopped turn’s id keeps only its own events', () =>
+    Effect.gen(function* () {
+      const { tracker, emitted } = yield* setup
+      yield* tracker.begin('t', 'turn-a')
+      yield* tracker.requestStop('t', 'turn-a')
+      yield* tracker.begin('t', 'turn-b')
+      // A's events arrive after B began: its notification gives B A's id, then its response and terminal.
+      yield* tracker.started('t', 'native-a')
+      yield* tracker.started('t', 'native-a', 'turn-a')
+      yield* tracker.end('t', { status: 'completed', failure: null, nativeTurnId: 'native-a' })
+      // B's own notification, response and terminal.
+      yield* tracker.started('t', 'native-b')
+      yield* tracker.started('t', 'native-b', 'turn-b')
+      yield* tracker.end('t', { status: 'completed', failure: null, nativeTurnId: 'native-b' })
+      const turns = emitted.map((event) =>
+        event.type === 'turn.ended'
+          ? `ended:${event.turnId}:${event.status}`
+          : event.type === 'turn.started'
+            ? `started:${event.turnId}`
+            : event.type,
+      )
+      expect(turns).toEqual(['ended:turn-a:interrupted', 'started:turn-b', 'ended:turn-b:completed'])
       expect(tracker.current('t')).toBeNull()
     }),
   )
