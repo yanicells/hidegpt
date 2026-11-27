@@ -76,6 +76,10 @@
   --scrollbar-track: #f0f0f0;
   --scrollbar-thumb: #cdcdcd;
   --scrollbar-thumb-hover: #bdbdbd;
+  /* UI-11: the side rail's divider, lighter than --line. */
+  --rail-divider: #e7eaf0;
+  /* UI-11: the side rail's "+" ink. Docs draws it #000; --page-ink has other roles. */
+  --rail-add-ink: #000;
 }
 
 /* UI-14 (menus): Docs' menu shadow, one soft neutral layer measured from its 2x menu captures. */
