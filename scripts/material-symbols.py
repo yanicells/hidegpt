@@ -3,8 +3,8 @@
 Docs draws its chrome with Material Symbols Outlined at weight 400, grade 0,
 unfilled, in 20px and 24px optical sizes. This pins those axes, extracts the
 outlines of only the icons listed below, each at only the optical sizes the
-renderer draws it at, and writes them as SVG paths (viewBox "0 -960 960 960",
-same as Google's own SVG exports).
+renderer draws it at, and writes them as compact SVG paths (viewBox
+"0 -960 960 960", same as Google's own SVG exports).
 
 Usage (dev only; fonttools is not an app dependency):
   uv run --with fonttools --with brotli python scripts/material-symbols.py path/to/material-symbols-outlined.woff2
@@ -13,6 +13,7 @@ The woff2 comes from the `material-symbols` npm package (Apache-2.0); 0.49.0
 reproduces the checked-in paths.
 """
 
+import re
 import sys
 from pathlib import Path
 
@@ -79,6 +80,71 @@ class DropEmptySegments(FilterPen):
             self._segment("qCurveTo", *points)
 
 
+ARITY = {"M": 2, "L": 2, "H": 1, "V": 1, "Q": 4, "C": 6, "Z": 0}
+
+
+def segments(path: str) -> list[tuple[str, list[int], tuple[int, int]]]:
+    """An integer path's segments as (command, absolute coordinates, start point); takes absolute or relative commands."""
+    out = []
+    x = y = start_x = start_y = 0
+    for cmd, args in re.findall(r"([MLHVQCZ])([^MLHVQCZ]*)", path, re.IGNORECASE):
+        upper = cmd.upper()
+        if upper == "Z":
+            out.append(("Z", [], (x, y)))
+            x, y = start_x, start_y
+            continue
+        values = [int(value) for value in re.findall(r"-?\d+", args)]
+        for i in range(0, len(values), ARITY[upper]):
+            coords = values[i : i + ARITY[upper]]
+            # Implicit repeats after M are lines.
+            seg = "L" if upper == "M" and i > 0 else upper
+            origin = [y] if seg == "V" else [x] if seg == "H" else [x, y] * (len(coords) // 2)
+            if cmd.islower():
+                coords = [value + o for value, o in zip(coords, origin)]
+            out.append((seg, coords, (x, y)))
+            if seg == "H":
+                x = coords[0]
+            elif seg == "V":
+                y = coords[0]
+            else:
+                x, y = coords[-2], coords[-1]
+            if seg == "M":
+                start_x, start_y = x, y
+    return out
+
+
+def numbers(values: list[int]) -> str:
+    """Numbers joined as SVG allows: no separator before a minus sign."""
+    text = ""
+    for value in values:
+        text += str(value) if not text or value < 0 else f" {value}"
+    return text
+
+
+def compact(path: str) -> str:
+    """The same path in fewer bytes: each segment in the shorter of its absolute and relative forms, and a
+    repeated command letter left out. Coordinates are integers, so relative ones land on exactly the same
+    points; the round trip below checks that."""
+    out, last = [], None
+    for cmd, coords, (x, y) in segments(path):
+        if cmd == "Z":
+            letter, text = "Z", ""
+        else:
+            origin = [y] if cmd == "V" else [x] if cmd == "H" else [x, y] * (len(coords) // 2)
+            relative = [value - o for value, o in zip(coords, origin)]
+            letter, text = min([(cmd, numbers(coords)), (cmd.lower(), numbers(relative))], key=lambda f: len(f[1]))
+        # A repeated letter can go, except after M, where a repeat means L.
+        if letter == last and letter not in "MmZ":
+            out.append(text if text.startswith("-") else f" {text}")
+        else:
+            out.append(letter + text)
+        last = letter
+    result = "".join(out)
+    if [(c, v) for c, v, _ in segments(result)] != [(c, v) for c, v, _ in segments(path)]:
+        sys.exit(f"compacting changed a path: {path}")
+    return result
+
+
 def paths(font_path: str, opsz: int, names: list[str]) -> dict[str, str]:
     """Path data per name at one optical size; `_fill` names come from the FILL 1 instance."""
     out = {}
@@ -95,7 +161,7 @@ def paths(font_path: str, opsz: int, names: list[str]) -> dict[str, str]:
             pen = SVGPathPen(glyphs, ntos=lambda n: str(round(n)))
             # Font units are y-up from the baseline; SVG viewBox 0 -960 960 960 is y-down.
             glyphs[glyph].draw(TransformPen(DropEmptySegments(pen), (1, 0, 0, -1, 0, 0)))
-            out[name] = pen.getCommands()
+            out[name] = compact(pen.getCommands())
     return out
 
 def main() -> None:
