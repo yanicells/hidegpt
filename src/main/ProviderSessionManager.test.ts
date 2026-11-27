@@ -293,6 +293,33 @@ describe('ProviderSessionManager', () => {
     }),
   )
 
+  it.effect('a recovered retry clears its banner, but never a newer notice that replaced it', () =>
+    Effect.gen(function* () {
+      const { peer, manager } = yield* setup()
+      const retry = peer.notify('error', {
+        error: { message: 'Reconnecting… 1/5', codexErrorInfo: null, additionalDetails: null, misalignment: null },
+        willRetry: true,
+        threadId: 'thr_1',
+        turnId: 'turn_1',
+      })
+      const answer = peer.notify('item/agentMessage/delta', { threadId: 'thr_1', turnId: 'turn_1', itemId: 'a1', delta: 'Hi' })
+      const banner = manager.snapshot.pipe(Effect.map((snapshot) => snapshot.error))
+
+      yield* retry
+      yield* settle
+      expect(yield* banner).toBe('Reconnecting… 1/5')
+      yield* answer
+      yield* settle
+      expect(yield* banner).toBeNull()
+
+      yield* retry
+      yield* peer.notify('warning', { message: 'This folder is read-only.' })
+      yield* answer
+      yield* settle
+      expect(yield* banner).toBe('This folder is read-only.')
+    }),
+  )
+
   it.effect('a library that fails to load shows why, the others keep working, and it loads on the next try', () =>
     Effect.gen(function* () {
       const peer = makeFakeCodex()
