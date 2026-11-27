@@ -102,3 +102,13 @@ export function redactCause(cause: Cause.Cause<unknown>, redact: (text: string) 
 /** `logger`, writing causes only after `redact`. */
 export const redacting = <Output>(logger: Logger.Logger<unknown, Output>, redact: (text: string) => string) =>
   Logger.make<unknown, Output>((options) => logger.log({ ...options, cause: redactCause(options.cause, redact) }))
+
+/**
+ * Redacts every string value in one JSON log line (messages and annotations included), the way T3
+ * redacts its serialized record. The patterns are for plain text, so they run on decoded strings,
+ * never on the encoded line, where escapes like `\n` and `\"` would break them.
+ */
+export const redactJsonLine =
+  (redact: (text: string) => string) =>
+  (line: string): string =>
+    JSON.stringify(JSON.parse(line), (_key, value: unknown) => (typeof value === 'string' ? redact(value) : value))

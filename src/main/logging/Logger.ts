@@ -9,7 +9,7 @@ import * as Logger from 'effect/Logger'
 import * as Path from 'effect/Path'
 import * as References from 'effect/References'
 
-import { type Identity, makeRedactor, redacting, redactThenCap } from './redact'
+import { type Identity, makeRedactor, redacting, redactJsonLine, redactThenCap } from './redact'
 import { makeRotatingFileSink } from './rotatingFileSink'
 
 /** `logs/main.ndjson`: 10 MB, plus five rotated files. */
@@ -59,9 +59,8 @@ export const layer = (options: LoggingOptions) => {
             ...MAIN_LOG,
             filePath: path.join(options.directory, MAIN_LOG.name),
           })
-          // The whole line is redacted (messages and annotations too, like T3's serialized-record redaction);
-          // `redacting` below also cuts the cause.
-          const file = yield* Logger.batched(Logger.map(Logger.formatJson, redact), {
+          // Every string in the line is redacted (messages and annotations too); `redacting` below also cuts the cause.
+          const file = yield* Logger.batched(Logger.map(Logger.formatJson, redactJsonLine(redact)), {
             window: BATCH_WINDOW,
             flush: (lines) => Effect.ignore(sink.write(lines.map((line) => `${line}\n`).join(''))),
           })

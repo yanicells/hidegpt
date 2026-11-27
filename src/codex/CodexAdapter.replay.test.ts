@@ -95,7 +95,8 @@ describe('CodexAdapter replay', () => {
       const { result, finished, initialize } = yield* runScenario('library', library)
 
       // The replay client fails on a frame the recording does not hold, so this is also what was sent.
-      expect(initialize).toMatchObject({ params: { clientInfo: { name: 'docs-desktop', version } } })
+      // The version is today's (swapped in at load); the replay driver checks the sent frame matches it.
+      expect(initialize).toMatchObject({ params: { clientInfo: { name: 'docs-desktop' } } })
 
       expect(result.catalog.account).toBeNull()
       expect(result.catalog.requiresAuth).toBe(true)

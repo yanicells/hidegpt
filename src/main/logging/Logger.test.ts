@@ -75,19 +75,28 @@ describe('Logger.layer', () => {
     }),
   )
 
-  it.effect('writes messages and annotations without the home folder, the account name, or an email', () =>
+  it.effect('writes messages and annotations without the home folder, the account name, an email or a key', () =>
     Effect.gen(function* () {
       const dir = tempDir()
       const identity = { home: '/Users/alice-k', username: 'alice-k' }
-      yield* Effect.logWarning('Could not start /Users/alice-k/.local/bin/tool for alice.k@example.com').pipe(
-        Effect.annotateLogs({ command: '/Users/alice-k/.local/bin/tool', account: 'alice.k@example.com' }),
+      // Newlines, quotes and an `@` in a later field: escapes in the encoded line must not break redaction.
+      yield* Effect.logWarning('Could not start\n/Users/alice-k/.local/bin/tool for\nalice.k@example.com').pipe(
+        Effect.annotateLogs({
+          command: '/Users/alice-k/.local/bin/tool',
+          detail: 'key\nsk-abcdefghijklmnopqrstuv as\nalice-k, password=foo"bar',
+          url: 'http://127.0.0.1:4096',
+          pkg: 'react@18.3.1',
+        }),
         Effect.provide(
           Logging.layer({ directory: dir, console: false, identity }).pipe(Layer.provide(NodeServices.layer)),
         ),
       )
       const log = readFileSync(join(dir, 'main.ndjson'), 'utf8')
-      expect(JSON.parse(log.trim())).toMatchObject({ level: 'WARN', annotations: { command: expect.any(String) } })
-      for (const secret of ['alice-k', 'alice.k@example.com']) expect(log).not.toContain(secret)
+      const line = JSON.parse(log.trim())
+      expect(Object.keys(line.annotations).sort()).toEqual(['command', 'detail', 'pkg', 'url'])
+      expect(line.annotations).toMatchObject({ url: 'http://127.0.0.1:4096', pkg: 'react@18.3.1' })
+      for (const secret of ['alice-k', 'alice.k@example.com', 'sk-abcdefghijklmnopqrstuv', 'foo"bar'])
+        expect(JSON.stringify(line)).not.toContain(secret)
     }),
   )
 

@@ -160,9 +160,9 @@ export function blocksFromMessages(messages: ReadonlyArray<MessageWithParts>): B
 
 /**
  * OpenCode titles every new session `New session - <ISO time>` (or `Child session - …`) until its
- * title step renames it. Same pattern OpenCode itself uses to detect the default.
+ * title step renames it. The same pattern OpenCode itself uses to detect the default.
  */
-const DEFAULT_TITLE = /^(New session - |Child session - )\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}/
+const DEFAULT_TITLE = /^(New session - |Child session - )\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 
 /** The title OpenCode gave the session, or null while it still has none (empty or the default). */
 export const namedTitle = (title: string | undefined): string | null => {
