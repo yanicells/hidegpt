@@ -13,7 +13,8 @@
  * Docs runs the line under the ruler from the vertical ruler's border (x=15)
  * to 4px short of the scrollbar. The border image's outset paints it past the
  * track without widening the scroll area; the plain border is the fallback.
- * Outsets are divided by the zoom, which scales them.
+ * 100cqw is the canvas including its scrollbar. Outsets are divided by the
+ * zoom, which scales them.
  */
 .ruler-track {
   @apply relative;
@@ -22,7 +23,7 @@
   zoom: var(--page-zoom, 1);
   border-bottom: 1px solid var(--line);
   border-image: linear-gradient(var(--line), var(--line)) 0 0 1 0 / 0 0 1px 0 / 0
-    max(0px, calc((100cqw - 4px - var(--page-left) - var(--page-w)) / var(--page-zoom, 1))) 0
+    max(0px, calc((100cqw - var(--scrollbar-w) - 4px - var(--page-left) - var(--page-w)) / var(--page-zoom, 1))) 0
     max(0px, calc((var(--page-left) - 15px) / var(--page-zoom, 1)));
   font-family: var(--font-text);
   font-size: 11px;
