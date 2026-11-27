@@ -124,14 +124,10 @@
   margin-top: 9px;
 }
 
+/* Docs' 42px ring slot; the ringless 32px disc (base.css, S7) sits on its centre, as Docs' 32px photo does. */
 .doc-top .avatar {
   width: 42px;
   height: 42px;
-}
-
-.doc-top .avatar > span {
-  width: 38px;
-  height: 38px;
 }
 
 /* ---------- Header actions: history, comments, Meet, Share, spark ---------- */

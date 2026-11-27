@@ -38,10 +38,9 @@
   gap: 0;
 }
 
-/* Docs draws no ring around the Home avatar (owner decision S7). */
+/* No ring (owner decision S7) now comes from base.css's .avatar, which also gives the hover grey. */
 .home-header .avatar {
   margin-left: 8px;
-  background: none;
 }
 
 /* Sheets, Slides, Vids and Forms in a grey pill, 21px before the apps grid. */
