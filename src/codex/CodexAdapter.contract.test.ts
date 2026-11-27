@@ -231,6 +231,10 @@ const driver: ContractDriver = {
             })
             yield* peer.notify('guardianWarning', { threadId: THREAD, message: `${marker} guardian warning` })
             yield* retrying(`${marker} retrying`)
+            // Codex asks for fresh ChatGPT tokens; the adapter answers with a banner of its own.
+            yield* peer
+              .request('account/chatgptAuthTokens/refresh', { reason: 'unauthorized', previousAccountId: null })
+              .pipe(Effect.ignore, Effect.forkDetach)
             return {}
           case 'errors':
             yield* turnError(`${marker} failed`, null)
@@ -343,8 +347,9 @@ const GAPS = {
     leaks: ['approval.body: ZZPROV asks for details', 'approval.body: ZZPROV pick a folder'],
   },
   passthrough_notices: {
-    why: 'Warning, config warning, guardian warning and retry text go on the banner.',
+    why: 'Warning, config warning, guardian warning and retry text go on the banner, and a token refresh request puts the adapter\'s own "Sign in with ChatGPT" sentence there (CodexAdapter.ts, `account/chatgptAuthTokens/refresh`). Owner: ARCH-4a.',
     leaks: [
+      'banned chatgpt: banner: Sign in with ChatGPT to refresh this session.',
       'banner: ZZPROV config warning',
       'banner: ZZPROV guardian warning',
       'banner: ZZPROV retrying',
@@ -354,6 +359,10 @@ const GAPS = {
   passthrough_crash: {
     why: "The process's stderr goes in the crash banner, and the banner names Codex (`providerLabel` in `ProcessExitedError.message`). Owner: ARCH-4a / STL-1.",
     leaks: ['banned codex: banner: Codex stopped unexpectedly (exit 1): ZZPROV stderr. Docs is reconnecting.'],
+  },
+  passthrough_command: {
+    why: 'A start Codex never answers fails with a sentence that names Codex (`providerLabel` in `ProviderTimeoutError.message`). Owner: ARCH-4a / STL-1.',
+    leaks: ['banned codex: banner: Codex did not answer in 60 s. Try again, or use Tools → Refresh.'],
   },
   title_stealth: {
     why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',

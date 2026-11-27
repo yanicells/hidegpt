@@ -2,15 +2,17 @@
 // provider traps, at commit 5c6f2f12. Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 import { describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
+import * as Exit from 'effect/Exit'
 import * as Fiber from 'effect/Fiber'
 import type * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
+import * as TestClock from 'effect/testing/TestClock'
 
 import * as S from '../main/session/state'
 import type { Block, ProviderId } from '../shared/model'
 import { stealthViolations } from '../shared/stealth'
 import { contractViolations, expectGap, failureMessage, judge, type KnownGap } from './contract.checks'
-import type { ProviderError } from './errors'
+import { bannerMessage, type ProviderError } from './errors'
 import type { FailureClass, ThreadEvent, TurnId } from './events'
 import {
   isThreadEvent,
@@ -34,9 +36,15 @@ import {
  * checks, the stream's violations, and any provider text a pass-through scenario found.
  *
  * What "the window" covers (`look()` in `open`): every block's strings, the page and window
- * title, and the banner (a library notice, a failed turn's sentence, the exit error). It does
- * not see the sidebar's document titles, the model and server lists, or a failed command's
- * error, so text that only reaches those is not checked here.
+ * title, and the banner (a library notice, a failed turn's sentence, the exit error, and a
+ * failed send's sentence, recorded as app.ts records it). Not covered here, so text that only
+ * reaches these is unchecked:
+ * - the sidebar's document titles, and the model and server lists;
+ * - a rejected start's own words: `ProviderRequestError.message` is the provider's `detail`,
+ *   and only a start that times out is scripted (`passthrough_command`);
+ * - the session manager's background work, which puts `error.message` on the banner when
+ *   reopening a document, listing documents, or loading the catalog fails, or when opening one
+ *   does (ProviderSessionManager.ts `setError` and `openThread`). Owner: the errors cleanup.
  *
  * The fakes are hand-written, so this proves the adapters agree with each
  * other and with our reading of each protocol. Only recorded fixtures prove
@@ -66,6 +74,7 @@ export const SCENARIOS = [
   'passthrough_notices',
   'passthrough_errors',
   'passthrough_crash',
+  'passthrough_command',
   'title_stealth',
 ] as const
 export type ScenarioName = (typeof SCENARIOS)[number]
@@ -297,7 +306,10 @@ const open = (driver: ContractDriver) =>
           turns += 1
           const turnId = `turn-${turns}`
           const input = { text, images: [], skill: null, clientId: session.messageId() }
-          yield* session.send(threadId, turnId, input, driver.settings)
+          // As app.ts does: a command that fails puts its sentence on the banner.
+          yield* session
+            .send(threadId, turnId, input, driver.settings)
+            .pipe(Effect.tapError((error) => Effect.sync(() => record('banner', bannerMessage(error)))))
           return turnId
         }),
       started: (turnId) => thread().some((event) => event.type === 'turn.started' && event.turnId === turnId),
@@ -642,6 +654,23 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
   passthrough_notices: passthroughScenario('notices'),
   passthrough_errors: passthroughScenario('errors'),
   passthrough_crash: passthroughScenario('crash'),
+
+  // A command's own failure reaches the banner too: here, a start the provider never answers.
+  passthrough_command: (run) =>
+    Effect.gen(function* () {
+      const hold = yield* run.script.holdStart
+      const sending = yield* run.send('Look it up').pipe(Effect.exit, Effect.forkScoped)
+      yield* hold.reached
+      yield* TestClock.adjust('10 minutes')
+      const sent = yield* Fiber.join(sending)
+      // The provider accepts late and runs the turn anyway; it answers, so nothing is left open.
+      // (Claude's send never waits on the provider, so its turn simply runs.)
+      yield* hold.release
+      yield* settle
+      yield* run.script.answer('Done.')
+      if (Exit.isSuccess(sent)) yield* awaitEnd(run, sent.value)
+      yield* settle
+    }),
 
   // A provider's title summarises the person's own content, so it reaches the page (D5), unless
   // it would make the page read as an AI tool.

@@ -344,6 +344,10 @@ contractSuite('OpenCode', driver, {
     stream: ['on ses_1 never ended'],
     leaks: ['banned opencode: banner: OpenCode stopped unexpectedly (exit 1). Docs is reconnecting.'],
   },
+  passthrough_command: {
+    why: 'A start OpenCode never answers fails with a sentence that names OpenCode (`providerLabel` in `ProviderTimeoutError.message`). Owner: ARCH-4c / STL-1.',
+    leaks: ['banned opencode: banner: OpenCode did not answer in 60 s. Try again, or use Tools → Refresh.'],
+  },
   title_stealth: {
     why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',
     fails: 'no title names a vendor or model',
