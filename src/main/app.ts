@@ -18,6 +18,7 @@ import {
   type SaveImageResult,
 } from '../shared/contracts'
 import type { ProviderId } from '../shared/model'
+import { windowTitle } from '../shared/labels'
 import { describeFailure, logDefects } from '../provider/DefectReport'
 import { forkObserved } from '../provider/observed'
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
@@ -192,7 +193,7 @@ const program = Effect.gen(function* () {
   const publisher = makeSnapshotPublisher(manager.snapshots, (patch, snapshot) => {
     const win = getWindow()
     // The title and the menu are extras: a bug in either costs only that part, never the page.
-    guarded('title', () => win?.setTitle(snapshot.route.kind === 'home' ? 'Docs' : snapshot.title || 'Docs'))
+    guarded('title', () => win?.setTitle(windowTitle(snapshot.route, snapshot.title)))
     win?.webContents.send(IpcEvents.onSnapshot.channel, patch)
     guarded('menu', () => updateMenu(snapshot))
   })

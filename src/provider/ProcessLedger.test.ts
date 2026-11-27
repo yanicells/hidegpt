@@ -22,7 +22,7 @@ import {
 } from './ProcessLedger'
 
 /** Real processes and files: the ledger's job is the boundary with the OS. */
-const dir = mkdtempSync(join(tmpdir(), 'hidegpt-ledger-'))
+const dir = mkdtempSync(join(tmpdir(), 'docs-ledger-'))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
 let files = 0

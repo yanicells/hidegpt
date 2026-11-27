@@ -34,6 +34,7 @@ import type {
 import * as CodexClient from '../vendor/effect-codex-app-server/client.ts'
 import * as CodexError from '../vendor/effect-codex-app-server/errors.ts'
 import type * as CodexRpc from '../vendor/effect-codex-app-server/rpc.ts'
+import { CODEX_CLIENT_INFO, CODEX_ENV } from './client'
 import {
   APPROVAL_METHODS,
   APPROVALS,
@@ -256,7 +257,7 @@ export function make(connect: Connect): ProviderAdapter {
       yield* Effect.forEach(APPROVAL_METHODS, handleApproval, { discard: true })
 
       yield* rpc('initialize', {
-        clientInfo: { name: 'hidegpt', title: 'Docs', version: '0.1.0' },
+        clientInfo: CODEX_CLIENT_INFO,
         capabilities: { experimentalApi: true },
       })
       yield* client
@@ -391,7 +392,7 @@ export function make(connect: Connect): ProviderAdapter {
             if (running) activeTurns.set(id, running.id)
             return {
               threadId: id,
-              title: resumed.thread.name?.trim() || resumed.thread.preview?.trim() || 'Untitled document',
+              title: resumed.thread.name?.trim() || 'Untitled document',
               blocks: blocksFromTurns([...(page?.data ?? [])].reverse()),
               olderCursor: page?.backwardsCursor ?? resumed.turnsBackwardsCursor ?? null,
               cwd: resumed.cwd,
@@ -768,6 +769,7 @@ export const spawnAppServer = (supervisor: ProcessSupervisor['Service']): Connec
       provider: 'codex',
       command: globalThis.process.env.CODEX_BIN || 'codex',
       args: ['app-server'],
+      env: CODEX_ENV,
     })
     const context = yield* Layer.build(CodexClient.layerChildProcess(process.handle, CLIENT_OPTIONS))
     return Context.get(context, CodexClient.CodexAppServerClient)
