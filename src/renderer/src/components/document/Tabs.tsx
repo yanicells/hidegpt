@@ -1,18 +1,21 @@
-import { memo, useEffect, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 
 import { cn } from '../ui/cn'
 import { MIcon } from '../ui/MaterialIcon'
 import { Tip } from '../ui/tooltip'
 import type { OutlineEntry } from './outline'
+import { useReadingSection } from './useReadingSection'
 
 const NARROW = '(max-width: 960px)'
 
 /**
  * Docs' "Document tabs" panel: one "Tab 1" pill and the heading outline below
  * it. Questions are Heading 1 and answer sections nest under them, so the
- * outline jumps through the document. The ← collapses the panel to a round
- * button; narrow windows start collapsed. A streamed delta rebuilds the
- * entries but rarely changes one, so the panel re-renders only when it does.
+ * outline jumps through the document. The active item is the section at the
+ * top of the canvas, or the one you just clicked until you scroll. The ←
+ * collapses the panel to a round button; narrow windows start collapsed. A
+ * streamed delta rebuilds the entries but rarely changes one, so the panel
+ * re-renders only when it does, or when a heading crosses the reading line.
  */
 type TabsProps = {
   entries: ReadonlyArray<OutlineEntry>
@@ -21,8 +24,10 @@ type TabsProps = {
 }
 
 export const Tabs = memo(function Tabs({ entries, onNew, onJump }: TabsProps) {
-  const [activeId, setActive] = useState<string | null>(null)
+  const panelRef = useRef<HTMLElement>(null)
+  const [pinned, setPinned] = useState<string | null>(null)
   const [open, setOpen] = useState(() => !window.matchMedia?.(NARROW).matches)
+  const reading = useReadingSection(panelRef, entries, open)
   useEffect(() => {
     const query = window.matchMedia?.(NARROW)
     if (!query) return
@@ -30,9 +35,23 @@ export const Tabs = memo(function Tabs({ entries, onNew, onJump }: TabsProps) {
     query.addEventListener('change', onChange)
     return () => query.removeEventListener('change', onChange)
   }, [])
-  const active =
-    activeId && entries.some((entry) => entry.key === activeId)
-      ? activeId
+  // A clicked item stays active through its smooth scroll, and where the
+  // document can't scroll its heading to the top, until you scroll yourself.
+  useEffect(() => {
+    if (!pinned) return
+    const controller = new AbortController()
+    const release = () => setPinned(null)
+    for (const type of ['wheel', 'pointerdown', 'keydown'] as const) {
+      window.addEventListener(type, release, { signal: controller.signal, passive: true })
+    }
+    return () => controller.abort()
+  }, [pinned])
+  const known = (key: string | null) => key !== null && entries.some((entry) => entry.key === key)
+  // Without an observer (or before its first report) the latest question is active.
+  const active = known(pinned)
+    ? pinned
+    : known(reading)
+      ? reading
       : (entries.filter((entry) => entry.level === 1).pop()?.key ?? null)
 
   if (!open) {
@@ -48,7 +67,7 @@ export const Tabs = memo(function Tabs({ entries, onNew, onJump }: TabsProps) {
   }
 
   return (
-    <aside className="tabs" aria-label="Document tabs" data-testid="outline">
+    <aside className="tabs" aria-label="Document tabs" data-testid="outline" ref={panelRef}>
       <Tip label="Hide tabs & outlines">
         <button type="button" className="tabs-hide" aria-label="Hide tabs & outlines" onClick={() => setOpen(false)}>
           <MIcon name="arrow_back" size={24} />
@@ -85,7 +104,7 @@ export const Tabs = memo(function Tabs({ entries, onNew, onJump }: TabsProps) {
                   data-testid={`outline-${entry.key}`}
                   aria-current={active === entry.key ? 'location' : undefined}
                   onClick={() => {
-                    setActive(entry.key)
+                    setPinned(entry.key)
                     onJump(entry)
                   }}
                 >
