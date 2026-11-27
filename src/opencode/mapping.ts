@@ -94,10 +94,11 @@ export function toProjects(projects: ReadonlyArray<Project>): ProjectSummary[] {
 
 export function toDoc(session: GlobalSession): DocSummary {
   const updated = session.time.updated || session.time.created
+  const title = namedTitle(session.title)
   return {
     id: session.id,
-    name: session.title || null,
-    preview: session.title || 'Untitled document',
+    name: title,
+    preview: title ?? 'Untitled document',
     updatedAt: Math.floor(updated / 1000),
     cwd: session.directory,
     projectId: session.projectID === 'global' ? null : session.projectID || null,
@@ -157,12 +158,20 @@ export function blocksFromMessages(messages: ReadonlyArray<MessageWithParts>): B
   return blocks
 }
 
-export function sessionTitle(title: string | undefined, messages: ReadonlyArray<MessageWithParts>): string {
-  if (title?.trim()) return title.trim()
-  const firstUser = messages.find((message) => message.info.role === 'user')
-  const text = firstUser ? messageText(firstUser.parts, '\n') : ''
-  return text.split('\n')[0]?.trim() || 'Untitled document'
+/**
+ * OpenCode titles every new session `New session - <ISO time>` (or `Child session - …`) until its
+ * title step renames it. The same pattern OpenCode itself uses to detect the default.
+ */
+const DEFAULT_TITLE = /^(New session - |Child session - )\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+
+/** The title OpenCode gave the session, or null while it still has none (empty or the default). */
+export const namedTitle = (title: string | undefined): string | null => {
+  const trimmed = title?.trim()
+  return trimmed && !DEFAULT_TITLE.test(trimmed) ? trimmed : null
 }
+
+/** The session's title; never its first message, which reads as what was asked. */
+export const sessionTitle = (title: string | undefined): string => namedTitle(title) ?? 'Untitled document'
 
 export const permissionBlockId = (requestId: string) => `approval-${requestId}`
 
