@@ -1,13 +1,15 @@
-import { memo, useCallback, useEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 
 import type { Block, Snapshot } from '../../../../shared/model'
-import { dispatch, useBlocks } from '../../session-bridge'
+import { dispatch, useBlocks, useSnapshotSelector } from '../../session-bridge'
 import { BlockFallback, RenderErrorBoundary } from '../layout/RenderErrorBoundary'
 import { SparkIcon } from '../ui/Icons'
 import { BlockView } from './BlockView'
+import { CommentsRail, hasPendingSuggestion } from './CommentsRail'
 import { Composer } from './Composer'
 import { outlineEntries, type OutlineEntry } from './outline'
 import { PAGE_HEIGHT, PAGE_PITCH, usePages } from './pages'
+import { Ruler, VerticalRuler } from './Rulers'
 import { Tabs } from './Tabs'
 import { useFollowBottom } from './useFollowBottom'
 import { useKeepPlace } from './useKeepPlace'
@@ -40,6 +42,9 @@ export function Document({
   const rows = useProgressiveRows(visibleBlocks.length)
   // The composer waits for the last rows, so it never shows mid-document while a long one opens.
   const allRows = rows >= visibleBlocks.length
+  // A pending suggestion's card goes in the comments rail, which folds the tabs panel when it needs the room.
+  const hasCards = useSnapshotSelector(hasPendingSuggestion)
+  const [crowded, setCrowded] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const paperRef = useRef<HTMLElement>(null)
@@ -89,10 +94,11 @@ export function Document({
   )
 
   return (
-    <div className="workspace" data-testid="document" ref={scrollRef}>
+    // has-cards makes room for the rail (approvals.css) without a :has() over the document.
+    <div className={hasCards ? 'workspace has-cards' : 'workspace'} data-testid="document" ref={scrollRef}>
       <div className="doc-layout">
         <VerticalRuler />
-        <Tabs onNew={onNew} entries={outline} onJump={jumpTo} />
+        <Tabs onNew={onNew} entries={outline} onJump={jumpTo} autoCollapse={hasCards && crowded} />
         <div className="paper-col">
           <Ruler />
           <article className="paper" ref={paperRef} style={{ minHeight: (pages - 1) * PAGE_PITCH + PAGE_HEIGHT }}>
@@ -128,6 +134,7 @@ export function Document({
             <div className="paper-end" ref={endRef} aria-hidden="true" />
           </article>
         </div>
+        <CommentsRail flowRef={contentRef} onCrowded={setCrowded} />
       </div>
       {/* Docs' floating spark pill; while an answer streams, a click stops it. */}
       <div className="spark-wrap">
@@ -172,38 +179,3 @@ const BlockRow = memo(function BlockRow({ block, streaming }: { block: Block; st
     </div>
   )
 })
-
-const INCHES = [-1, 1, 2, 3, 4, 5, 6, 7]
-
-/**
- * Docs' horizontal ruler over the page: inches count from the left margin,
- * the margins are shaded, and blue markers sit at both indents. Decorative.
- */
-function Ruler() {
-  return (
-    <div className="ruler" aria-hidden="true">
-      <div className="ruler-track">
-        {INCHES.map((inch) => (
-          <span key={inch} className="ruler-num" style={{ left: 96 + inch * 96 }}>
-            {Math.abs(inch)}
-          </span>
-        ))}
-        <i className="ruler-indent ruler-indent-left" />
-        <i className="ruler-indent ruler-indent-right" />
-      </div>
-    </div>
-  )
-}
-
-/** The vertical ruler along the left edge of the editor. Decorative. */
-function VerticalRuler() {
-  return (
-    <div className="vruler" aria-hidden="true">
-      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((inch) => (
-        <span key={inch} className="vruler-num" style={{ top: 96 + inch * 96 }}>
-          {inch}
-        </span>
-      ))}
-    </div>
-  )
-}

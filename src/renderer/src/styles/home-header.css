@@ -1,0 +1,107 @@
+/* ---------- Home (measured against live docs.google.com) ---------- */
+
+/*
+ * Positions are Docs' at 1470. Docs' page scrollbar runs beside its header, so
+ * its right cluster ends 12px further in; ours scrolls only under the header,
+ * hence the 26px right padding (14 + that 12px track).
+ */
+.home-header {
+  @apply grid items-center shrink-0;
+  grid-template-columns: 235px minmax(120px, 720px) minmax(max-content, 1fr);
+  height: 64px;
+  padding: 8px 26px 8px 16px;
+  column-gap: 24px;
+  background: var(--surface);
+}
+
+.brand {
+  @apply flex items-center min-w-0;
+  gap: 4px;
+}
+
+/* The 27x37 logo centred in Docs' 40px slot. */
+.brand > svg {
+  margin: 0 6.5px 0 10.5px;
+}
+
+.brand-name {
+  margin-left: 4px;
+  /* Docs sets the wordmark 1px below the bar's centre. */
+  padding-top: 2px;
+  font-size: 22px;
+  line-height: 24px;
+  letter-spacing: -0.8px;
+  color: var(--text);
+}
+
+.home-header .header-end {
+  gap: 0;
+}
+
+/* No ring (owner decision S7) now comes from base.css's .avatar, which also gives the hover grey. */
+.home-header .avatar {
+  margin-left: 8px;
+}
+
+/* Sheets, Slides, Vids and Forms in a grey pill, 21px before the apps grid. */
+.quick-launch {
+  @apply flex items-center;
+  gap: 4px;
+  height: 48px;
+  margin-right: 21px;
+  padding: 0 4px;
+  border-radius: 24px;
+  background: var(--pill);
+}
+
+.quick-launch > a {
+  @apply grid place-items-center w-10 h-10 rounded-full;
+}
+
+.quick-launch > a:hover {
+  background: var(--hover);
+}
+
+/* Decorative Docs chrome icons (hamburger, apps grid). */
+.header-icon {
+  @apply grid place-items-center shrink-0 w-10 h-10 rounded-full;
+  color: var(--text-2);
+}
+
+.search {
+  @apply flex items-center w-full;
+  gap: 14px;
+  height: 48px;
+  padding: 0 16px 0 17px;
+  border-radius: 24px;
+  background: var(--pill);
+  color: var(--text-2);
+  transition:
+    background-color 120ms,
+    box-shadow 120ms;
+}
+
+.search:focus-within {
+  background: var(--surface);
+  box-shadow:
+    0 1px 1px rgba(65, 69, 73, 0.3),
+    0 1px 3px 1px rgba(65, 69, 73, 0.15);
+}
+
+.search input {
+  @apply flex-1 min-w-0 border-0 bg-transparent;
+  outline: none;
+  font-size: 16px;
+  color: var(--text);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.search input::placeholder {
+  color: var(--text-2);
+}

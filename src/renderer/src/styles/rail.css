@@ -1,0 +1,42 @@
+/* ---------- Side panel of Workspace apps ---------- */
+
+.side-rail {
+  @apply fixed flex flex-col items-center;
+  top: 64px;
+  right: 0;
+  bottom: 0;
+  width: var(--rail-width);
+  /* Icon centres 56px apart from y=86, like Docs' rail. */
+  padding-top: 2px;
+  background: var(--canvas);
+  z-index: 5;
+}
+
+.rail-app {
+  @apply grid place-items-center rounded-full;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 16px;
+  color: var(--text-2);
+}
+
+.rail-app:hover {
+  background: var(--hover);
+}
+
+/* The last app and its margin end at y=346; this puts the divider at y=355 and the "+" centre at y=400, as in Docs. */
+.rail-divider {
+  width: 20px;
+  height: 1px;
+  margin: 9px 0 24px;
+  background: var(--rail-divider);
+}
+
+/* "Get add-ons": a 14px plus in pure black, as Docs draws it. */
+.rail-add {
+  color: var(--rail-add-ink);
+}
+
+.rail-hide {
+  margin-top: auto;
+}

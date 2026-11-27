@@ -1,0 +1,138 @@
+/* ---------- Rulers ---------- */
+
+/* Horizontal ruler: the page's width, numbered in inches from the left margin. */
+.ruler {
+  @apply sticky;
+  top: 0;
+  z-index: 3;
+  padding: 2px 0 0;
+  background: var(--canvas);
+}
+
+/*
+ * Docs runs the line under the ruler from the vertical ruler's border (x=15)
+ * to 4px short of the scrollbar. The border image's outset paints it past the
+ * track without widening the scroll area; the plain border is the fallback.
+ * 100cqw is the canvas including its scrollbar, whose width is --scrollbar-size
+ * (UI-07) or, before that lands, --scrollbar-w. Outsets are divided by the
+ * zoom, which scales them.
+ */
+.ruler-track {
+  @apply relative;
+  width: var(--paper-width);
+  height: 18px;
+  zoom: var(--page-zoom, 1);
+  border-bottom: 1px solid var(--line);
+  border-image: linear-gradient(var(--line), var(--line)) 0 0 1 0 / 0 0 1px 0 / 0
+    max(
+      0px,
+      calc(
+        (100cqw - var(--scrollbar-size, var(--scrollbar-w)) - 4px - var(--page-left) - var(--page-w)) /
+          var(--page-zoom, 1)
+      )
+    )
+    0 max(0px, calc((var(--page-left) - 15px) / var(--page-zoom, 1)));
+  font-family: var(--font-text);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-2);
+}
+
+/* Rulers.tsx draws the ticks, from 1px left of the page's edge. */
+.ruler-ticks {
+  @apply absolute;
+  left: -1px;
+  bottom: 0;
+  width: calc(var(--paper-width) + 1px);
+  height: 8px;
+  overflow: visible;
+  shape-rendering: crispEdges;
+}
+
+.ruler-tick-margin {
+  fill: var(--ruler-tick-margin);
+}
+
+.ruler-tick-content {
+  fill: var(--ruler-tick-content);
+}
+
+/* Baseline at y=122.5, as in Docs. */
+.ruler-num {
+  @apply absolute;
+  top: 2.5px;
+  transform: translateX(-50%);
+}
+
+/*
+ * Docs' blue indent markers: a down-pointing triangle at each margin, its tip
+ * 2px above the line. Docs centres it on the margin tick's left edge, 1px left
+ * of the margin.
+ */
+.ruler-indent {
+  @apply absolute;
+  top: 9px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid var(--docs-blue);
+  transform: translateX(-50%);
+}
+
+/* The left one carries the 4px first-line indent bar on top, a 1px gap apart. */
+.ruler-indent-left {
+  left: calc(var(--paper-margin) - 1px);
+}
+
+.ruler-indent-left::after {
+  content: '';
+  @apply absolute;
+  left: -6px;
+  top: -11px;
+  width: 12px;
+  height: 4px;
+  background: var(--docs-blue);
+}
+
+.ruler-indent-right {
+  left: calc(100% - var(--paper-margin) - 1px);
+}
+
+/* Starts at the line under the horizontal ruler, and sticks there like the ruler above it. */
+.vruler {
+  @apply sticky shrink-0;
+  left: 0;
+  top: 19px;
+  z-index: 4;
+  width: 16px;
+  height: 100vh;
+  margin-top: 19px;
+  border-right: 1px solid var(--line);
+  background: var(--canvas);
+  font-family: var(--font-text);
+  font-size: 11px;
+  color: var(--text-2);
+  zoom: var(--page-zoom, 1);
+  overflow: hidden;
+}
+
+/* The same ticks down the ruler's right edge, from 1px above the page's top edge. */
+.vruler-ticks {
+  @apply absolute;
+  top: 16px;
+  right: 0;
+  width: 8px;
+  /* One page, plus its bottom edge's tick. */
+  height: 1057px;
+  shape-rendering: crispEdges;
+}
+
+/* Right: 2px leaves each number's baseline at x=10, as in Docs. */
+.vruler-num {
+  @apply absolute;
+  left: 0;
+  right: 2px;
+  text-align: center;
+  transform: translateY(-50%) rotate(-90deg);
+}

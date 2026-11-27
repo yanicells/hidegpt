@@ -38,7 +38,7 @@ export function Chip({
       <Tip label={tip}>
         <MenuTrigger className={cn('chip', className)} data-testid={testId}>
           {icon}
-          {label !== undefined ? <span className="chip-label">{label}</span> : null}
+          {label !== undefined ? <span className="chip-label cut-text">{label}</span> : null}
           {chevron ? <MIcon name="arrow_drop_down" /> : null}
         </MenuTrigger>
       </Tip>

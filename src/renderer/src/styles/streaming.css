@@ -1,0 +1,32 @@
+/* ---------- Streaming: an answer arriving on the page, and its cursor ---------- */
+
+/*
+ * The line being written. Before an answer starts, the waiting line holds the
+ * cursor; once it starts, the writing line under its finished lines does
+ * (BlockView shows whole lines only). Both are one plain line, so nothing
+ * moves when one replaces the other or when the last line lands in it.
+ */
+.pending,
+.writing-line {
+  margin: 0;
+  min-height: 1lh;
+}
+
+/* The cursor: Docs' black bar, solid as it is while typing, at the start of the writing line. */
+.caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.15em;
+  background: var(--page-ink);
+  vertical-align: text-bottom;
+}
+
+/* A pending suggestion is waiting on you, not writing, so no cursor runs on after it. */
+.doc-block:has(> .suggestion-row) + .pending {
+  display: none;
+}
+
+/* The page's own "Type @ to insert" waits until the answer is in. */
+.paper:has(.streaming, .pending .caret) .composer::placeholder {
+  color: transparent;
+}

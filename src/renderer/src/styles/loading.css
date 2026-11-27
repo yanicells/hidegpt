@@ -1,0 +1,6 @@
+/* ---------- Opening a document ---------- */
+
+/* The tabs panel's "Headings you add…" hint would promise an empty document; the panel waits blank. */
+.workspace[aria-busy='true'] .tabs-hint {
+  visibility: hidden;
+}
