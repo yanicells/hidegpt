@@ -37,6 +37,8 @@ const driver: ContractDriver = {
   settings: { model: 'fake/model-a', effort: null, serviceTier: null, mode: 'build' },
   open: Effect.gen(function* () {
     let hold: { reached: () => void; release: Promise<void> } | null = null
+    /** OpenCode's words when it refuses the next prompt (`rejectStart`). */
+    let refusal: string | null = null
     const fake = makeFakeOpenCode({
       reply: null,
       sessions: [
@@ -50,6 +52,11 @@ const driver: ContractDriver = {
         ],
       },
       hold: (method, path) => {
+        if (refusal !== null && method === 'POST' && path.endsWith('/prompt_async')) {
+          const message = refusal
+          refusal = null
+          return Response.json({ name: 'BadRequestError', data: { message } }, { status: 400 })
+        }
         const held = hold
         if (!held || method !== 'POST' || !path.endsWith('/prompt_async')) return
         hold = null
@@ -245,6 +252,11 @@ const driver: ContractDriver = {
             stream(text),
             Effect.sync(() => fake.finish(SESSION)),
           ),
+        rejectStart: (message) =>
+          Effect.sync(() => {
+            refusal = message
+            return driver.settings
+          }),
         holdStart: Effect.sync(() => {
           let reached = () => {}
           let release = () => {}
@@ -345,8 +357,13 @@ contractSuite('OpenCode', driver, {
     leaks: ['banned opencode: banner: OpenCode stopped unexpectedly (exit 1). Docs is reconnecting.'],
   },
   passthrough_command: {
-    why: 'A start OpenCode never answers fails with a sentence that names OpenCode (`providerLabel` in `ProviderTimeoutError.message`). Owner: ARCH-4c / STL-1.',
+    why: "When the start times out, legacyEvents.send only abandons the turn; OpenCode accepts it late, the tracker adopts it under a fresh id, and it runs while the page shows the failure and has taken the message back, so a retry runs the work twice. T3 Code interrupts it (ProviderTurnStartService's interruptTurn). Owner: turn tracker / legacyEvents.send (ARCH wave 3). The timeout's sentence also names OpenCode (`providerLabel` in `ProviderTimeoutError.message`). Owner: ARCH-4c / STL-1.",
+    fails: 'a turn accepted after its send failed is stopped',
     leaks: ['banned opencode: banner: OpenCode did not answer in 60 s. Try again, or use Tools → Refresh.'],
+  },
+  passthrough_rejected: {
+    why: "OpenCode's refusal of a prompt is the banner (`errorDetail` reads `body.data.message`). Owner: STL-1 / the errors cleanup.",
+    leaks: ['banner: ZZPROV refused'],
   },
   title_stealth: {
     why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',

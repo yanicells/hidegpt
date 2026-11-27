@@ -55,6 +55,7 @@ const driver: ContractDriver = {
     let asks = 0
     let results = 0
     let hold: { reached: () => void; release: Promise<void> } | null = null
+    let refusal: string | null = null
     const live = () => fake.queries.at(-1)
     const running = () => (live()?.prompts.length ?? 0) + selfStarted - results
     /** Waits on the scenario's hold, if it set one; whichever start step comes first takes it. */
@@ -85,6 +86,14 @@ const driver: ContractDriver = {
         const prompt = typeof params.prompt === 'string' ? params.prompt : heldPrompts(params.prompt)
         const query = fake.sdk.query({ ...params, prompt })
         const record = fake.queries.at(-1)!
+        // Claude Code refuses a model switch with its own words (`rejectStart`).
+        const setModel = query.setModel.bind(query)
+        query.setModel = async (model) => {
+          const message = refusal
+          refusal = null
+          if (message !== null) throw new Error(message)
+          return setModel(model)
+        }
         const interrupt = query.interrupt.bind(query)
         query.interrupt = async () => {
           received.push({ op: 'interrupt', target: null })
@@ -221,6 +230,12 @@ const driver: ContractDriver = {
       opened,
       script: {
         answer: (text) => Effect.andThen(stream(text), result({ result: text })),
+        // The running process refuses to switch to a new model before the turn.
+        rejectStart: (message) =>
+          Effect.sync(() => {
+            refusal = message
+            return { ...driver.settings, model: 'fake-other' }
+          }),
         holdStart: Effect.sync(() => {
           let reached = () => {}
           let release = () => {}
@@ -335,6 +350,10 @@ contractSuite('Claude', driver, {
   passthrough_errors: {
     why: "Claude Code's own `<synthetic>` error notice is drawn as answer text (C-1); the failed result's text stays off the page.",
     leaks: ['agent.text: ZZPROV notice error'],
+  },
+  passthrough_rejected: {
+    why: "Claude Code's refusal of a step before the turn (switching the model) is the banner (`errorDetail` returns the SDK error's message). Owner: STL-1 / the errors cleanup.",
+    leaks: ['banner: ZZPROV refused'],
   },
   title_stealth: {
     why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',

@@ -9,7 +9,7 @@ import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
 import * as S from '../main/session/state'
-import type { Block, ProviderId } from '../shared/model'
+import type { ApprovalReply, Block, ProviderId } from '../shared/model'
 import { stealthViolations } from '../shared/stealth'
 import { contractViolations, expectGap, failureMessage, judge, type KnownGap } from './contract.checks'
 import { bannerMessage, type ProviderError } from './errors'
@@ -36,12 +36,13 @@ import {
  * checks, the stream's violations, and any provider text a pass-through scenario found.
  *
  * What "the window" covers (`look()` in `open`): every block's strings, the page and window
- * title, and the banner (a library notice, a failed turn's sentence, the exit error, and a
- * failed send's sentence, recorded as app.ts records it). Not covered here, so text that only
- * reaches these is unchecked:
+ * title, and the banner (a library notice, a failed turn's sentence, the exit error, and the
+ * sentence of a failed send, reply or Stop, recorded as app.ts records it). Not covered here, so
+ * text that only reaches these is unchecked:
  * - the sidebar's document titles, and the model and server lists;
- * - a rejected start's own words: `ProviderRequestError.message` is the provider's `detail`,
- *   and only a start that times out is scripted (`passthrough_command`);
+ * - connecting: `BinaryMissingError` ("Codex is not installed…"), `NotLoggedInError`'s hints
+ *   ("Run `claude` in a terminal…", "`opencode auth login`"), and `ProviderNotReadyError`'s
+ *   default ("… is not connected yet."). Owner: STL-1;
  * - the session manager's background work, which puts `error.message` on the banner when
  *   reopening a document, listing documents, or loading the catalog fails, or when opening one
  *   does (ProviderSessionManager.ts `setError` and `openThread`). Owner: the errors cleanup.
@@ -75,6 +76,7 @@ export const SCENARIOS = [
   'passthrough_errors',
   'passthrough_crash',
   'passthrough_command',
+  'passthrough_rejected',
   'title_stealth',
 ] as const
 export type ScenarioName = (typeof SCENARIOS)[number]
@@ -121,6 +123,12 @@ export interface ContractScript {
   readonly answer: (text: string) => Effect.Effect<void>
   /** Holds the provider's acceptance of the next turn until `release`. */
   readonly holdStart: Effect.Effect<Hold>
+  /**
+   * The provider refuses the next turn's start with `message`, its own words. Returns the
+   * settings that send uses: Claude Code only refuses a step a running process takes before a
+   * turn (switching its model), so its driver asks for a new model.
+   */
+  readonly rejectStart: (message: string) => Effect.Effect<TurnSettings>
   /** The provider asks the person to approve a command in the open turn; returns the request's native id. */
   readonly askFor: Effect.Effect<string>
   /** The open turn fails. The provider may also report the turn complete afterwards. */
@@ -215,8 +223,13 @@ type Run = {
   readonly titles: () => ReadonlyArray<string>
   /** Takes in the document as reopened, as the session manager does. */
   readonly adopt: (opened: OpenedThread) => void
-  /** Sends a message under a fresh app turn id; succeeds once the provider accepted it. */
-  readonly send: (text: string) => Effect.Effect<TurnId, ProviderError>
+  /**
+   * Sends a message under a fresh app turn id; succeeds once the provider accepted it. This,
+   * `respond` and `interrupt` put a failure's sentence on the banner, as app.ts does.
+   */
+  readonly send: (text: string, settings?: TurnSettings) => Effect.Effect<TurnId, ProviderError>
+  readonly respond: (requestId: string, reply: ApprovalReply) => Effect.Effect<void, ProviderError>
+  readonly interrupt: (turnId: TurnId) => Effect.Effect<void, ProviderError>
   readonly started: (turnId: TurnId) => boolean
   readonly ended: (turnId: TurnId) => Ended | undefined
   /** `session.awaitExit`'s failure, observed as the session manager does. */
@@ -285,6 +298,9 @@ const open = (driver: ContractDriver) =>
       Effect.forkScoped,
     )
 
+    /** As app.ts does: a command that fails puts its sentence on the banner. */
+    const command = <A>(effect: Effect.Effect<A, ProviderError>) =>
+      effect.pipe(Effect.tapError((error) => Effect.sync(() => record('banner', bannerMessage(error)))))
     const thread = () =>
       events.filter((event): event is ThreadEvent => isThreadEvent(event) && event.threadId === threadId)
     const run: Run = {
@@ -301,17 +317,16 @@ const open = (driver: ContractDriver) =>
         state = S.showThread(S.adopt(state, provider, reopened, 0), provider, threadId)
         look()
       },
-      send: (text) =>
+      send: (text, settings = driver.settings) =>
         Effect.gen(function* () {
           turns += 1
           const turnId = `turn-${turns}`
           const input = { text, images: [], skill: null, clientId: session.messageId() }
-          // As app.ts does: a command that fails puts its sentence on the banner.
-          yield* session
-            .send(threadId, turnId, input, driver.settings)
-            .pipe(Effect.tapError((error) => Effect.sync(() => record('banner', bannerMessage(error)))))
+          yield* command(session.send(threadId, turnId, input, settings))
           return turnId
         }),
+      respond: (requestId, reply) => command(session.respond(threadId, requestId, reply)),
+      interrupt: (turnId) => command(session.interrupt(threadId, turnId)),
       started: (turnId) => thread().some((event) => event.type === 'turn.started' && event.turnId === turnId),
       ended: (turnId) =>
         thread().find((event): event is Ended => event.type === 'turn.ended' && event.turnId === turnId),
@@ -367,7 +382,7 @@ const requestScenario = (accept: boolean) => (run: Run) =>
     const turnId = yield* begin(run, 'Clean up the folder')
     const asked = yield* run.script.askFor
     const requestId = yield* openRequest(run)
-    yield* run.session.respond(run.threadId, requestId, { accept, answers: {} })
+    yield* run.respond(requestId, { accept, answers: {} })
     yield* until(() => decisions(run).length > 0, 'the provider received the decision')
     yield* run.script.answer('Done.')
     yield* awaitEnd(run, turnId)
@@ -493,7 +508,7 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
   turn_interrupt: (run) =>
     Effect.gen(function* () {
       const turnId = yield* begin(run, 'Write a long essay')
-      yield* run.session.interrupt(run.threadId, turnId)
+      yield* run.interrupt(turnId)
       const ended = yield* awaitEnd(run, turnId)
       expect(ended).toMatchObject({ status: 'interrupted', failure: null })
       expect(interrupts(run), 'Stop names the running turn').toEqual([
@@ -507,7 +522,7 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
       const sending = yield* run.send('Write a long essay').pipe(Effect.forkScoped)
       yield* hold.reached
       // Stop pressed while the provider has not yet accepted the turn.
-      const stopping = yield* run.session.interrupt(run.threadId, 'turn-1').pipe(Effect.exit, Effect.forkScoped)
+      const stopping = yield* run.interrupt('turn-1').pipe(Effect.exit, Effect.forkScoped)
       yield* settle
       yield* hold.release
       expect(yield* Fiber.join(sending)).toBe('turn-1')
@@ -543,7 +558,7 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
         resolved: 'skipped',
         pending: false,
       })
-      yield* requestExpiresWhen(run, 'Stop', (turnId) => run.session.interrupt(run.threadId, turnId))
+      yield* requestExpiresWhen(run, 'Stop', (turnId) => run.interrupt(turnId))
       yield* requestExpiresWhen(run, 'a failure', () => run.script.fail('provider_error'))
       yield* requestExpiresWhen(run, 'an exit', () => run.script.exit)
     }),
@@ -568,7 +583,7 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
     Effect.gen(function* () {
       // Stop, then a quick resend: the stopped turn's late terminal can land during the resend.
       const stopped = yield* begin(run, 'Run the long job')
-      yield* run.session.interrupt(run.threadId, stopped)
+      yield* run.interrupt(stopped)
       yield* awaitEnd(run, stopped)
       const hold = yield* run.script.holdStart
       const sending = yield* run.send('Run it again').pipe(Effect.forkScoped)
@@ -597,7 +612,7 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
       expect(start, 'a turn the provider starts itself shows as started').toBeGreaterThanOrEqual(0)
       expect(start).toBeLessThan(firstItem)
       const turnId = (woken[start] as Extract<ThreadEvent, { type: 'turn.started' }>).turnId
-      yield* run.session.interrupt(run.threadId, turnId)
+      yield* run.interrupt(turnId)
       expect(yield* awaitEnd(run, turnId)).toMatchObject({ status: 'interrupted', failure: null })
     }),
 
@@ -607,7 +622,7 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
       const asked = yield* run.script.childRequest
       // On the document's own thread, where the person can answer it.
       const requestId = yield* openRequest(run)
-      yield* run.session.respond(run.threadId, requestId, { accept: true, answers: {} })
+      yield* run.respond(requestId, { accept: true, answers: {} })
       yield* until(() => decisions(run).length > 0, 'the subagent received the decision')
       expect(decisions(run), 'the decision reaches the subagent').toEqual([{ op: 'approve', request: asked }])
       yield* run.script.answer('Done.')
@@ -618,7 +633,7 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
     Effect.gen(function* () {
       const turnId = yield* begin(run, 'Delegate it')
       const child = yield* run.script.busyChild
-      yield* run.session.interrupt(run.threadId, turnId)
+      yield* run.interrupt(turnId)
       yield* awaitEnd(run, turnId)
       expect(interrupts(run), 'Stop reaches the busy subagent').toContainEqual({ op: 'interrupt', target: child })
     }),
@@ -636,7 +651,7 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
     Effect.gen(function* () {
       const completed = yield* answeredTurn(run, 'First', 'Done.')
       const stopped = yield* begin(run, 'Second')
-      yield* run.session.interrupt(run.threadId, stopped)
+      yield* run.interrupt(stopped)
       yield* awaitEnd(run, stopped)
       const failed = yield* begin(run, 'Third')
       yield* run.script.fail('provider_error')
@@ -661,14 +676,36 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
       const hold = yield* run.script.holdStart
       const sending = yield* run.send('Look it up').pipe(Effect.exit, Effect.forkScoped)
       yield* hold.reached
-      yield* TestClock.adjust('10 minutes')
+      // Just past the 60 s start deadline, so no other timer (a stream watchdog) fires.
+      yield* TestClock.adjust('61 seconds')
       const sent = yield* Fiber.join(sending)
-      // The provider accepts late and runs the turn anyway; it answers, so nothing is left open.
-      // (Claude's send never waits on the provider, so its turn simply runs.)
       yield* hold.release
       yield* settle
-      yield* run.script.answer('Done.')
-      if (Exit.isSuccess(sent)) yield* awaitEnd(run, sent.value)
+      if (Exit.isSuccess(sent)) {
+        // Claude's send never waits on the provider, so nothing timed out and its turn runs.
+        yield* run.script.answer('Done.')
+        yield* awaitEnd(run, sent.value)
+        return
+      }
+      // The page showed the failure and took the message back, so the provider must not run the
+      // turn it accepted late: T3 Code interrupts it (ProviderTurnStartService's interruptTurn).
+      // Otherwise it runs unseen, and a retry runs the work twice.
+      expect(interrupts(run), 'a turn accepted after its send failed is stopped').toContainEqual({
+        op: 'interrupt',
+        target: run.script.nativeTurn(),
+      })
+      const completed = run.thread().filter((event) => event.type === 'turn.ended' && event.status === 'completed')
+      expect(completed, 'no turn the page gave up on completes').toEqual([])
+    }),
+
+  // A start the provider refuses: its own words must not reach the banner.
+  passthrough_rejected: (run) =>
+    Effect.gen(function* () {
+      // A running process first, since that is where Claude Code can refuse a start.
+      yield* answeredTurn(run, 'Summarise week 3', 'Week 3 covers attention.')
+      const settings = yield* run.script.rejectStart(`${MARKER} refused`)
+      const sent = yield* run.send('Look it up', settings).pipe(Effect.exit)
+      expect(Exit.isFailure(sent), 'the refused start fails the send').toBe(true)
       yield* settle
     }),
 

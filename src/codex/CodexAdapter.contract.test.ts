@@ -20,7 +20,7 @@ import {
 import { fromLegacy } from '../provider/legacyEvents'
 import type { AdapterEvent } from '../provider/ProviderAdapter'
 import * as CodexAdapter from './CodexAdapter'
-import { agentItem, makeFakeCodex } from './FakeCodex'
+import { agentItem, makeFakeCodex, rpcFailure } from './FakeCodex'
 
 /**
  * The adapter contract (src/provider/contract.testkit.ts) against Codex, over the in-process
@@ -54,6 +54,8 @@ const driver: ContractDriver = {
     const received: Received[] = []
     let hold: { readonly reached: Deferred.Deferred<void>; readonly release: Deferred.Deferred<void> } | null = null
     let starts = 0
+    /** Codex's words when it refuses the next `turn/start` (`rejectStart`). */
+    let refusal: string | null = null
     /** The native turn the scripts act on: the newest `turn/start`, or one Codex started itself. */
     let native: string | null = null
     /** The native turn before it. */
@@ -67,6 +69,11 @@ const driver: ContractDriver = {
             received.push({ op: 'interrupt', target: (params as { turnId: string }).turnId })
           }
           if (method !== 'turn/start') return
+          if (refusal !== null) {
+            const message = refusal
+            refusal = null
+            return yield* Effect.fail(rpcFailure(message))
+          }
           // The handler numbers turns in the order they arrive, as this count does.
           starts += 1
           previous = native
@@ -263,6 +270,11 @@ const driver: ContractDriver = {
             release: Effect.asVoid(Deferred.succeed(gate.release, undefined)),
           } satisfies Hold
         }),
+        rejectStart: (message) =>
+          Effect.sync(() => {
+            refusal = message
+            return driver.settings
+          }),
         askFor: askCommand({ command: 'rm -r build' }),
         fail: (kind) =>
           Effect.gen(function* () {
@@ -361,8 +373,13 @@ const GAPS = {
     leaks: ['banned codex: banner: Codex stopped unexpectedly (exit 1): ZZPROV stderr. Docs is reconnecting.'],
   },
   passthrough_command: {
-    why: 'A start Codex never answers fails with a sentence that names Codex (`providerLabel` in `ProviderTimeoutError.message`). Owner: ARCH-4a / STL-1.',
+    why: "When the start times out, legacyEvents.send only abandons the turn; Codex accepts it late, the tracker adopts it under a fresh id, and it runs while the page shows the failure and has taken the message back, so a retry runs the work twice. T3 Code interrupts it (ProviderTurnStartService's interruptTurn). Owner: turn tracker / legacyEvents.send (ARCH wave 3). The timeout's sentence also names Codex (`providerLabel` in `ProviderTimeoutError.message`). Owner: ARCH-4a / STL-1.",
+    fails: 'a turn accepted after its send failed is stopped',
     leaks: ['banned codex: banner: Codex did not answer in 60 s. Try again, or use Tools → Refresh.'],
+  },
+  passthrough_rejected: {
+    why: "Codex's refusal of a start is the banner (`formatCodexError` passes other text through). Owner: STL-1 / the errors cleanup.",
+    leaks: ['banner: ZZPROV refused'],
   },
   title_stealth: {
     why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',
