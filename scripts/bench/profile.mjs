@@ -18,7 +18,7 @@ function builtFile(url, repo) {
 }
 
 /** `node_modules/.pnpm/a@1/node_modules/@scope/pkg/x.js` → `@scope/pkg`; app files → `src/...`. */
-function owner(source) {
+export function owner(source) {
   const at = source.lastIndexOf('node_modules/')
   if (at >= 0) {
     const parts = source.slice(at + 'node_modules/'.length).split('/')
