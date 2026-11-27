@@ -6,6 +6,7 @@ import { Document } from './components/document/Document'
 import { DocumentChrome } from './components/document/DocumentChrome'
 import { createDocument } from './components/home/createDocument'
 import { threadProjectId } from './components/home/projects'
+import { DocMenu } from './components/home/DocCard'
 import { Home } from './components/home/Home'
 import { HomeHeader } from './components/home/HomeHeader'
 import { useHomeView } from './components/home/useHomeView'
@@ -78,6 +79,8 @@ export function App() {
         />
       )}
       <Banners snap={snap} />
+      {/* Home's one ⋮ menu, kept mounted so returning Home binds its buttons in one pass. */}
+      <DocMenu />
       {/* Errors show as a snackbar over the corner; the page underneath stays usable. */}
       {snap.openingThreadId ? (
         <LoadingDocument onNew={onNew} />

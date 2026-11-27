@@ -1,9 +1,11 @@
 /** @vitest-environment jsdom */
 
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { emptySnapshot, type DocSummary, type Snapshot } from '../../../../shared/model'
+import { DocMenu } from './DocCard'
 import { Home } from './Home'
 import type { HomeView } from './useHomeView'
 import { FIRST_WINDOW, NEXT_WINDOW } from './useMountWindow'
@@ -95,5 +97,22 @@ describe('Home mounts the documents in view', () => {
     render(home(library(12)))
     expect(shown()).toBe(12)
     expect(FakeObserver.live.size).toBe(0)
+  })
+})
+
+describe("Home's shared document menu", () => {
+  it('closes when Home goes, so it never outlives its button', async () => {
+    const user = userEvent.setup()
+    const snap = library(3)
+    const { rerender } = render(
+      <>
+        <DocMenu />
+        {home(snap)}
+      </>,
+    )
+    await user.click(screen.getByTestId('more-thr_1'))
+    expect(await screen.findByTestId('doc-open-new-tab')).toBeInTheDocument()
+    rerender(<DocMenu />)
+    await waitFor(() => expect(screen.queryByTestId('doc-open-new-tab')).toBeNull())
   })
 })

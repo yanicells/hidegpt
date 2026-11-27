@@ -49,13 +49,14 @@ export const DocCard = memo(function DocCard({ thread }: { thread: Thread }) {
 const docMenu = MenuPrimitive.createHandle<Thread>()
 
 /**
- * The ⋮ menu with Docs' entries, rendered once on Home; a closed menu per
- * document cost a dozen components each. Removing and renaming from Home have
- * no command yet, so those rows show disabled; "Open in new tab" opens the
- * document (this window is the only tab); it has no icon until the set gains
- * open_in_new.
+ * The ⋮ menu with Docs' entries, rendered once in the app; a closed menu per
+ * document cost a dozen components each. It outlives Home, so the buttons
+ * Home mounts bind to it on their first render, not again when it attaches.
+ * Removing and renaming from Home have no command yet, so those rows show
+ * disabled; "Open in new tab" opens the document (this window is the only
+ * tab); it has no icon until the set gains open_in_new.
  */
-export function DocMenu() {
+export const DocMenu = memo(function DocMenu() {
   return (
     <Menu handle={docMenu}>
       {({ payload }) =>
@@ -73,6 +74,11 @@ export function DocMenu() {
       }
     </Menu>
   )
+})
+
+/** Closes the ⋮ menu; Home calls it on leaving, so the menu never outlives its button. */
+export function closeDocMenu() {
+  docMenu.close()
 }
 
 /**

@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { ownerLabel, threadTitle } from '../../../../shared/labels'
 import type { Snapshot } from '../../../../shared/model'
 import { TEMPLATES, type Template } from '../../templates'
 import { MIcon } from '../ui/MaterialIcon'
 import { Tip } from '../ui/tooltip'
-import { DocCard, DocMenu } from './DocCard'
+import { closeDocMenu, DocCard } from './DocCard'
 import { FolderPicker } from './FolderPicker'
 import { groupByRecency } from './grouping'
 import { ListView } from './ListView'
@@ -38,6 +38,7 @@ export function Home({
   const [sort, setSort] = useState<Sort>('opened')
   const [picker, setPicker] = useState(false)
   const [owner, setOwner] = useState<Owner>('anyone')
+  useEffect(() => closeDocMenu, [])
   // Memoized on their inputs: a snapshot patch that leaves the threads and
   // projects alone keeps both references, so Home's lists are not rebuilt.
   const { projects, threads: all } = snap
@@ -163,8 +164,6 @@ export function Home({
           {threads.length > count ? <div key={count} ref={sentinelRef} aria-hidden="true" /> : null}
         </div>
       </main>
-      {/* One ⋮ menu for every card and row; each opens it for its own document. */}
-      <DocMenu />
       {picker ? (
         <FolderPicker
           folders={folders}
