@@ -1,10 +1,11 @@
-import { memo, useCallback, useEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 
 import type { Block, Snapshot } from '../../../../shared/model'
-import { dispatch, useBlocks } from '../../session-bridge'
+import { dispatch, useBlocks, useSnapshotSelector } from '../../session-bridge'
 import { BlockFallback, RenderErrorBoundary } from '../layout/RenderErrorBoundary'
 import { SparkIcon } from '../ui/Icons'
 import { BlockView } from './BlockView'
+import { CommentsRail, hasPendingSuggestion } from './CommentsRail'
 import { Composer } from './Composer'
 import { outlineEntries, type OutlineEntry } from './outline'
 import { PAGE_HEIGHT, PAGE_PITCH, usePages } from './pages'
@@ -41,6 +42,9 @@ export function Document({
   const rows = useProgressiveRows(visibleBlocks.length)
   // The composer waits for the last rows, so it never shows mid-document while a long one opens.
   const allRows = rows >= visibleBlocks.length
+  // A pending suggestion's card goes in the comments rail, which folds the tabs panel when it needs the room.
+  const hasCards = useSnapshotSelector(hasPendingSuggestion)
+  const [crowded, setCrowded] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const paperRef = useRef<HTMLElement>(null)
@@ -90,10 +94,11 @@ export function Document({
   )
 
   return (
-    <div className="workspace" data-testid="document" ref={scrollRef}>
+    // has-cards makes room for the rail (approvals.css) without a :has() over the document.
+    <div className={hasCards ? 'workspace has-cards' : 'workspace'} data-testid="document" ref={scrollRef}>
       <div className="doc-layout">
         <VerticalRuler />
-        <Tabs onNew={onNew} entries={outline} onJump={jumpTo} />
+        <Tabs onNew={onNew} entries={outline} onJump={jumpTo} autoCollapse={hasCards && crowded} />
         <div className="paper-col">
           <Ruler />
           <article className="paper" ref={paperRef} style={{ minHeight: (pages - 1) * PAGE_PITCH + PAGE_HEIGHT }}>
@@ -129,6 +134,7 @@ export function Document({
             <div className="paper-end" ref={endRef} aria-hidden="true" />
           </article>
         </div>
+        <CommentsRail flowRef={contentRef} onCrowded={setCrowded} />
       </div>
       {/* Docs' floating spark pill; while an answer streams, a click stops it. */}
       <div className="spark-wrap">
