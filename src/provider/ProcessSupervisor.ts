@@ -17,7 +17,7 @@ import type { ProviderId } from '../shared/model'
 import { appendStderrTail, stderrExcerpt } from '../vendor/effect-codex-app-server/_internal/stdio'
 import { BinaryMissingError, ProcessExitedError, ProviderRequestError } from './errors'
 import { providerLabel } from '../shared/labels'
-import { forkObserved, makeRunObserved, observed } from './observed'
+import { forkObserved, forkObservedIn, makeRunObserved, observed } from './observed'
 import * as ProcessLedger from './ProcessLedger'
 
 /**
@@ -150,6 +150,8 @@ const make = (
   spawner: ChildProcessSpawner.ChildProcessSpawner['Service'],
   ledger: ProcessLedger.ProcessLedger['Service'],
   timing: SupervisorTiming,
+  /** The supervisor's own scope, for an exit watch that outlives its caller's. */
+  scope: Scope.Scope,
 ) => {
   // Each pid leads its own group. Added at spawn; removed at exit or after a kill that succeeded.
   const live = new Set<number>()
@@ -174,6 +176,7 @@ const make = (
       )
       const pid = handle.pid
       live.add(pid)
+      const unlistOnExit = handle.exitCode.pipe(Effect.exit, Effect.andThen(Effect.sync(() => live.delete(pid))))
       // Released before the spawner's own kill, so this stops the server: its tree is read while
       // it still runs, its group is stopped, then whatever left the group (a `setsid` daemon).
       // The read is capped, so a slow `ps` never delays the kill past quit's deadline.
@@ -192,25 +195,26 @@ const make = (
           ),
           // A kill that failed or died is reported and its record kept, so the next launch reaps the server.
           // An interrupted one keeps the record too, without raising the interrupt inside this release.
+          // Either way the server stays listed for a stalled quit's kill, and is watched (in the
+          // supervisor's scope, as this one is closing) so it leaves the list once it does exit.
           // The write after a kill is capped, so a slow disk cannot hold quit past its deadline.
           Effect.flatMap((exit) =>
             Exit.isSuccess(exit)
               ? Effect.sync(() => live.delete(pid)).pipe(
                   Effect.andThen(Effect.timeoutOption(ledger.stop(pid), timing.ledgerWriteCap)),
                 )
-              : Cause.hasInterruptsOnly(exit.cause)
-                ? Effect.void
-                : observed(Effect.failCause(exit.cause), { name: 'supervisor.kill' }),
+              : Effect.andThen(
+                  forkObservedIn(scope, { name: 'supervisor.exitWatch' })(Effect.interruptible(unlistOnExit)),
+                  Cause.hasInterruptsOnly(exit.cause)
+                    ? Effect.void
+                    : observed(Effect.failCause(exit.cause), { name: 'supervisor.kill' }),
+                ),
           ),
         ),
       )
 
       // Interrupted when the scope closes, before the release above, so the pid stays until the kill.
-      yield* handle.exitCode.pipe(
-        Effect.exit,
-        Effect.andThen(Effect.sync(() => live.delete(pid))),
-        forkObserved({ name: 'supervisor.exitWatch' }),
-      )
+      yield* forkObserved({ name: 'supervisor.exitWatch' })(unlistOnExit)
 
       const tail = yield* Ref.make('')
       const draining = tailStderr
@@ -346,7 +350,7 @@ export const layerOverLedger = (timing: SupervisorTiming = DEFAULT_TIMING) =>
     ProcessSupervisor,
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-      return make(spawner, yield* ProcessLedger.ProcessLedger, timing)
+      return make(spawner, yield* ProcessLedger.ProcessLedger, timing, yield* Effect.scope)
     }),
   )
 

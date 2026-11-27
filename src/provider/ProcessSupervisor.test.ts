@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 import * as NodeServices from '@effect/platform-node/NodeServices'
 import { afterAll, describe, expect, it } from '@effect/vitest'
+import * as Deferred from 'effect/Deferred'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
@@ -169,14 +170,18 @@ describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
   )
 
   /** A spawner whose one server is `pid`, still running, whose kill does `kill`. */
-  const fakeSpawner = (pid: number, kill: Effect.Effect<void, PlatformError.PlatformError>) =>
+  const fakeSpawner = (
+    pid: number,
+    kill: Effect.Effect<void, PlatformError.PlatformError>,
+    exitCode: Effect.Effect<ChildProcessSpawner.ExitCode, PlatformError.PlatformError> = Effect.never,
+  ) =>
     Layer.succeed(
       ChildProcessSpawner.ChildProcessSpawner,
       ChildProcessSpawner.make(() =>
         Effect.succeed(
           ChildProcessSpawner.makeHandle({
             pid: ChildProcessSpawner.ProcessId(pid),
-            exitCode: Effect.never,
+            exitCode,
             isRunning: Effect.succeed(true),
             kill: () => kill,
             stdin: Sink.drain,
@@ -191,17 +196,43 @@ describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
       ),
     )
 
-  it.live('stops waiting on a ledger write that never lands after a kill, and drops the pid', () => {
-    const hungLedger = Layer.succeed(
+  /** A ledger that records nothing; its `stop` is `stop`. */
+  const fakeLedger = (stop: Effect.Effect<void>) =>
+    Layer.succeed(
       ProcessLedger.ProcessLedger,
       ProcessLedger.ProcessLedger.of({
         record: () => Effect.void,
         forget: () => Effect.void,
-        stop: () => Effect.never,
+        stop: () => stop,
         track: Effect.void,
         reap: Effect.succeed(0),
       }),
     )
+
+  it.live('keeps a server whose kill failed listed until it exits, even after its scope closed', () => {
+    const denied = PlatformError.systemError({ _tag: 'PermissionDenied', module: 'ChildProcess', method: 'kill' })
+    const { layer: logs, reported } = captureReports()
+    return Effect.gen(function* () {
+      const exited = yield* Deferred.make<ChildProcessSpawner.ExitCode>()
+      const supervisor = layerOverLedger(UNHURRIED).pipe(
+        Layer.provide(
+          Layer.merge(fakeSpawner(999_998, Effect.fail(denied), Deferred.await(exited)), fakeLedger(Effect.void)),
+        ),
+        Layer.provideMerge(logs),
+      )
+      yield* Effect.gen(function* () {
+        const supervisor = yield* ProcessSupervisor
+        yield* Effect.scoped(supervisor.spawn({ provider: 'codex', command: '/bin/sleep', args: ['30'] }))
+        expect(supervisor.livePidsSync()).toEqual([999_998])
+        yield* Deferred.succeed(exited, ChildProcessSpawner.ExitCode(0))
+        yield* until(() => supervisor.livePidsSync().length === 0)
+        expect(reported().map(({ where }) => where)).toEqual(['supervisor.kill'])
+      }).pipe(Effect.provide(supervisor))
+    })
+  })
+
+  it.live('stops waiting on a ledger write that never lands after a kill, and drops the pid', () => {
+    const hungLedger = fakeLedger(Effect.never)
     // Nothing is signalled: the kill is fake, so the pid needs no real process.
     const supervisor = layerOverLedger({ ...UNHURRIED, ledgerWriteCap: Duration.millis(50) }).pipe(
       Layer.provide(Layer.merge(fakeSpawner(999_999, Effect.void), hungLedger)),
