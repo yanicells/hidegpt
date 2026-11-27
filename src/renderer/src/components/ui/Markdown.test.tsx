@@ -53,9 +53,10 @@ function markdownHtml(text: string, closer?: string) {
 describe('AgentMarkdown', () => {
   it.each([
     { text: 'Intro\n\n```ts\nconst a = 1;\n\n\nconst b = 2;\n', opener: '```', closer: '```', fast: true },
-    { text: '```\nplain\n  text\n', opener: '```', closer: '```', fast: true },
+    { text: '```\nplain  \n  text\n \n', opener: '```', closer: '```', fast: true },
+    { text: '```ts title="a&b"\nx\n', opener: '```', closer: '```', fast: true },
     { text: 'a\n\n~~~~ py x\nprint(1)\n~~~\n```\n', opener: '~~~~', closer: '~~~~', fast: true },
-    { text: '  ```js\n  a\n    b\n   c\n', opener: '```', closer: '```', fast: true },
+    { text: '  ```js\n  a\n   \n    b\n   c\n', opener: '```', closer: '```', fast: true },
     { text: '```\n\tx\na\u0000b\n', opener: '```', closer: '```', fast: true },
     { text: '- item\n\n  ```ts\n  a\n\n  b\n', opener: '```', closer: '  ```', fast: false },
     { text: 'Intro\r\n\r\n```ts\r\na\r\n\r\nb\r\n', opener: '```', closer: '```', fast: false },

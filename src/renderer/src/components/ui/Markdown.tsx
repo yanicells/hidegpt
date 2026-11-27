@@ -21,7 +21,7 @@ const renderer = createMarkdownRenderer({ remarkPlugins: [remarkGfm], components
  */
 export const AgentMarkdown = memo(function AgentMarkdown({ text, streaming }: { text: string; streaming: boolean }) {
   const deferredText = useDeferredValue(text)
-  // The previous cut: a streamed text extends it, so only its last block is scanned again.
+  // The previous render's cut. A streamed text extends it, so the scan resumes near its end.
   const scanned = useRef<MarkdownBlocks | null>(null)
   const scan = scanMarkdownBlocks(deferredText, scanned.current)
   scanned.current = scan

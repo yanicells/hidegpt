@@ -116,10 +116,10 @@ function scan(text: string, blockStart: number, blocks: string[]): MarkdownBlock
 function readOpenCode(block: string, fence: string, indent: number): OpenCode | null {
   const openerEnd = block.indexOf('\n')
   const info = (openerEnd === -1 ? block : block.slice(0, openerEnd)).slice(indent + fence.length)
-  // Escapes and character references in the info string are decoded; a tab in an
-  // indented fence's content counts as spaces.
-  if (/[\\&]/.test(info) || (indent > 0 && block.includes('\t'))) return null
   const lang = /^[ \t]*([^ \t]*)/.exec(info)?.[1] || null
+  // Escapes and character references in the language are decoded; a tab in an
+  // indented fence's content counts as spaces.
+  if ((lang && /[\\&]/.test(lang)) || (indent > 0 && block.includes('\t'))) return null
   if (openerEnd === -1) return { code: '', lang }
   // The closing fence would go on its own line, which takes a trailing newline.
   let code = block.slice(openerEnd + 1).replace(/\n$/, '')

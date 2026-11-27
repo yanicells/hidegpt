@@ -113,6 +113,7 @@ describe('scanMarkdownBlocks', () => {
     ['- a\n\n  ```\n  x', null],
     ['```\nx\n```', null],
     ['```c\\+\\+\nx', null],
+    ['```a&amp;b\nx', null],
   ])('reports a fence open at the end only where it opens its block: %j', (text, openCode) => {
     expect(scanMarkdownBlocks(text)?.openCode).toEqual(openCode)
   })
