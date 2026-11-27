@@ -1,14 +1,30 @@
-/* ---------- Print: the page alone ---------- */
+/* ---------- Print: the page sheets alone ----------
+ * Cmd+P, File → Print and the toolbar's printer print the page text and
+ * nothing else, as Docs does: US Letter with the page's 1in margins, the
+ * printer breaking pages (page.css keeps its own breaks to the screen).
+ * print.test.ts renders a document and checks that everything but the page
+ * is hidden here, so new chrome needs a line in this list.
+ */
+
+@page {
+  size: 8.5in 11in;
+  margin: 1in;
+}
 
 @media print {
+  /* Chrome, panels, rulers, notices and floating cards; and inside the page, the
+     sheets drawn behind the text (the paper is the sheet), its controls and the writing line. */
   .doc-chrome,
   .side-rail,
+  .snackbar-lane,
+  .find-anchor,
   .tabs,
   .vruler,
   .ruler,
   .spark-wrap,
-  .composer-wrap,
-  .page-sheets {
+  .page-sheets,
+  .load-older,
+  .composer-wrap {
     display: none !important;
   }
 
@@ -21,8 +37,25 @@
     overflow: visible;
   }
 
+  /* The canvas, its rail gap and the page's centring padding are screen layout. */
+  .workspace,
+  .paper-col {
+    margin: 0;
+    padding: 0;
+    background: none;
+  }
+
+  /* @page draws the margins, so the page prints at full width, unzoomed, from its first line. */
   .paper {
+    width: auto;
     min-height: 0 !important;
-    @apply m-0 w-full;
+    margin: 0;
+    padding: 0;
+    zoom: 1;
+  }
+
+  /* Every row prints, including the ones content-visibility skips on screen. */
+  .doc-block {
+    content-visibility: visible;
   }
 }
