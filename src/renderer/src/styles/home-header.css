@@ -1,10 +1,15 @@
 /* ---------- Home (measured against live docs.google.com) ---------- */
 
+/*
+ * Positions are Docs' at 1470. Docs' page scrollbar runs beside its header, so
+ * its right cluster ends 12px further in; ours scrolls only under the header,
+ * hence the 27px right padding (15 + that 12px track).
+ */
 .home-header {
   @apply grid items-center shrink-0;
-  grid-template-columns: 238px minmax(120px, 720px) minmax(120px, 1fr);
+  grid-template-columns: 235px minmax(120px, 720px) minmax(max-content, 1fr);
   height: 64px;
-  padding: 8px 12px 8px 16px;
+  padding: 8px 27px 8px 16px;
   column-gap: 24px;
   background: var(--surface);
 }
@@ -14,15 +19,48 @@
   gap: 4px;
 }
 
+/* The 27x37 logo centred in Docs' 40px slot. */
 .brand > svg {
-  margin-left: 4px;
+  margin: 0 6.5px 0 10.5px;
 }
 
 .brand-name {
   margin-left: 4px;
+  /* Docs sets the wordmark 1px below the bar's centre. */
+  padding-top: 2px;
   font-size: 22px;
   line-height: 24px;
-  color: var(--text-2);
+  letter-spacing: -0.8px;
+  color: var(--text);
+}
+
+.home-header .header-end {
+  gap: 0;
+}
+
+/* Docs draws no ring around the Home avatar (owner decision S7). */
+.home-header .avatar {
+  margin-left: 7px;
+  background: none;
+}
+
+/* Sheets, Slides, Vids and Forms in a grey pill, 21px before the apps grid. */
+.quick-launch {
+  @apply flex items-center;
+  gap: 4px;
+  height: 48px;
+  margin-right: 21px;
+  padding: 0 4px;
+  border-radius: 24px;
+  background: var(--pill);
+}
+
+.quick-launch > a {
+  @apply grid place-items-center w-10 h-10 rounded-full;
+}
+
+.quick-launch > a:hover {
+  background: var(--hover);
 }
 
 /* Decorative Docs chrome icons (hamburger, apps grid). */
@@ -33,11 +71,11 @@
 
 .search {
   @apply flex items-center w-full;
-  gap: 16px;
+  gap: 14px;
   height: 48px;
-  padding: 0 16px 0 14px;
+  padding: 0 16px 0 17px;
   border-radius: 24px;
-  background: #f0f4f9;
+  background: var(--pill);
   color: var(--text-2);
   transition:
     background-color 120ms,
