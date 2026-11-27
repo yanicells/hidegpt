@@ -87,6 +87,8 @@ export function resolveResponseTypeName(
     "account/gatewayOAuth/read": "GatewayOAuthReadResponse",
     "account/logout": "LogoutAccountResponse",
     "account/rateLimits/read": "GetAccountRateLimitsResponse",
+    // HideGPT: added in codex-cli 0.172.0.
+    "account/securitySetup/read": "GetAccountSecuritySetupResponse",
     "account/usage/read": "GetAccountTokenUsageResponse",
     "account/workspaceMessages/read": "GetWorkspaceMessagesResponse",
     "config/batchWrite": "ConfigWriteResponse",

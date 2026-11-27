@@ -8,16 +8,19 @@ import {
 } from './helpers.ts'
 
 // Trimmed from codex-cli 0.172.0's `generate-ts` ClientRequest.ts. It publishes
-// ModelProviderDefaultSetParams but no ModelProviderDefaultSetResponse.
+// ModelProviderDefaultSetParams but no ModelProviderDefaultSetResponse, and names the
+// account/securitySetup/read response GetAccountSecuritySetupResponse.
 const clientRequest172 = `export type ClientRequest =
   { "method": "thread/start", id: RequestId, params: ThreadStartParams, } |
   { "method": "account/logout", id: RequestId, params: undefined, } |
+  { "method": "account/securitySetup/read", id: RequestId, params: undefined, } |
   { "method": "modelProvider/default/set", id: RequestId, params: ModelProviderDefaultSetParams, };`
 
 const schemaNames172 = new Set([
   'V2ThreadStartParams',
   'V2ThreadStartResponse',
   'V2LogoutAccountResponse',
+  'V2GetAccountSecuritySetupResponse',
   'V2ModelProviderDefaultSetParams',
 ])
 
@@ -30,6 +33,7 @@ describe('response schemas', () => {
     expect(responses).toEqual([
       ['thread/start', 'V2ThreadStartResponse'],
       ['account/logout', 'V2LogoutAccountResponse'],
+      ['account/securitySetup/read', 'V2GetAccountSecuritySetupResponse'],
       ['modelProvider/default/set', UNRESOLVED_RESPONSE],
     ])
   })
