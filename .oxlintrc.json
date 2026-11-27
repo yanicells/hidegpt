@@ -84,7 +84,9 @@
     "typescript/no-unsafe-enum-assignment": "off",
     "typescript/no-floating-promises": "error",
     // Work nobody awaits goes through src/provider/observed.ts; see "Background work" in docs/architecture.md.
-    "hidegpt/no-unobserved-effect": "error"
+    "hidegpt/no-unobserved-effect": "error",
+    // Every disable, @ts- or @effect-diagnostics suppression says why (as T3 Code's rule).
+    "hidegpt/require-suppression-reason": "error"
   },
   "overrides": [
     {

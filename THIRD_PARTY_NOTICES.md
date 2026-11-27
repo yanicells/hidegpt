@@ -146,7 +146,8 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     from `.vscode/`.
   - `tools/oxlint-plugin-hidegpt/` (commit 5c6f2f12): a JS plugin for
     oxlint with the plugin and rule shape of `oxlint-plugin-t3code/index.ts`
-    and `rules/no-global-process-runtime.ts`; the "Background work" and
+    and `rules/no-global-process-runtime.ts`, and
+    `rules/require-suppression-reason.ts` with its tests, adapted; the "Background work" and
     "Callback bridges" conventions in `docs/architecture.md` follow
     `docs/internals/effect-services.md`.
   - `src/main/logging/` (commit 5c6f2f12): the rotating file sink, from
