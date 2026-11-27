@@ -27,6 +27,7 @@ function fakeSupervisor(found: string, broken = false) {
       }),
     callbackSpawner: Effect.die('not used'),
     reapOrphans: Effect.succeed(0),
+    livePidsSync: () => [],
   })
   return {
     supervisor,

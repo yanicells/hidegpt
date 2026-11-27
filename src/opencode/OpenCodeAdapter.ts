@@ -40,6 +40,7 @@ import {
   joinAgentText,
   type MessageWithParts,
   modelKey,
+  namedTitle,
   permissionBlock,
   permissionBlockId,
   questionBlock,
@@ -623,9 +624,10 @@ export function make(connect: Connect): ProviderAdapter {
             }
             roots.add(info.id)
             if (event.type === 'session.created') return emit({ type: 'invalidate', part: 'docs' })
-            if (!info.title || titles.get(info.id) === info.title) return Effect.void
-            titles.set(info.id, info.title)
-            return emit({ type: 'title', threadId: info.id, title: info.title })
+            const title = namedTitle(info.title)
+            if (!title || titles.get(info.id) === title) return Effect.void
+            titles.set(info.id, title)
+            return emit({ type: 'title', threadId: info.id, title })
           }
           case 'session.deleted':
             opened.delete(event.properties.info.id)
@@ -776,7 +778,8 @@ export function make(connect: Connect): ProviderAdapter {
             )
             directories.set(threadId, info.data.directory)
             if (!info.data.parentID) roots.add(threadId)
-            if (info.data.title) titles.set(threadId, info.data.title)
+            const named = namedTitle(info.data.title)
+            if (named) titles.set(threadId, named)
             const [page, streaming, pending] = yield* Effect.all(
               [messagesPage(threadId), isBusy(threadId), pendingFor(threadId)],
               { concurrency: 'unbounded' },
@@ -790,7 +793,7 @@ export function make(connect: Connect): ProviderAdapter {
             const agent = info.data.agent && info.data.agent.toLowerCase() !== 'plan' ? info.data.agent : null
             return {
               threadId,
-              title: sessionTitle(info.data.title, page.messages),
+              title: sessionTitle(info.data.title),
               blocks: [...blocksFromMessages(page.messages), ...pending],
               olderCursor: page.cursor,
               cwd: info.data.directory,
@@ -993,7 +996,8 @@ export const spawnServer = (supervisor: ProcessSupervisor['Service']): Connect =
         command: process.env.OPENCODE_BIN || 'opencode',
         args: ['serve', '--hostname=127.0.0.1', '--port=0'],
         cwd: process.env.HOME || undefined,
-        env: { OPENCODE_SERVER_PASSWORD: password },
+        // No self-update in a server Docs starts (OPENCODE_DISABLE_AUTOUPDATE: https://opencode.ai/docs/cli/).
+        env: { OPENCODE_SERVER_PASSWORD: password, OPENCODE_DISABLE_AUTOUPDATE: '1' },
       },
       true,
     )

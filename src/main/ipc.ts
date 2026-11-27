@@ -1,11 +1,12 @@
 // Adapted from T3 Code (apps/desktop/src/ipc/DesktopIpc.ts) at commit 5c6f2f12.
 // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
+import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
 import * as Schema from 'effect/Schema'
 import type * as Scope from 'effect/Scope'
 
-import { logDefects } from '../provider/DefectReport'
+import { reportDefect } from '../provider/DefectReport'
 import type { InvokeInput, InvokePayload, InvokeResult } from '../shared/api'
 import { IpcInvoke, type IpcInvokeSpec } from '../shared/contracts'
 
@@ -49,7 +50,9 @@ export const makeIpc = (ipcMain: IpcMainLike, isTrusted: SenderGuard) => {
    * runs and the handler's answer is encoded with the row's `result` (which
    * drops any field it does not list), as in T3 Code's `makeIpcMethod`. An
    * untrusted sender, a payload that does not decode, or an answer that does
-   * not encode all get the row's `invalid` answer.
+   * not encode all get the row's `invalid` answer. So does a handler that
+   * dies: the renderer cannot log it, so it is reported here, under the
+   * channel, and the page gets an answer it can show instead of a rejection.
    */
   const handle = <Payload, PayloadEncoded, Result, R>(
     spec: IpcInvokeSpec<Payload, PayloadEncoded, Result>,
@@ -57,6 +60,8 @@ export const makeIpc = (ipcMain: IpcMainLike, isTrusted: SenderGuard) => {
   ): Effect.Effect<void, never, R | Scope.Scope> =>
     Effect.gen(function* () {
       const context = yield* Effect.context<R>()
+      // The bridge itself: Electron awaits the promise, and every failure but an interrupt becomes an answer.
+      // oxlint-disable-next-line hidegpt/no-unobserved-effect -- the IPC bridge is a callback boundary by design
       const runPromise = Effect.runPromiseWith(context)
       const decode = Schema.decodeUnknownEffect(spec.payload)
       const encode = Schema.encodeEffect(spec.result)
@@ -70,8 +75,14 @@ export const makeIpc = (ipcMain: IpcMainLike, isTrusted: SenderGuard) => {
                     Effect.flatMap((input) => handler(input, event)),
                     Effect.flatMap(encode),
                     Effect.orElseSucceed(() => spec.invalid),
-                    // The rejection goes to the renderer, which cannot log it; log the defect here.
-                    logDefects,
+                    Effect.catchCauseIf(
+                      (cause) => !Cause.hasInterruptsOnly(cause),
+                      (cause) =>
+                        reportDefect(cause).pipe(
+                          Effect.annotateLogs({ channel: spec.channel }),
+                          Effect.as(spec.invalid),
+                        ),
+                    ),
                   ),
                 )
               : spec.invalid,

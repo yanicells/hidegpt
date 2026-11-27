@@ -92,10 +92,12 @@ export const makeRotatingFileSink = Effect.fnUntraced(function* (options: Rotati
           )
           currentSize += buffer.length
         }).pipe(
-          // After a failed write the size on disk is the truth.
-          Effect.tapError(() =>
+          // After a failed write, a defect or an interrupt (`onError` runs on all three), the size on
+          // disk is the truth. The failure itself goes on to the logger's flush.
+          Effect.onError(() =>
             readSize.pipe(
               Effect.tap((size) => Effect.sync(() => void (currentSize = size))),
+              // oxlint-disable-next-line hidegpt/no-unobserved-effect -- a logger cannot log its own failure; the size stays as it was
               Effect.ignore,
             ),
           ),
