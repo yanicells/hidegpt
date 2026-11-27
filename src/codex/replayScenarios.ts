@@ -4,7 +4,8 @@ import type * as Option from 'effect/Option'
 import * as Stream from 'effect/Stream'
 
 import type { ProviderError } from '../provider/errors'
-import type { Catalog, OpenedThread } from '../provider/ProviderAdapter'
+import type { LegacyOpenedThread as OpenedThread } from '../provider/legacyEvents'
+import type { Catalog } from '../provider/ProviderAdapter'
 import {
   APPROVAL_DECISIONS,
   APPROVAL_PROMPTS,

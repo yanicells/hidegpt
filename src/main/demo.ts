@@ -1,3 +1,4 @@
+import { fromLegacy } from '../provider/legacyEvents'
 import { PERSONAL_BUILD } from '../shared/labels'
 import { layerLoaders, notInThisBuild } from './ProviderRegistry'
 
@@ -10,14 +11,14 @@ import { layerLoaders, notInThisBuild } from './ProviderRegistry'
 export const layer = layerLoaders({
   codex: async () => {
     const [{ make }, { makeDemoCodex }] = await Promise.all([import('../codex/CodexAdapter'), import('../codex/demo')])
-    return make(makeDemoCodex().connect)
+    return fromLegacy(make(makeDemoCodex().connect))
   },
   opencode: async () => {
     const [{ make }, { makeDemoOpenCode }] = await Promise.all([
       import('../opencode/OpenCodeAdapter'),
       import('../opencode/demo'),
     ])
-    return make(makeDemoOpenCode().connect)
+    return fromLegacy(make(makeDemoOpenCode().connect))
   },
   claude: PERSONAL_BUILD
     ? async () => {
@@ -26,7 +27,7 @@ export const layer = layerLoaders({
           import('../claude/demo'),
         ])
         const demo = makeDemoClaude()
-        return make(() => Promise.resolve(demo.sdk))
+        return fromLegacy(make(() => Promise.resolve(demo.sdk)))
       }
     : notInThisBuild,
 })

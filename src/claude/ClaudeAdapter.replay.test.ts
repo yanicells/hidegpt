@@ -9,7 +9,7 @@ import type * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 import * as Stream from 'effect/Stream'
 
-import type { AdapterEvent } from '../provider/ProviderAdapter'
+import type { LegacyAdapterEvent as AdapterEvent } from '../provider/legacyEvents'
 import {
   readTranscript,
   type RecordingMachine,

@@ -8,6 +8,7 @@ import { PERSONAL_BUILD, providerLabel } from '../shared/labels'
 import { reportDefect } from '../provider/DefectReport'
 import { ProviderRequestError } from '../provider/errors'
 import { ProcessSupervisor } from '../provider/ProcessSupervisor'
+import { fromLegacy } from '../provider/legacyEvents'
 import type { ProviderAdapter } from '../provider/ProviderAdapter'
 import { pathRefreshed } from './loginShellPath'
 
@@ -115,7 +116,8 @@ export const retryOnFreshPath = (
  * painted without ever missing a CLI installed under nvm and the like. `ready` may
  * settle on last launch's PATH; a CLI missing from it waits for `refreshed`. A provider
  * that did start on that PATH keeps its binary and PATH for the session, even once the
- * refresh lands: at worst one launch stale, which is the price of not waiting.
+ * refresh lands: at worst one launch stale, which is the price of not waiting. Each
+ * adapter still speaks the older event shape, so `fromLegacy` translates it.
  */
 export const layerAfter = (ready: Promise<unknown>, refreshed: () => Promise<unknown> = pathRefreshed) =>
   Layer.effect(
@@ -124,11 +126,16 @@ export const layerAfter = (ready: Promise<unknown>, refreshed: () => Promise<unk
       const supervisor = retryOnFreshPath(yield* ProcessSupervisor, refreshed)
       return fromLoaders({
         codex: () =>
-          ready.then(() => import('../codex/CodexAdapter')).then((m) => m.make(m.spawnAppServer(supervisor))),
+          ready
+            .then(() => import('../codex/CodexAdapter'))
+            .then((m) => fromLegacy(m.make(m.spawnAppServer(supervisor)))),
         opencode: () =>
-          ready.then(() => import('../opencode/OpenCodeAdapter')).then((m) => m.make(m.spawnServer(supervisor))),
+          ready
+            .then(() => import('../opencode/OpenCodeAdapter'))
+            .then((m) => fromLegacy(m.make(m.spawnServer(supervisor)))),
         claude: PERSONAL_BUILD
-          ? () => ready.then(() => import('../claude/ClaudeAdapter')).then((m) => m.make(undefined, supervisor))
+          ? () =>
+              ready.then(() => import('../claude/ClaudeAdapter')).then((m) => fromLegacy(m.make(undefined, supervisor)))
           : notInThisBuild,
       })
     }),

@@ -33,6 +33,7 @@ type ContentBlock = {
   readonly input?: Readonly<Record<string, unknown>> | undefined
   readonly tool_use_id?: string | undefined
   readonly content?: unknown
+  readonly is_error?: boolean | undefined
   readonly source?:
     | {
         readonly type?: string | undefined
@@ -62,6 +63,7 @@ function decodeBlock(value: unknown): ContentBlock | undefined {
     input: asRecord(part.input),
     tool_use_id: asString(part.tool_use_id),
     content: part.content,
+    is_error: part.is_error === true,
     source: source && {
       type: asString(source.type),
       media_type: asString(source.media_type),
@@ -176,8 +178,9 @@ const toolCallout = (part: ContentBlock): CalloutBlock => ({
   body: toolBody(part.input),
 })
 
-/** The callout once its tool finished, with the output under the command. */
+/** A tool's result added to its callout. A failed tool shows Docs' sentence, never its error text. */
 function finishedCallout(callout: CalloutBlock, result: ContentBlock): CalloutBlock {
+  if (result.is_error) return { ...callout, title: 'A step didn’t finish' }
   const output = resultText(result.content).trim().slice(0, 2000)
   return {
     ...callout,
@@ -453,7 +456,7 @@ export function questionBlock(id: string, questions: ReadonlyArray<AskedQuestion
     kind: 'approval',
     id,
     suggestion: 'question',
-    title: 'Claude needs input',
+    title: 'Waiting for your response',
     body: questions.map((item) => item.question).join('\n') || 'Continue?',
     fields: [],
     // Claude adds its own "Other" choice, so free text is always allowed.

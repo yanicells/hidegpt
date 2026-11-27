@@ -11,7 +11,7 @@ import * as Ref from 'effect/Ref'
 import * as Schema from 'effect/Schema'
 import * as Stream from 'effect/Stream'
 
-import type { AdapterEvent } from '../provider/ProviderAdapter'
+import type { LegacyAdapterEvent as AdapterEvent } from '../provider/legacyEvents'
 import { readTranscript, type ReplayEntry, type ReplayTranscript } from '../provider/replayFixture'
 import { type ReplayScenario, SETTINGS, type TurnResult } from '../provider/replayScenario'
 import * as CodexClient from '../vendor/effect-codex-app-server/client.ts'

@@ -12,8 +12,8 @@ import * as TestClock from 'effect/testing/TestClock'
 import * as ClaudeAdapter from '../claude/ClaudeAdapter'
 import { makeFakeClaude } from '../claude/FakeClaude'
 import * as CodexAdapter from '../codex/CodexAdapter'
-import { agentItem, makeFakeCodex, stubTurn, userItem, type FakeCodexOptions } from '../codex/FakeCodex'
-import type { ProviderAdapter } from '../provider/ProviderAdapter'
+import { agentItem, makeFakeCodex, rpcFailure, stubTurn, userItem, type FakeCodexOptions } from '../codex/FakeCodex'
+import { fromLegacy, type LegacyProviderAdapter } from '../provider/legacyEvents'
 import type { Snapshot } from '../shared/model'
 import { layerAdapters, layerLoaders } from './ProviderRegistry'
 import * as Manager from './ProviderSessionManager'
@@ -23,14 +23,21 @@ import * as Manager from './ProviderSessionManager'
  * peer: only the process boundary is fake, so these cover the same paths the
  * app runs (T3 Code's replay-fixture approach).
  */
-const setup = (options: FakeCodexOptions = {}, others: { claude?: ProviderAdapter } = {}) =>
+const setup = (options: FakeCodexOptions = {}, others: { claude?: LegacyProviderAdapter } = {}) =>
   Effect.gen(function* () {
     const peer = makeFakeCodex(options)
     const opened: string[] = []
     const manager = yield* Manager.make({
       defaultCwd: () => '/tmp/docs',
       openExternal: (url) => Effect.sync(() => opened.push(url)),
-    }).pipe(Effect.provide(layerAdapters({ codex: CodexAdapter.make(peer.connect), ...others })))
+    }).pipe(
+      Effect.provide(
+        layerAdapters({
+          codex: fromLegacy(CodexAdapter.make(peer.connect)),
+          ...(others.claude ? { claude: fromLegacy(others.claude) } : {}),
+        }),
+      ),
+    )
     yield* manager.start('codex')
     yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
     return { peer, manager, opened }
@@ -67,14 +74,16 @@ const brokenOnce = (peer: ReturnType<typeof makeFakeCodex>, method: string, key:
   let broken = true
   const poison = <T extends object>(name: string, params: T) =>
     name === method && broken ? ((broken = false), throwingOn(params, key, message)) : params
-  return CodexAdapter.make(
-    Effect.map(peer.connect, (client): CodexAdapter.Client => ({
-      ...client,
-      handleServerNotification: (name, handler) =>
-        client.handleServerNotification(name, (params) => handler(poison(name, params))),
-      handleServerRequest: (name, handler) =>
-        client.handleServerRequest(name, (params) => handler(poison(name, params))),
-    })),
+  return fromLegacy(
+    CodexAdapter.make(
+      Effect.map(peer.connect, (client): CodexAdapter.Client => ({
+        ...client,
+        handleServerNotification: (name, handler) =>
+          client.handleServerNotification(name, (params) => handler(poison(name, params))),
+        handleServerRequest: (name, handler) =>
+          client.handleServerRequest(name, (params) => handler(poison(name, params))),
+      })),
+    ),
   )
 }
 const countCalls = (peer: { calls: ReadonlyArray<{ method: string }> }, method: string) =>
@@ -174,6 +183,91 @@ describe('ProviderSessionManager', () => {
     }),
   )
 
+  it.effect('a stop timer from an earlier turn does not keep the next stop from settling', () =>
+    Effect.gen(function* () {
+      // The first stop is confirmed at once; the second is never answered.
+      let interrupts = 0
+      const { peer, manager } = yield* setup({
+        reply: null,
+        handlers: {
+          'turn/interrupt': (params): Effect.Effect<Record<string, never>> =>
+            (interrupts += 1) === 1
+              ? peer
+                  .notify('turn/completed', {
+                    threadId: params.threadId,
+                    turn: { id: params.turnId, items: [], status: 'interrupted' },
+                  })
+                  .pipe(Effect.as({}))
+              : Effect.never,
+        },
+      })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      const stopTurn = Effect.gen(function* () {
+        yield* until(manager, (snapshot) => snapshot.streaming && !snapshot.stopping)
+        yield* Effect.forkScoped(manager.dispatch({ op: 'interrupt' }))
+        yield* until(manager, (snapshot) => snapshot.stopping)
+      })
+      yield* manager.dispatch({ op: 'send', text: 'First' })
+      yield* stopTurn
+      yield* until(manager, (snapshot) => !snapshot.streaming)
+      yield* manager.dispatch({ op: 'send', text: 'Second' })
+      yield* stopTurn
+      yield* TestClock.adjust('10 seconds')
+      yield* settle
+      expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false })
+    }),
+  )
+
+  it.effect('an approval reply that lands after its turn ended leaves the request expired', () =>
+    Effect.gen(function* () {
+      const peer = makeFakeCodex({ reply: null })
+      const replyGate = yield* Deferred.make<void>()
+      const codex = fromLegacy(CodexAdapter.make(peer.connect))
+      const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
+        Effect.provide(
+          layerAdapters({
+            codex: {
+              ...codex,
+              // The reply is slow to reach the provider.
+              openSession: Effect.map(codex.openSession, (session) => ({
+                ...session,
+                respond: (...args) => Deferred.await(replyGate).pipe(Effect.andThen(session.respond(...args))),
+              })),
+            },
+          }),
+        ),
+      )
+      yield* manager.start('codex')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* manager.dispatch({ op: 'send', text: 'List the files' })
+      yield* until(manager, (snapshot) => snapshot.streaming)
+      yield* peer
+        .request('item/commandExecution/requestApproval', {
+          threadId: 'thr_1',
+          turnId: 'turn_1',
+          itemId: 'cmd_1',
+          command: 'ls',
+          startedAtMs: 1,
+        })
+        .pipe(Effect.ignore, Effect.forkScoped)
+      const asked = yield* until(manager, (snapshot) => snapshot.blocks.some((block) => block.kind === 'approval'))
+      const blockId = asked.blocks.find((block) => block.kind === 'approval')?.id ?? ''
+
+      const replying = yield* Effect.forkScoped(manager.dispatch({ op: 'resolveApproval', blockId, accept: true }))
+      yield* until(manager, (snapshot) => snapshot.blocks.some((block) => block.kind === 'approval' && block.pending))
+      // The turn ends while the reply is on its way, which expires the request.
+      yield* manager.dispatch({ op: 'interrupt' })
+      yield* until(manager, (snapshot) => !snapshot.streaming)
+      yield* Deferred.succeed(replyGate, undefined)
+      yield* Fiber.join(replying)
+      expect((yield* manager.snapshot).blocks.find((block) => block.kind === 'approval')).toMatchObject({
+        resolved: 'skipped',
+        pending: false,
+      })
+    }),
+  )
+
   it.effect('loads older turns in the same snapshot that ends loading', () =>
     Effect.gen(function* () {
       const { manager } = yield* setup({
@@ -196,6 +290,16 @@ describe('ProviderSessionManager', () => {
       const done = yield* Fiber.join(loaded)
       expect(done.blocks.map((block) => block.id)).toEqual(['u0', 'u1', 'a1'])
       expect(done.hasOlder).toBe(false)
+    }),
+  )
+
+  it.effect('a send the provider refuses frees the document and drops the echo', () =>
+    Effect.gen(function* () {
+      const { manager } = yield* setup({ handlers: { 'turn/start': () => Effect.fail(rpcFailure('busy')) } })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      const before = (yield* manager.snapshot).blocks
+      yield* Effect.flip(manager.dispatch({ op: 'send', text: 'Hi' }))
+      expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false, blocks: before })
     }),
   )
 
@@ -303,7 +407,7 @@ describe('ProviderSessionManager', () => {
       const peer = makeFakeCodex()
       const codex = CodexAdapter.make(peer.connect)
       let armed = false
-      const flaky: ProviderAdapter = {
+      const flaky: LegacyProviderAdapter = {
         ...codex,
         openSession: Effect.map(codex.openSession, (session) => ({
           ...session,
@@ -311,7 +415,7 @@ describe('ProviderSessionManager', () => {
         })),
       }
       const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
-        Effect.provide(layerAdapters({ codex: flaky })),
+        Effect.provide(layerAdapters({ codex: fromLegacy(flaky) })),
       )
       yield* manager.start('codex')
       yield* until(manager, (snapshot) => snapshot.status === 'ready')
@@ -338,7 +442,7 @@ describe('ProviderSessionManager', () => {
       const peer = makeFakeCodex()
       const codex = CodexAdapter.make(peer.connect)
       let broken = true
-      const flaky: ProviderAdapter = {
+      const flaky: LegacyProviderAdapter = {
         ...codex,
         openSession: Effect.map(codex.openSession, (session) => ({
           ...session,
@@ -347,7 +451,7 @@ describe('ProviderSessionManager', () => {
         })),
       }
       const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
-        Effect.provide(layerAdapters({ codex: flaky })),
+        Effect.provide(layerAdapters({ codex: fromLegacy(flaky) })),
       )
       yield* manager.start('codex')
       yield* until(manager, (snapshot) => snapshot.status === 'ready')
@@ -421,14 +525,14 @@ describe('ProviderSessionManager', () => {
       const peer = makeFakeCodex()
       const codex = CodexAdapter.make(peer.connect)
       let broken = true
-      const flaky: ProviderAdapter = {
+      const flaky: LegacyProviderAdapter = {
         ...codex,
         openSession: Effect.map(codex.openSession, (session) =>
           broken ? ((broken = false), { ...session, events: Stream.die(new Error('bad frame')) }) : session,
         ),
       }
       const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
-        Effect.provide(layerAdapters({ codex: flaky })),
+        Effect.provide(layerAdapters({ codex: fromLegacy(flaky) })),
       )
       yield* manager.start('codex')
       const lost = yield* until(manager, (snapshot) => snapshot.error !== null)
@@ -558,12 +662,12 @@ describe('ProviderSessionManager', () => {
         const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
           Effect.provide(
             layerLoaders({
-              codex: () => Promise.resolve(CodexAdapter.make(peer.connect)),
+              codex: () => Promise.resolve(fromLegacy(CodexAdapter.make(peer.connect))),
               opencode: () => Promise.reject(new Error('unused')),
               claude: () =>
                 claudeLoads++ === 0
                   ? Promise.reject(new Error('Cannot find module ./ClaudeAdapter'))
-                  : Promise.resolve(ClaudeAdapter.make(() => Promise.resolve(makeFakeClaude().sdk))),
+                  : Promise.resolve(fromLegacy(ClaudeAdapter.make(() => Promise.resolve(makeFakeClaude().sdk)))),
             }),
           ),
         )

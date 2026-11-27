@@ -306,3 +306,36 @@ describe('provider text on the page', () => {
     })
   })
 })
+
+describe('itemToBlock', () => {
+  it('titles a connected-app call in Docs’ words, with its names and never its error text in the body', () => {
+    const call = (status: string, error: { message: string } | null) =>
+      itemToBlock({
+        type: 'mcpToolCall',
+        id: 'm1',
+        server: 'github',
+        tool: 'create_issue',
+        status,
+        error,
+      } as unknown as Parameters<typeof itemToBlock>[0])
+    expect(call('completed', null)).toMatchObject({ title: 'github · create_issue', body: 'Done' })
+    expect(call('failed', { message: 'Bad credentials' })).toMatchObject({
+      title: 'github · create_issue',
+      body: 'Did not finish',
+    })
+  })
+
+  it('leaves out a server or tool name that would fail the stealth gate', () => {
+    const call = (server: string, tool: string) =>
+      itemToBlock({
+        type: 'mcpToolCall',
+        id: 'm1',
+        server,
+        tool,
+        status: 'completed',
+        error: null,
+      } as unknown as Parameters<typeof itemToBlock>[0])
+    expect(call('codex_apps', 'gmail_search_emails')).toMatchObject({ title: 'Connected app · gmail_search_emails' })
+    expect(call('openaiDeveloperDocs', 'search_openai_docs')).toMatchObject({ title: 'Connected app · Action' })
+  })
+})

@@ -25,14 +25,14 @@ import {
 } from '../provider/errors'
 import { logDefects, reportDefect } from '../provider/DefectReport'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
+import type { Catalog } from '../provider/ProviderAdapter'
 import type {
-  AdapterEvent,
-  Catalog,
-  OpenedThread,
-  ProviderAdapter,
-  ProviderSession,
-  ThreadEvent,
-} from '../provider/ProviderAdapter'
+  LegacyAdapterEvent as AdapterEvent,
+  LegacyOpenedThread as OpenedThread,
+  LegacyProviderAdapter as ProviderAdapter,
+  LegacyProviderSession as ProviderSession,
+  LegacyThreadEvent as ThreadEvent,
+} from '../provider/legacyEvents'
 import {
   blocksFromMessages,
   defaultMode,

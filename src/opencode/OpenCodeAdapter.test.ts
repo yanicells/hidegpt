@@ -8,8 +8,11 @@ import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
 import { BinaryMissingError } from '../provider/errors'
+import type {
+  LegacyAdapterEvent as AdapterEvent,
+  LegacyProviderSession as ProviderSession,
+} from '../provider/legacyEvents'
 import type { ProcessSupervisor, SpawnOptions } from '../provider/ProcessSupervisor'
-import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
 import {
   agentMessage,
   makeFakeOpenCode,

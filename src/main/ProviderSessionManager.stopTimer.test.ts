@@ -10,14 +10,15 @@ import { vi } from 'vitest'
 
 import * as CodexAdapter from '../codex/CodexAdapter'
 import { makeFakeCodex } from '../codex/FakeCodex'
+import { fromLegacy } from '../provider/legacyEvents'
 import type { Snapshot } from '../shared/model'
 import { layerAdapters } from './ProviderRegistry'
 import * as Manager from './ProviderSessionManager'
 
-// The stop timer's update is the only caller of `settle`; make it a Docs bug.
+// The stop timer's update is the only caller of `settleStop`; make it a Docs bug.
 vi.mock('./session/state', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./session/state')>()),
-  settle: () => {
+  settleStop: () => {
     throw new Error('settle bug')
   },
 }))
@@ -33,7 +34,7 @@ describe('ProviderSessionManager stop timer', () => {
       // Codex accepts the stop but never ends the turn, so only the timer can settle it.
       const peer = makeFakeCodex({ reply: null, handlers: { 'turn/interrupt': () => Effect.succeed({}) } })
       const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
-        Effect.provide(layerAdapters({ codex: CodexAdapter.make(peer.connect) })),
+        Effect.provide(layerAdapters({ codex: fromLegacy(CodexAdapter.make(peer.connect)) })),
       )
       const until = (predicate: (snapshot: Snapshot) => boolean) =>
         manager.snapshots.pipe(Stream.filter(predicate), Stream.runHead, Effect.map(Option.getOrThrow))

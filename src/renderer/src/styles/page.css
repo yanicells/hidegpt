@@ -303,14 +303,21 @@
   font-family: var(--font-ui);
 }
 
-.callout summary {
-  @apply inline-flex items-center gap-1 cursor-pointer list-none select-none;
+/* A step's pill. `.callout-step` is a step with nothing to show: no arrow, nothing to open. */
+.callout summary,
+.callout-step {
+  @apply inline-flex items-center gap-1 select-none;
   height: 22px;
-  padding: 0 8px 0 2px;
+  padding: 0 8px;
   border-radius: 11px;
   background: var(--surface-2);
   font-size: 12px;
   color: var(--text-2);
+}
+
+.callout summary {
+  @apply cursor-pointer list-none;
+  padding-left: 2px;
 }
 
 .callout summary::-webkit-details-marker {

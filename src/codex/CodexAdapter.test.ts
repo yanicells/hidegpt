@@ -10,9 +10,11 @@ import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
 import { BinaryMissingError } from '../provider/errors'
+import type {
+  LegacyAdapterEvent as AdapterEvent,
+  LegacyProviderSession as ProviderSession,
+} from '../provider/legacyEvents'
 import type { ProcessSupervisor, SpawnOptions } from '../provider/ProcessSupervisor'
-import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
-import { appendText, upsertBlock } from '../shared/blocks'
 import type { Block } from '../shared/model'
 import type * as CodexRpc from '../vendor/effect-codex-app-server/rpc.ts'
 import * as CodexAdapter from './CodexAdapter'
@@ -116,7 +118,7 @@ describe('CodexAdapter', () => {
       const text = events.flatMap((event) => (event.type === 'text' ? [event.delta] : [])).join('')
       expect(text).toBe('Hello there.')
       expect(events.at(-2)).toMatchObject({ type: 'block', block: { kind: 'agent', text: 'Hello there.' } })
-      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1' })
+      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1', nativeTurnId: 'turn_1' })
     }),
   )
 
@@ -130,7 +132,7 @@ describe('CodexAdapter', () => {
       const { session, events } = yield* open({ reply: () => 'Answer-5e2a about leaves.' })
       yield* send(session, 'Prompt-9c3f why are leaves green?')
       yield* settle
-      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1' })
+      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1', nativeTurnId: 'turn_1' })
       expect(logged.join('\n')).not.toMatch(/Prompt-9c3f|Answer-5e2a/)
     }).pipe(Effect.provide(Logger.layer([capture])), Effect.provideService(References.MinimumLogLevel, 'Debug'))
   })
@@ -144,7 +146,7 @@ describe('CodexAdapter', () => {
       yield* settle
       const interrupt = peer.calls.find((call) => call.method === 'turn/interrupt')
       expect(interrupt?.params).toEqual({ threadId: 'thr_1', turnId: 'turn_1' })
-      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1' })
+      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1', nativeTurnId: 'turn_1' })
     }),
   )
 
@@ -417,7 +419,16 @@ describe('CodexAdapter', () => {
       yield* settle
       const at = new Date(resetsAt * 1000)
       const time = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
-      expect(events).toEqual([{ type: 'turnEnded', threadId: 'thr_1', error: `Limit reached. Try again at ${time}.` }])
+      expect(events).toEqual([
+        { type: 'turnEnded', threadId: 'thr_1', nativeTurnId: 'turn_1', error: `Limit reached. Try again at ${time}.` },
+      ])
+    }),
+  )
+
+  it.effect('send returns the native turn id from the start response', () =>
+    Effect.gen(function* () {
+      const { session } = yield* open({ reply: null })
+      expect(yield* send(session, 'Hi')).toBe('turn_1')
     }),
   )
 
@@ -432,7 +443,9 @@ describe('CodexAdapter', () => {
       }
       yield* peer.notify('turn/completed', { threadId: 'thr_1', turn: { ...stubTurn('turn_1', [], 'failed'), error } })
       yield* settle
-      expect(events).toEqual([{ type: 'turnEnded', threadId: 'thr_1', error: 'Something went wrong. Try again.' }])
+      expect(events).toEqual([
+        { type: 'turnEnded', threadId: 'thr_1', nativeTurnId: 'turn_1', error: 'Something went wrong. Try again.' },
+      ])
     }),
   )
 
@@ -485,17 +498,23 @@ describe('CodexAdapter', () => {
   )
 
   describe('a reply Codex moderated to hide', () => {
-    /** The page as the session manager folds these events. */
-    const page = (events: ReadonlyArray<AdapterEvent>) =>
-      events.reduce<ReadonlyArray<Block>>(
-        (blocks, event) =>
-          event.type === 'block'
-            ? upsertBlock(blocks, event.block)
-            : event.type === 'text'
-              ? appendText(blocks, event.blockId, event.delta, event.create)
-              : blocks,
-        [],
-      )
+    /** The page these events build: a block replaces the one with its id, a delta extends its reply. */
+    const page = (events: ReadonlyArray<AdapterEvent>) => {
+      const blocks: Block[] = []
+      for (const event of events) {
+        const id = event.type === 'block' ? event.block.id : event.type === 'text' ? event.blockId : null
+        const at = blocks.findIndex((block) => block.id === id)
+        if (event.type === 'block') {
+          if (at === -1) blocks.push(event.block)
+          else blocks[at] = event.block
+        } else if (event.type === 'text') {
+          const block = blocks[at]
+          if (!block) blocks.push({ kind: 'agent', id: event.blockId, text: event.delta })
+          else if (block.kind === 'agent') blocks[at] = { ...block, text: block.text + event.delta }
+        }
+      }
+      return blocks
+    }
     const hiddenItem = (id: string) => ({
       ...agentItem(id, 'secret words'),
       moderation: {
@@ -593,7 +612,9 @@ describe('CodexAdapter', () => {
         { threadId: 'thr_child', turnId: 'turn_c' },
       ])
       yield* settle
-      expect(events.filter((event) => event.type === 'turnEnded')).toEqual([{ type: 'turnEnded', threadId: 'thr_1' }])
+      expect(events.filter((event) => event.type === 'turnEnded')).toEqual([
+        { type: 'turnEnded', threadId: 'thr_1', nativeTurnId: 'turn_1' },
+      ])
     }),
   )
 
@@ -648,7 +669,9 @@ describe('CodexAdapter', () => {
       expect(events.filter((event) => event.type === 'turnEnded')).toEqual([])
       yield* peer.notify('turn/completed', { threadId: 'thr_child', turn: stubTurn('turn_c', [], 'interrupted') })
       yield* settle
-      expect(events.filter((event) => event.type === 'turnEnded')).toEqual([{ type: 'turnEnded', threadId: 'thr_1' }])
+      expect(events.filter((event) => event.type === 'turnEnded')).toEqual([
+        { type: 'turnEnded', threadId: 'thr_1', nativeTurnId: 'turn_1' },
+      ])
     }),
   )
 
@@ -729,8 +752,8 @@ describe('CodexAdapter', () => {
       yield* peer.notify('turn/completed', { threadId: 'thr_1', turn: stubTurn('turn_2', [], 'failed') })
       yield* settle
       expect(events).toEqual([
-        { type: 'turnEnded', threadId: 'thr_1' },
-        { type: 'turnEnded', threadId: 'thr_1' },
+        { type: 'turnEnded', threadId: 'thr_1', nativeTurnId: 'turn_1' },
+        { type: 'turnEnded', threadId: 'thr_1', nativeTurnId: 'turn_2' },
       ])
     }),
   )
@@ -750,7 +773,12 @@ describe('CodexAdapter', () => {
       yield* peer.notify('turn/started', { threadId: 'thr_1', turn: stubTurn('turn_2', [], 'inProgress') })
       yield* peer.notify('turn/completed', { threadId: 'thr_1', turn: stubTurn('turn_2', [], 'failed') })
       yield* settle
-      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1', error: 'Sign in again to continue.' })
+      expect(events.at(-1)).toEqual({
+        type: 'turnEnded',
+        threadId: 'thr_1',
+        nativeTurnId: 'turn_2',
+        error: 'Sign in again to continue.',
+      })
     }),
   )
 
@@ -773,7 +801,12 @@ describe('CodexAdapter', () => {
       })
       yield* peer.notify('turn/completed', { threadId: 'thr_1', turn: stubTurn('turn_1', [], 'failed') })
       yield* settle
-      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1', error: 'Sign in again to continue.' })
+      expect(events.at(-1)).toEqual({
+        type: 'turnEnded',
+        threadId: 'thr_1',
+        nativeTurnId: 'turn_1',
+        error: 'Sign in again to continue.',
+      })
     }),
   )
 
@@ -790,7 +823,12 @@ describe('CodexAdapter', () => {
       yield* peer.notify('error', { error, willRetry: false, threadId: 'thr_1', turnId: 'turn_1' })
       yield* peer.notify('turn/completed', { threadId: 'thr_1', turn: stubTurn('turn_1', [], 'failed') })
       yield* settle
-      expect(events.at(-1)).toEqual({ type: 'turnEnded', threadId: 'thr_1', error: 'Sign in again to continue.' })
+      expect(events.at(-1)).toEqual({
+        type: 'turnEnded',
+        threadId: 'thr_1',
+        nativeTurnId: 'turn_1',
+        error: 'Sign in again to continue.',
+      })
     }),
   )
 

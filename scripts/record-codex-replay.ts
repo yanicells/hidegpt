@@ -27,7 +27,7 @@ import { ChildProcess, ChildProcessSpawner } from 'effect/process'
 import * as CodexAdapter from '../src/codex/CodexAdapter.ts'
 import { recordingOptions, withoutPersonalDetails } from '../src/codex/replay.ts'
 import { SCENARIOS } from '../src/codex/replayScenarios.ts'
-import type { AdapterEvent } from '../src/provider/ProviderAdapter.ts'
+import type { LegacyAdapterEvent as AdapterEvent } from '../src/provider/legacyEvents.ts'
 import {
   encodeTranscript,
   leaks,

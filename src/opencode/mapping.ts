@@ -134,12 +134,15 @@ export function userBlock(id: string, parts: ReadonlyArray<Part>): UserBlock | n
   return { kind: 'user', id, text, ...(images.length ? { images } : {}), ...(skills.length ? { skills } : {}) }
 }
 
+/** A failed tool shows Docs' sentence, never the tool's own error text. */
 export function toolCallout(part: ToolPart): CalloutBlock {
   const state = part.state
-  const body =
-    state.status === 'completed' ? state.output.slice(0, 2000) : state.status === 'error' ? state.error : state.status
+  if (state.status === 'error') return { kind: 'callout', id: part.id, title: TOOL_FAILED, body: '' }
+  const body = state.status === 'completed' ? state.output.slice(0, 2000) : state.status
   return { kind: 'callout', id: part.id, title: `Ran ${part.tool}`, body }
 }
+
+const TOOL_FAILED = 'A step didn’t finish'
 
 export function blocksFromMessages(messages: ReadonlyArray<MessageWithParts>): Block[] {
   const blocks: Block[] = []
@@ -182,7 +185,7 @@ export function permissionBlock(request: PermissionRequest): ApprovalBlock {
     id: permissionBlockId(request.id),
     suggestion: 'format',
     title: `Allow ${request.permission}${patterns}?`,
-    body: 'The assistant is asking for extra access.',
+    body: 'More access is needed to continue.',
     fields: [],
     questions: [],
     resolved: null,
@@ -196,7 +199,7 @@ export function questionBlock(request: QuestionRequest): ApprovalBlock {
     kind: 'approval',
     id: permissionBlockId(request.id),
     suggestion: 'question',
-    title: 'The assistant needs input',
+    title: 'Waiting for your response',
     body:
       request.questions
         .map((question) => question.question)

@@ -3,7 +3,12 @@ import type * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 
 import type { ProviderError } from './errors'
-import type { AdapterEvent, OpenedThread, ProviderSession, TurnSettings } from './ProviderAdapter'
+import type {
+  LegacyAdapterEvent as AdapterEvent,
+  LegacyOpenedThread as OpenedThread,
+  LegacyProviderSession as ProviderSession,
+} from './legacyEvents'
+import type { TurnSettings } from './ProviderAdapter'
 
 /**
  * A replay scenario is written once and run twice: by a recorder against the

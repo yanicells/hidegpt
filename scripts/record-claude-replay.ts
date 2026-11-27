@@ -25,7 +25,7 @@ import * as Stream from 'effect/Stream'
 import * as ClaudeAdapter from '../src/claude/ClaudeAdapter.ts'
 import { recordingSdk, withoutPersonalDetails } from '../src/claude/replay.ts'
 import { SCENARIOS } from '../src/claude/replayScenarios.ts'
-import type { AdapterEvent } from '../src/provider/ProviderAdapter.ts'
+import type { LegacyAdapterEvent as AdapterEvent } from '../src/provider/legacyEvents.ts'
 import {
   encodeTranscript,
   leaks,

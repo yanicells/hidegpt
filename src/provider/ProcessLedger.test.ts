@@ -273,8 +273,12 @@ describe('ProcessLedger', { timeout: 30_000 }, () => {
         Effect.gen(function* () {
           yield* ledger.record(cliPid, '/bin/sh', '-c')
           yield* ledger.track
-          const daemon = onDisk(path)[cliPid]?.members[0]?.pid ?? 0
-          expect(processTableNow().find((proc) => proc.pid === daemon)?.pgid).toBe(daemon)
+          // The member that leads a group of its own. Not members[0]: Linux's sh can list more than one.
+          const table = processTableNow()
+          const members = onDisk(path)[cliPid]?.members ?? []
+          const daemon =
+            members.find((member) => table.find((proc) => proc.pid === member.pid)?.pgid === member.pid)?.pid ?? 0
+          expect(daemon).not.toBe(0)
           // The CLI exits on its own and its group goes; the daemon is in a group of its own.
           cli.stdin?.end()
           yield* exited(cli)

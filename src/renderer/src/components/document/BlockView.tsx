@@ -36,13 +36,21 @@ export const BlockView = memo(
     }
     if (block.kind === 'agent') return <AgentBlock text={block.text} streaming={streaming} />
     if (block.kind === 'callout') {
+      // Nothing to open: a plain step, so there is no arrow promising more.
+      if (!block.body) {
+        return (
+          <div className="callout">
+            <span className="callout-step">{block.title}</span>
+          </div>
+        )
+      }
       return (
         <details className="callout">
           <summary>
             <MIcon name="arrow_right" className="callout-arrow" />
             {block.title}
           </summary>
-          {block.body ? <pre>{block.body}</pre> : null}
+          <pre>{block.body}</pre>
         </details>
       )
     }

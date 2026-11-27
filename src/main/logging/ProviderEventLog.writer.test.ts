@@ -41,9 +41,9 @@ describe('ProviderEventLog writer', () => {
       onTestFinished(() => rmSync(dir, { recursive: true, force: true }))
       yield* Effect.gen(function* () {
         const log = yield* ProviderEventLog
-        yield* log.record('codex', { type: 'turnStarted', threadId: 'bad' })
+        yield* log.record('codex', { type: 'turn.started', threadId: 'bad', turnId: 't1' })
         yield* Effect.sleep('700 millis')
-        yield* log.record('codex', { type: 'turnStarted', threadId: 'good' })
+        yield* log.record('codex', { type: 'turn.started', threadId: 'good', turnId: 't2' })
         yield* Effect.sleep('700 millis')
         // Read before the scope closes: its last flush would write the line even with the writer gone.
         expect(readFileSync(join(dir, 'codex.ndjson'), 'utf8')).toContain('"threadId":"good"')

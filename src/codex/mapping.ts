@@ -358,8 +358,9 @@ export function itemToBlock(item: ThreadItem): Block | null {
     default: {
       // Unreachable while the ThreadItem union is closed: a newer item type fails to decode, and
       // the client logs and drops that notification. Kept so a widened union still renders.
+      // Its raw type would put Codex's own vocabulary on the page, so it gets a neutral title.
       const unknown: { readonly id: string; readonly type: string } = item
-      return callout(unknown.id, unknown.type, '')
+      return callout(unknown.id, 'Finished a step', '')
     }
   }
 }
