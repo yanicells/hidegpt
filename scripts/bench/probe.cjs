@@ -230,7 +230,10 @@ contextBridge.exposeInMainWorld('__bench', api)
 // React reports commits only to a DevTools hook that exists before react-dom loads, so this
 // runs in the page's own world at document start.
 function installReactCounter() {
-  const COMPONENT_TAGS = new Set([0, 1, 11, 14, 15])
+  // Function, class, forwardRef and simple memo components. A memo with a compare function
+  // (tag 14) is left out: its inner component is a fiber of its own, and both are flagged
+  // when it renders, so counting the wrapper would count one render twice.
+  const COMPONENT_TAGS = new Set([0, 1, 11, 15])
   const state = { on: false, commits: 0, renders: 0, counts: new Map() }
   const nameOf = (fiber) => {
     const type = fiber.type
@@ -286,16 +289,21 @@ function installReactCounter() {
 if (process.env.BENCH_REACT === '1') contextBridge.executeInMainWorld({ func: installReactCounter })
 
 // ---- box reads (counts runs only) ----
-// Every `getBoundingClientRect` the app makes, in the page's own world as the React counter
-// is: a read after a DOM write forces a layout, so the count gates work that rows do per
-// frame (the paginator measuring rows) whatever the machine's load. The probe's own reads
-// run in its isolated world, whose prototypes are separate, so they are not counted.
+// Every box the app reads from layout (`getBoundingClientRect` and `getClientRects`, on
+// elements and on ranges), in the page's own world as the React counter is: a read after a
+// DOM write forces a layout, so the count gates work that rows do per frame (the paginator
+// measuring rows and lines) whatever the machine's load. The probe's own reads run in its
+// isolated world, whose prototypes are separate, so they are not counted.
 function installBoxReadCounter() {
   const state = { on: false, reads: 0 }
-  const read = Element.prototype.getBoundingClientRect
-  Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
-    if (state.on) state.reads += 1
-    return read.call(this)
+  for (const proto of [Element.prototype, Range.prototype]) {
+    for (const name of ['getBoundingClientRect', 'getClientRects']) {
+      const read = proto[name]
+      proto[name] = function (...args) {
+        if (state.on) state.reads += 1
+        return read.apply(this, args)
+      }
+    }
   }
   window.__benchBoxReads = {
     start() {
