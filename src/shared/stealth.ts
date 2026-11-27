@@ -54,9 +54,24 @@ function banned(word: string): string | null {
 export function stealthViolations(text: string): string[] {
   return Array.from(text.matchAll(/\p{L}+/gu), ([run]) => {
     const whole = banned(run)
-    if (whole) return [whole]
-    return Array.from(run.matchAll(CASE_PARTS), ([part]) => banned(part)).filter((word) => word !== null)
+    return whole ? [whole] : bannedParts(Array.from(run.matchAll(CASE_PARTS), ([part]) => part))
   }).flat()
+}
+
+/**
+ * The banned words among a run's case parts. Two adjacent parts are tried joined first, so a
+ * banned compound split by its own capitals counts ("useOpenCode" is "use", "OpenCode"), while
+ * parts that only join into ordinary words ("OpenCase") stay apart.
+ */
+function bannedParts(parts: ReadonlyArray<string>): string[] {
+  const found: string[] = []
+  for (let index = 0; index < parts.length; index += 1) {
+    const joined = index + 1 < parts.length ? banned(parts[index]! + parts[index + 1]!) : null
+    const word = joined ?? banned(parts[index]!)
+    if (word) found.push(word)
+    if (joined) index += 1
+  }
+  return found
 }
 
 export const isStealthy = (text: string): boolean => stealthViolations(text).length === 0
