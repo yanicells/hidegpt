@@ -105,7 +105,7 @@ export const redacting = <Output>(logger: Logger.Logger<unknown, Output>, redact
 
 /**
  * Redacts one JSON log line, the way T3 redacts its serialized record: every string (messages and
- * annotations) is redacted, then cut to `MAX_CAUSE_BYTES`, and every object key is redacted. The
+ * annotations) and every object key is redacted, then cut to `MAX_CAUSE_BYTES`. The
  * patterns are for plain text, so they run on decoded strings, never on the encoded line, where
  * escapes like `\n` and `\"` would break them. The cause was already redacted and cut by
  * `redacting`; the second pass is cheap, and after it the cut is no longer exact to the byte.
@@ -116,7 +116,7 @@ export const redactJsonLine = (redact: (text: string) => string) => {
     if (typeof value === 'string') return cut(value)
     if (Array.isArray(value)) return value.map(clean)
     if (value !== null && typeof value === 'object')
-      return Object.fromEntries(Object.entries(value).map(([key, child]) => [redact(key), clean(child)]))
+      return Object.fromEntries(Object.entries(value).map(([key, child]) => [cut(key), clean(child)]))
     return value
   }
   return (line: string): string => JSON.stringify(clean(JSON.parse(line)))

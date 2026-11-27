@@ -80,7 +80,11 @@ describe('Logger.layer', () => {
       const dir = tempDir()
       const identity = { home: '/Users/alice-k', username: 'alice-k' }
       // Newlines, quotes and an `@` in a later field: escapes in the encoded line must not break redaction.
-      yield* Effect.logWarning('Could not start\n/Users/alice-k/.local/bin/tool for\nalice.k@example.com').pipe(
+      // Two parts: Effect writes the message as an array, so the walk must go into arrays.
+      yield* Effect.logWarning(
+        'Could not start\n/Users/alice-k/.local/bin/tool for\nalice.k@example.com',
+        '/Users/alice-k/x',
+      ).pipe(
         Effect.annotateLogs({
           command: '/Users/alice-k/.local/bin/tool',
           detail: 'key\nsk-abcdefghijklmnopqrstuv as\nalice-k, password=foo"bar',
@@ -97,7 +101,16 @@ describe('Logger.layer', () => {
       )
       const log = readFileSync(join(dir, 'main.ndjson'), 'utf8')
       const line = JSON.parse(log.trim())
-      expect(Object.keys(line.annotations)).toHaveLength(7)
+      expect(Object.keys(line.annotations).sort()).toEqual([
+        '<email>',
+        'command',
+        'detail',
+        'long',
+        'pkg',
+        'url',
+        '~/secret-dir',
+      ])
+      expect(line.message).toHaveLength(2)
       expect(line.annotations).toMatchObject({ url: 'http://127.0.0.1:4096', pkg: 'react@18.3.1' })
       // A huge annotation is cut like a cause, not written whole.
       expect(Buffer.byteLength(line.annotations.long)).toBeLessThanOrEqual(MAX_CAUSE_BYTES)
