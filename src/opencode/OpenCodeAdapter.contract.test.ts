@@ -57,9 +57,15 @@ const driver: ContractDriver = {
           refusal = null
           if (text === null) return new Promise<never>(() => {})
           // The SDK failures `errorDetail` words itself: a missing session, no server, no message.
+          // Each carries the testkit's marker where it can, so showing the raw text leaks.
           if (text === 'not-found')
-            return Response.json({ name: 'NotFoundError', data: { message: '' } }, { status: 404 })
+            return Response.json(
+              { name: 'NotFoundError', data: { message: 'ZZPROV Session not found: ses_x' } },
+              { status: 404 },
+            )
           if (text === 'offline') return Promise.reject(new TypeError('fetch failed'))
+          if (text === 'refused')
+            return Promise.reject(Object.assign(new TypeError('ZZPROV offline'), { cause: { code: 'ECONNREFUSED' } }))
           if (text === 'empty-error') return Promise.reject(new Error(''))
           return Response.json({ name: 'BadRequestError', data: { message: text } }, { status: 400 })
         }
@@ -261,11 +267,13 @@ const driver: ContractDriver = {
         startWaits: true,
         rejectStart: (text) =>
           Effect.sync(() => {
+            // No model yet (the catalog has not loaded): the adapter refuses before asking OpenCode.
+            if (text === 'no-model') return { ...driver.settings, model: null }
             refusal = { text }
             return driver.settings
           }),
-        // Not words OpenCode sends: each makes the request fail the way `errorDetail` rewords.
-        refusals: ['not-found', 'offline', 'empty-error'],
+        // Not words OpenCode sends: each makes the request fail the way the adapter rewords.
+        refusals: ['not-found', 'offline', 'refused', 'empty-error', 'no-model'],
         holdStart: Effect.sync(() => {
           let reached = () => {}
           let release = () => {}
@@ -371,8 +379,9 @@ contractSuite('OpenCode', driver, {
     leaks: ['banned opencode: banner: OpenCode did not answer in 60 s. Try again, or use Tools → Refresh.'],
   },
   passthrough_rejected: {
-    why: "OpenCode's refusal of a prompt is the banner (`errorDetail` reads `body.data.message`), and each of `errorDetail`'s own sentences names OpenCode: no message, a 404, no server, and an error with no text. Owner: STL-1 / the errors cleanup.",
+    why: 'OpenCode\'s refusal of a prompt is the banner (`errorDetail` reads `body.data.message`), and each of `errorDetail`\'s own sentences names OpenCode: no message, a 404, no server, and an error with no text. Sending before the model list loads says "Pick a model first.", and "model" is a banned word. Owner: STL-1 / the errors cleanup.',
     leaks: [
+      'banned model: banner: Pick a model first.',
       'banned opencode: banner: OpenCode could not do that.',
       'banned opencode: banner: OpenCode could not find that document.',
       'banned opencode: banner: OpenCode did not accept that request.',
