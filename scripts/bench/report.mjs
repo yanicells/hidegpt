@@ -12,7 +12,7 @@ export function tier(name) {
   const metric = name.split('.').pop()
   if (/_ginstr$/.test(metric)) return 'instr'
   if (
-    /^(layouts|recalcs|restyled|box_reads|ipc_sends|ipc_kb|commits|renders|dom_nodes|blocks|blocks_added|deltas|chars|pages|cards|keys)$/.test(
+    /^(layouts|recalcs|restyled|box_reads|ipc_sends|ipc_kb|commits|renders|renders_per_commit|dom_nodes|blocks|blocks_added|deltas|chars|pages|cards|keys)$/.test(
       metric,
     ) ||
     name.startsWith('static.')
@@ -129,7 +129,7 @@ function flat(result) {
   }
   const single = (value) => ({ median: value, min: value, max: value, n: 1 })
   for (const [name, value] of Object.entries(result.counts ?? {})) {
-    if (typeof value === 'number' && /\.(commits|renders|ipc_kb|box_reads|restyled)$/.test(name))
+    if (typeof value === 'number' && /\.(commits|renders|renders_per_commit|ipc_kb|box_reads|restyled)$/.test(name))
       all[name] = single(value)
   }
   for (const [name, value] of Object.entries(result.static ?? {})) all[name] = single(value)

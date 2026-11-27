@@ -208,7 +208,7 @@ export async function launch(repo, options) {
     let restyled = 0
     const stopCollecting = page.on('Tracing.dataCollected', ({ value }) => {
       for (const event of value) {
-        if (event.name === 'UpdateLayoutTree') restyled += event.args?.elementCount ?? 0
+        if (event.name === 'UpdateLayoutTree' && event.pid === pids.renderer) restyled += event.args?.elementCount ?? 0
       }
     })
     const complete = new Promise((resolve) => {
@@ -238,22 +238,22 @@ export async function launch(repo, options) {
   /**
    * Runs `step` and records what it cost under `prefix`: instructions retired and CPU
    * time per process, Blink layout and style counts, IPC to the window, main-thread
-   * event-loop delay, and (with `frames`) frame intervals and long tasks.
+   * event-loop delay, and (with `frames`) frame intervals and long tasks. A counts run also
+   * records box reads, and with `restyles` the elements restyled, which needs a trace: it
+   * is asked for only where it is budgeted, so the trace's cost stays out of other phases.
    */
-  async function measure(metrics, prefix, step, { frames = false, react = options.react } = {}) {
+  async function measure(metrics, prefix, step, { frames = false, react = options.react, restyles = false } = {}) {
     await main('resetLag')
     if (frames) await bench('recordStart()')
     if (react) await bench('reactStart()')
     if (options.layoutCounts) await bench('boxReadsStart()')
-    const stopTrace = options.layoutCounts ? await traceRestyles() : null
+    const stopTrace = options.layoutCounts && restyles ? await traceRestyles() : null
     const before = await counters()
     const result = await step()
     const after = await counters()
     const set = (name, value) => (metrics[`${prefix}.${name}`] = value)
-    if (stopTrace) {
-      set('restyled', await stopTrace())
-      set('box_reads', await bench('boxReads()'))
-    }
+    if (stopTrace) set('restyled', await stopTrace())
+    if (options.layoutCounts) set('box_reads', await bench('boxReads()'))
     for (const [short, pid] of [
       ['r', pids.renderer],
       ['m', pids.main],
@@ -294,6 +294,9 @@ export async function launch(repo, options) {
       if (counted) {
         set('commits', counted.commits)
         set('renders', counted.renders)
+        // How many components each commit rendered: steadier than `renders`, which also moves
+        // with how the streamed text happened to be split into commits.
+        if (counted.commits) set('renders_per_commit', counted.renders / counted.commits)
         metrics[`${prefix}.render_top`] = counted.top
       }
     }
