@@ -11,6 +11,10 @@ Usage (dev only; fonttools is not an app dependency):
   pnpm exec oxfmt src/renderer/src/components/ui/symbols.ts
 The woff2 comes from the `material-symbols` npm package (Apache-2.0); 0.49.0
 reproduces the checked-in paths.
+
+To add an icon, add its name to OPSZ under each size it is drawn at, and
+regenerate. If two branches conflict in symbols.ts, merge OPSZ here and re-run
+the script; never resolve symbols.ts by hand.
 """
 
 import re
@@ -18,8 +22,10 @@ import sys
 from pathlib import Path
 
 from fontTools.pens.filterPen import FilterPen
+from fontTools.pens.recordingPen import RecordingPen
 from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.pens.transformPen import TransformPen
+from fontTools.svgLib.path import parse_path
 from fontTools.ttLib import TTFont
 from fontTools.varLib.instancer import instantiateVariableFont
 
@@ -84,23 +90,21 @@ ARITY = {"M": 2, "L": 2, "H": 1, "V": 1, "Q": 4, "C": 6, "Z": 0}
 
 
 def segments(path: str) -> list[tuple[str, list[int], tuple[int, int]]]:
-    """An integer path's segments as (command, absolute coordinates, start point); takes absolute or relative commands."""
+    """SVGPathPen's absolute integer path as (command, coordinates, start point) per segment."""
+    if not re.fullmatch(r"[MLHVQCZ\d -]*", path):
+        sys.exit(f"unexpected path syntax: {path}")
     out = []
     x = y = start_x = start_y = 0
-    for cmd, args in re.findall(r"([MLHVQCZ])([^MLHVQCZ]*)", path, re.IGNORECASE):
-        upper = cmd.upper()
-        if upper == "Z":
+    for cmd, args in re.findall(r"([MLHVQCZ])([^MLHVQCZ]*)", path):
+        if cmd == "Z":
             out.append(("Z", [], (x, y)))
             x, y = start_x, start_y
             continue
-        values = [int(value) for value in re.findall(r"-?\d+", args)]
-        for i in range(0, len(values), ARITY[upper]):
-            coords = values[i : i + ARITY[upper]]
+        values = [int(value) for value in args.split()]
+        for i in range(0, len(values), ARITY[cmd]):
+            coords = values[i : i + ARITY[cmd]]
             # Implicit repeats after M are lines.
-            seg = "L" if upper == "M" and i > 0 else upper
-            origin = [y] if seg == "V" else [x] if seg == "H" else [x, y] * (len(coords) // 2)
-            if cmd.islower():
-                coords = [value + o for value, o in zip(coords, origin)]
+            seg = "L" if cmd == "M" and i > 0 else cmd
             out.append((seg, coords, (x, y)))
             if seg == "H":
                 x = coords[0]
@@ -121,18 +125,35 @@ def numbers(values: list[int]) -> str:
     return text
 
 
+def drawn(path: str) -> list:
+    """The pen calls a path makes, through fontTools' own SVG path parser (absolute points)."""
+    pen = RecordingPen()
+    parse_path(path, pen)
+    return pen.value
+
+
 def compact(path: str) -> str:
-    """The same path in fewer bytes: each segment in the shorter of its absolute and relative forms, and a
-    repeated command letter left out. Coordinates are integers, so relative ones land on exactly the same
-    points; the round trip below checks that."""
-    out, last = [], None
+    """The same path in fewer bytes: each segment in the shorter of its absolute and relative forms, a Q
+    whose control point mirrors the previous one as T, and a repeated command letter left out. Coordinates
+    are integers, so relative ones land on exactly the same points; fontTools' SVG parser checks that
+    both strings draw the same outline."""
+    out, last, control = [], None, None
     for cmd, coords, (x, y) in segments(path):
         if cmd == "Z":
-            letter, text = "Z", ""
+            out.append("Z")
+            last, control = "Z", None
+            continue
+        origin = [y] if cmd == "V" else [x] if cmd == "H" else [x, y] * (len(coords) // 2)
+        relative = [value - o for value, o in zip(coords, origin)]
+        if cmd == "Q":
+            # T's control point is the previous Q's mirrored through the current point (or the point itself).
+            mirror = [2 * x - control[0], 2 * y - control[1]] if control else [x, y]
+            if coords[:2] == mirror:
+                cmd, coords, relative = "T", coords[2:], relative[2:]
+            control = coords[:2] if cmd == "Q" else mirror
         else:
-            origin = [y] if cmd == "V" else [x] if cmd == "H" else [x, y] * (len(coords) // 2)
-            relative = [value - o for value, o in zip(coords, origin)]
-            letter, text = min([(cmd, numbers(coords)), (cmd.lower(), numbers(relative))], key=lambda f: len(f[1]))
+            control = None
+        letter, text = min([(cmd, numbers(coords)), (cmd.lower(), numbers(relative))], key=lambda f: len(f[1]))
         # A repeated letter can go, except after M, where a repeat means L.
         if letter == last and letter not in "MmZ":
             out.append(text if text.startswith("-") else f" {text}")
@@ -140,7 +161,7 @@ def compact(path: str) -> str:
             out.append(letter + text)
         last = letter
     result = "".join(out)
-    if [(c, v) for c, v, _ in segments(result)] != [(c, v) for c, v, _ in segments(path)]:
+    if drawn(result) != drawn(path):
         sys.exit(f"compacting changed a path: {path}")
     return result
 
