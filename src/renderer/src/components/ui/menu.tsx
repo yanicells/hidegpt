@@ -8,7 +8,6 @@ import { createContext, useContext, useRef, type ComponentProps, type ReactNode 
 
 import { renderClosingPositioner } from './closing-positioner'
 import { cn, type Styled } from './cn'
-import { MIcon } from './MaterialIcon'
 
 /**
  * Docs-styled menu primitives on Base UI: portaled, collision-aware popups
@@ -102,11 +101,16 @@ function MenuSubTrigger({
   )
 }
 
-/** The ▸ at the end of a cascading row. */
+/**
+ * The ▸ at the end of a cascading row: Docs' filled triangle, 6.5px deep and
+ * 7px tall (squatter than Material's arrow_right), coloured by `.menu-arrow`.
+ */
 function MenuArrow() {
   return (
     <span className="menu-arrow" aria-hidden="true">
-      <MIcon name="arrow_right" />
+      <svg width="7" height="7" viewBox="0 0 7 7" fill="currentColor" focusable="false">
+        <path d="M0 0L6.5 3.5L0 7Z" />
+      </svg>
     </span>
   )
 }
