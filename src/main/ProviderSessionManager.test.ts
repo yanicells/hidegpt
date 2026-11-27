@@ -310,7 +310,7 @@ describe('ProviderSessionManager', () => {
       const { manager } = yield* setup({ handlers: { 'turn/start': () => Effect.fail(rpcFailure('busy')) } })
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
       const before = (yield* manager.snapshot).blocks
-      yield* Effect.flip(manager.dispatch({ op: 'send', text: 'Hi' }))
+      yield* Effect.flip(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Hi' }))
       expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false, blocks: before })
     }),
   )
