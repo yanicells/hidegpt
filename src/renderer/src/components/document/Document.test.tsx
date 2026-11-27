@@ -97,18 +97,20 @@ describe('Document', () => {
         disconnect() {}
       },
     )
-    mount([
-      { kind: 'user', id: 'u1', text: 'First question' },
-      { kind: 'agent', id: 'a1', text: 'An answer.' },
-      { kind: 'user', id: 'u2', text: 'Second question' },
-    ])
-    const rows = observers.find((observer) => observer.targets.has(row('u1')!))!
+    const first: Block = { kind: 'user', id: 'u1', text: 'First question' }
+    const answer: Block = { kind: 'agent', id: 'a1', text: 'An answer.' }
+    const update = mount([first, answer])
+    const rows = await waitFor(() => {
+      const found = observers.find((observer) => observer.targets.has(row('u1')!))
+      expect(found).toBeDefined()
+      return found!
+    })
     expect(rows.root).toBe(screen.getByTestId('document'))
-    // The bridge still holds the last test's blocks on the first pass, so u2 lands after the
-    // panel has started watching: rows that render later are observed as they land.
-    await waitFor(() => expect(rows.targets.has(row('u2')!)).toBe(true))
     expect(rows.targets.has(row('a1')!)).toBe(true)
     expect(observers.some((observer) => observer.targets.has(document.querySelector('.paper-end')!))).toBe(true)
+    // A turn that lands later is observed as its row renders.
+    update([first, answer, { kind: 'user', id: 'u2', text: 'Second question' }])
+    await waitFor(() => expect(rows.targets.has(row('u2')!)).toBe(true))
 
     // Before any report the latest question is active; the line in the first row moves it there.
     expect(screen.getByTestId('outline-u2')).toHaveAttribute('aria-current', 'location')

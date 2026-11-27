@@ -9,7 +9,12 @@ import { Tabs } from './Tabs'
 
 // The browser calls the observers when something crosses the reading line (rows and
 // headings) or the end comes into view; the tests call them by hand.
-type Observer = { callback: IntersectionObserverCallback; margin?: string; targets: Set<Element> }
+type Observer = {
+  callback: IntersectionObserverCallback
+  margin?: string
+  threshold?: number | number[]
+  targets: Set<Element>
+}
 let observers: Observer[] = []
 // Heading tops on screen by text, and every element whose box was read.
 let tops: Record<string, number> = {}
@@ -22,7 +27,7 @@ beforeEach(() => {
     class {
       private readonly self: Observer
       constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
-        this.self = { callback, margin: options?.rootMargin, targets: new Set() }
+        this.self = { callback, margin: options?.rootMargin, threshold: options?.threshold, targets: new Set() }
         observers.push(this.self)
       }
       observe(target: Element) {
@@ -105,6 +110,8 @@ function mount(rendered = blocks.length) {
 describe('document tabs active item', () => {
   it('follows the section at the reading line as you scroll', () => {
     mount()
+    // Threshold 1 reports a row's bottom crossing the line, which ends its straddle.
+    expect([rows().threshold].flat()).toContain(1)
     report([row('u1'), 'below'], [row('a1'), 'below'], [row('c1'), 'below'], [row('u2'), 'below'])
     expect(active()).toBe('Question')
     tops = { Light: 60, Dark: 500 }
