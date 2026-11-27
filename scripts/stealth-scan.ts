@@ -18,9 +18,12 @@ import { stealthViolations, VENDOR_WORDS, vendorViolations } from '../src/shared
  *   often than allowed fails, and so does one seen less often, until its count
  *   is lowered. An entry's `shared` count, when given, is what a shared build
  *   (`HIDEGPT_PERSONAL=0`, no Claude) must hold instead.
- *   `pnpm stealth:scan` runs it on `out/` for the build `HIDEGPT_PERSONAL`
- *   names (personal when unset, as `pnpm build`), CI and `pnpm check` run it on
- *   both builds, and `pnpm dist` runs it on the build it is about to package.
+ *   `pnpm stealth:scan` builds `out/` and scans it, for the build
+ *   `HIDEGPT_PERSONAL` names (personal when unset, as `pnpm build`);
+ *   `pnpm stealth:scan:shared` does the same for a shared build. Each builds
+ *   first, so neither reads the other's `out/`. CI and `pnpm check` run both,
+ *   shared first, which leaves the personal build in `out/`. `pnpm dist` runs
+ *   the check on the build it is about to package.
  * - `pnpm dist` ends with `assertStealthyApps`: no file path in `Docs.app`, no
  *   path inside its `app.asar` and no `Info.plist` string may name a vendor.
  */
