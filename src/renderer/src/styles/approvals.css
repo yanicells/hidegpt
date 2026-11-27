@@ -1,0 +1,185 @@
+/* ---------- Approvals: Docs' suggestion and its card ---------- */
+
+/*
+ * A suggestion's place in the page: the text it adds, as a paragraph of its
+ * own (the answer before it ends without a margin). Its card is in the
+ * comments rail below, so the text keeps the full column.
+ */
+.suggestion-row {
+  margin: 1lh 0;
+}
+
+/* A change that adds no text only anchors its card. */
+.suggestion-row:empty {
+  margin: 0;
+}
+
+/* Docs' suggested insertion: page text in the suggester's colour. */
+.suggested {
+  @apply m-0 whitespace-pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--green);
+}
+
+/*
+ * Docs' comments margin. While a card is pending (Document.tsx sets
+ * has-cards), the page moves left just enough for the rail: a 24px gap, the
+ * 256px card and 16px clear of the scrollbar. It stops at the tabs panel
+ * (workspace.css' 5px gap).
+ */
+.workspace.has-cards {
+  /* The canvas's right edge, inside the scrollbar: 100cqw includes it. UI-07 names the scrollbar --scrollbar-size. */
+  --canvas-right: calc(100cqw - var(--scrollbar-size, var(--scrollbar-w)));
+  /* The vertical ruler zooms with the page (ruler.css), so the page sits this far right of --page-left. */
+  --ruler-shift: calc(16px * (var(--page-zoom, 1) - 1));
+  --page-left: max(
+    calc(21px + var(--tabs-w)),
+    min(
+      calc((100vw - var(--rail-width) - var(--page-w)) / 2),
+      calc(var(--canvas-right) - var(--ruler-shift) - var(--page-w) - 24px - 256px - 16px)
+    )
+  );
+}
+
+/*
+ * The rail: 24px right of the page and outside its zoom, so cards stay 256px.
+ * When even the moved page leaves too little room, the rail keeps 16px clear
+ * of the scrollbar and overlaps the page's margin instead.
+ * CommentsRail.tsx sets each card's top.
+ */
+.comments-rail {
+  @apply absolute;
+  top: 0;
+  left: min(
+    calc(var(--page-left) + var(--ruler-shift) + var(--page-w) + 24px),
+    calc(var(--canvas-right) - 16px - 256px)
+  );
+  z-index: 1;
+  width: 256px;
+}
+
+.suggestion {
+  @apply absolute;
+  top: 0;
+  left: 0;
+  width: 256px;
+  padding: 12px 12px 14px 16px;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow:
+    0 1px 3px rgb(60 64 67 / 30%),
+    0 4px 8px 3px rgb(60 64 67 / 15%);
+  font-family: var(--font-ui);
+}
+
+/* Docs prints the page without its comments. */
+@media print {
+  .comments-rail {
+    display: none;
+  }
+}
+
+.suggestion-head {
+  @apply flex items-center;
+  gap: 8px;
+}
+
+.suggestion-who {
+  @apply flex flex-col flex-1 min-w-0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: 0.1px;
+  color: var(--text);
+}
+
+.suggestion-who small {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  color: var(--text-2);
+}
+
+.suggestion-act {
+  @apply grid place-items-center rounded-full shrink-0;
+  width: 32px;
+  height: 32px;
+  color: var(--text-2);
+}
+
+.suggestion-act:hover {
+  background: var(--hover);
+}
+
+.suggestion-act.accept {
+  color: var(--blue);
+}
+
+.suggestion-text {
+  margin: 10px 0 0;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--text);
+  @apply whitespace-pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.suggestion-verb {
+  font-weight: 500;
+}
+
+.field {
+  @apply flex flex-col gap-1.5;
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.suggestion input {
+  @apply w-full;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.suggestion input:focus {
+  border-color: var(--blue);
+  outline: 1px solid var(--blue);
+}
+
+.choices {
+  @apply flex flex-wrap gap-2;
+}
+
+.choice {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.choice:hover {
+  background: var(--hover);
+}
+
+.choice.on {
+  background: #c2e7ff;
+  border-color: transparent;
+  color: #001d35;
+}
+
+.suggestion .field {
+  margin: 12px 0 0;
+}
+
+/* A reply is on its way. */
+.suggestion-act:disabled,
+.choice:disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}

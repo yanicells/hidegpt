@@ -3,5 +3,7 @@ out/
 web-dist/
 tmp/
 screenshots/
+bench-results/
 node_modules/
 .DS_Store
+__pycache__/

@@ -1,106 +1,159 @@
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
+import { Fragment, type CSSProperties, type ReactNode } from 'react'
 
-export type Item = { id: string; label: string; run: () => void; disabled?: boolean; checked?: boolean }
+import { MIcon, type MaterialIconName } from './MaterialIcon'
+import {
+  MenuCheckboxItem,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuShortcut,
+  MenuSub,
+  MenuSubPopup,
+  MenuSubTrigger,
+  useMenuClose,
+} from './menu'
+import { Tip } from './tooltip'
 
-export type MenuId =
-  | 'file'
-  | 'edit'
-  | 'view'
-  | 'insert'
-  | 'format'
-  | 'tools'
-  | 'extensions'
-  | 'help'
-  | 'account'
-  | 'model'
-  | 'effort'
-  | 'serviceTier'
-  | 'mode'
-  | 'provider'
-  | null
+/**
+ * One Docs menu row. `icon` is the 20px leading glyph, `shortcut` the grey
+ * right-hand hint, `submenu` turns the row into a ▸ cascade (a cascade row
+ * with `run` still acts on click, like Docs' style rows), and `divider` draws
+ * the hairline separator above the row.
+ */
+export type Item = {
+  id: string
+  label: string
+  run?: () => void
+  disabled?: boolean
+  checked?: boolean
+  icon?: MaterialIconName
+  shortcut?: string
+  submenu?: Item[]
+  divider?: boolean
+  /** A hover label, e.g. what a costume row really selects. */
+  tip?: string
+  /** Grey second line under the label (Docs' editing-mode menu). */
+  description?: string
+  /** A small blue pill after the label, like Docs' "New". */
+  badge?: string
+  /** Docs' small blue "something new inside" dot before a cascade's ▸. */
+  dot?: boolean
+  className?: string
+  style?: CSSProperties
+}
 
+/**
+ * Docs shows no tooltips on menu rows, so a costume row's real name waits for
+ * a deliberate hover and opens on the left, clear of any cascade.
+ */
+const ROW_TIP = { side: 'left', delay: 1200 } as const
+
+/**
+ * A Docs menu popup filled from `Item` rows. Use inside `<Menu>` next to its
+ * `<MenuTrigger>`; `children` render above the rows (search fields, cards).
+ */
 export function MenuPanel({
   items,
-  onClose,
   testId,
-  align = 'start',
   itemPrefix = 'action',
+  className,
+  align = 'start',
+  style,
   children,
 }: {
   items: Item[]
-  onClose: () => void
   testId?: string
-  align?: 'start' | 'end'
   itemPrefix?: string
+  className?: string
+  align?: 'start' | 'center' | 'end'
+  style?: CSSProperties
   children?: ReactNode
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    ref.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')?.focus()
-  }, [])
-
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') return
-    const buttons = Array.from(
-      ref.current?.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)') ?? [],
-    )
-    if (buttons.length === 0) return
-    event.preventDefault()
-    const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
-    const next =
-      event.key === 'Home'
-        ? 0
-        : event.key === 'End'
-          ? buttons.length - 1
-          : (current + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length
-    buttons[next]?.focus()
-  }
-
   return (
-    <div
-      ref={ref}
-      className={`menu-panel align-${align}`}
-      role="menu"
-      data-testid={testId}
-      onKeyDown={onKeyDown}
-    >
+    <MenuPopup align={align} className={className} data-testid={testId} style={style}>
       {children}
-      {items.map((item) => (
-        <button
-          type="button"
-          key={item.id}
-          className={`menu-item${item.checked ? ' checked' : ''}`}
-          role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
-          aria-checked={item.checked}
-          data-testid={`${itemPrefix}-${item.id}`}
-          disabled={item.disabled}
-          onClick={() => {
-            item.run()
-            onClose()
-          }}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
+      <MenuRows items={items} itemPrefix={itemPrefix} />
+    </MenuPopup>
   )
 }
 
-export function useDismiss(active: boolean, onClose: () => void, ref: { current: HTMLElement | null }) {
-  useEffect(() => {
-    if (!active) return
-    const onPointer = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) onClose()
-    }
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    document.addEventListener('mousedown', onPointer)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onPointer)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [active, onClose, ref])
+/** The rows alone, for popups that swap their contents (the style menu's Options page). */
+export function MenuRows({ items, itemPrefix = 'action' }: { items: Item[]; itemPrefix?: string }) {
+  return items.map((item, index) => (
+    <Fragment key={item.id}>
+      {item.divider && index > 0 ? <MenuSeparator /> : null}
+      <Row item={item} itemPrefix={itemPrefix} />
+    </Fragment>
+  ))
+}
+
+function Row({ item, itemPrefix }: { item: Item; itemPrefix: string }) {
+  const close = useMenuClose()
+  const testId = `${itemPrefix}-${item.id}`
+  const body = <RowBody item={item} />
+  if (item.submenu) {
+    const { run } = item
+    return (
+      <MenuSub>
+        <Tip label={item.tip} {...ROW_TIP}>
+          <MenuSubTrigger
+            className={item.className}
+            data-testid={testId}
+            disabled={item.disabled}
+            // Shades the current choice like a checked row (the style menu's slots).
+            data-checked={item.checked ? '' : undefined}
+            onClick={
+              run
+                ? () => {
+                    run()
+                    close()
+                  }
+                : undefined
+            }
+          >
+            {body}
+          </MenuSubTrigger>
+        </Tip>
+        <MenuSubPopup>
+          <MenuRows items={item.submenu} itemPrefix={itemPrefix} />
+        </MenuSubPopup>
+      </MenuSub>
+    )
+  }
+  const common = {
+    className: item.className,
+    'data-testid': testId,
+    disabled: item.disabled,
+    closeOnClick: true,
+    onClick: item.run,
+  }
+  return (
+    <Tip label={item.tip} {...ROW_TIP}>
+      {item.checked === undefined ? (
+        <MenuItem {...common}>{body}</MenuItem>
+      ) : (
+        <MenuCheckboxItem {...common} checked={item.checked}>
+          {body}
+        </MenuCheckboxItem>
+      )}
+    </Tip>
+  )
+}
+
+/** A row's icon column holds its icon, or ✓ when a checkable row has none (rows with icons show checked by highlight). */
+function RowBody({ item }: { item: Item }) {
+  return (
+    <>
+      <span className="menu-icon" aria-hidden="true">
+        {item.icon ? <MIcon name={item.icon} /> : item.checked ? <MIcon name="check" /> : null}
+      </span>
+      <span className="menu-text" style={item.style}>
+        {item.label}
+        {item.description ? <span className="menu-desc">{item.description}</span> : null}
+      </span>
+      {item.badge ? <span className="menu-badge">{item.badge}</span> : null}
+      {item.dot ? <span className="menu-dot" aria-hidden="true" /> : null}
+      {item.shortcut ? <MenuShortcut>{item.shortcut}</MenuShortcut> : null}
+    </>
+  )
 }

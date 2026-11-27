@@ -1,0 +1,215 @@
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import * as NodeServices from '@effect/platform-node/NodeServices'
+import { afterAll, describe, expect, it } from '@effect/vitest'
+import * as Cause from 'effect/Cause'
+import * as Effect from 'effect/Effect'
+import * as Layer from 'effect/Layer'
+import * as TestConsole from 'effect/testing/TestConsole'
+
+import * as Logging from './Logger'
+import { MAX_CAUSE_BYTES } from './redact'
+import { makeRotatingFileSink } from './rotatingFileSink'
+
+const root = mkdtempSync(join(tmpdir(), 'docs-logs-'))
+afterAll(() => rmSync(root, { recursive: true, force: true }))
+const tempDir = () => mkdtempSync(join(root, 'case-'))
+
+describe('makeRotatingFileSink', () => {
+  it.effect('rotates by size and keeps at most maxFiles backups', () =>
+    Effect.gen(function* () {
+      const dir = tempDir()
+      const filePath = join(dir, 'main.ndjson')
+      const sink = yield* makeRotatingFileSink({ filePath, maxBytes: 10, maxFiles: 2 })
+      for (const line of ['aaaaaa\n', 'bbbbbb\n', 'cccccc\n', 'dddddd\n']) yield* sink.write(line)
+
+      expect(readdirSync(dir).sort()).toEqual(['main.ndjson', 'main.ndjson.1', 'main.ndjson.2'])
+      expect(readFileSync(filePath, 'utf8')).toBe('dddddd\n')
+      expect(readFileSync(`${filePath}.1`, 'utf8')).toBe('cccccc\n')
+      expect(readFileSync(`${filePath}.2`, 'utf8')).toBe('bbbbbb\n')
+    }).pipe(Effect.provide(NodeServices.layer)),
+  )
+
+  it.effect('makes the folder again when it is deleted while Docs runs', () =>
+    Effect.gen(function* () {
+      const dir = join(tempDir(), 'logs')
+      const filePath = join(dir, 'main.ndjson')
+      const sink = yield* makeRotatingFileSink({ filePath, maxBytes: 100, maxFiles: 2 })
+      yield* sink.write('before\n')
+      rmSync(dir, { recursive: true })
+      yield* sink.write('after\n')
+      expect(readFileSync(filePath, 'utf8')).toBe('after\n')
+    }).pipe(Effect.provide(NodeServices.layer)),
+  )
+
+  it.effect('drops backups beyond the limit when it opens', () =>
+    Effect.gen(function* () {
+      const dir = tempDir()
+      for (const name of ['main.ndjson', 'main.ndjson.1', 'main.ndjson.4', 'other.ndjson.9'])
+        writeFileSync(join(dir, name), 'x\n')
+      yield* makeRotatingFileSink({ filePath: join(dir, 'main.ndjson'), maxBytes: 100, maxFiles: 2 })
+      expect(readdirSync(dir).sort()).toEqual(['main.ndjson', 'main.ndjson.1', 'other.ndjson.9'])
+    }).pipe(Effect.provide(NodeServices.layer)),
+  )
+})
+
+describe('Logger.layer', () => {
+  it.effect('writes each log as one JSON line in main.ndjson, flushed when the runtime closes', () =>
+    Effect.gen(function* () {
+      const dir = tempDir()
+      yield* Effect.logWarning('Connection lost').pipe(
+        Effect.annotateLogs({ provider: 'codex' }),
+        Effect.andThen(Effect.logDebug('Connected')),
+        Effect.provide(Logging.layer({ directory: dir, console: false }).pipe(Layer.provide(NodeServices.layer))),
+      )
+      const lines = readFileSync(join(dir, 'main.ndjson'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line))
+      expect(lines).toMatchObject([
+        { level: 'WARN', message: 'Connection lost', annotations: { provider: 'codex' } },
+        { level: 'DEBUG', message: 'Connected' },
+      ])
+    }),
+  )
+
+  it.effect('writes messages and annotations without the home folder, the account name, an email or a key', () =>
+    Effect.gen(function* () {
+      const dir = tempDir()
+      const identity = { home: '/Users/alice-k', username: 'alice-k' }
+      // Newlines, quotes and an `@` in a later field: escapes in the encoded line must not break redaction.
+      // Two parts: Effect writes the message as an array, so the walk must go into arrays.
+      yield* Effect.logWarning(
+        'Could not start\n/Users/alice-k/.local/bin/tool for\nalice.k@example.com',
+        '/Users/alice-k/x',
+      ).pipe(
+        Effect.annotateLogs({
+          command: '/Users/alice-k/.local/bin/tool',
+          detail: 'key\nsk-abcdefghijklmnopqrstuv as\nalice-k, password=foo"bar',
+          url: 'http://127.0.0.1:4096',
+          pkg: 'react@18.3.1',
+          // Keys are written too: a folder or an address can arrive as one.
+          '/Users/alice-k/secret-dir': 1,
+          'alice.k@example.com': 2,
+          long: 'z'.repeat(200_000),
+        }),
+        Effect.provide(
+          Logging.layer({ directory: dir, console: false, identity }).pipe(Layer.provide(NodeServices.layer)),
+        ),
+      )
+      const log = readFileSync(join(dir, 'main.ndjson'), 'utf8')
+      const line = JSON.parse(log.trim())
+      expect(Object.keys(line.annotations).sort()).toEqual([
+        '<email>',
+        'command',
+        'detail',
+        'long',
+        'pkg',
+        'url',
+        '~/secret-dir',
+      ])
+      expect(line.message).toHaveLength(2)
+      expect(line.annotations).toMatchObject({ url: 'http://127.0.0.1:4096', pkg: 'react@18.3.1' })
+      // A huge annotation is cut like a cause, not written whole.
+      expect(Buffer.byteLength(line.annotations.long)).toBeLessThanOrEqual(MAX_CAUSE_BYTES)
+      for (const secret of ['alice-k', 'alice.k@example.com', 'sk-abcdefghijklmnopqrstuv', 'foo"bar'])
+        expect(JSON.stringify(line)).not.toContain(secret)
+    }),
+  )
+
+  it.effect('without a log folder, prints each line to the terminal once, redacted but not cut', () =>
+    Effect.gen(function* () {
+      // A folder inside a file cannot be made.
+      const file = join(tempDir(), 'not-a-folder')
+      writeFileSync(file, '')
+      const identity = { home: '/Users/alice-k', username: 'alice-k' }
+      // Over the file's 2 KB cap, so a terminal cut would drop the tail marker.
+      const error = new Error(`open /Users/alice-k/x key sk-proj-0123456789abcdefghij ${'y'.repeat(3_000)} END`)
+      yield* Effect.logWarning('Connection lost', Cause.die(error)).pipe(
+        Effect.provide(
+          Logging.layer({ directory: join(file, 'logs'), console: true, identity }).pipe(
+            Layer.provide(NodeServices.layer),
+          ),
+        ),
+      )
+      const printed = [...(yield* TestConsole.logLines), ...(yield* TestConsole.errorLines)]
+        .map((line) => (typeof line === 'string' ? line : JSON.stringify(line)))
+        .join('\n')
+      expect(printed.split('Connection lost')).toHaveLength(2)
+      expect(printed).toContain('open ~/x')
+      expect(printed).toContain(' END')
+      for (const secret of ['alice-k', 'sk-proj-0123456789abcdefghij']) expect(printed).not.toContain(secret)
+    }),
+  )
+
+  it.effect('writes causes without the home folder, the account name, or credentials', () =>
+    Effect.gen(function* () {
+      const dir = tempDir()
+      const identity = { home: '/Users/alice-k', username: 'alice-k' }
+      const error = new Error(
+        "ENOENT: open '/Users/alice-k/Library/Application Support/Docs/x.png' as alice-k, " +
+          'GET https://api.example/v1?access_token=tok-9f2e&page=2 Authorization: Bearer abc.def-123 key sk-proj-0123456789abcdefghij',
+      )
+      yield* Effect.logError('Unhandled defect', Cause.die(error)).pipe(
+        Effect.provide(
+          Logging.layer({ directory: dir, console: false, identity }).pipe(Layer.provide(NodeServices.layer)),
+        ),
+      )
+      const log = readFileSync(join(dir, 'main.ndjson'), 'utf8')
+      expect(JSON.parse(log).cause).toMatch(/^Error: ENOENT: open/)
+      expect(log).toContain("open '~/Library/Application Support/Docs/x.png' as <user>")
+      expect(log).toContain('access_token=<redacted>&page=2')
+      expect(log).toContain('Bearer <redacted>')
+      for (const secret of ['alice-k', 'tok-9f2e', 'abc.def-123', 'sk-proj-0123456789abcdefghij'])
+        expect(log).not.toContain(secret)
+    }),
+  )
+
+  it.effect('writes a long defect cut to 2 KB, without the email or the home folder', () =>
+    Effect.gen(function* () {
+      const dir = tempDir()
+      const identity = { home: '/Users/alice-k', username: 'alice-k' }
+      const error = new Error(
+        `request for alice.k@example.com from /Users/alice-k/Documents failed: ${'x'.repeat(10 * 1024)} END`,
+      )
+      yield* Effect.logError('Unhandled defect', Cause.die(error)).pipe(
+        Effect.provide(
+          Logging.layer({ directory: dir, console: false, identity }).pipe(Layer.provide(NodeServices.layer)),
+        ),
+      )
+      const log = readFileSync(join(dir, 'main.ndjson'), 'utf8')
+      expect(Buffer.byteLength(log)).toBeLessThan(3 * 1024)
+      expect(JSON.parse(log).cause).toMatch(/^Error: request for <email> from ~\/Documents failed: x+\n… \(cut\)$/)
+      for (const secret of ['alice.k@example.com', '/Users/alice-k', 'END']) expect(log).not.toContain(secret)
+    }),
+  )
+
+  it.effect('cuts only after redacting: no part of a key or an address that crosses 2 KB is written', () =>
+    Effect.gen(function* () {
+      const dir = tempDir()
+      const secrets = 'sk-proj0123456789abcdefghij alice.k@example.com'
+      // Every padding from well before the cut to just after it, so the cut falls inside each secret.
+      const pads = Array.from({ length: 80 }, (_, i) => MAX_CAUSE_BYTES - 90 + i)
+      yield* Effect.forEach(pads, (pad) =>
+        Effect.logError('Unhandled defect', Cause.die(new Error(`${'x'.repeat(pad)} ${secrets}`))),
+      ).pipe(
+        Effect.provide(
+          Logging.layer({
+            directory: dir,
+            console: false,
+            identity: { home: '/Users/alice-k', username: 'alice-k' },
+          }).pipe(Layer.provide(NodeServices.layer)),
+        ),
+      )
+      const lines = readFileSync(join(dir, 'main.ndjson'), 'utf8').trim().split('\n')
+      expect(lines).toHaveLength(pads.length)
+      for (const line of lines) {
+        const cause: string = JSON.parse(line).cause
+        expect(Buffer.byteLength(cause)).toBeLessThanOrEqual(MAX_CAUSE_BYTES)
+        for (const fragment of ['sk-', 'alice.k', '@example', 'example.com']) expect(cause).not.toContain(fragment)
+      }
+    }),
+  )
+})

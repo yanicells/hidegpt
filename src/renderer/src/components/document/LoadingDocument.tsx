@@ -1,23 +1,56 @@
-import type { Snapshot } from '../../../../codex/types'
-import { dispatch } from '../../session-bridge'
-import { DocsIcon } from '../ui/Icons'
+import type { Snapshot } from '../../../../shared/model'
+import { SparkIcon } from '../ui/Icons'
+import type { OutlineEntry } from './outline'
+import { PAGE_HEIGHT } from './pages'
+import { Ruler, VerticalRuler } from './Rulers'
+import { Tabs } from './Tabs'
 
-export function LoadingDocument({ snap }: { snap: Snapshot }) {
+const NO_ENTRIES: ReadonlyArray<OutlineEntry> = []
+const noJump = () => {}
+
+/**
+ * The header shows the document being opened, like Docs while a file loads:
+ * its name (or "Untitled document" until it has one) and its folder. The
+ * header stays mounted from the click to the open page, so only the page
+ * below it changes.
+ */
+export function openingSnapshot(snap: Snapshot): Snapshot {
+  if (!snap.openingThreadId) return snap
   const thread = snap.threads.find((item) => item.id === snap.openingThreadId)
+  return {
+    ...snap,
+    route: { kind: 'doc', threadId: snap.openingThreadId },
+    title: thread?.name || 'Untitled document',
+    streaming: false,
+  }
+}
+
+/**
+ * The editor while a document opens: rulers, the tabs panel and an empty
+ * first page, laid out exactly as `Document` lays them out, so nothing moves
+ * when the text arrives. The header's save area says "Opening…"; the Docs
+ * logo goes back Home, which cancels the open.
+ */
+export function LoadingDocument({ onNew }: { onNew: () => void }) {
   return (
-    <main className="opening-document" aria-busy="true" data-testid="opening-document">
-      <div className="opening-status" role="status">
-        <DocsIcon size={30} />
-        <span>Opening {thread?.name || 'document'}…</span>
-        <button className="text-button" onClick={() => dispatch({ op: 'goHome' })}>
-          Cancel
-        </button>
+    <div className="workspace" aria-busy="true" data-testid="opening-document">
+      <div className="doc-layout">
+        <VerticalRuler />
+        <Tabs onNew={onNew} entries={NO_ENTRIES} onJump={noJump} />
+        <div className="paper-col">
+          <Ruler />
+          <article className="paper" style={{ minHeight: PAGE_HEIGHT }}>
+            <div className="page-sheets" aria-hidden="true">
+              <div className="page-sheet" style={{ top: 0 }} />
+            </div>
+          </article>
+        </div>
       </div>
-      <div className="paper opening-paper" aria-hidden="true">
-        {[65, 100, 92, 100, 84, 48, 100, 96, 72].map((width, i) => (
-          <div key={i} className="sk-text" style={{ width: `${width}%` }} />
-        ))}
+      <div className="spark-wrap">
+        <span className="spark-pill" aria-hidden="true">
+          <SparkIcon size={16} mono />
+        </span>
       </div>
-    </main>
+    </div>
   )
 }

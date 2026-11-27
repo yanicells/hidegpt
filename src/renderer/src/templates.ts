@@ -9,7 +9,7 @@ export type Template = {
   /** Text placed in the composer of the new document. Empty for Blank. */
   prompt: string
   /** Mini-page layout drawn in the thumbnail. */
-  sketch: 'blank' | 'essay' | 'notes' | 'guide' | 'report' | 'letter'
+  sketch: 'blank' | 'essay' | 'notes' | 'guide' | 'report' | 'letter' | 'proposal'
 }
 
 export const TEMPLATES: Template[] = [
@@ -17,37 +17,44 @@ export const TEMPLATES: Template[] = [
   {
     id: 'essay',
     title: 'Essay',
-    category: 'Outline first',
+    category: 'Paperback',
     prompt: 'Outline a five-paragraph essay on ',
     sketch: 'essay',
   },
   {
     id: 'notes',
     title: 'Lecture notes',
-    category: 'Clean up',
+    category: 'Spearmint',
     prompt: 'Rewrite these lecture notes into clear headings and bullet points:\n',
     sketch: 'notes',
   },
   {
     id: 'guide',
     title: 'Study guide',
-    category: 'Exam prep',
+    category: 'Coral',
     prompt: 'Make a study guide with key terms and practice questions for ',
     sketch: 'guide',
   },
   {
     id: 'report',
     title: 'Lab report',
-    category: 'Science',
+    category: 'Luxe',
     prompt: 'Draft a lab report with methods, results, and discussion. Here is my data:\n',
     sketch: 'report',
   },
   {
     id: 'letter',
     title: 'Letter',
-    category: 'Formal',
+    category: 'Serif',
     prompt: 'Write a formal letter to ',
     sketch: 'letter',
+  },
+  {
+    id: 'proposal',
+    title: 'Project proposal',
+    category: 'Tropic',
+    prompt: 'Write a project proposal with goals, scope, timeline, and budget for ',
+    sketch: 'proposal',
   },
 ]
 

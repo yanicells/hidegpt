@@ -1,0 +1,435 @@
+import { spawn as spawnChild, type ChildProcessWithoutNullStreams } from 'node:child_process'
+
+import * as Cause from 'effect/Cause'
+import * as Context from 'effect/Context'
+import * as Duration from 'effect/Duration'
+import * as Effect from 'effect/Effect'
+import * as Exit from 'effect/Exit'
+import * as Fiber from 'effect/Fiber'
+import * as Layer from 'effect/Layer'
+import * as PlatformError from 'effect/PlatformError'
+import * as Ref from 'effect/Ref'
+import type * as Scope from 'effect/Scope'
+import * as Stream from 'effect/Stream'
+import { ChildProcess, ChildProcessSpawner } from 'effect/process'
+
+import type { ProviderId } from '../shared/model'
+import { appendStderrTail, stderrExcerpt } from '../vendor/effect-codex-app-server/_internal/stdio'
+import { BinaryMissingError, ProcessExitedError, ProviderRequestError } from './errors'
+import { discardHelper, resolveHelper } from './helperBinary'
+import { providerLabel } from '../shared/labels'
+import { forkObserved, forkObservedIn, makeRunObserved, observed } from './observed'
+import * as ProcessLedger from './ProcessLedger'
+
+/**
+ * Starts provider processes. Effect's Node spawner already gives each child
+ * its own process group and, when the owning `Scope` closes, sends SIGTERM to
+ * the whole group and SIGKILL after `forceKillAfter`. This service adds what
+ * HideGPT needs on top: a `BinaryMissingError` for a missing CLI, a typed
+ * `ProcessExitedError`, an 8 KiB stderr tail, and an orphan ledger so a
+ * hard-killed Electron main (no finalizers ran) does not leave servers behind:
+ * the next launch reaps them. (T3 Code gets the same guarantee by having its
+ * server watch its launcher; HideGPT's main *is* the launcher.)
+ *
+ * SDKs that start their own CLI through a callback (Claude Code) use
+ * `callbackSpawner`, which gives the same guarantees synchronously.
+ */
+
+export type SpawnOptions = {
+  readonly provider: ProviderId
+  readonly command: string
+  readonly args: ReadonlyArray<string>
+  readonly cwd?: string
+  readonly env?: Record<string, string | undefined>
+}
+
+export interface SupervisedProcess {
+  readonly handle: ChildProcessSpawner.ChildProcessHandle
+  /** Fails with the exit (and the last stderr line, when tailed) once the process ends. */
+  readonly awaitExit: Effect.Effect<never, ProcessExitedError>
+}
+
+/** SIGTERM first; a server that ignores it gets SIGKILL after this long. */
+export const FORCE_KILL_AFTER = Duration.seconds(2)
+/** The waits that keep exits and quit prompt; tests that check logic rather than these caps raise them. */
+export type SupervisorTiming = {
+  /**
+   * How long an exit waits for stderr to finish draining before it reads the
+   * tail. Node emits "exit" before the pipes deliver their last data; a child
+   * that keeps the pipe open must not hold the exit back.
+   */
+  readonly stderrDrain: Duration.Duration
+  /** How long quit waits on a ledger read around a kill: 1 s before, 1 s after, plus the 2 s group stop, inside quit's 5 s. */
+  readonly ledgerReadCap: Duration.Duration
+  /** How long a release waits on the ledger write after its kill; a write still pending is left to the next launch's reap. */
+  readonly ledgerWriteCap: Duration.Duration
+}
+export const DEFAULT_TIMING: SupervisorTiming = {
+  stderrDrain: Duration.millis(250),
+  ledgerReadCap: Duration.seconds(1),
+  ledgerWriteCap: Duration.seconds(1),
+}
+
+/** What an SDK hands its spawn callback (Claude Code's `SpawnOptions`), plus where stderr goes. */
+export type CallbackSpawnOptions = {
+  readonly command: string
+  readonly args: ReadonlyArray<string>
+  readonly cwd?: string | undefined
+  /**
+   * Passed to the child as given, plus a known launcher's variables. `resolveHelper` reads PATH
+   * (and, for the Codex launcher, npm's agent variables). Never logged.
+   */
+  readonly env: Record<string, string | undefined>
+  readonly signal?: AbortSignal | undefined
+  readonly onStderr?: (text: string) => void
+}
+
+export type CallbackSpawn = (options: CallbackSpawnOptions) => ChildProcessWithoutNullStreams
+
+export class ProcessSupervisor extends Context.Service<
+  ProcessSupervisor,
+  {
+    /** Spawns in the caller's scope; closing the scope kills the process group. */
+    readonly spawn: (
+      options: SpawnOptions,
+      tailStderr?: boolean,
+    ) => Effect.Effect<SupervisedProcess, BinaryMissingError | ProviderRequestError, Scope.Scope>
+    /**
+     * A synchronous spawn for SDK callbacks. Each child leads its own process group, is in
+     * the ledger while it runs, has its stderr drained, and its group is killed when it
+     * exits (taking its own children, such as MCP servers, along) or when the caller's
+     * scope closes (SIGTERM, then SIGKILL after `FORCE_KILL_AFTER`).
+     */
+    readonly callbackSpawner: Effect.Effect<CallbackSpawn, never, Scope.Scope>
+    /** Kills servers a previous, crashed run left behind. */
+    readonly reapOrphans: Effect.Effect<number>
+    /**
+     * The process groups started and not yet seen to exit, read without a fiber: a quit
+     * that runs out of time kills these by pid before it exits (src/main/lifecycle.ts).
+     */
+    readonly livePidsSync: () => ReadonlyArray<number>
+  }
+>()('hidegpt/ProcessSupervisor') {}
+
+const signalFrom = (error: PlatformError.PlatformError): string | null =>
+  /signal: '([A-Z0-9]+)'/.exec(error.message)?.[1] ?? null
+
+const isNotFound = (error: PlatformError.PlatformError) =>
+  error.reason._tag === 'NotFound' || /ENOENT/.test(error.message)
+
+const signalGroup = (pid: number, signal: NodeJS.Signals) => {
+  try {
+    process.kill(-pid, signal)
+  } catch {
+    // already gone
+  }
+}
+
+const hasExited = (child: ChildProcessWithoutNullStreams) => child.exitCode !== null || child.signalCode !== null
+
+/** SIGTERM to the group, then SIGKILL if the leader has not exited in time. */
+const stopGroup = (child: ChildProcessWithoutNullStreams, pid: number) =>
+  Effect.callback<void>((resume) => {
+    if (hasExited(child)) return resume(Effect.void)
+    const done = () => resume(Effect.void)
+    child.once('exit', done)
+    signalGroup(pid, 'SIGTERM')
+    return Effect.sync(() => child.off('exit', done))
+  }).pipe(
+    Effect.timeoutOrElse({ duration: FORCE_KILL_AFTER, orElse: () => Effect.sync(() => signalGroup(pid, 'SIGKILL')) }),
+  )
+
+/**
+ * The tree read just before a kill, after `pending` (records still landing: an
+ * entry not yet in the ledger has no tree to read). Capped, so a hung `ps`
+ * cannot hold the kill back.
+ */
+const treeReadBeforeKill = (
+  ledger: ProcessLedger.ProcessLedger['Service'],
+  cap: Duration.Duration,
+  pending: Effect.Effect<unknown> = Effect.void,
+) => Effect.asVoid(Effect.timeoutOption(Effect.andThen(pending, ledger.track), cap))
+
+const make = (
+  spawner: ChildProcessSpawner.ChildProcessSpawner['Service'],
+  ledger: ProcessLedger.ProcessLedger['Service'],
+  timing: SupervisorTiming,
+  helpersDirectory: string | null,
+  /** The supervisor's own scope, for an exit watch that outlives its caller's. */
+  scope: Scope.Scope,
+) => {
+  // Each pid leads its own group. Added at spawn; removed at exit or after a kill that succeeded.
+  const live = new Set<number>()
+  return ProcessSupervisor.of({
+    spawn: Effect.fn('ProcessSupervisor.spawn')(function* (options, tailStderr = false) {
+      const start = (command: string, env: SpawnOptions['env']) =>
+        spawner
+          .spawn(
+            ChildProcess.make(command, [...options.args], {
+              ...(options.cwd ? { cwd: options.cwd } : {}),
+              ...(env ? { env, extendEnv: true } : {}),
+              forceKillAfter: FORCE_KILL_AFTER,
+            }),
+          )
+          .pipe(Effect.map((handle) => ({ handle, command })))
+      // Started as `Docs Helper` where it can be (helperBinary.ts). Node reports a clone that won't
+      // start (gone since, refused by a security tool, not a program) as an error (ENOENT, EACCES) or
+      // throws it from `spawn` (EPERM, ENOEXEC), which arrives here as a defect. Either way the
+      // original starts as it always did, with the caller's env.
+      const helper = yield* Effect.sync(() => resolveHelper(options.command, options.env, helpersDirectory))
+      const started =
+        helper.command === options.command
+          ? start(options.command, options.env)
+          : start(helper.command, helper.env).pipe(
+              Effect.catchCauseIf(
+                // An interrupted start (a closing scope, a cancelled open) stays interrupted: the
+                // original is not started for a caller that has gone.
+                (cause) => !Cause.hasInterrupts(cause),
+                () =>
+                  Effect.logDebug('helper did not start; starting the original').pipe(
+                    Effect.andThen(start(options.command, options.env)),
+                    // Dropped only once the original runs: a missing cwd fails both, and the clone is fine.
+                    Effect.tap(() => Effect.sync(() => discardHelper(helper.command, helpersDirectory))),
+                  ),
+              ),
+            )
+      const { handle, command } = yield* started.pipe(
+        // Only a missing command means "not installed"; anything else (no permission, a bad cwd) says what failed.
+        Effect.mapError((error) =>
+          isNotFound(error)
+            ? new BinaryMissingError({ provider: options.provider, command: options.command })
+            : new ProviderRequestError({
+                provider: options.provider,
+                operation: 'spawn',
+                detail: `Docs could not start ${providerLabel(options.provider)}: ${error.message}`,
+              }),
+        ),
+      )
+      const pid = handle.pid
+      live.add(pid)
+      // The spawner's `exitCode` also settles early, with the process still running, when its stdin
+      // fails (NodeChildProcessSpawner.ts:732-737); that pid then leaves the list before the kill,
+      // and only the release's own kill and the ledger cover it.
+      const unlistOnExit = handle.exitCode.pipe(Effect.exit, Effect.andThen(Effect.sync(() => live.delete(pid))))
+      // Released before the spawner's own kill, so this stops the server: its tree is read while
+      // it still runs, its group is stopped, then whatever left the group (a `setsid` daemon).
+      // The read is capped, so a slow `ps` never delays the kill past quit's deadline.
+      // The path actually started, so reaping matches it.
+      yield* Effect.acquireRelease(ledger.record(pid, command, options.args[0] ?? ''), () =>
+        treeReadBeforeKill(ledger, timing.ledgerReadCap).pipe(
+          Effect.andThen(
+            Effect.exit(
+              handle.kill({ forceKillAfter: FORCE_KILL_AFTER }).pipe(
+                // A server that already exited cannot be signalled (as `signalGroup`): no defect.
+                // One still running that could not be killed (EPERM) is.
+                Effect.catchTag('PlatformError', (error) =>
+                  Effect.flatMap(handle.isRunning, (running) => (running ? Effect.fail(error) : Effect.void)),
+                ),
+              ),
+            ),
+          ),
+          // A kill that failed or died is reported and its record kept, so the next launch reaps the server.
+          // An interrupted one keeps the record too, without raising the interrupt inside this release.
+          // Either way the server stays listed for a stalled quit's kill, and is watched (in the
+          // supervisor's scope, as this one is closing) so it leaves the list once it does exit.
+          // The write after a kill is capped, so a slow disk cannot hold quit past its deadline.
+          Effect.flatMap((exit) =>
+            Exit.isSuccess(exit)
+              ? Effect.sync(() => live.delete(pid)).pipe(
+                  Effect.andThen(Effect.timeoutOption(ledger.stop(pid), timing.ledgerWriteCap)),
+                )
+              : Effect.andThen(
+                  // A fork is interruptible even from this release, so the watch never holds up
+                  // the supervisor's own close (tested).
+                  forkObservedIn(scope, { name: 'supervisor.exitWatch' })(unlistOnExit),
+                  Cause.hasInterruptsOnly(exit.cause)
+                    ? Effect.void
+                    : observed(Effect.failCause(exit.cause), { name: 'supervisor.kill' }),
+                ),
+          ),
+        ),
+      )
+
+      // Interrupted when the scope closes, before the release above, so the pid stays until the kill.
+      yield* forkObserved({ name: 'supervisor.exitWatch' })(unlistOnExit)
+
+      const tail = yield* Ref.make('')
+      const draining = tailStderr
+        ? yield* handle.stderr.pipe(
+            Stream.decodeText(),
+            Stream.runForEach((chunk) => Ref.update(tail, (current) => appendStderrTail(current, chunk))),
+            forkObserved({ name: 'supervisor.stderrTail' }),
+          )
+        : null
+      // Stderr is drained before the tail is read, as T3 Code's processRunner drains output
+      // before it reads the exit code; capped here, since a server's pipe may outlive it.
+      const drained = draining
+        ? Effect.asVoid(Effect.timeoutOption(Fiber.await(draining), timing.stderrDrain))
+        : Effect.void
+      const exited = (code: number | null, signal: string | null) =>
+        Effect.flatMap(Effect.andThen(drained, Ref.get(tail)), (text) => {
+          const stderr = stderrExcerpt(text)
+          return Effect.fail(
+            new ProcessExitedError({ provider: options.provider, code, signal, ...(stderr ? { stderr } : {}) }),
+          )
+        })
+      const awaitExit: Effect.Effect<never, ProcessExitedError> = handle.exitCode.pipe(
+        Effect.matchEffect({
+          onSuccess: (code) => exited(code, null),
+          onFailure: (error) => exited(null, signalFrom(error)),
+        }),
+      )
+      return { handle, awaitExit }
+    }),
+    /**
+     * Adapted from T3 Code (apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts,
+     * `spawnClaudeProcessGroup`) at commit 5c6f2f12.
+     * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+     */
+    callbackSpawner: Effect.gen(function* () {
+      // The SDK spawns from its own callback, outside any fiber: `runObserved` keeps this layer's
+      // services (its logger) and reports a defect. Made before the finalizer below, so that
+      // finalizer runs first and can still wait on its fibers.
+      const runObserved = yield* makeRunObserved()
+      const running = new Map<
+        ChildProcessWithoutNullStreams,
+        { readonly pid: number; readonly recorded: Fiber.Fiber<void> }
+      >()
+      // Ledger stops in flight; a closing scope waits for them, so a quit leaves no record unless `ps` hangs.
+      const stopping = new Set<Fiber.Fiber<void>>()
+      /**
+       * Stops what is left of `child`'s tree, once: whoever takes it out of `running` first
+       * (its exit, or a closing scope) owns the stop. As T3 Code's `tracker.stop`.
+       */
+      const stopTreeOf = (child: ChildProcessWithoutNullStreams) => {
+        const entry = running.get(child)
+        if (!entry || !running.delete(child)) return
+        // `record` is observed, so the join never fails and the stop always runs.
+        const stop = runObserved(Fiber.join(entry.recorded).pipe(Effect.andThen(ledger.stop(entry.pid))), {
+          name: 'supervisor.ledgerStop',
+        })
+        stopping.add(stop)
+        stop.addObserver(() => stopping.delete(stop))
+      }
+      let closed = false
+      // Trees are read while the CLIs still run, then each group is stopped, then what left it.
+      // The reads before and after the kills are capped, so a hung `ps` keeps quit inside its deadline.
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          closed = true
+        }).pipe(
+          // `record` is forked per spawn, so a scope that closes right after one waits for it here.
+          Effect.andThen(
+            Effect.suspend(() =>
+              treeReadBeforeKill(
+                ledger,
+                timing.ledgerReadCap,
+                Fiber.awaitAll([...running.values()].map(({ recorded }) => recorded)),
+              ),
+            ),
+          ),
+          Effect.andThen(
+            Effect.suspend(() =>
+              Effect.forEach(
+                [...running],
+                ([child, { pid }]) => stopGroup(child, pid).pipe(Effect.andThen(Effect.sync(() => stopTreeOf(child)))),
+                { concurrency: 'unbounded', discard: true },
+              ),
+            ),
+          ),
+          Effect.andThen(
+            Effect.suspend(() => Effect.timeoutOption(Fiber.awaitAll([...stopping]), timing.ledgerReadCap)),
+          ),
+        ),
+      )
+      return (options: CallbackSpawnOptions) => {
+        const start = (command: string, env: CallbackSpawnOptions['env'] | undefined) => {
+          const child = spawnChild(command, [...options.args], {
+            cwd: options.cwd,
+            env,
+            signal: options.signal,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            detached: true,
+          })
+          // Always drained, so a chatty CLI never blocks on a full stderr pipe.
+          child.stderr.setEncoding('utf8').on('data', (text: string) => options.onStderr?.(text))
+          // A failed spawn or an aborted `signal` emits "error"; the caller learns of it from the
+          // exit (or listens itself), and an unheard "error" would crash main.
+          child.on('error', () => {})
+          return child
+        }
+        // As in `spawn`: from a `Docs Helper` clone where it can be, else the original. A clone that
+        // won't start has no pid (ENOENT, EACCES) or throws from `spawn` (EPERM, ENOEXEC).
+        const helper = resolveHelper(options.command, options.env, helpersDirectory)
+        const renamed = helper.command !== options.command
+        let command = helper.command
+        let child: ChildProcessWithoutNullStreams | undefined
+        let thrown: unknown
+        if (renamed) {
+          try {
+            child = start(command, helper.env)
+          } catch (error) {
+            thrown = error
+          }
+        }
+        if (child?.pid === undefined) {
+          // Already aborted: the original would start only to be stopped, so the clone's failure stands.
+          if (renamed && options.signal?.aborted) {
+            if (child === undefined) throw thrown
+            return child
+          }
+          if (renamed)
+            runObserved(Effect.logDebug('helper did not start; starting the original'), {
+              name: 'supervisor.helperFallback',
+            })
+          command = options.command
+          child = start(command, options.env)
+          // Dropped only once the original runs: a missing cwd fails both, and the clone is fine.
+          if (renamed && child.pid !== undefined) discardHelper(helper.command, helpersDirectory)
+        }
+        const pid = child.pid
+        // A spawn that fails has no pid and emits only "error", which the SDK reports.
+        if (pid === undefined) return child
+        if (closed) {
+          signalGroup(pid, 'SIGKILL')
+          return child
+        }
+        // The full command path, so another app's copy of the same CLI never matches.
+        // The path actually started, so reaping matches it.
+        const recorded = runObserved(ledger.record(pid, command, options.args[0] ?? ''), {
+          name: 'supervisor.ledgerRecord',
+        })
+        running.set(child, { pid, recorded })
+        live.add(pid)
+        child.once('exit', () => {
+          signalGroup(pid, 'SIGKILL')
+          live.delete(pid)
+          stopTreeOf(child)
+        })
+        return child
+      }
+    }),
+    reapOrphans: ledger.reap,
+    livePidsSync: () => [...live],
+  })
+}
+
+/** The supervisor over the ledger it is given (a test's stand-in ledger); see `layer`. */
+export const layerOverLedger = (timing: SupervisorTiming = DEFAULT_TIMING, helpersDirectory: string | null = null) =>
+  Layer.effect(
+    ProcessSupervisor,
+    Effect.gen(function* () {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      return make(spawner, yield* ProcessLedger.ProcessLedger, timing, helpersDirectory, yield* Effect.scope)
+    }),
+  )
+
+/**
+ * The supervisor over Effect's Node spawner. `ledgerPath` null disables the ledger (tests), and
+ * `helpersDirectory` null starts each CLI under its own name (tests, demo mode).
+ */
+export const layer = (
+  ledgerPath: string | null,
+  timing: SupervisorTiming = DEFAULT_TIMING,
+  helpersDirectory: string | null = null,
+) => layerOverLedger(timing, helpersDirectory).pipe(Layer.provide(ProcessLedger.layer(ledgerPath)))

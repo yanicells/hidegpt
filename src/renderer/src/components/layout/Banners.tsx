@@ -1,28 +1,83 @@
-import type { Snapshot } from '../../../../codex/types'
-import { dispatch } from '../../session-bridge'
+import { useState } from 'react'
 
+import type { Snapshot } from '../../../../shared/model'
+import { clearCommandError, dispatch, useCommandError } from '../../session-bridge'
+import { MIcon } from '../ui/MaterialIcon'
+
+// One lane of notices that never covers the page's controls, and a dismissal
+// that clears the error itself. Adapted from T3 Code
+// (apps/web/src/components/chat/ChatBannerLane.tsx, ThreadErrorBanner.tsx) at commit 5c6f2f12.
+// Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+const bannerKey = (snap: Snapshot, error: string) => `${snap.provider}\u0000${error}`
+
+/**
+ * Docs' snackbars in the bottom-left corner: sign-in prompts and errors. They
+ * float over the window, so showing or hiding one never moves the page, and
+ * Home and the open document stay usable underneath.
+ */
 export function Banners({ snap }: { snap: Snapshot }) {
-  if (snap.status !== 'ready') return null
+  const commandError = useCommandError()
+  const libraryError = snap.error ?? (snap.status === 'error' ? 'Docs couldn’t open this library.' : null)
+  const libraryKey = libraryError === null ? null : bannerKey(snap, libraryError)
+  const [dismissed, setDismissed] = useState<string | null>(null)
+  // A dismissal covers this occurrence only: once the library's error clears or changes, the same one shows again.
+  if (dismissed !== null && dismissed !== libraryKey) setDismissed(null)
+  const errors = [...new Set([libraryKey === dismissed ? null : libraryError, commandError])].filter(
+    (error): error is string => error !== null,
+  )
+  // A command error just clears, so the same failure on a retry shows again.
+  const dismiss = (error: string) => {
+    if (error === commandError) clearCommandError()
+    if (error === libraryError) setDismissed(libraryKey)
+  }
+  const ready = snap.status === 'ready'
   return (
-    <div className="banners">
-      {snap.requiresAuth && !snap.account ? (
-        <div className="banner" role="status">
-          <span data-testid="auth-banner">Sign in to use Docs.</span>
-          <button type="button" onClick={() => dispatch({ op: 'login' })}>
+    <div className="snackbar-lane">
+      {ready && snap.requiresAuth && !snap.account && snap.capabilities.login ? (
+        <div className="snackbar" role="status">
+          <span className="snackbar-text" data-testid="auth-banner">
+            Sign in to use Docs.
+          </span>
+          <button type="button" className="snackbar-action" onClick={() => dispatch({ op: 'login' })}>
             Sign in
           </button>
         </div>
       ) : null}
-      {snap.loginUrl ? (
-        <div className="banner" role="status">
-          <span data-testid="login-url">Finish signing in in your browser.</span>
+      {ready && snap.loginUrl ? (
+        <div className="snackbar" role="status">
+          <span className="snackbar-text" data-testid="login-url">
+            Finish signing in in your browser.
+          </span>
         </div>
       ) : null}
-      {snap.error ? (
-        <div className="banner danger" role="alert">
-          <span data-testid="error-banner">{snap.error}</span>
+      {errors.map((error) => (
+        <div key={error} className="snackbar" role="alert">
+          {/* Docs' own wording. The message can name the library, so it never reaches the window. */}
+          <span className="snackbar-text" data-testid="error-banner">
+            Something went wrong. Try again.
+          </span>
+          <button
+            type="button"
+            className="snackbar-action"
+            data-testid="error-refresh"
+            onClick={() => {
+              clearCommandError()
+              void dispatch({ op: 'refresh' })
+            }}
+          >
+            Reload
+          </button>
+          <button
+            type="button"
+            className="snackbar-close"
+            data-testid="error-dismiss"
+            aria-label="Dismiss"
+            onClick={() => dismiss(error)}
+          >
+            <MIcon name="close" size={20} />
+          </button>
         </div>
-      ) : null}
+      ))}
     </div>
   )
 }

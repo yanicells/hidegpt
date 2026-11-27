@@ -1,35 +1,4 @@
-/* Tokens: Google Docs (Material) palette. Page text is Arial because that is the Docs default. */
-:root {
-  --text: #1f1f1f;
-  --text-2: #444746;
-  --muted: #5f6368;
-  --faint: #80868b;
-  --hairline: #e3e3e3;
-  --line: #c4c7c5;
-  --blue: #0b57d0;
-  --blue-dark: #0842a0;
-  --blue-soft: #c2e7ff;
-  --blue-tint: rgba(11, 87, 208, 0.1);
-  --docs-blue: #4285f4;
-  --green: #188038;
-  --red: #b3261e;
-  --red-soft: #fce8e6;
-  --yellow-soft: #fef7e0;
-  --info-soft: #e8f0fe;
-  --surface: #ffffff;
-  --canvas: #f9fbfd;
-  --pill: #edf2fa;
-  --band: #f1f3f4;
-  --hover: rgba(31, 31, 31, 0.08);
-  --hover-soft: #f0f4f9;
-  --shadow-menu: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 8px 3px rgba(0, 0, 0, 0.15);
-  --shadow-page: 0 0 0 0.75pt #d4d4d4, 0 1px 3px 1px rgba(60, 64, 67, 0.15);
-  --font-ui: 'Google Sans', Roboto, Arial, Helvetica, sans-serif;
-  --font-page: Arial, Helvetica, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --paper-width: 816px;
-  --paper-margin: clamp(40px, 11.7%, 96px);
-}
+/* Resets, body, buttons, the avatar, and reduced motion. Tokens live in tokens.css. */
 
 * {
   box-sizing: border-box;
@@ -44,9 +13,24 @@ body,
 
 body {
   font-family: var(--font-ui);
+  /* Docs uses the display cut of Google Sans; Flex at opsz 18 matches its widths. */
+  font-variation-settings: 'opsz' var(--opsz-display);
   @apply text-sm;
   color: var(--text);
+}
+
+/*
+ * Docs smooths Home's text (antialiased) but not the editor's, which draws
+ * heavier. App sets data-route on <html> so menus and tooltips portalled to
+ * <body> follow the surface they open on.
+ */
+:root[data-route='home'] {
   -webkit-font-smoothing: antialiased;
+}
+
+/* Google Sans Text cut, for labels Docs sets in it; surface packages opt in. */
+.cut-text {
+  font-variation-settings: 'opsz' var(--opsz-text);
 }
 
 button,
@@ -73,7 +57,7 @@ button:disabled {
 .doc-title:focus-visible,
 .composer:focus-visible,
 .search input:focus-visible,
-.approval input:focus-visible {
+.suggestion input:focus-visible {
   outline: none;
 }
 
@@ -86,17 +70,12 @@ button:disabled {
   background: var(--canvas);
 }
 
-/* Header rows double as the native window drag strip on macOS. */
-.home-header,
-.doc-top {
-  -webkit-app-region: drag;
-}
-
 button,
 input,
 textarea,
 label,
-.menu {
+.menu-positioner,
+.popover-panel {
   -webkit-app-region: no-drag;
 }
 
@@ -105,58 +84,58 @@ label,
 }
 
 .avatar {
-  @apply w-8 h-8 rounded-full;
-  background: var(--blue);
+  @apply grid place-items-center rounded-full shrink-0;
+  width: 40px;
+  height: 40px;
+}
+
+.avatar > span,
+.avatar-sm,
+.avatar-lg {
+  @apply grid place-items-center rounded-full;
+  background: #7b5ea7;
   color: #fff;
-  @apply text-sm font-medium grid place-items-center;
+  font-weight: 500;
+}
+
+.avatar > span {
+  width: 32px;
+  height: 32px;
+  font-size: 15px;
+}
+
+.avatar-sm {
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+}
+
+.avatar-lg {
+  width: 80px;
+  height: 80px;
+  font-size: 36px;
+  font-weight: 400;
 }
 
 .avatar:hover {
-  box-shadow: 0 0 0 4px var(--blue-tint);
+  background: var(--hover);
 }
 
-.header-end .avatar {
-  @apply mt-1;
-}
-
-/* ---------- Banners ---------- */
-
-.banners {
-  @apply shrink-0;
-}
-
-.banner {
-  @apply flex items-center justify-center gap-4;
-  padding: 8px 24px;
-  font-size: 13px;
-  color: var(--text-2);
-  background: var(--info-soft);
-}
-
-.banner.danger {
-  background: var(--red-soft);
-  color: var(--red);
-}
-
-.banner button {
-  color: var(--blue);
-  font-size: 13px;
-  @apply font-medium whitespace-nowrap;
-}
-
-.banner button:hover {
-  text-decoration: underline;
-}
-
-.status {
-  @apply flex-1 grid place-items-center p-6;
-  background: var(--canvas);
-  color: var(--text-2);
-  @apply text-sm text-center;
+/* A profile picture set from the account menu fills the letter's circle. */
+.avatar img,
+.avatar-sm img,
+.avatar-lg img {
+  @apply size-full rounded-full object-cover;
 }
 
 /* ---------- Responsive ---------- */
 
+/*
+ * The .home-header grid here never applies: home-header.css and home.css's own
+ * 960px block sit in the components layer, which wins over base. Only the
+ * wordmark hiding takes effect. UI-12 owns the narrow Home header and settles
+ * both halves.
+ */
 @media (max-width: 960px) {
   .home-header {
     grid-template-columns: auto minmax(0, 1fr) auto;
@@ -164,39 +143,6 @@ label,
 
   .brand-name {
     @apply hidden;
-  }
-
-  .tabs {
-    @apply hidden;
-  }
-
-  .doc-layout {
-    grid-template-columns: minmax(0, 1fr);
-    @apply w-full;
-  }
-
-  .ruler {
-    @apply hidden;
-  }
-
-  .paper {
-    @apply mt-4;
-  }
-}
-
-@media (max-width: 720px) {
-  .doc-grid {
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  }
-
-  .thumb {
-    height: 124px;
-  }
-
-  .paper {
-    @apply w-full;
-    margin-top: 0;
-    box-shadow: none;
   }
 }
 
