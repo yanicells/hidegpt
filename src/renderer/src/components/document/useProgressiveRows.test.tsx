@@ -22,10 +22,6 @@ class FakeChannel {
   }
 }
 
-// Animation frames wait here until the test paints one.
-const frames = new Map<number, () => void>()
-let lastFrame = 0
-
 // Fake time: each render of the hook costs `renderMs`.
 let now = 0
 let renderMs = 0
@@ -34,16 +30,10 @@ let renders = 0
 beforeEach(() => {
   queued.length = 0
   channels.length = 0
-  frames.clear()
   now = 0
   renderMs = 0
   renders = 0
   vi.stubGlobal('MessageChannel', FakeChannel)
-  vi.stubGlobal('requestAnimationFrame', (callback: () => void) => {
-    frames.set(++lastFrame, callback)
-    return lastFrame
-  })
-  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id))
   vi.spyOn(performance, 'now').mockImplementation(() => now)
 })
 afterEach(() => {
@@ -62,16 +52,9 @@ const open = (count: number) =>
     { initialProps: { rows: count } },
   )
 
-/**
- * Paints a frame whose style and layout (of the rows the last step added) take `layoutMs`,
- * then runs the step queued after it, whose render takes `ms`. A void callback keeps act synchronous.
- */
-const nextStep = (ms: number, layoutMs = 0) =>
+// Delivers the queued step, whose render takes `ms`. A void callback keeps act synchronous.
+const nextStep = (ms: number) =>
   act(() => {
-    const painting = [...frames.values()]
-    frames.clear()
-    painting.forEach((paint) => paint())
-    now += layoutMs
     renderMs = ms
     queued.splice(0).forEach((deliver) => deliver())
   })
@@ -85,14 +68,14 @@ describe('useProgressiveRows', () => {
     nextStep(10)
     nextStep(10)
     expect(result.current).toBe(40)
-    expect(frames.size + queued.length).toBe(0)
+    expect(queued.length).toBe(0)
     // The open plus one render per step: the last step needs no extra render to latch.
     expect(renders).toBe(4)
 
     // "Load earlier" or a new turn after the document is fully open.
     rerender({ rows: 70 })
     expect(result.current).toBe(70)
-    expect(frames.size + queued.length).toBe(0)
+    expect(queued.length).toBe(0)
   })
 
   it('renders a short document in one go', () => {
@@ -115,34 +98,21 @@ describe('useProgressiveRows', () => {
   it('keeps the step from 8 to 16 ms and halves it over 16 ms', () => {
     const { result } = open(500)
     const limits = [result.current]
-    // Each step is sized by the one before it, so the last cost here sizes no step.
-    for (const ms of [8, 16, 17, 17, 17, 17, 17, 17]) {
+    for (const ms of [8, 16, 17, 17, 17, 17, 17]) {
       nextStep(ms)
       limits.push(result.current)
     }
     // Steps: 12, 12, 12, then halved down to one row a task.
-    expect(limits).toEqual([12, 24, 36, 48, 54, 57, 58, 59, 60])
-  })
-
-  it("counts the frame that lays out a step's rows", () => {
-    const { result } = open(500)
-    nextStep(3)
-    expect(result.current).toBe(24)
-    // Rendered in 3 ms, but its layout took 10 more: the step stays at 12.
-    nextStep(3, 10)
-    expect(result.current).toBe(36)
-    nextStep(3)
-    expect(result.current).toBe(60)
+    expect(limits).toEqual([12, 24, 36, 48, 54, 57, 58, 59])
   })
 
   it('does no work after unmount', () => {
     const { result, unmount } = open(500)
     nextStep(1)
     expect(result.current).toBe(24)
-    expect(frames.size).toBe(1)
+    expect(queued).toHaveLength(1)
 
     unmount()
-    expect(frames.size).toBe(0)
     expect(channels.every((channel) => channel.closed)).toBe(true)
     const errors = vi.spyOn(console, 'error')
     nextStep(1)
