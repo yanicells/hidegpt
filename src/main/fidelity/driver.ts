@@ -277,9 +277,13 @@ export const makeDriver = (win: BrowserWindow, root: string, phase: string, prob
     const typeText = (text: string) => cdp('Input.insertText', { text })
     const blur = () => js('document.activeElement && document.activeElement.blur()')
 
+    // Set once the innermost step has recorded a hang; the steps around it only pass it on.
+    let hangRecorded = false
     /**
      * Runs one step on its own minute of the pinned clock (`startStep`). A failure is
-     * recorded and the next step runs, unless the page stopped answering.
+     * recorded and the next step runs, unless the page stopped answering: then the
+     * innermost step records it and every step around it rethrows, so the phase ends
+     * with the hang listed once.
      */
     const step = <A, E>(name: string, effect: Effect.Effect<A, E>) =>
       Effect.suspend(() => js(startStep())).pipe(
@@ -287,10 +291,13 @@ export const makeDriver = (win: BrowserWindow, root: string, phase: string, prob
         Effect.asVoid,
         Effect.catchCause((cause) =>
           Effect.suspend(() => {
+            if (hangRecorded) return Effect.failCause(cause)
             const error = String(cause).slice(0, 400)
             console.error(`step failed: ${name}: ${error}`)
             manifest.failures.push({ step: name, error })
-            return hung ? Effect.failCause(cause) : Effect.void
+            if (!hung) return Effect.void
+            hangRecorded = true
+            return Effect.failCause(cause)
           }),
         ),
       )
