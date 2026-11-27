@@ -75,6 +75,22 @@ describe('Logger.layer', () => {
     }),
   )
 
+  it.effect('writes messages and annotations without the home folder, the account name, or an email', () =>
+    Effect.gen(function* () {
+      const dir = tempDir()
+      const identity = { home: '/Users/alice-k', username: 'alice-k' }
+      yield* Effect.logWarning('Could not start /Users/alice-k/.local/bin/tool for alice.k@example.com').pipe(
+        Effect.annotateLogs({ command: '/Users/alice-k/.local/bin/tool', account: 'alice.k@example.com' }),
+        Effect.provide(
+          Logging.layer({ directory: dir, console: false, identity }).pipe(Layer.provide(NodeServices.layer)),
+        ),
+      )
+      const log = readFileSync(join(dir, 'main.ndjson'), 'utf8')
+      expect(JSON.parse(log.trim())).toMatchObject({ level: 'WARN', annotations: { command: expect.any(String) } })
+      for (const secret of ['alice-k', 'alice.k@example.com']) expect(log).not.toContain(secret)
+    }),
+  )
+
   it.effect('without a log folder, prints each line to the terminal once, redacted but not cut', () =>
     Effect.gen(function* () {
       // A folder inside a file cannot be made.
