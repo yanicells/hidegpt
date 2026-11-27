@@ -84,6 +84,8 @@ const processTableNow = () =>
 const GONE = { owner: 2, ownerStarted: Date.UTC(2001, 0, 1) }
 /** Above every OS's pid range, so `ps` knows nothing about it. */
 const NO_SUCH_PID = 2 ** 30
+// A second pid above the system's maximum. A small literal like 5001 can be a live process on CI.
+const GONE_PID = NO_SUCH_PID + 1
 /** A daemon that leaves its parent's group and session, as `setsid` does; a group kill misses it. */
 const DAEMON = `/usr/bin/perl -MPOSIX -e 'POSIX::setsid(); sleep 30'`
 /** A stand-in process table the test changes between reads. */
@@ -395,10 +397,17 @@ describe('ProcessLedger', { timeout: 30_000 }, () => {
     Effect.gen(function* () {
       const path = freshPath()
       const server = sleeper()
-      yield* withLedger(path, { owner: NO_SUCH_PID }, (ledger) => ledger.record(5001, 'codex', 'app-server'))
+      yield* withLedger(path, { owner: NO_SUCH_PID }, (ledger) => ledger.record(GONE_PID, 'codex', 'app-server'))
       yield* withLedger(path, {}, (ledger) => ledger.record(server, '/bin/sleep', '30'))
       expect(onDisk(path)).toEqual({
-        5001: { command: 'codex', arg: 'app-server', started: 0, owner: NO_SUCH_PID, ownerStarted: 0, members: [] },
+        [GONE_PID]: {
+          command: 'codex',
+          arg: 'app-server',
+          started: 0,
+          owner: NO_SUCH_PID,
+          ownerStarted: 0,
+          members: [],
+        },
         [server]: {
           command: '/bin/sleep',
           arg: '30',
