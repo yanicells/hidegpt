@@ -1093,7 +1093,7 @@
       "kind": "box",
       "selector": ".home-header .avatar",
       "prop": "cx",
-      "target": 1423
+      "target": 1424
     },
     {
       "id": "home.search.x",
