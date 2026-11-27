@@ -9,11 +9,11 @@
   --line: #c4c7c5;
   --border-strong: #747775;
   /*
-   * One grey, four roles: Home card and thumbnail borders (home.css), the
-   * vertical ruler's border (ruler.css), the callout rule (page.css) and the
-   * scrollbar thumb (workspace.css). Docs draws these in different greys, so a
-   * package that changes one points that usage at its own value and leaves
-   * this token alone.
+   * One grey, three roles: Home card and thumbnail borders (home.css), the
+   * vertical ruler's border (ruler.css) and the callout rule (page.css). The
+   * canvas scrollbar has its own --scrollbar-* tokens (UI-07). Docs draws
+   * these in different greys, so a package that changes one points that
+   * usage at its own value and leaves this token alone.
    */
   --outline: #dadce0;
   --blue: #0b57d0;
@@ -70,4 +70,10 @@
   /* UI-02, for UI-06: ruler ticks over the page margins and over the content zone. */
   --ruler-tick-margin: #747775;
   --ruler-tick-content: #c4c7c5;
+  /* UI-07: the page's crisp 1px edge, and Docs' scrollbars as Chrome draws them. */
+  --page-edge: 0 0 0 1px #c4c7c5;
+  --scrollbar-size: 12px;
+  --scrollbar-track: #f0f0f0;
+  --scrollbar-thumb: #cdcdcd;
+  --scrollbar-thumb-hover: #bdbdbd;
 }
