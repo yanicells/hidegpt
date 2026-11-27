@@ -267,15 +267,22 @@ function callout(id: string, title: string, body: string): Block {
 /** What a reply Codex moderated away shows instead of its text. */
 export const HIDDEN_REPLY = 'This reply is not available.'
 
+/**
+ * Since codex-cli 0.172.0 a moderated reply says how to present it; "hide" and "block" mean
+ * its text must not be shown.
+ */
+export function isHiddenReply(item: ThreadItem): boolean {
+  if (item.type !== 'agentMessage') return false
+  const mode = item.moderation?.display?.mode
+  return mode === 'hide' || mode === 'block'
+}
+
 export function itemToBlock(item: ThreadItem): Block | null {
   switch (item.type) {
     case 'userMessage':
       return userBlock(item.id, item.content)
     case 'agentMessage': {
-      // Since codex-cli 0.172.0 a moderated reply says how to present it; "hide" and "block"
-      // mean its text must not be shown.
-      const mode = item.moderation?.display?.mode
-      const text = mode === 'hide' || mode === 'block' ? HIDDEN_REPLY : item.text
+      const text = isHiddenReply(item) ? HIDDEN_REPLY : item.text
       return { kind: 'agent', id: item.id, text, ...(item.phase === 'commentary' ? { commentary: true } : {}) }
     }
     case 'reasoning':
