@@ -22,17 +22,24 @@ export function Tip({
   label,
   side = 'bottom',
   delay,
+  hoverOnly = false,
   children,
 }: {
   label?: string
   side?: TooltipPrimitive.Positioner.Props['side']
   /** Hover time before it shows; defaults to the provider's shared delay. */
   delay?: number
+  /** Skip keyboard focus, so Escape in a menu closes the menu rather than its item's tip. */
+  hoverOnly?: boolean
   children: ReactElement
 }) {
   if (!label) return children
   return (
-    <TooltipPrimitive.Root>
+    <TooltipPrimitive.Root
+      onOpenChange={(open, details) => {
+        if (hoverOnly && open && details.reason === 'trigger-focus') details.cancel()
+      }}
+    >
       <TooltipPrimitive.Trigger delay={delay} render={children} />
       <TooltipPrimitive.Portal>
         <TooltipPrimitive.Positioner

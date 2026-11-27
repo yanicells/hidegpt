@@ -30,7 +30,7 @@ export function AlignPalette({
   return (
     <MenuPrimitive.RadioGroup className="align-palette" value={value} onValueChange={(next: string) => onPick(next)}>
       {options.map((option) => (
-        <Tip key={option.value} label={`${option.name} (${option.keys})`}>
+        <Tip key={option.value} label={`${option.name} (${option.keys})`} hoverOnly>
           <MenuPrimitive.RadioItem
             className="align-option"
             value={option.value}

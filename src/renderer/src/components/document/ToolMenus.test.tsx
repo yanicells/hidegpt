@@ -18,6 +18,26 @@ async function openMenu(user: ReturnType<typeof userEvent.setup>, name: string, 
 }
 
 describe('toolbar tool menus', () => {
+  // First, so the panels module is still cold: an Enter that lands before it loads must still focus an item.
+  it('focuses the first item when a tool menu opens from the keyboard', async () => {
+    const user = userEvent.setup()
+    render(<Toolbar snap={emptySnapshot()} />)
+
+    for (const [name, first, next] of [
+      ['Align & indent', 'Left align', 'Center align'],
+      ['Numbered list menu', '1, a, i', '1), a), i)'],
+    ] as const) {
+      screen.getAllByRole('button', { name })[0]!.focus()
+      await user.keyboard('{Enter}')
+      await waitFor(() => expect(document.activeElement).toHaveAccessibleName(first))
+      // One Escape closes the menu after arrowing in (an item's tooltip must not take the first press).
+      await user.keyboard(name === 'Align & indent' ? '{ArrowRight}' : '{ArrowDown}')
+      expect(document.activeElement).toHaveAccessibleName(next)
+      await user.keyboard('{Escape}')
+      await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+    }
+  })
+
   it('moves the align pick, and the ⋮ row shows the same pick', async () => {
     const user = userEvent.setup()
     render(<Toolbar snap={emptySnapshot()} />)
@@ -64,12 +84,13 @@ describe('toolbar tool menus', () => {
     const user = userEvent.setup()
     render(<Toolbar snap={emptySnapshot()} />)
 
-    for (const [name, cells] of [
-      ['Checklist menu', 2],
-      ['Numbered list menu', 6],
+    for (const [name, cells, first] of [
+      ['Checklist menu', 2, 'Checklist, cross out checked items'],
+      ['Numbered list menu', 6, '1, a, i'],
     ] as const) {
       const menu = await openMenu(user, name)
       expect(await within(menu).findAllByRole('menuitem')).toHaveLength(cells)
+      expect(within(menu).getAllByRole('menuitem')[0]).toHaveAccessibleName(first)
       await user.click(within(menu).getAllByRole('menuitem')[0]!)
       await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
     }
