@@ -14,6 +14,18 @@ import * as Logger from "effect/Logger";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
+// HideGPT: pure helpers live in helpers.ts so tests can import them.
+import {
+  generatedFromVersion,
+  type MethodEntry,
+  parseNotificationEntries,
+  parseRequestEntries,
+  resolveResponseTypeName,
+  resolveSchemaTypeName,
+  UNRESOLVED_RESPONSE,
+  UNRESOLVED_RESPONSE_ENTRY,
+  versionMismatch,
+} from "./helpers.ts";
 
 // HideGPT: generate from the installed Codex CLI (`codex app-server generate-json-schema`
 // and `generate-ts`) instead of downloading a pinned upstream ref from GitHub, so the
@@ -45,11 +57,6 @@ interface GeneratedPaths {
   readonly schemaOutputPath: string;
   readonly metaOutputPath: string;
   readonly namespacesOutputPath: string;
-}
-
-interface MethodEntry {
-  readonly method: string;
-  readonly paramsType?: string;
 }
 
 interface JsonSchemaFile {
@@ -439,104 +446,6 @@ function adaptSchemaForEffect(value: Schema.Json): Schema.Json {
   };
 }
 
-function toPascalCaseMethod(method: string) {
-  return method
-    .split("/")
-    .flatMap((segment) => segment.split(/(?=[A-Z])/))
-    .flatMap((segment) => segment.split(/[-_]/))
-    .filter(Boolean)
-    .map((segment) => segment[0]!.toUpperCase() + segment.slice(1))
-    .join("");
-}
-
-function parseRequestEntries(fileContents: string): ReadonlyArray<MethodEntry> {
-  const entryPattern = /\{\s*"method":\s*"([^"]+)",\s*id:\s*RequestId,\s*params(\??):\s*([^,}|]+)/g;
-  const entries: Array<MethodEntry> = [];
-  let match: RegExpExecArray | null;
-  while ((match = entryPattern.exec(fileContents)) !== null) {
-    entries.push({
-      method: match[1]!,
-      paramsType: `${match[2] ? "Nullable" : ""}${match[3]!.trim()}`,
-    });
-  }
-  return entries;
-}
-
-function parseNotificationEntries(fileContents: string): ReadonlyArray<MethodEntry> {
-  const entryPattern = /\{\s*"method":\s*"([^"]+)"(?:,\s*"params":\s*([^ }]+))?\s*\}/g;
-  const entries: Array<MethodEntry> = [];
-  let match: RegExpExecArray | null;
-  while ((match = entryPattern.exec(fileContents)) !== null) {
-    entries.push({
-      method: match[1]!,
-      ...(match[2] ? { paramsType: match[2].trim() } : {}),
-    });
-  }
-  return entries;
-}
-
-function resolveSchemaTypeName(
-  rawTypeName: string,
-  generatedSchemaNames: ReadonlySet<string>,
-): string {
-  if (rawTypeName === "undefined") {
-    return "undefined";
-  }
-
-  const candidates = [
-    rawTypeName,
-    `V2${rawTypeName}`,
-    `V1${rawTypeName}`,
-    `SerdeJson${rawTypeName}`,
-    // HideGPT: Codex 0.166 publishes optional params as `Nullable<Name>` JSON schemas.
-    `Nullable${rawTypeName}`,
-    `V2Nullable${rawTypeName}`,
-  ];
-  for (const candidate of candidates) {
-    if (generatedSchemaNames.has(candidate)) {
-      return candidate;
-    }
-  }
-
-  throw new Error(`Unable to resolve schema type name: ${rawTypeName}`);
-}
-
-function resolveResponseTypeName(
-  method: string,
-  paramsType: string | undefined,
-  generatedSchemaNames: ReadonlySet<string>,
-): string {
-  const overrides: Record<string, string> = {
-    "accountSession/list": "AccountSessionsResponse",
-    "account/gatewayOAuth/cancel": "GatewayOAuthCancelResponse",
-    "account/gatewayOAuth/login": "GatewayOAuthLoginResponse",
-    "account/gatewayOAuth/read": "GatewayOAuthReadResponse",
-    "account/logout": "LogoutAccountResponse",
-    "account/rateLimits/read": "GetAccountRateLimitsResponse",
-    "account/usage/read": "GetAccountTokenUsageResponse",
-    "account/workspaceMessages/read": "GetWorkspaceMessagesResponse",
-    "config/batchWrite": "ConfigWriteResponse",
-    "config/mcpServer/reload": "McpServerRefreshResponse",
-    "config/value/write": "ConfigWriteResponse",
-    "configRequirements/read": "ConfigRequirementsReadResponse",
-    "externalAgentConfig/import/readHistories": "ExternalAgentConfigImportHistoriesReadResponse",
-  };
-
-  const override = overrides[method];
-  if (override) {
-    return resolveSchemaTypeName(override, generatedSchemaNames);
-  }
-
-  if (paramsType && paramsType !== "undefined") {
-    const fromParams = paramsType.replace(/Params$/, "Response");
-    try {
-      return resolveSchemaTypeName(fromParams, generatedSchemaNames);
-    } catch {}
-  }
-
-  return resolveSchemaTypeName(`${toPascalCaseMethod(method)}Response`, generatedSchemaNames);
-}
-
 function renderMethodConstants(constantName: string, entries: ReadonlyArray<MethodEntry>) {
   return [
     `export const ${constantName} = {`,
@@ -697,6 +606,17 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
   const jsonRoot = path.join(sourceRoot, "json");
   const tsRoot = path.join(sourceRoot, "typescript");
   const UPSTREAM_REF = (yield* runCodex(["--version"])).trim();
+  const { metaOutputPath, namespacesOutputPath, schemaOutputPath } =
+    yield* getGeneratedPaths();
+  // HideGPT: a check against a different CLI fails on the version, before a newer protocol
+  // can trip the generator.
+  if (CHECK) {
+    const committedMeta = yield* fs
+      .readFileString(metaOutputPath)
+      .pipe(Effect.orElseSucceed(() => ""));
+    const mismatch = versionMismatch(generatedFromVersion(committedMeta), UPSTREAM_REF);
+    if (mismatch) return yield* new GeneratorError({ detail: mismatch });
+  }
   yield* runCodex(["app-server", "generate-json-schema", "--experimental", "--out", jsonRoot]);
   yield* runCodex(["app-server", "generate-ts", "--experimental", "--out", tsRoot]);
   const hasV1 = yield* fs.exists(path.join(jsonRoot, "v1"));
@@ -805,13 +725,13 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
     "",
   ];
 
-  const schemaOutput = [
-    ...prelude,
-    'import * as Schema from "effect/Schema";',
-    "",
-    [...generatedEntries.values()].join("\n\n"),
-    "",
-  ].join("\n");
+  // HideGPT: methods whose response has no schema get `UnresolvedResponse` (any JSON).
+  const unresolvedResponses = new Set<string>();
+  const responseTypeName = (entry: MethodEntry) => {
+    const name = resolveResponseTypeName(entry.method, entry.paramsType, generatedSchemaNames);
+    if (name === UNRESOLVED_RESPONSE) unresolvedResponses.add(entry.method);
+    return name;
+  };
 
   const metaOutput = [
     ...prelude,
@@ -833,7 +753,7 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
     ),
     renderTypeInterface("ClientRequestResponsesByMethod", clientRequestEntries, (entry) =>
       renderSchemaTypeReference(
-        resolveResponseTypeName(entry.method, entry.paramsType, generatedSchemaNames),
+        responseTypeName(entry),
       ),
     ),
     renderTypeInterface("ClientNotificationParamsByMethod", clientNotificationEntries, (entry) =>
@@ -848,7 +768,7 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
     ),
     renderTypeInterface("ServerRequestResponsesByMethod", serverRequestEntries, (entry) =>
       renderSchemaTypeReference(
-        resolveResponseTypeName(entry.method, entry.paramsType, generatedSchemaNames),
+        responseTypeName(entry),
       ),
     ),
     renderTypeInterface("ServerNotificationParamsByMethod", serverNotificationEntries, (entry) =>
@@ -860,7 +780,7 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
       resolveSchemaTypeName(entry.paramsType ?? "undefined", generatedSchemaNames),
     ),
     renderSchemaMap("CLIENT_REQUEST_RESPONSES", clientRequestEntries, (entry) =>
-      resolveResponseTypeName(entry.method, entry.paramsType, generatedSchemaNames),
+      responseTypeName(entry),
     ),
     renderSchemaMap("CLIENT_NOTIFICATION_PARAMS", clientNotificationEntries, (entry) =>
       resolveSchemaTypeName(entry.paramsType ?? "undefined", generatedSchemaNames),
@@ -869,11 +789,28 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
       resolveSchemaTypeName(entry.paramsType ?? "undefined", generatedSchemaNames),
     ),
     renderSchemaMap("SERVER_REQUEST_RESPONSES", serverRequestEntries, (entry) =>
-      resolveResponseTypeName(entry.method, entry.paramsType, generatedSchemaNames),
+      responseTypeName(entry),
     ),
     renderSchemaMap("SERVER_NOTIFICATION_PARAMS", serverNotificationEntries, (entry) =>
       resolveSchemaTypeName(entry.paramsType ?? "undefined", generatedSchemaNames),
     ),
+  ].join("\n");
+
+  // HideGPT: emitted only when used, so a CLI with every response schema generates as before.
+  if (unresolvedResponses.size > 0) {
+    yield* Effect.logWarning(
+      `No response schema for ${[...unresolvedResponses].join(", ")}; typed as ${UNRESOLVED_RESPONSE}.`,
+    );
+  }
+  const schemaOutput = [
+    ...prelude,
+    'import * as Schema from "effect/Schema";',
+    "",
+    [
+      ...generatedEntries.values(),
+      ...(unresolvedResponses.size > 0 ? [UNRESOLVED_RESPONSE_ENTRY] : []),
+    ].join("\n\n"),
+    "",
   ].join("\n");
 
   const namespaceGroups = new Map<string, Array<JsonSchemaFile>>();
@@ -908,8 +845,6 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
       }),
   ].join("\n");
 
-  const { metaOutputPath, namespacesOutputPath, schemaOutputPath } =
-    yield* getGeneratedPaths();
   const outputs: ReadonlyArray<readonly [string, string]> = [
     [schemaOutputPath, schemaOutput],
     [metaOutputPath, metaOutput],
