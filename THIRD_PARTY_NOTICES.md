@@ -249,7 +249,7 @@ The full license text is in `src/renderer/src/components/ui/symbols.LICENSE.txt`
 
 Google Sans Flex (`@fontsource-variable/google-sans-flex`) and Roboto
 (`@fontsource/roboto`) are installed as npm packages and bundled at build time.
-So are the unmodified faces the font menu previews (`src/renderer/src/fonts.ts`):
+So are the unmodified faces the font menu previews (`src/renderer/src/fontMenu.ts`):
 Amatic SC, Caladea, Carlito, Caveat, Comfortaa, EB Garamond, Lexend, Lobster,
 Lora, Merriweather, Montserrat, Nunito, Open Sans, Oswald, Pacifico, Playfair
 Display, Roboto Mono and Spectral. Each package ships its license as `LICENSE`.
