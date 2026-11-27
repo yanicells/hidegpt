@@ -314,11 +314,13 @@ export const states = (d: Driver, nav: Nav, manager: ProviderSessionManager['Ser
       }),
     )
     // Docs opens its find bar and its link dialog; these show what HideGPT does.
+    // Cmd+F is the native Edit menu's accelerator, which CDP keys never reach, so
+    // the step sends the menu action the accelerator sends.
     yield* d.step(
       'shortcuts',
       Effect.gen(function* () {
-        yield* d.key('f', 'KeyF', 70, 4)
-        yield* d.pause(400)
+        yield* d.menu('find')
+        yield* d.pause(100)
         yield* d.shot('shortcut-cmd-f')
         yield* d.escape()
         yield* nav.openDemo()
@@ -326,6 +328,29 @@ export const states = (d: Driver, nav: Nav, manager: ProviderSessionManager['Ser
         yield* d.pause(400)
         yield* d.shot('shortcut-cmd-k')
         yield* d.escape()
+      }),
+    )
+
+    // The reference page against gdocs-ref find-bar.png ("ATP", 1 of 3) and
+    // menu-context.png (a right click on the first paragraph).
+    yield* d.step(
+      'find-reference',
+      Effect.gen(function* () {
+        const undo = yield* nav.openReference()
+        yield* d.menu('find')
+        yield* d.typeText('ATP')
+        yield* d.pause(400)
+        yield* d.shot('find-bar')
+        yield* d.escape()
+        yield* d.blur()
+        yield* d.clickAt({ x: 560, y: 338 }, 'right')
+        yield* d.pause(300)
+        yield* d.shot('document-context-ref')
+        yield* d.escape()
+        yield* d.dismiss()
+        yield* undo
+        yield* nav.goHome()
+        yield* nav.openDemo()
       }),
     )
 

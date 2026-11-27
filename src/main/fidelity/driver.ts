@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import * as Effect from 'effect/Effect'
 
+import { IpcEvents, type MenuAction } from '../../shared/contracts'
 import { answered } from '../pageDeadline'
 import { clockScript, startStep } from './clock'
 
@@ -276,6 +277,12 @@ export const makeDriver = (win: BrowserWindow, root: string, phase: string, prob
     const escape = () => key('Escape', 'Escape', 27)
     const typeText = (text: string) => cdp('Input.insertText', { text })
     const blur = () => js('document.activeElement && document.activeElement.blur()')
+    /** Sends a native menu action, as the app menu does: CDP keys never reach its accelerators. */
+    const menu = (action: MenuAction) =>
+      Effect.gen(function* () {
+        yield* Effect.sync(() => win.webContents.send(IpcEvents.onMenu.channel, action))
+        yield* pause(300)
+      })
 
     // Set once the innermost step has recorded a hang; the steps around it only pass it on.
     let hangRecorded = false
@@ -333,6 +340,7 @@ export const makeDriver = (win: BrowserWindow, root: string, phase: string, prob
       escape,
       typeText,
       blur,
+      menu,
       step,
       finish,
     }
