@@ -1,11 +1,14 @@
 import { describe, expect, it } from '@effect/vitest'
+import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
 import * as Exit from 'effect/Exit'
 import * as Option from 'effect/Option'
 import * as Stream from 'effect/Stream'
+import * as TestClock from 'effect/testing/TestClock'
 
 import * as CodexAdapter from '../codex/CodexAdapter'
-import { makeFakeCodex } from '../codex/FakeCodex'
+import { makeFakeCodex, type FakeCodexOptions } from '../codex/FakeCodex'
+import { CommandRejectedError, DEFECT_MESSAGE } from '../provider/errors'
 import { fromLegacy } from '../provider/legacyEvents'
 import type { ProviderAdapter, ProviderSession } from '../provider/ProviderAdapter'
 import type { Snapshot } from '../shared/model'
@@ -24,9 +27,9 @@ const patched = (adapter: ProviderAdapter, patch: Partial<ProviderSession>): Pro
   openSession: Effect.map(adapter.openSession, (session) => ({ ...session, ...patch })),
 })
 
-const setup = (patch: Partial<ProviderSession>) =>
+const setup = (patch: Partial<ProviderSession>, fake?: FakeCodexOptions) =>
   Effect.gen(function* () {
-    const peer = makeFakeCodex()
+    const peer = makeFakeCodex(fake)
     const manager = yield* Manager.make({
       defaultCwd: () => '/tmp/docs',
       openExternal: () => Effect.void,
@@ -91,6 +94,36 @@ describe('ProviderSessionManager: a defect undoes the optimistic state', () => {
         pending: false,
         resolved: null,
       })
+    }),
+  )
+
+  it.effect('interrupt: the answer runs on, and the defect is not swallowed', () =>
+    Effect.gen(function* () {
+      const { manager } = yield* setup({ interrupt: () => bug('interrupt') }, { reply: null })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* manager.dispatch({ op: 'send', provider: 'codex', threadId: 'thr_1', text: 'Write a long essay' })
+      yield* until(manager, (snapshot) => snapshot.streaming && !snapshot.stopping)
+
+      const exit = yield* Effect.exit(manager.dispatch({ op: 'interrupt', provider: 'codex', threadId: 'thr_1' }))
+      // A die, not a quiet success: the IPC boundary reports it under a report id.
+      expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true)
+      expect(yield* manager.snapshot).toMatchObject({ streaming: true, stopping: false })
+      // The stop's deadline went with it, so it never ends the answer that is still running.
+      yield* TestClock.adjust('10 seconds')
+      yield* settle
+      expect(yield* manager.snapshot).toMatchObject({ streaming: true, stopping: false })
+    }),
+  )
+
+  it.effect("openThread: a defect shows the generic banner, even one carrying an expected error's sentence", () =>
+    Effect.gen(function* () {
+      const { manager } = yield* setup({
+        openThread: () => Effect.die(new CommandRejectedError({ reason: 'A sentence a defect must not show.' })),
+      })
+
+      const exit = yield* Effect.exit(manager.dispatch({ op: 'openThread', threadId: 'thr_1' }))
+      expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true)
+      expect((yield* manager.snapshot).error).toBe(DEFECT_MESSAGE)
     }),
   )
 
