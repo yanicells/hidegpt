@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs'
+
 import { describe, expect, it } from 'vitest'
 
 import { checkBudgets, updateBudgets } from './budgets.mjs'
+import { tier } from './report.mjs'
 
 const options = { docs: 500, turns: 300, throttle: 1 }
 const result = (counts, statics = {}, overrides = {}) => ({
@@ -12,64 +15,106 @@ const result = (counts, statics = {}, overrides = {}) => ({
   ...overrides,
 })
 const budgets = (metrics) => ({ measured: {}, options, metrics })
+const statusOf = (checked) => Object.fromEntries(checked.rows.map((row) => [row.name, row.status]))
 
 describe('checkBudgets', () => {
   const limits = budgets({
-    'stream300.renders': { baseline: 1000, max: 1100 },
-    'static.main_js_kb': { baseline: 2000.4, max: 2201 },
+    'stream300.renders': { min: 900, max: 1100 },
+    'static.main_js_kb': { min: 1800, max: 2201 },
   })
 
-  it('passes at the budget and fails one count over it', () => {
+  it('passes within the bounds, and fails one count over the max', () => {
     expect(checkBudgets(result({ 'stream300.renders': 1100 }, { 'static.main_js_kb': 2201 }), limits).passed).toBe(true)
     const over = checkBudgets(result({ 'stream300.renders': 1101 }, { 'static.main_js_kb': 2000 }), limits)
     expect(over.passed).toBe(false)
-    expect(over.rows.map((row) => row.status)).toEqual(['over', 'ok'])
+    expect(statusOf(over)).toEqual({ 'stream300.renders': 'over', 'static.main_js_kb': 'ok' })
   })
 
-  it('fails a budgeted metric the run did not produce', () => {
-    const checked = checkBudgets(result({}, { 'static.main_js_kb': 2000 }), limits)
+  it('fails a count that fell under its min, so an improvement tightens its budget', () => {
+    const stale = checkBudgets(result({ 'stream300.renders': 899 }, { 'static.main_js_kb': 2000 }), limits)
+    expect(stale.passed).toBe(false)
+    expect(statusOf(stale)['stream300.renders']).toBe('stale')
+  })
+
+  it('fails a budgeted metric the run did not produce, and one that is not a count', () => {
+    const checked = checkBudgets(
+      result({ 'stream300.task_ms': 5 }, { 'static.main_js_kb': 2000 }),
+      budgets({ ...limits.metrics, 'stream300.task_ms': { min: 0, max: 10 } }),
+    )
     expect(checked.passed).toBe(false)
-    expect(checked.rows[0]).toMatchObject({ name: 'stream300.renders', status: 'missing', value: null })
+    expect(statusOf(checked)).toEqual({
+      'stream300.renders': 'missing',
+      'static.main_js_kb': 'ok',
+      'stream300.task_ms': 'not a count',
+    })
   })
 
   it('fails a run of a different session, whose counts do not compare', () => {
     const small = result(
-      { 'stream300.renders': 10 },
+      { 'stream300.renders': 1000 },
       { 'static.main_js_kb': 2000 },
       { options: { ...options, turns: 30 } },
     )
     expect(checkBudgets(small, limits)).toMatchObject({ passed: false, differ: ['turns'] })
   })
+
+  it('checks only the bundle sizes of a build when asked, with no session to compare', () => {
+    const build = { commit: 'abc1234', static: { 'static.main_js_kb': 2300 } }
+    const checked = checkBudgets(build, limits, { only: (name) => name.startsWith('static.') })
+    expect(checked).toMatchObject({ passed: false, differ: [] })
+    expect(statusOf(checked)).toEqual({ 'static.main_js_kb': 'over' })
+  })
 })
 
 describe('updateBudgets', () => {
-  it('rebaselines each metric from the higher of the runs, 10% (and at least 2) over it, rounded up', () => {
+  it('sets bounds 10% outside the range the runs measured, at least 2 for whole counts', () => {
     const run = (renders, commits, mainKb) =>
       result(
         { 'stream300.renders': renders, 'open.commits': commits, 'stream300.r_ginstr': 99 },
         { 'static.main_js_kb': mainKb },
       )
     const next = updateBudgets(
-      [run(900, 10, 1999.94), run(880, 11, 1999.94)],
+      [run(900, 10, 1999.94), run(880, 11, 1999.94), run(890, 11, 1999.94)],
       budgets({
-        'stream300.renders': { baseline: 1000, max: 1100 },
-        'open.commits': { baseline: 10, max: 12 },
-        'static.main_js_kb': { baseline: 2000, max: 2200 },
+        'stream300.renders': { min: 0, max: 1100 },
+        'open.commits': { min: 0, max: 12 },
+        'static.main_js_kb': { min: 0, max: 2200 },
       }),
     )
     expect(next.metrics).toEqual({
-      'stream300.renders': { baseline: 900, max: 990 },
-      'open.commits': { baseline: 11, max: 13 },
-      'static.main_js_kb': { baseline: 1999.9, max: 2200 },
+      'stream300.renders': { low: 880, high: 900, min: 792, max: 990 },
+      'open.commits': { low: 10, high: 11, min: 8, max: 13 },
+      'static.main_js_kb': { low: 1999.9, high: 1999.9, min: 1799.9, max: 2200 },
     })
-    expect(next.measured).toEqual({ commit: 'abc1234', when: '2026-11-27' })
+    expect(next.measured).toEqual({ commit: 'abc1234', when: '2026-11-27', runs: 3 })
+  })
+
+  it("keeps a metric's own headroom, rounding fractional counts to 0.1", () => {
+    const next = updateBudgets(
+      [result({ 'stream300.renders_per_commit': 23.04 }), result({ 'stream300.renders_per_commit': 23.31 })],
+      budgets({ 'stream300.renders_per_commit': { min: 0, max: 0, headroom: 0.02 } }),
+    )
+    expect(next.metrics['stream300.renders_per_commit']).toEqual({
+      low: 23,
+      high: 23.3,
+      min: 22.5,
+      max: 23.8,
+      headroom: 0.02,
+    })
   })
 
   it('refuses to budget a metric that is not a count, or one a run did not measure', () => {
     const run = result({ 'stream300.r_ginstr': 99, 'stream300.task_ms': 2000, 'stream300.renders': 5 })
-    expect(() => updateBudgets([run], budgets({ 'stream300.task_ms': { baseline: 1, max: 1 } }))).toThrow(/not a count/)
-    expect(() => updateBudgets([run, result({})], budgets({ 'stream300.renders': { baseline: 1, max: 1 } }))).toThrow(
+    expect(() => updateBudgets([run], budgets({ 'stream300.task_ms': { min: 1, max: 1 } }))).toThrow(/not a count/)
+    expect(() => updateBudgets([run, result({})], budgets({ 'stream300.renders': { min: 1, max: 1 } }))).toThrow(
       /did not measure/,
     )
   })
+})
+
+it('budgets only counts in the checked-in budgets.json', () => {
+  const { metrics } = JSON.parse(readFileSync(new URL('./budgets.json', import.meta.url), 'utf8'))
+  const names = Object.keys(metrics)
+  expect(names.length).toBeGreaterThan(0)
+  expect(names.filter((name) => tier(name) !== 'count')).toEqual([])
 })

@@ -6,6 +6,7 @@
 //   node scripts/bench/run.mjs profile --phase stream300[,open] [--repo <dir>]
 //   node scripts/bench/run.mjs compare <before.json> <after.json>
 //   node scripts/bench/run.mjs check [--update] [--wait] [--from <result.json> ...]
+//   node scripts/bench/run.mjs check --static     (bundle sizes only; needs a build, no app)
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { cpus, loadavg, tmpdir, totalmem } from 'node:os'
@@ -39,6 +40,7 @@ const { values: flags, positionals } = parseArgs({
     update: { type: 'boolean', default: false },
     wait: { type: 'boolean', default: false },
     from: { type: 'string', multiple: true },
+    static: { type: 'boolean', default: false },
   },
 })
 const command = ['profile', 'compare', 'check'].includes(positionals[0]) ? positionals[0] : 'run'
@@ -52,10 +54,10 @@ if (command === 'compare') {
 
 const budgetsFile = join(import.meta.dirname, 'budgets.json')
 /**
- * Checks the first result against budgets.json, exiting 1 over budget; with --update,
- * rewrites budgets.json from all of them instead.
+ * Checks the first result against budgets.json, exiting 1 outside a budget; with --update,
+ * rewrites budgets.json from all of them instead. `only` limits the check to some metrics.
  */
-function check(results) {
+function check(results, only) {
   const budgets = JSON.parse(readFileSync(budgetsFile, 'utf8'))
   const [result] = results
   if (flags.update) {
@@ -65,7 +67,7 @@ function check(results) {
     console.log(`wrote ${budgetsFile} from ${results.length} runs of ${result.commit}; commit it and say why in the PR`)
     process.exit(0)
   }
-  const checked = checkBudgets(result, budgets)
+  const checked = checkBudgets(result, budgets, { only })
   console.log(`\n${checkReport(checked, budgets)}`)
   process.exit(checked.passed ? 0 : 1)
 }
@@ -90,9 +92,15 @@ const throttle = Number(flags.throttle)
 /** Seconds one launch and session may take before the app is killed and the run fails. */
 const sessionTimeout = Number(flags.timeout)
 
+// Bundle sizes need a build but no app, so CI checks them on Linux after its build.
+const staticOnly = command === 'check' && flags.static
+if (staticOnly && flags.update) throw new Error('--static checks the bundle sizes only; --update needs a full run')
+
 // One bench at a time on this machine: two would measure each other.
 const lockFile = join(tmpdir(), 'hidegpt-bench.lock')
-if (flags.wait) await waitForLock(lockFile, { onWait: (why) => console.log(`${why}; waiting …`) })
+if (staticOnly) {
+  // Builds, but launches nothing, so it does not wait for a bench.
+} else if (flags.wait) await waitForLock(lockFile, { onWait: (why) => console.log(`${why}; waiting …`) })
 else takeLock(lockFile)
 process.on('exit', () => releaseLock(lockFile))
 
@@ -104,6 +112,7 @@ if (flags.build) {
   })
 }
 if (!existsSync(join(repo, 'out', 'main'))) throw new Error(`${repo} is not built; pass --build or run its build first`)
+if (staticOnly) check([{ commit, static: staticSizes() }], (name) => name.startsWith('static.'))
 mkdirSync(work, { recursive: true })
 
 /** A fixed loop timed on the wall clock: how contended the machine is right now. */
@@ -304,9 +313,13 @@ writeFileSync(join(out, `${label}.md`), resultTable(result, { all: true }))
 console.log(`\n${resultTable(result, { only: HEADLINE })}`)
 console.log(`full results: ${join(out, `${label}.json`)} and .md`)
 if (command === 'check' && flags.update) {
-  // A budget is set from the higher of two counts runs: some counts move a few percent.
-  const again = await session('counts-2', { counts: true })
-  writeFileSync(join(out, `${label}-2.json`), `${JSON.stringify({ ...result, counts: again }, null, 2)}\n`)
-  check([result, { ...result, counts: again }])
+  // A budget is set from the range of three counts runs: some counts move a few percent.
+  const results = [result]
+  for (const n of [2, 3]) {
+    const again = { ...result, counts: await session(`counts-${n}`, { counts: true }) }
+    writeFileSync(join(out, `${label}-${n}.json`), `${JSON.stringify(again, null, 2)}\n`)
+    results.push(again)
+  }
+  check(results)
 }
 if (command === 'check') check([result])
