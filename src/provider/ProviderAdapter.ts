@@ -39,6 +39,16 @@ export interface ProviderAdapter {
 }
 
 /** One live connection. Every operation carries its own timeout. */
+/** How the manager tells a send what happened to its turn before the session took it. */
+export interface SendOptions {
+  /**
+   * Read synchronously as the session takes the send. True when Stop was pressed between the
+   * manager opening the turn and this call: the turn then ends as interrupted, unsent (as T3
+   * checks for an unpaired stop right before a provider start).
+   */
+  readonly stopped?: () => boolean
+}
+
 export interface ProviderSession {
   /** Everything the backend reports. Ends when the session's scope closes. */
   readonly events: Stream.Stream<AdapterEvent>
@@ -64,6 +74,7 @@ export interface ProviderSession {
     turnId: TurnId,
     input: TurnInput,
     settings: TurnSettings,
+    options?: SendOptions,
   ) => Effect.Effect<void, ProviderError>
   /** Asks the provider to stop turn `turnId`, waiting briefly if it has not started yet. Its terminal comes as an event. */
   readonly interrupt: (threadId: string, turnId: TurnId) => Effect.Effect<void, ProviderError>

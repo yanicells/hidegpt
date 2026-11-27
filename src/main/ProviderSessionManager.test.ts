@@ -1088,6 +1088,55 @@ describe('ProviderSessionManager: turns', () => {
     }),
   )
 
+  it.effect('a Stop between the page opening the turn and the session taking the send keeps it unsent', () =>
+    Effect.gen(function* () {
+      const peer = makeFakeCodex({ reply: null })
+      const codex = fromLegacy(CodexAdapter.make(peer.connect))
+      const gate = yield* Deferred.make<void>()
+      let held = true
+      const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
+        Effect.provide(
+          layerAdapters({
+            codex: {
+              ...codex,
+              // The first send reaches the session only once the gate opens: the fiber yielded
+              // after the page opened the turn.
+              openSession: Effect.map(codex.openSession, (session) => ({
+                ...session,
+                send: (...args: Parameters<typeof session.send>) =>
+                  held
+                    ? Deferred.await(gate).pipe(
+                        Effect.tap(() => Effect.sync(() => (held = false))),
+                        Effect.andThen(session.send(...args)),
+                      )
+                    : session.send(...args),
+              })),
+            },
+          }),
+        ),
+      )
+      yield* manager.start('codex')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      const sent = yield* Effect.forkChild(
+        Effect.exit(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' })),
+      )
+      yield* until(manager, (snapshot) => snapshot.streaming)
+      yield* manager.dispatch({ op: 'interrupt', ...doc('thr_1') })
+      yield* Deferred.succeed(gate, undefined)
+      yield* settle
+      expect(Exit.isSuccess(yield* Fiber.join(sent))).toBe(true)
+      expect(countCalls(peer, 'turn/start')).toBe(0)
+      expect(countCalls(peer, 'turn/interrupt')).toBe(0)
+      // Settled at once, not by the deadline.
+      expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false })
+      yield* manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'A shorter one' })
+      yield* settle
+      expect(countCalls(peer, 'turn/start')).toBe(1)
+      expect(yield* manager.snapshot).toMatchObject({ streaming: true, stopping: false })
+    }),
+  )
+
   it.effect('a stop that times out is left to the deadline, not put back to running', () =>
     Effect.gen(function* () {
       const peer = makeFakeCodex({ reply: null })

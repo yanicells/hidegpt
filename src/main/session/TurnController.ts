@@ -51,7 +51,10 @@ import * as S from './state'
  *   until the start lands (no clock of its own), never timed out unsent, and
  *   the thread's next send waits until that held stop has gone out and the
  *   previous send was answered. A stop on a send still waiting there ends
- *   that turn as interrupted at once, and it is never sent.
+ *   that turn as interrupted at once (through the tracker's `endUnbegun`),
+ *   and it is never sent. `send` reads its `stopped` option in the same step
+ *   that registers the send, so a Stop pressed before the session took it is
+ *   seen there.
  * - End the turn with `turn.ended` for that turn id. A terminal within
  *   `REFUSED_STOP_GRACE` of a refusal cancels the refusal's banner.
  * - Keep no stop timer of its own (ARCH-4b deletes Claude's
@@ -167,7 +170,13 @@ export const make = (options: TurnControllerOptions): Effect.Effect<TurnControll
           ]
         })
         if (!opened.ok) return yield* Effect.fail(rejected(opened.reason))
-        yield* session.send(threadId, turnId, { text, images, skill, clientId }, opened.settings).pipe(
+        // Stop may land between the write above and the session taking the send. The session reads
+        // this as it takes it, so that turn is never sent (T3's `hasUnpairedRunInterruptRequest`).
+        const stopped = () => {
+          const turn = SubscriptionRef.getUnsafe(state).runtimes.get(key)?.turn
+          return turn?.id !== turnId || turn.phase === 'stopping'
+        }
+        yield* session.send(threadId, turnId, { text, images, skill, clientId }, opened.settings, { stopped }).pipe(
           // A turn the stop deadline already settled keeps its question: the page showed it as
           // asked and stopped, and the provider may still have run it.
           undoOnFailure(() =>

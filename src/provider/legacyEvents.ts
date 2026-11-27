@@ -196,14 +196,17 @@ function deltaTarget(id: string, target: TextTarget | undefined): AssistantItem 
     : { kind: 'assistant', id, text: '', phase: 'final' }
 }
 
-/** A legacy adapter as a canonical one. Each session gets its own turn tracker. */
+/**
+ * A legacy adapter as a canonical one. Each session gets its own turn tracker. `options` is for
+ * tests only; production passes none.
+ */
 export const fromLegacy = (adapter: LegacyProviderAdapter, options: LegacyOptions = {}): ProviderAdapter => ({
   id: adapter.id,
   capabilities: adapter.capabilities,
   openSession: Effect.flatMap(adapter.openSession, (legacy) => wrapSession(adapter.id, legacy, options)),
 })
 
-/** For tests: `tracker` wraps the session's turn tracker, e.g. to hold a step open. */
+/** Test-only: `tracker` wraps the session's turn tracker, e.g. to hold a step open. */
 export interface LegacyOptions {
   readonly tracker?: (tracker: TurnTracker) => TurnTracker
 }
@@ -226,9 +229,9 @@ const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession, option
      */
     const sending = new Map<string, Deferred.Deferred<void>>()
     /**
-     * Sends not yet known to the tracker, by turn id (as T3 pairs a stop with its run). Stop finds
-     * one here: a waiting send it ends at once, unsent; one in `begin` it waits for, then stops
-     * through the tracker like any other turn.
+     * Sends in progress, by turn id (as T3 pairs a stop with its run). Stop finds one here: a
+     * waiting send it ends at once, unsent; one in `begin` or past it, it waits for `begin`, then
+     * stops through the tracker like any other turn.
      */
     const queued = new Map<TurnId, QueuedSend>()
     const openRequests = makeOpenRequests()
@@ -270,8 +273,11 @@ const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession, option
           cursor: page.cursor,
         })),
       messageId: legacy.messageId,
-      send: (threadId, turnId, input, settings) =>
+      send: (threadId, turnId, input, settings, options) =>
         Effect.suspend(() => {
+          // Stopped before this call: never registered, never sent. Read in the same step that
+          // registers it below, so a Stop either was seen here or finds the record.
+          if (options?.stopped?.()) return tracker.endUnbegun(threadId, turnId)
           // Waits for a stop still owed to an earlier turn, and for the previous send's answer.
           // Bounded: an owed stop ends when its start lands and the stop goes out, or when that
           // start fails (at its own deadline, or as the session dies), which abandons the turn; a
@@ -288,8 +294,6 @@ const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession, option
             if (mine.phase === 'stopped') return
             mine.phase = 'beginning'
             yield* tracker.begin(threadId, turnId).pipe(Effect.ensuring(Deferred.succeed(mine.begun, undefined)))
-            // The tracker knows the turn now, so Stop finds it there.
-            queued.delete(turnId)
             const nativeTurnId = yield* legacy
               .send(threadId, input, settings)
               .pipe(Effect.onError(() => tracker.abandon(threadId, turnId)))
@@ -301,6 +305,8 @@ const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession, option
               Effect.suspend(() => {
                 if (queued.get(turnId) === mine) queued.delete(turnId)
                 if (sending.get(threadId) === done) sending.delete(threadId)
+                // `begun` again: a send interrupted after moving to `beginning` but before `begin`
+                // ran would otherwise leave a Stop waiting on it for good.
                 return Effect.andThen(Deferred.succeed(mine.begun, undefined), Deferred.succeed(done, undefined))
               }),
             ),
@@ -318,9 +324,9 @@ const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession, option
             // send returns without beginning, so this is the turn's only terminal.
             if (queuedSend.phase === 'waiting') {
               queuedSend.phase = 'stopped'
-              return yield* emit({ type: 'turn.ended', threadId, turnId, status: 'interrupted', failure: null })
+              return yield* tracker.endUnbegun(threadId, turnId)
             }
-            // Beginning: the tracker knows the turn once `begin` is done.
+            // Beginning (or sending): the tracker knows the turn once `begin` is done.
             yield* Deferred.await(queuedSend.begun)
           }
           if (!(yield* tracker.requestStop(threadId, turnId))) return

@@ -31,6 +31,19 @@ describe('TurnTracker', () => {
     }),
   )
 
+  it.effect('ends a turn Stop caught before it began, and leaves the open turn to `end`', () =>
+    Effect.gen(function* () {
+      const { tracker, emitted } = yield* setup
+      yield* tracker.begin('t', 'turn-1')
+      yield* tracker.endUnbegun('t', 'turn-1')
+      yield* tracker.endUnbegun('t', 'turn-2')
+      expect(emitted).toEqual([
+        { type: 'turn.ended', threadId: 't', turnId: 'turn-2', status: 'interrupted', failure: null },
+      ])
+      expect(tracker.current('t')).toBe('turn-1')
+    }),
+  )
+
   it.effect('ends a turn exactly once, and a late start response does not bring it back', () =>
     Effect.gen(function* () {
       const { tracker, types } = yield* setup
