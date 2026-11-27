@@ -245,7 +245,7 @@ describe('wireNavigation', () => {
       loadURL: vi.fn(async (_url: string) => undefined),
       webContents: Object.assign(new EventEmitter(), {
         getURL: () => currentUrl,
-        setWindowOpenHandler: vi.fn(),
+        setWindowOpenHandler: vi.fn<(handler: (details: { url: string }) => { action: 'allow' | 'deny' }) => void>(),
       }),
     }
     wireNavigation(win as unknown as BrowserWindow, appUrl, onAppLoad)
@@ -276,6 +276,13 @@ describe('wireNavigation', () => {
     expect(navigate('https://example.com/')).toHaveBeenCalled()
     expect(openExternalMock).toHaveBeenCalledWith('https://example.com/')
     expect(win.loadURL).not.toHaveBeenCalled()
+  })
+
+  it('sends target=_blank links (Home’s quick-launch pill) to the browser and opens no window', () => {
+    const { win } = fakeWindow(appUrl)
+    const openWindow = win.webContents.setWindowOpenHandler.mock.calls[0]?.[0]
+    expect(openWindow?.({ url: 'https://docs.google.com/spreadsheets/' })).toEqual({ action: 'deny' })
+    expect(openExternalMock).toHaveBeenCalledWith('https://docs.google.com/spreadsheets/')
   })
 
   it('resyncs after an app load but not after the crash page loads', () => {
