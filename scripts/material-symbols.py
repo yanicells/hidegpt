@@ -36,10 +36,16 @@ school extension code keyboard rate_review difference format_quote format_list_n
 dictionary person logout manage_accounts edit_note account_circle text_fields
 format_align_center format_align_right format_align_justify page_header page_footer
 insert_page_break expand_more chevron_right list cloud_sync water_drop shield_person
+content_paste_go add_reaction keep find_in_page keyboard_arrow_down open_in_new
+drive_file_rename_outline text_rotation_none
 """.split()
 
 # Icons Docs draws filled (File > New and Print, Drive's folders); emitted as `<name>_fill`.
-FILLED = "article folder print table slideshow list_alt draw".split()
+FILLED = "article folder print table slideshow list_alt draw ink_highlighter".split()
+
+# Keys drawn from a different glyph. Docs' Paint format tool is a paint roller;
+# the font's own format_paint is a brush.
+ALIASES = {"format_paint": "imagesearch_roller"}
 
 class DropEmptySegments(FilterPen):
     """Skips segments that end where they start; the font has a few, and they only bloat the paths."""
@@ -74,11 +80,12 @@ def paths(font_path: str, opsz: int, fill: int = 0, names: list[str] = NAMES) ->
     glyphs = font.getGlyphSet()
     out = {}
     for name in names:
-        if name not in glyphs:
-            sys.exit(f"missing icon: {name}")
+        glyph = ALIASES.get(name, name)
+        if glyph not in glyphs:
+            sys.exit(f"missing icon: {glyph}")
         pen = SVGPathPen(glyphs, ntos=lambda n: str(round(n)))
         # Font units are y-up from the baseline; SVG viewBox 0 -960 960 960 is y-down.
-        glyphs[name].draw(TransformPen(DropEmptySegments(pen), (1, 0, 0, -1, 0, 0)))
+        glyphs[glyph].draw(TransformPen(DropEmptySegments(pen), (1, 0, 0, -1, 0, 0)))
         out[f"{name}_fill" if fill else name] = pen.getCommands()
     return out
 

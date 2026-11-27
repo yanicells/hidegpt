@@ -2,80 +2,82 @@ import { useState } from 'react'
 
 import type { Snapshot } from '../../../../shared/model'
 import { clearCommandError, dispatch, useCommandError } from '../../session-bridge'
+import { MIcon } from '../ui/MaterialIcon'
 
-// Dismissal is remembered per library and message, so the same error stays
-// hidden while a new one still shows. Adapted from T3 Code
-// (apps/web/src/components/chat/ThreadErrorBanner.tsx) at commit 8a14762c.
+// One lane of notices that never covers the page's controls, and a dismissal
+// that clears the error itself. Adapted from T3 Code
+// (apps/web/src/components/chat/ChatBannerLane.tsx, ThreadErrorBanner.tsx) at commit 5c6f2f12.
 // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 const bannerKey = (snap: Snapshot, error: string) => `${snap.provider}\u0000${error}`
 
 /**
- * The strip under the header: sign-in prompts and errors. Errors never
- * replace the page; Home and the open document stay usable underneath.
+ * Docs' snackbars in the bottom-left corner: sign-in prompts and errors. They
+ * float over the window, so showing or hiding one never moves the page, and
+ * Home and the open document stay usable underneath.
  */
 export function Banners({ snap }: { snap: Snapshot }) {
   const commandError = useCommandError()
-  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => new Set())
   const libraryError = snap.error ?? (snap.status === 'error' ? 'Docs couldn’t open this library.' : null)
-  const errors = [...new Set([libraryError, commandError])].filter(
-    (error): error is string => Boolean(error) && !dismissed.has(bannerKey(snap, error ?? '')),
+  const libraryKey = libraryError === null ? null : bannerKey(snap, libraryError)
+  const [dismissed, setDismissed] = useState<string | null>(null)
+  // A dismissal covers this occurrence only: once the library's error clears or changes, the same one shows again.
+  if (dismissed !== null && dismissed !== libraryKey) setDismissed(null)
+  const errors = [...new Set([libraryKey === dismissed ? null : libraryError, commandError])].filter(
+    (error): error is string => error !== null,
   )
   // A command error just clears, so the same failure on a retry shows again.
   const dismiss = (error: string) => {
     if (error === commandError) clearCommandError()
-    if (error === libraryError) setDismissed((current) => new Set(current).add(bannerKey(snap, error)))
+    if (error === libraryError) setDismissed(libraryKey)
   }
   const ready = snap.status === 'ready'
   return (
-    <div className="banners">
+    <div className="snackbar-lane">
       {ready && snap.requiresAuth && !snap.account && snap.capabilities.login ? (
-        <div className="banner" role="status">
-          <span data-testid="auth-banner">Sign in to use Docs.</span>
-          <button type="button" onClick={() => dispatch({ op: 'login' })}>
+        <div className="snackbar" role="status">
+          <span className="snackbar-text" data-testid="auth-banner">
+            Sign in to use Docs.
+          </span>
+          <button type="button" className="snackbar-action" onClick={() => dispatch({ op: 'login' })}>
             Sign in
           </button>
         </div>
       ) : null}
       {ready && snap.loginUrl ? (
-        <div className="banner" role="status">
-          <span data-testid="login-url">Finish signing in in your browser.</span>
+        <div className="snackbar" role="status">
+          <span className="snackbar-text" data-testid="login-url">
+            Finish signing in in your browser.
+          </span>
         </div>
       ) : null}
       {errors.map((error) => (
-        <div key={error} className="banner danger" role="alert">
-          {/* Docs' own wording; the raw message can name the provider, so it waits behind Details. */}
-          <span data-testid="error-banner">Something went wrong. Try again.</span>
-          <ErrorDetails message={error} />
+        <div key={error} className="snackbar" role="alert">
+          {/* Docs' own wording. The message can name the library, so it never reaches the window. */}
+          <span className="snackbar-text" data-testid="error-banner">
+            Something went wrong. Try again.
+          </span>
           <button
             type="button"
+            className="snackbar-action"
             data-testid="error-refresh"
             onClick={() => {
               clearCommandError()
-              setDismissed(new Set())
               void dispatch({ op: 'refresh' })
             }}
           >
-            Refresh
+            Reload
           </button>
-          <button type="button" data-testid="error-dismiss" onClick={() => dismiss(error)}>
-            Dismiss
+          <button
+            type="button"
+            className="snackbar-close"
+            data-testid="error-dismiss"
+            aria-label="Dismiss"
+            onClick={() => dismiss(error)}
+          >
+            <MIcon name="close" size={20} />
           </button>
         </div>
       ))}
     </div>
-  )
-}
-
-/**
- * Raw errors can name the provider or model, so they wait behind a click,
- * the same way names wait inside menus.
- */
-function ErrorDetails({ message }: { message: string }) {
-  const [open, setOpen] = useState(false)
-  if (open) return <span className="error-details">{message}</span>
-  return (
-    <button type="button" className="error-details-toggle" onClick={() => setOpen(true)}>
-      Details
-    </button>
   )
 }

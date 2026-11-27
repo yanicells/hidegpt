@@ -1,10 +1,11 @@
-import { memo } from 'react'
+import { memo, useDeferredValue } from 'react'
 import type { Block } from '../../../../shared/model'
 import { imageSrc } from '../ui/imageSrc'
 import { useMarkdown } from '../ui/loadMarkdown'
 import { MIcon } from '../ui/MaterialIcon'
 import { Approval } from './Approval'
 import { SkillChip } from './SmartChips'
+import { revealedText } from './streamReveal'
 
 export const BlockView = memo(
   function BlockView({ block, streaming }: { block: Block; streaming: boolean }) {
@@ -61,19 +62,31 @@ export const BlockView = memo(
   },
 )
 
+/**
+ * An answer. While it streams, only its finished lines show, and the cursor
+ * waits on the writing line below them, where the next line will land.
+ */
 function AgentBlock({ text, streaming }: { text: string; streaming: boolean }) {
   const markdown = useMarkdown()
+  // Deferred here, so the writing line stays until the last lines replace it in the same
+  // commit; dropping it a frame early would move the page up and back down.
+  const shown = useDeferredValue(streaming ? revealedText(text) : text)
+  const writing = streaming || shown !== text
   return (
-    <div className={streaming ? 'streaming' : undefined}>
+    <div className={writing ? 'streaming' : undefined}>
       {markdown ? (
-        <markdown.AgentMarkdown text={text} streaming={streaming} />
+        <markdown.AgentMarkdown text={shown} streaming={writing} />
       ) : (
         // The renderer loads after the first paint; until then the text shows as written.
         <div className="doc-body" style={{ whiteSpace: 'pre-wrap' }}>
-          {text}
+          {shown}
         </div>
       )}
-      {streaming ? <span className="caret" /> : null}
+      {writing ? (
+        <p className="writing-line" aria-hidden="true">
+          <span className="caret" />
+        </p>
+      ) : null}
     </div>
   )
 }

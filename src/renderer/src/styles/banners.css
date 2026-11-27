@@ -1,0 +1,103 @@
+/* ---------- Snackbars ---------- */
+
+/* Docs' bottom-left snackbar. Alone it is DocActions' "Link copied"; Banners stacks them in a lane. */
+.snackbar {
+  @apply fixed;
+  left: 24px;
+  bottom: 24px;
+  z-index: 160;
+  padding: 14px 16px;
+  border-radius: 4px;
+  background: #303030;
+  color: #f2f2f2;
+  font-family: var(--font-text);
+  font-size: 14px;
+  line-height: 20px;
+  box-shadow:
+    0 2px 6px 2px rgba(0, 0, 0, 0.15),
+    0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/*
+ * Sign-in prompts and errors, bottom-up in the corner. The lane floats over
+ * the window and lets clicks through between snackbars, so one appearing
+ * never moves or blocks the page.
+ */
+.snackbar-lane {
+  @apply fixed flex flex-col items-start;
+  left: 24px;
+  bottom: 24px;
+  z-index: 160;
+  gap: 8px;
+  pointer-events: none;
+}
+
+/* In the editor, sit higher: in a one-page document the composer line can end 10px off the window's foot (1402×877). */
+.route-doc .snackbar-lane {
+  bottom: 72px;
+}
+
+/*
+ * The lane covers the text column's left edge on narrow windows (and when
+ * zoomed out with the tabs panel closed). While a snackbar shows, keep what
+ * focus and typing scroll to at least 136px off the window's foot: the lane's
+ * 72px, one 48px snackbar and 16px of air. Chromium applies scroll-padding to
+ * the caret following typing; scroll-margin on the composer is ignored.
+ */
+.route-doc:has(.snackbar-lane .snackbar) .workspace {
+  scroll-padding-bottom: 136px;
+}
+
+.snackbar-lane .snackbar {
+  @apply static flex items-center;
+  gap: 4px;
+  min-width: 344px;
+  max-width: min(672px, calc(100vw - 48px));
+  min-height: 48px;
+  padding: 6px 8px 6px 16px;
+  pointer-events: auto;
+}
+
+.snackbar-text {
+  @apply flex-1;
+  padding: 8px 8px 8px 0;
+}
+
+.snackbar-action {
+  @apply shrink-0 whitespace-nowrap;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 18px;
+  color: #a8c7fa;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.snackbar-close {
+  @apply grid place-items-center rounded-full shrink-0;
+  width: 36px;
+  height: 36px;
+  color: #c4c7c5;
+}
+
+.snackbar-action:hover,
+.snackbar-close:hover {
+  background: rgba(242, 242, 242, 0.08);
+}
+
+/* The whole window couldn't render: a plain Docs-style notice with a reload. */
+.page-error {
+  @apply flex h-full flex-col items-center justify-center gap-3 text-center;
+}
+.page-error h1 {
+  @apply m-0;
+  font-size: 22px;
+  font-weight: 400;
+}
+.page-error p {
+  @apply m-0;
+  color: var(--text-2);
+}
+.page-error .outlined-button {
+  padding: 0 24px;
+}

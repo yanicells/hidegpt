@@ -1,0 +1,28 @@
+/* ---------- Print: the page alone ---------- */
+
+@media print {
+  .doc-chrome,
+  .side-rail,
+  .tabs,
+  .vruler,
+  .ruler,
+  .spark-wrap,
+  .composer-wrap,
+  .page-sheets {
+    display: none !important;
+  }
+
+  html,
+  body,
+  #root,
+  .app,
+  .workspace {
+    height: auto;
+    overflow: visible;
+  }
+
+  .paper {
+    min-height: 0 !important;
+    @apply m-0 w-full;
+  }
+}
