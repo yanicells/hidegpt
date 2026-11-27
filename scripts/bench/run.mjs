@@ -63,9 +63,11 @@ function check(results, only) {
   if (flags.update) {
     const next = updateBudgets(results, budgets)
     writeFileSync(budgetsFile, `${JSON.stringify(next, null, 2)}\n`)
-    console.log(`\n${checkReport(checkBudgets(result, next), next)}`)
+    const checked = checkBudgets(result, next)
+    console.log(`\n${checkReport(checked, next)}`)
     console.log(`wrote ${budgetsFile} from ${results.length} runs of ${result.commit}; commit it and say why in the PR`)
-    process.exit(0)
+    // Only a cap can leave a fresh baseline failing: the build is over its size target.
+    process.exit(checked.passed ? 0 : 1)
   }
   const checked = checkBudgets(result, budgets, { only })
   console.log(`\n${checkReport(checked, budgets)}`)

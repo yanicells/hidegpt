@@ -89,18 +89,33 @@ describe('updateBudgets', () => {
     expect(next.measured).toEqual({ commit: 'abc1234', when: '2026-11-27', runs: 3 })
   })
 
-  it("keeps a metric's own headroom, rounding fractional counts to 0.1", () => {
+  it("keeps a metric's own headroom and slack, rounding fractional counts to 0.1", () => {
     const next = updateBudgets(
-      [result({ 'stream300.renders_per_commit': 23.04 }), result({ 'stream300.renders_per_commit': 23.31 })],
-      budgets({ 'stream300.renders_per_commit': { min: 0, max: 0, headroom: 0.02 } }),
+      [
+        result({ 'reopen.ipc_kb': 1107.36, 'stream300.renders_per_commit_p50': 23 }),
+        result({ 'reopen.ipc_kb': 1120.04, 'stream300.renders_per_commit_p50': 23 }),
+      ],
+      budgets({
+        'reopen.ipc_kb': { min: 0, max: 0, headroom: 0.02 },
+        'stream300.renders_per_commit_p50': { min: 0, max: 0, headroom: 0, slack: 0 },
+      }),
     )
-    expect(next.metrics['stream300.renders_per_commit']).toEqual({
-      low: 23,
-      high: 23.3,
-      min: 22.5,
-      max: 23.8,
-      headroom: 0.02,
+    expect(next.metrics).toEqual({
+      'reopen.ipc_kb': { low: 1107.4, high: 1120, min: 1085.2, max: 1142.5, headroom: 0.02 },
+      'stream300.renders_per_commit_p50': { low: 23, high: 23, min: 23, max: 23, headroom: 0, slack: 0 },
     })
+  })
+
+  it('never sets a max above a cap, and a build over its cap fails right after the update', () => {
+    const build = result({}, { 'static.renderer_entry_js_kb': 520 })
+    const next = updateBudgets([build], budgets({ 'static.renderer_entry_js_kb': { min: 0, max: 0, cap: 500 } }))
+    expect(next.metrics['static.renderer_entry_js_kb']).toEqual({ low: 520, high: 520, min: 468, max: 500, cap: 500 })
+    expect(statusOf(checkBudgets(build, next))).toEqual({ 'static.renderer_entry_js_kb': 'over' })
+    const small = updateBudgets(
+      [result({}, { 'static.renderer_entry_js_kb': 400 })],
+      budgets({ 'static.renderer_entry_js_kb': { min: 0, max: 0, cap: 500 } }),
+    )
+    expect(small.metrics['static.renderer_entry_js_kb'].max).toBe(440)
   })
 
   it('refuses to budget a metric that is not a count, or one a run did not measure', () => {

@@ -33,15 +33,16 @@ const round = (value) => Math.round(value * 10) / 10
 
 /**
  * The bounds for a measured range. Whole counts round to whole numbers and get at least
- * `MIN_SLACK` either side; fractional ones (kilobytes, renders per commit) round to 0.1.
+ * `slack` (`MIN_SLACK` unless the metric sets its own) either side; fractional ones
+ * (kilobytes) round to 0.1. A metric with a `cap` (a size target) never gets a max above it.
  */
-function boundsFor(low, high, headroom) {
+function boundsFor(low, high, { headroom = HEADROOM, slack: own, cap = Infinity } = {}) {
   const whole = Number.isInteger(low) && Number.isInteger(high)
   const step = whole ? 1 : 0.1
-  const slack = whole ? MIN_SLACK : 0
+  const slack = whole ? (own ?? MIN_SLACK) : 0
   return {
     min: round(Math.max(0, Math.min(down(low * (1 - headroom), step), low - slack))),
-    max: round(Math.max(up(high * (1 + headroom), step), high + slack)),
+    max: round(Math.min(cap, Math.max(up(high * (1 + headroom), step), high + slack))),
   }
 }
 
@@ -79,7 +80,8 @@ export function checkBudgets(result, budgets, { only = () => true } = {}) {
 /**
  * New budgets from `results` (counts runs of one build): the same metrics as `budgets`,
  * each with the range the runs measured and bounds `headroom` outside it. A metric keeps
- * its own `headroom` if it has one. Throws when a metric is missing or not a count, so a
+ * its own `headroom` and `slack` if it has them (an exact count can set both to 0), and its
+ * `cap`, an absolute max a target sets (a bundle size a change brought down). Throws when a metric is missing or not a count, so a
  * bad run cannot write a budget that would pass anything.
  */
 export function updateBudgets(results, budgets) {
@@ -91,8 +93,10 @@ export function updateBudgets(results, budgets) {
     if (runs.some((values) => values[name] === undefined)) throw new Error(`the run did not measure ${name}`)
     const values = runs.map((run) => run[name])
     const [low, high] = [Math.min(...values), Math.max(...values)]
-    const own = previous.headroom === undefined ? {} : { headroom: previous.headroom }
-    metrics[name] = { low: round(low), high: round(high), ...boundsFor(low, high, own.headroom ?? HEADROOM), ...own }
+    const own = Object.fromEntries(
+      ['headroom', 'slack', 'cap'].filter((key) => previous[key] !== undefined).map((key) => [key, previous[key]]),
+    )
+    metrics[name] = { low: round(low), high: round(high), ...boundsFor(low, high, own), ...own }
   }
   return {
     ...budgets,
