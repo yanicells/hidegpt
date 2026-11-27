@@ -10,12 +10,12 @@
   },
   "metrics": {
     "open.commits": {
-      "baseline": 11,
-      "max": 13
+      "baseline": 12,
+      "max": 14
     },
     "stream300.recalcs": {
-      "baseline": 1010,
-      "max": 1111
+      "baseline": 1013,
+      "max": 1115
     },
     "stream300.renders": {
       "baseline": 19108,
@@ -30,8 +30,8 @@
       "max": 69
     },
     "type_idle300.box_reads": {
-      "baseline": 18300,
-      "max": 20130
+      "baseline": 18910,
+      "max": 20801
     },
     "type_idle300.restyled": {
       "baseline": 25840,
@@ -58,8 +58,8 @@
       "max": 9040
     },
     "session.ipc_kb": {
-      "baseline": 9990.9,
-      "max": 10991
+      "baseline": 10124.9,
+      "max": 11138
     },
     "static.main_js_kb": {
       "baseline": 2208.9,

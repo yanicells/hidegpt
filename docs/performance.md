@@ -36,9 +36,9 @@ over its budget or missing from the run.
 
 Only counts are budgeted. Times (`*_ms`) and instructions retired (`*_ginstr`) move with
 load, and a budget on them would fail at random. Most counts come out exactly the same on a
-busy machine. A few that depend on how many frames or passes ran move a little between runs
-of one build (`stream300.renders` by 8%, `stream300.box_reads` by 5%, `open.commits` by
-one), so a baseline is the higher of two counts runs.
+busy machine. A few that depend on how many frames or passes ran move between runs
+of one build (`stream300.renders` by 18%, `stream300.box_reads` by 5%, `open.commits` from 10
+to 12), so a baseline is the higher of two counts runs (the checked-in one, of three).
 
 | Metric                                             | What it guards                                                              |
 | -------------------------------------------------- | --------------------------------------------------------------------------- |
