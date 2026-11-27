@@ -1,5 +1,6 @@
 import { accountLabel, avatarLetter } from '../../../../shared/labels'
 import type { Snapshot } from '../../../../shared/model'
+import { AvatarFace } from '../layout/profilePhoto'
 import { Dialog, DialogClose, DialogPopup, DialogTitle } from '../ui/dialog'
 import { MIcon } from '../ui/MaterialIcon'
 import { personName } from '../ui/text'
@@ -42,7 +43,7 @@ export function ShareDialog({
         </label>
         <h3 className="share-section">People with access</h3>
         <div className="share-person">
-          <span className="avatar-sm share-avatar">{avatarLetter(snap.account)}</span>
+          <AvatarFace className="avatar-sm share-avatar" letter={avatarLetter(snap.account)} />
           <span className="share-person-text">
             {name} (you)
             {email ? <small>{email}</small> : null}

@@ -403,9 +403,6 @@ export const states = (d: Driver, nav: Nav, manager: ProviderSessionManager['Ser
         yield* d.shot('document-error')
         yield* d.hoverSel('[data-testid="error-refresh"]')
         yield* d.shot('document-error-hover')
-        yield* d.clickSel('.error-details-toggle')
-        yield* d.rest()
-        yield* d.shot('document-error-details')
         yield* d.click('error-dismiss')
         yield* d.pause(200)
       }),

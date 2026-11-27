@@ -105,9 +105,10 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     worded by a fixed table per request kind rather than the request's own
     text, from `apps/web/src/components/chat/TimelinePendingApprovalRow.tsx`
     (commit 5c6f2f12).
-  - `src/renderer/src/components/layout/Banners.tsx`: banner dismissal keyed by
-    the error text, from `apps/web/src/components/chat/ThreadErrorBanner.tsx`
-    (commit 8a14762c).
+  - `src/renderer/src/components/layout/Banners.tsx`: one lane of notices and
+    a dismissal that clears the error, from
+    `apps/web/src/components/chat/ChatBannerLane.tsx` and `ThreadErrorBanner.tsx`
+    (commit 5c6f2f12).
   - `src/renderer/src/session-bridge.ts`: selector subscriptions that skip
     streamed text, after `packages/client-runtime/src/state/threadDetail.ts`
     (commit 8a14762c).

@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 
-import { LoadingDocument } from './components/document/LoadingDocument'
+import { LoadingDocument, openingSnapshot } from './components/document/LoadingDocument'
 import { Banners } from './components/layout/Banners'
 import { Document } from './components/document/Document'
 import { DocumentChrome } from './components/document/DocumentChrome'
@@ -15,10 +15,12 @@ import type { MenuAction } from '../../shared/api'
 export function App() {
   // Streamed text re-renders only the document, which reads its blocks itself.
   const snap = useShellSnapshot()
+  // A document opening already shows the editor, so its header stays put when the text arrives.
+  const surface = snap.openingThreadId ? 'doc' : snap.route.kind
   // On <html>, not .app, so portalled menus share the surface's font smoothing (base.css).
   useLayoutEffect(() => {
-    document.documentElement.dataset.route = snap.route.kind
-  }, [snap.route.kind])
+    document.documentElement.dataset.route = surface
+  }, [surface])
   // Tool activity is hidden unless View → "Show non-printing characters" turns it on.
   const [outputOnly, setOutputOnly] = useState(() => localStorage.getItem('hidegpt-output-only') !== 'false')
   const toggleOutputOnly = () =>
@@ -61,24 +63,24 @@ export function App() {
   useMenuAction(onMenu)
 
   return (
-    <div data-testid="app" className={`app platform-${platform()} route-${snap.route.kind}`}>
-      {snap.route.kind === 'home' ? (
+    <div data-testid="app" className={`app platform-${platform()} route-${surface}`}>
+      {surface === 'home' ? (
         <HomeHeader key={`header-${snap.provider}`} snap={snap} />
       ) : (
         <DocumentChrome
           outputOnly={outputOnly}
           onToggleOutputOnly={toggleOutputOnly}
           onNew={onNew}
-          snap={snap}
+          snap={openingSnapshot(snap)}
           titleRef={titleRef}
           onGrid={() => setView('grid')}
           onList={() => setView('list')}
         />
       )}
       <Banners snap={snap} />
-      {/* Errors show on the banner above; the page underneath stays usable. */}
+      {/* Errors show as a snackbar over the corner; the page underneath stays usable. */}
       {snap.openingThreadId ? (
-        <LoadingDocument snap={snap} />
+        <LoadingDocument onNew={onNew} />
       ) : snap.route.kind === 'home' ? (
         <Home
           projectId={projectId}
