@@ -1,10 +1,11 @@
 /**
  * Fidelity captures pin the clock so "Opened 3:42 PM", recency groups and
  * suggestion timestamps read the same on every run. `Date` is shifted by an
- * offset that is set at boot, reset once when the page reloads, and moved
- * forward to the next whole minute as each step starts. Between those points
- * time runs at its real rate, so every deadline keeps its length, and a minute
- * shown on screen can only roll inside a step longer than a minute.
+ * offset that is set at boot, reset to 15:00:00 when the page reloads, and set
+ * again as each step starts: step n starts at 15:00 plus n minutes, however long
+ * the steps before it took. Between those points time runs at its real rate, so
+ * every deadline keeps its length. A minute shown on screen can only roll inside
+ * a step longer than a minute, and the step after one goes back in time.
  */
 
 /** Monday 2 March 2026, 15:00 UTC: mid-afternoon, so the demo's "today" documents stay today. */
@@ -26,11 +27,15 @@ const SHIFT_DATE = `(offset) => {
 }`
 
 let offset = 0
-const realNow = () => Date.now() - offset
+/** The unshifted clock. `pinClock` keeps the real `Date.now` here before it replaces `Date`. */
+let realNow = () => Date.now()
+let steps = 0
 
 /** Pins main's clock to `PINNED_START`; called once at boot, before any module reads the time. */
 export function pinClock(): void {
-  offset = PINNED_START - Date.now()
+  const real = Date.now
+  realNow = () => real()
+  offset = PINNED_START - realNow()
   const shiftDate = new Function(`return ${SHIFT_DATE}`)() as (offset: () => number) => void
   shiftDate(() => offset)
 }
@@ -42,6 +47,7 @@ export function pinClock(): void {
  * at 15:00:00 and a slow boot can't roll a displayed minute.
  */
 export function clockScript(): string {
+  steps = 0
   offset = PINNED_START - realNow()
   return `(() => {
     let shift = ${offset}
@@ -51,12 +57,12 @@ export function clockScript(): string {
 }
 
 /**
- * Moves main's clock forward to the next whole minute and returns the script that
- * does the same in the renderer. The driver runs it as each step starts, so a
- * step's timestamps don't depend on how long the steps before it took.
+ * Sets main's clock to the next step's start, `PINNED_START` plus one minute per
+ * step so far, and returns the script that does the same in the renderer. The
+ * driver runs it as each step starts.
  */
-export function nextMinute(): string {
-  const now = Date.now()
-  offset += Math.ceil(now / 60_000) * 60_000 - now
+export function startStep(): string {
+  steps += 1
+  offset = PINNED_START + steps * 60_000 - realNow()
   return `globalThis.__fidelityShift(${offset})`
 }

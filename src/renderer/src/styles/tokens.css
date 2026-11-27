@@ -31,9 +31,11 @@
   --canvas: #f8fafd;
   --pill: #f0f4f9;
   /*
-   * Same value, two names. Use --surface-2 (filled chips and callout summaries);
-   * --band is only the render-error note's background, and can fold into
-   * --surface-2 when that note is next touched.
+   * Same value, two names. Use --surface-2: filled chips, callout summaries and
+   * the Home loading skeleton's shimmer (home.css). --band is only the
+   * render-error note's background, and can fold into --surface-2 when that
+   * note is next touched. To change one of those surfaces, point it at its
+   * own value rather than changing these.
    */
   --band: #f1f3f4;
   --surface-2: #f1f3f4;
@@ -47,13 +49,18 @@
   --font-text: Roboto, 'Google Sans Flex Variable', Arial, sans-serif;
   --font-page: Arial, Helvetica, sans-serif;
   --font-mono: 'Courier New', Courier, monospace;
-  /* Google Sans Flex optical sizes: 18 matches Docs' display cut, 16 its Text cut. */
+  /*
+   * Google Sans Flex optical sizes: 18 matches Docs' display cut, 16 its Text cut.
+   * --opsz-text is unused for now: it is for wave 1, where UI-02 adds a .cut-text
+   * class with it for the surface packages to use.
+   */
   --opsz-display: 18;
   --opsz-text: 16;
   /*
-   * Page text and the cursor that writes it. Also the streaming caret, the doc
-   * thumbnails' text, the style menu's previews and the toolbar's text-colour
-   * swatch. To recolour one of those, change its usage, not this value.
+   * Page text and the cursor that writes it. Also the page's horizontal rules
+   * and table borders (page.css), the streaming caret, the doc thumbnails'
+   * text, the style menu's previews and the toolbar's text-colour swatch. To
+   * recolour one of those, change its usage, not this value.
    */
   --page-ink: #000;
   --paper-width: 816px;

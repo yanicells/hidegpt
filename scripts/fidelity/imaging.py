@@ -66,14 +66,19 @@ def hex_colour(colour):
 
 
 def parse_colour(value):
-    """'#rrggbb[aa]', 'rgb(r, g, b)' or 'rgba(r, g, b, a)' -> (r, g, b, a), a in 0-255.
+    """'#rgb[a]', '#rrggbb[aa]', 'rgb(r, g, b)' or 'rgba(r, g, b, a)' -> (r, g, b, a), a in 0-255.
 
     Alpha counts as a fourth channel, so a transparent colour never matches an
     opaque target.
     """
     value = value.strip()
     if value.startswith('#'):
-        channels = [int(value[i:i + 2], 16) for i in range(1, len(value), 2)]
+        digits = value[1:]
+        if len(digits) in (3, 4):
+            digits = ''.join(d * 2 for d in digits)
+        if len(digits) not in (6, 8):
+            raise ValueError(f'not a hex colour: {value}')
+        channels = [int(digits[i:i + 2], 16) for i in range(0, len(digits), 2)]
         return tuple(channels + [255] * (4 - len(channels)))
     parts = [v.strip() for v in value[value.index('(') + 1:value.index(')')].replace('/', ',').split(',')]
     alpha = parts[3] if len(parts) > 3 else '1'

@@ -59,6 +59,8 @@ export const runPhase = (
     const d = yield* makeDriver(win, root, phase, readProbes())
     const nav = yield* makeNav(d, manager, stage)
     const run = phase === 'core' ? core(d, nav, manager) : phase === 'states' ? states(d, nav, manager) : motion(d, nav)
-    // The manifest is written even when a hung page ends the phase early.
+    // A hung page inside the steps still leaves a manifest listing the failed step. Setup
+    // (makeDriver and makeNav above) runs outside any step: a hang there fails the phase
+    // with no manifest, and fidelity:shots reports the phase as having none.
     yield* d.step(phase, run).pipe(Effect.ensuring(d.finish()))
   })

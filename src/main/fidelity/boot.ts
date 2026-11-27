@@ -29,5 +29,9 @@ app.commandLine.appendSwitch('disable-background-timer-throttling')
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
 // GPU raster antialiases icons slightly differently from run to run; CPU raster is repeatable.
 app.commandLine.appendSwitch('disable-gpu-rasterization')
+// Colours are drawn in sRGB, so a captured pixel is its CSS value on any display, by
+// `--force-color-profile=srgb` on the launch command (scripts/fidelity/shots.ts). It can't
+// be appended here: Chromium has already read the display's colour space by now, and
+// captures then flip between sRGB and the display profile partway through a run.
 process.env.TZ = 'UTC'
 pinClock()

@@ -26,6 +26,10 @@ const { values } = parseArgs({
 const phases = values.phase.split(',').filter(Boolean)
 const unknown = phases.filter((phase) => !PHASES.includes(phase))
 if (unknown.length > 0) throw new Error(`Unknown phase ${unknown.join(', ')}; use ${PHASES.join(', ')}`)
+const timeoutSeconds = Number(values.timeout)
+if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
+  throw new Error(`--timeout takes a number of seconds above 0, not "${values.timeout}"`)
+}
 
 const repo = resolve(import.meta.dirname, '../..')
 const out = resolve(repo, values.out)
@@ -71,7 +75,8 @@ const runPhase = (phase: string): Promise<Manifest | null> => {
     HIDEGPT_FIDELITY_TARGETS: targets,
     TZ: 'UTC',
   }
-  const appArgs = [repo, `--user-data-dir=${profile}`, '--lang=en-US']
+  // sRGB from the first moment: appended later (in boot.ts) it would only half apply.
+  const appArgs = [repo, `--user-data-dir=${profile}`, '--lang=en-US', '--force-color-profile=srgb']
   const log = join(out, `${phase}.log`)
   const child =
     process.platform === 'darwin'
@@ -95,13 +100,10 @@ const runPhase = (phase: string): Promise<Manifest | null> => {
         )
       : spawn(electron, appArgs, { env: { ...process.env, ...env }, stdio: 'inherit' })
   running.add(dir)
-  const deadline = setTimeout(
-    () => {
-      console.log(`${phase}: still running after ${values.timeout}s; killing it`)
-      killPhase(dir)
-    },
-    Number(values.timeout) * 1000,
-  )
+  const deadline = setTimeout(() => {
+    console.log(`${phase}: still running after ${values.timeout}s; killing it`)
+    killPhase(dir)
+  }, timeoutSeconds * 1000)
   return new Promise((done, fail) => {
     child.on('error', fail)
     child.on('exit', () => {
