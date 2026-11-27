@@ -1,11 +1,11 @@
-import { memo, useCallback, useEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 
-import type { ApprovalBlock, Block, Snapshot } from '../../../../shared/model'
-import { dispatch, useBlocks } from '../../session-bridge'
+import type { Block, Snapshot } from '../../../../shared/model'
+import { dispatch, useBlocks, useSnapshotSelector } from '../../session-bridge'
 import { BlockFallback, RenderErrorBoundary } from '../layout/RenderErrorBoundary'
 import { SparkIcon } from '../ui/Icons'
 import { BlockView } from './BlockView'
-import { CommentsRail } from './CommentsRail'
+import { CommentsRail, hasPendingSuggestion } from './CommentsRail'
 import { Composer } from './Composer'
 import { outlineEntries, type OutlineEntry } from './outline'
 import { PAGE_HEIGHT, PAGE_PITCH, usePages } from './pages'
@@ -42,8 +42,9 @@ export function Document({
   const rows = useProgressiveRows(visibleBlocks.length)
   // The composer waits for the last rows, so it never shows mid-document while a long one opens.
   const allRows = rows >= visibleBlocks.length
-  // Pending suggestions whose rows are on the page; their cards go in the comments rail.
-  const cards = visibleBlocks.slice(0, rows).filter(isPendingSuggestion)
+  // A pending suggestion's card goes in the comments rail, which folds the tabs panel when it needs the room.
+  const hasCards = useSnapshotSelector(hasPendingSuggestion)
+  const [crowded, setCrowded] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const paperRef = useRef<HTMLElement>(null)
@@ -94,10 +95,10 @@ export function Document({
 
   return (
     // has-cards makes room for the rail (approvals.css) without a :has() over the document.
-    <div className={cards.length ? 'workspace has-cards' : 'workspace'} data-testid="document" ref={scrollRef}>
+    <div className={hasCards ? 'workspace has-cards' : 'workspace'} data-testid="document" ref={scrollRef}>
       <div className="doc-layout">
         <VerticalRuler />
-        <Tabs onNew={onNew} entries={outline} onJump={jumpTo} />
+        <Tabs onNew={onNew} entries={outline} onJump={jumpTo} autoCollapse={hasCards && crowded} />
         <div className="paper-col">
           <Ruler />
           <article className="paper" ref={paperRef} style={{ minHeight: (pages - 1) * PAGE_PITCH + PAGE_HEIGHT }}>
@@ -133,7 +134,7 @@ export function Document({
             <div className="paper-end" ref={endRef} aria-hidden="true" />
           </article>
         </div>
-        <CommentsRail cards={cards} flowRef={contentRef} />
+        <CommentsRail flowRef={contentRef} onCrowded={setCrowded} />
       </div>
       {/* Docs' floating spark pill; while an answer streams, a click stops it. */}
       <div className="spark-wrap">
@@ -158,8 +159,6 @@ export function Document({
     </div>
   )
 }
-
-const isPendingSuggestion = (block: Block): block is ApprovalBlock => block.kind === 'approval' && !block.resolved
 
 /** How long a jump waits for its smooth scroll to end before giving up on settling. */
 const JUMP_SETTLE_MS = 3000

@@ -187,3 +187,30 @@ describe('document tabs active item', () => {
     expect(active()).toBe('Light')
   })
 })
+
+describe('Tabs auto-collapse', () => {
+  const panel = (autoCollapse: boolean) => (
+    <Tabs entries={[]} onNew={() => undefined} onJump={() => undefined} autoCollapse={autoCollapse} />
+  )
+  const collapsed = () => screen.getByTestId('outline').classList.contains('collapsed')
+
+  it('folds away while cards need the room, without losing the person’s choice', () => {
+    const { rerender } = render(panel(true))
+    expect(collapsed()).toBe(true)
+
+    // Showing it by hand wins until the cards no longer need the room.
+    fireEvent.click(screen.getByRole('button', { name: 'Show tabs & outlines' }))
+    expect(collapsed()).toBe(false)
+    rerender(panel(false))
+    rerender(panel(true))
+    expect(collapsed()).toBe(true)
+
+    // A panel the person hid stays hidden once the cards go.
+    rerender(panel(false))
+    expect(collapsed()).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Hide tabs & outlines' }))
+    rerender(panel(true))
+    rerender(panel(false))
+    expect(collapsed()).toBe(true)
+  })
+})

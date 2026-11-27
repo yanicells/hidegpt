@@ -16,18 +16,34 @@ const NARROW = '(max-width: 960px)'
  * collapses the panel to a round button; narrow windows start collapsed. A
  * streamed delta rebuilds the entries but rarely changes one, so the panel
  * re-renders only when it does, or when a heading crosses the reading line.
+ * While suggestion cards need the room, the panel folds away on its own.
  */
 type TabsProps = {
   entries: ReadonlyArray<OutlineEntry>
   onNew: () => void
   onJump: (entry: OutlineEntry) => void
+  /**
+   * Show the collapsed button while the comments rail needs the room
+   * (Document.tsx), without changing whether the person has the panel open:
+   * their choice comes back when this turns false. Showing the panel by hand
+   * keeps it open until this turns false.
+   */
+  autoCollapse?: boolean
 }
 
-export const Tabs = memo(function Tabs({ entries, onNew, onJump }: TabsProps) {
+export const Tabs = memo(function Tabs({ entries, onNew, onJump, autoCollapse = false }: TabsProps) {
   const panelRef = useRef<HTMLElement>(null)
   const [pinned, setPinned] = useState<string | null>(null)
   const [open, setOpen] = useState(() => !window.matchMedia?.(NARROW).matches)
-  const reading = useReadingSection(panelRef, entries, open)
+  // Opened by hand while auto-collapsed; forgotten each time autoCollapse changes (reset during render).
+  const [peek, setPeek] = useState(false)
+  const [wasAuto, setWasAuto] = useState(autoCollapse)
+  if (autoCollapse !== wasAuto) {
+    setWasAuto(autoCollapse)
+    setPeek(false)
+  }
+  const shown = open && (!autoCollapse || peek)
+  const reading = useReadingSection(panelRef, entries, shown)
   useEffect(() => {
     const query = window.matchMedia?.(NARROW)
     if (!query) return
@@ -54,11 +70,19 @@ export const Tabs = memo(function Tabs({ entries, onNew, onJump }: TabsProps) {
       ? reading
       : (entries.filter((entry) => entry.level === 1).pop()?.key ?? null)
 
-  if (!open) {
+  if (!shown) {
     return (
       <aside className="tabs collapsed" aria-label="Document tabs" data-testid="outline">
         <Tip label="Show tabs & outlines" side="right">
-          <button type="button" className="tabs-show" aria-label="Show tabs & outlines" onClick={() => setOpen(true)}>
+          <button
+            type="button"
+            className="tabs-show"
+            aria-label="Show tabs & outlines"
+            onClick={() => {
+              setOpen(true)
+              setPeek(true)
+            }}
+          >
             <MIcon name="list" />
           </button>
         </Tip>
@@ -69,7 +93,15 @@ export const Tabs = memo(function Tabs({ entries, onNew, onJump }: TabsProps) {
   return (
     <aside className="tabs" aria-label="Document tabs" data-testid="outline" ref={panelRef}>
       <Tip label="Hide tabs & outlines">
-        <button type="button" className="tabs-hide" aria-label="Hide tabs & outlines" onClick={() => setOpen(false)}>
+        <button
+          type="button"
+          className="tabs-hide"
+          aria-label="Hide tabs & outlines"
+          onClick={() => {
+            setOpen(false)
+            setPeek(false)
+          }}
+        >
           <MIcon name="arrow_back" size={24} />
         </button>
       </Tip>
@@ -123,6 +155,7 @@ function sameTabs(a: TabsProps, b: TabsProps): boolean {
   return (
     a.onNew === b.onNew &&
     a.onJump === b.onJump &&
+    a.autoCollapse === b.autoCollapse &&
     a.entries.length === b.entries.length &&
     a.entries.every((entry, index) => {
       const other = b.entries[index]
