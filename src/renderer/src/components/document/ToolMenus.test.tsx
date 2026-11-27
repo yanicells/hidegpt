@@ -23,7 +23,7 @@ describe('toolbar tool menus', () => {
     render(<Toolbar snap={emptySnapshot()} />)
 
     let menu = await openMenu(user, 'Align & indent')
-    expect(within(menu).getAllByRole('menuitemradio')).toHaveLength(4)
+    expect(await within(menu).findAllByRole('menuitemradio')).toHaveLength(4)
     await user.click(within(menu).getByRole('menuitemradio', { name: 'Center align' }))
     await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
 
@@ -69,13 +69,13 @@ describe('toolbar tool menus', () => {
       ['Numbered list menu', 6],
     ] as const) {
       const menu = await openMenu(user, name)
-      expect(within(menu).getAllByRole('menuitem')).toHaveLength(cells)
+      expect(await within(menu).findAllByRole('menuitem')).toHaveLength(cells)
       await user.click(within(menu).getAllByRole('menuitem')[0]!)
       await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
     }
 
     const bullets = await openMenu(user, 'Bulleted list menu')
-    expect(within(bullets).getByRole('menuitem', { name: 'Disc, circle, square' })).toBeInTheDocument()
+    expect(await within(bullets).findByRole('menuitem', { name: 'Disc, circle, square' })).toBeInTheDocument()
     await user.click(within(bullets).getByTestId('bullets-checklist'))
     const cascade = await waitFor(() => {
       const menus = screen.getAllByRole('menu')

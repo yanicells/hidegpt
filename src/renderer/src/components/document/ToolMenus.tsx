@@ -1,30 +1,22 @@
-/*
- * The align palette's radio items are adapted from T3 Code (apps/web/src/components/ui/menu.tsx).
- * Copyright (c) 2026 T3 Tools Inc. Licensed under the MIT License; see THIRD_PARTY_NOTICES.md.
- */
-
-import { Menu as MenuPrimitive } from '@base-ui/react/menu'
-import { useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
+import { lazy, Suspense, useSyncExternalStore } from 'react'
 
 import { MIcon, type MaterialIconName } from '../ui/MaterialIcon'
-import {
-  Menu,
-  MenuItem,
-  MenuPopup,
-  MenuSeparator,
-  MenuSub,
-  MenuSubPopup,
-  MenuSubTrigger,
-  MenuTrigger,
-} from '../ui/menu'
+import { Menu, MenuPopup, MenuTrigger } from '../ui/menu'
 import { MenuRows, type Item } from '../ui/MenuPanel'
 import { Tip } from '../ui/tooltip'
+import type { ListKind } from './ToolMenuPanels'
 
 /*
  * Docs' menus for the toolbar's align, line spacing and list tools. They are
  * costume (owner decision S5): picks move the checks and the align glyph but
  * change nothing in the document. Geometry is in tool-menus.css.
  */
+
+/** The menus' insides load on first hover or focus of a tool (see ToolMenuPanels.tsx). */
+const loadPanels = () => import('./ToolMenuPanels')
+const preload = () => void loadPanels()
+const AlignPalette = lazy(() => loadPanels().then((panels) => ({ default: panels.AlignPalette })))
+const ListGrid = lazy(() => loadPanels().then((panels) => ({ default: panels.ListGrid })))
 
 type Align = 'left' | 'center' | 'right' | 'justify'
 type Spacing = 'single' | '1.15' | '1.5' | 'double'
@@ -63,6 +55,12 @@ const ALIGNS: ReadonlyArray<{ value: Align; icon: MaterialIconName; name: string
   { value: 'justify', icon: 'format_align_justify', name: 'Justify', keys: '⌘⇧J' },
 ]
 
+/** Picks an align by its palette value. */
+function pickAlign(value: string) {
+  const option = ALIGNS.find((item) => item.value === value)
+  if (option) setParagraph({ align: option.value })
+}
+
 /** "Align & indent ▾": Docs' palette of four align buttons under the tool. */
 export function AlignMenu() {
   const { align } = useParagraph()
@@ -74,31 +72,17 @@ export function AlignMenu() {
           className="toolbar-icon tb-menu with-caret fold-align"
           aria-label="Align & indent"
           data-testid="tool-align"
+          onPointerEnter={preload}
+          onFocus={preload}
         >
           <MIcon name={current.icon} />
           <MIcon name="arrow_drop_down" className="tb-caret" />
         </MenuTrigger>
       </Tip>
       <MenuPopup className="tool-menu align-menu" sideOffset={0}>
-        <MenuPrimitive.RadioGroup
-          className="align-palette"
-          value={align}
-          onValueChange={(value: Align) => setParagraph({ align: value })}
-        >
-          {ALIGNS.map((option) => (
-            <Tip key={option.value} label={`${option.name} (${option.keys})`}>
-              <MenuPrimitive.RadioItem
-                className="align-option"
-                value={option.value}
-                closeOnClick
-                aria-label={option.name}
-                data-testid={`align-${option.value}`}
-              >
-                <MIcon name={option.icon} />
-              </MenuPrimitive.RadioItem>
-            </Tip>
-          ))}
-        </MenuPrimitive.RadioGroup>
+        <Suspense fallback={null}>
+          <AlignPalette options={ALIGNS} value={align} onPick={pickAlign} />
+        </Suspense>
       </MenuPopup>
     </Menu>
   )
@@ -162,69 +146,6 @@ export function SpacingMenu() {
   )
 }
 
-/** Each preview has five rows at these list levels; only the marks change. */
-const PRESET_ROWS = [
-  { id: 'first', level: 0 },
-  { id: 'sub-1', level: 1 },
-  { id: 'sub-2', level: 1 },
-  { id: 'sub-sub', level: 2 },
-  { id: 'second', level: 0 },
-] as const
-
-type Preset = { name: string; marks: readonly [ReactNode, ReactNode, ReactNode, ReactNode, ReactNode] }
-
-/** A bullet drawn at the size Docs' previews show it (font glyphs fall back to faces of other sizes). */
-function Bullet({ w, h, d }: { w: number; h: number; d: string }) {
-  return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} fill="currentColor" fillRule="evenodd" aria-hidden="true">
-      <path d={d} />
-    </svg>
-  )
-}
-
-const DISC = <Bullet w={7} h={7} d="M3.5 0a3.5 3.5 0 1 0 0 7a3.5 3.5 0 1 0 0-7Z" />
-const CIRCLE = (
-  <Bullet w={7} h={7} d="M3.5 0a3.5 3.5 0 1 0 0 7a3.5 3.5 0 1 0 0-7Zm0 .6a2.9 2.9 0 1 1 0 5.8a2.9 2.9 0 1 1 0-5.8Z" />
-)
-const SQUARE = <Bullet w={6} h={6} d="M0 0h6v6H0Z" />
-const DIAMOND = <Bullet w={7} h={8} d="M3.5 0 7 4 3.5 8 0 4Z" />
-const FOUR_DIAMONDS = (
-  <Bullet
-    w={8}
-    h={8}
-    d="M4 0l1.75 1.75L4 3.5 2.25 1.75Zm0 4.5 1.75 1.75L4 8 2.25 6.25ZM1.75 2.25 3.5 4 1.75 5.75 0 4Zm4.5 0L8 4 6.25 5.75 4.5 4Z"
-  />
-)
-const ARROWHEAD = <Bullet w={10} h={6} d="M0 0 10 3 0 6 2.5 3Z" />
-const ARROW = <Bullet w={9} h={6} d="M0 2.25h5.5V0L9 3 5.5 6V3.75H0Z" />
-const STAR = <Bullet w={8} h={8} d="M4 .1 5 2.92 8 3 5.62 4.83 6.47 7.7 4 6 1.53 7.7 2.38 4.83 0 3 3 2.92Z" />
-const SHADOW_BOX = <Bullet w={7} h={7} d="M0 0h6v6H0Zm1 1v4h4V1Zm5 1h1v5H2V6h4Z" />
-
-const BULLETS: readonly Preset[] = [
-  { name: 'Disc, circle, square', marks: [DISC, CIRCLE, CIRCLE, SQUARE, DISC] },
-  { name: 'Diamonds, arrowhead, square', marks: [FOUR_DIAMONDS, ARROWHEAD, ARROWHEAD, SQUARE, FOUR_DIAMONDS] },
-  { name: 'Box', marks: [SHADOW_BOX, SHADOW_BOX, SHADOW_BOX, SHADOW_BOX, SHADOW_BOX] },
-  { name: 'Arrow, diamond, disc', marks: [ARROW, DIAMOND, DIAMOND, DISC, ARROW] },
-  { name: 'Star, circle, square', marks: [STAR, CIRCLE, CIRCLE, SQUARE, STAR] },
-  { name: 'Arrowhead, circle, square', marks: [ARROWHEAD, CIRCLE, CIRCLE, SQUARE, ARROWHEAD] },
-]
-
-const NUMBERS: readonly Preset[] = [
-  { name: '1, a, i', marks: ['1.', 'a.', 'b.', 'i.', '2.'] },
-  { name: '1), a), i)', marks: ['1)', 'a)', 'b)', 'i)', '2)'] },
-  { name: '1, 1.1, 1.2.1', marks: ['1.', '1.1.', '1.2.', '1.2.1.', '2.'] },
-  { name: 'A, a, i', marks: ['A.', 'a.', 'b.', 'i.', 'B.'] },
-  { name: 'I, A, 1', marks: ['I.', 'A.', 'B.', '1.', 'II.'] },
-  { name: '01, a, i', marks: ['01.', 'a.', 'b.', 'i.', '02.'] },
-]
-
-const CHECKLISTS = [
-  { name: 'Checklist, cross out checked items', strike: true },
-  { name: 'Checklist', strike: false },
-] as const
-
-type ListKind = 'checklist' | 'bullets' | 'numbered'
-
 const LIST_TOOLS: Record<ListKind, { icon: MaterialIconName; name: string; keys: string; menu: string }> = {
   checklist: { icon: 'checklist', name: 'Checklist', keys: '⌘⇧9', menu: 'Checklist menu' },
   bullets: { icon: 'format_list_bulleted', name: 'Bulleted list', keys: '⌘⇧8', menu: 'Bulleted list menu' },
@@ -245,84 +166,22 @@ export function ListTool({ kind }: { kind: ListKind }) {
       </Tip>
       <Menu modal={false}>
         <Tip label={tool.menu}>
-          <MenuTrigger className="tb-caret" aria-label={tool.menu} data-testid={`tool-${kind}`}>
+          <MenuTrigger
+            className="tb-caret"
+            aria-label={tool.menu}
+            data-testid={`tool-${kind}`}
+            onPointerEnter={preload}
+            onFocus={preload}
+          >
             <MIcon name="arrow_drop_down" />
           </MenuTrigger>
         </Tip>
         <MenuPopup className={`tool-menu ${kind}-menu`} sideOffset={0} alignOffset={-30}>
-          {kind === 'checklist' ? (
-            <ChecklistGrid />
-          ) : (
-            <PresetGrid presets={kind === 'bullets' ? BULLETS : NUMBERS} prefix={kind} />
-          )}
-          {kind === 'bullets' ? <ChecklistCascade /> : null}
+          <Suspense fallback={null}>
+            <ListGrid kind={kind} />
+          </Suspense>
         </MenuPopup>
       </Menu>
     </span>
-  )
-}
-
-/** Six list previews; each cell is a menu item that closes the menu and changes nothing. */
-function PresetGrid({ presets, prefix }: { presets: readonly Preset[]; prefix: string }) {
-  return (
-    <div className="preset-grid">
-      {presets.map((preset, index) => (
-        <MenuItem key={preset.name} className="preset" aria-label={preset.name} data-testid={`${prefix}-${index}`}>
-          {PRESET_ROWS.map((row, index) => (
-            <span key={row.id} className="preset-row" style={{ '--row': index, '--level': row.level } as CSSProperties}>
-              <span className="preset-mark">{preset.marks[index]}</span>
-              <span className="preset-bar" />
-            </span>
-          ))}
-        </MenuItem>
-      ))}
-    </div>
-  )
-}
-
-/** The two checklist previews: one crosses out checked items, the other doesn't. */
-function ChecklistGrid() {
-  return (
-    <div className="preset-grid">
-      {CHECKLISTS.map((preset, index) => (
-        <MenuItem
-          key={preset.name}
-          className={preset.strike ? 'preset check-preset strike' : 'preset check-preset'}
-          aria-label={preset.name}
-          data-testid={`checklist-${index}`}
-        >
-          <span className="check-row">
-            <span className="check-box" />
-            <span className="preset-bar" />
-          </span>
-          <span className="check-row">
-            <span className="check-box">
-              <MIcon name="check" size={10} />
-            </span>
-            <span className="preset-bar" />
-          </span>
-        </MenuItem>
-      ))}
-    </div>
-  )
-}
-
-/** The bulleted list menu's last row cascades to the checklist grid. */
-function ChecklistCascade() {
-  return (
-    <>
-      <MenuSeparator />
-      <MenuSub>
-        <MenuSubTrigger data-testid="bullets-checklist">
-          <span className="menu-icon" aria-hidden="true">
-            <MIcon name="checklist" />
-          </span>
-          <span className="menu-text">Checklist menu</span>
-        </MenuSubTrigger>
-        <MenuSubPopup className="tool-menu checklist-menu">
-          <ChecklistGrid />
-        </MenuSubPopup>
-      </MenuSub>
-    </>
   )
 }
