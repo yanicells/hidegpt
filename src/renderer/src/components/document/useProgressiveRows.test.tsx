@@ -102,14 +102,14 @@ describe('useProgressiveRows', () => {
     expect(renders).toBe(1)
   })
 
-  it('doubles the step while the previous one took under 8 ms', () => {
+  it('doubles the step while the previous one took under 8 ms, up to 24 rows', () => {
     const { result } = open(500)
     const limits = [result.current]
     for (let i = 0; i < 5; i++) {
       nextStep(7)
       limits.push(result.current)
     }
-    expect(limits).toEqual([12, 24, 48, 96, 192, 384])
+    expect(limits).toEqual([12, 24, 48, 72, 96, 120])
   })
 
   it('keeps the step from 8 to 16 ms and halves it over 16 ms', () => {
