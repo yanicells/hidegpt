@@ -84,7 +84,7 @@
 
 /* Docs greys disabled rows as #1f1f1f at 38%. */
 .menu-item[data-disabled] {
-  color: rgb(31 31 31 / 38%);
+  color: var(--menu-ink-dim);
   cursor: default;
 }
 
@@ -168,17 +168,23 @@
   margin-left: 32px;
   font-family: inherit;
   font-size: 13px;
-  color: rgb(31 31 31 / 38%);
+  color: var(--menu-ink-dim);
 }
 
 .menu-item[data-disabled] .menu-shortcut {
-  color: rgb(31 31 31 / 23%);
+  color: var(--menu-ink-faint);
 }
 
-/* The ▸ is a 7px #444746-at-50% triangle whose tip sits 16.5px in from the edge. */
+/*
+ * The ▸ is a 7px #444746-at-50% triangle whose tip sits 16.5px in from the
+ * edge. Centring its odd 7px box in an even row (32, 44 or 72px) would put its
+ * top on a half pixel and blur its edges at 1x; the 1px below makes the box 8px,
+ * so the triangle starts on a whole pixel and its tip lands mid-pixel.
+ */
 .menu-arrow {
   @apply grid place-items-center shrink-0;
   margin-left: 24px;
+  padding-bottom: 1px;
   color: rgb(68 71 70 / 50%);
 }
 
