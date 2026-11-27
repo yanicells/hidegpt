@@ -113,7 +113,9 @@ export const retryOnFreshPath = (
  * loads (so no CLI is looked up on PATH) until `ready` settles; main passes its
  * login-shell PATH lookup here, so a provider can start before the window has
  * painted without ever missing a CLI installed under nvm and the like. `ready` may
- * settle on last launch's PATH; a CLI missing from it waits for `refreshed`.
+ * settle on last launch's PATH; a CLI missing from it waits for `refreshed`. A provider
+ * that did start on that PATH keeps its binary and PATH for the session, even once the
+ * refresh lands: at worst one launch stale, which is the price of not waiting.
  */
 export const layerAfter = (ready: Promise<unknown>, refreshed: () => Promise<unknown> = pathRefreshed) =>
   Layer.effect(
