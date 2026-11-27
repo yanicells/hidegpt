@@ -1,5 +1,11 @@
 // A minimal Chrome DevTools Protocol client over Node's built-in WebSocket.
 
+/**
+ * A protocol call that gets no answer in this long fails, so a stuck page ends the run.
+ * The longest call the scenario makes waits up to 120 s inside the page.
+ */
+const CALL_TIMEOUT_MS = 180000
+
 /** Connects to the app's page target on a remote-debugging port. */
 export async function connectPage(port, { timeout = 30000 } = {}) {
   const deadline = Date.now() + timeout
@@ -26,7 +32,15 @@ function open(url) {
       new Promise((done, fail) => {
         if (closed) return fail(new Error(`${method}: the app window is closed`))
         const id = (nextId += 1)
-        pending.set(id, { done, fail, method })
+        const timer = setTimeout(() => {
+          pending.delete(id)
+          fail(new Error(`${method}: no answer from the app window in ${CALL_TIMEOUT_MS / 1000} s`))
+        }, CALL_TIMEOUT_MS)
+        const settle = (finish) => (value) => {
+          clearTimeout(timer)
+          finish(value)
+        }
+        pending.set(id, { done: settle(done), fail: settle(fail), method })
         socket.send(JSON.stringify({ id, method, params }))
       })
     socket.addEventListener('close', () => {

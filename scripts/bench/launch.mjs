@@ -2,7 +2,7 @@
 // a scenario needs: the page (DevTools protocol), the main process (control socket in
 // hook.cjs), the fake Codex server, and `measure`, which wraps a step in every counter.
 import { spawn } from 'node:child_process'
-import { chmodSync, createWriteStream, mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, createWriteStream, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
 import { dirname, join } from 'node:path'
@@ -107,9 +107,27 @@ export async function launch(repo, options) {
   )
   chmodSync(fakeCodex, 0o755)
 
+  // Each provider's own home is an empty folder, so nothing the app runs in-process (an SDK
+  // reading its config or history) can see the real ones in the user's home.
+  const isolated = join(workDir, 'isolated')
+  rmSync(isolated, { recursive: true, force: true })
+  const home = Object.fromEntries(
+    [
+      ['CLAUDE_CONFIG_DIR', 'claude'],
+      ['CODEX_HOME', 'codex'],
+      ['XDG_CONFIG_HOME', 'config'],
+      ['XDG_DATA_HOME', 'data'],
+      ['XDG_STATE_HOME', 'state'],
+    ].map(([name, folder]) => {
+      mkdirSync(join(isolated, folder), { recursive: true })
+      return [name, join(isolated, folder)]
+    }),
+  )
+
   const electron = createRequire(join(repo, 'package.json'))('electron')
   const env = {
     ...process.env,
+    ...home,
     CODEX_BIN: fakeCodex,
     BENCH_FAKE_CODEX: fakeCodex,
     BENCH_CONTROL: String(controlPort),
@@ -159,10 +177,20 @@ export async function launch(repo, options) {
   await page.send('Emulation.setFocusEmulationEnabled', { enabled: true })
   if (options.throttle > 1) await page.send('Emulation.setCPUThrottlingRate', { rate: options.throttle })
 
-  const main = (op, args) =>
+  /** A request to the hook in the main process; no answer within `timeout` fails it. */
+  const main = (op, args, { timeout = 120000 } = {}) =>
     new Promise((resolve, reject) => {
+      if (!mainSocket || mainSocket.destroyed) return reject(new Error(`main ${op}: the app is gone`))
       const id = (nextId += 1)
-      pending.set(id, { resolve, reject })
+      const timer = setTimeout(() => {
+        pending.delete(id)
+        reject(new Error(`main ${op}: no answer in ${timeout / 1000} s`))
+      }, timeout)
+      const settle = (finish) => (value) => {
+        clearTimeout(timer)
+        finish(value)
+      }
+      pending.set(id, { resolve: settle(resolve), reject: settle(reject) })
       mainSocket.write(`${JSON.stringify({ id, op, args })}\n`)
     })
   const bench = (call) => page.evaluate(`window.__bench.${call}`)
@@ -254,13 +282,23 @@ export async function launch(repo, options) {
       /** The next event from the fake server (`turnDone`). */
       next: () => (codexEvents.length ? Promise.resolve(codexEvents.shift()) : new Promise((resolve) => codexWaiters.push(resolve))),
     },
+    /** Quits the app; one that has not exited 8 s later (or never answers) is killed by pid. */
     async close() {
       usage.stop()
       page.close()
-      await main('quit').catch(() => {})
-      // The app closes its provider processes on quit; past its own deadline it is stopped by pid.
-      const done = await Promise.race([exited.then(() => true), sleep(8000).then(() => false)])
+      void main('quit', undefined, { timeout: 8000 }).catch(() => {})
+      let timer = null
+      const done = await Promise.race([exited.then(() => true), new Promise((resolve) => (timer = setTimeout(resolve, 8000, false)))])
+      clearTimeout(timer)
       if (!done) child.kill('SIGKILL')
+      server.close()
+      for (const socket of [mainSocket, codexHello?.socket]) socket?.destroy()
+    },
+    /** Stops the app at once by pid, for a session that ran past its deadline. */
+    kill() {
+      usage.stop()
+      page.close()
+      child.kill('SIGKILL')
       server.close()
       for (const socket of [mainSocket, codexHello?.socket]) socket?.destroy()
     },
