@@ -84,7 +84,7 @@ describe('Document', () => {
 
   it('renders only the row being written when text streams in', () => {
     const question: Block = { kind: 'user', id: 'u1', text: 'Why is the sky blue?' }
-    const answer: Block = { kind: 'agent', id: 'a1', text: 'Rayleigh scattering.' }
+    const answer: Block = { kind: 'agent', id: 'a1', text: '## Blue light\nRayleigh scattering.' }
     const followUp: Block = { kind: 'user', id: 'u2', text: 'And sunsets?' }
     const streaming: Block = { kind: 'agent', id: 'a2', text: 'Longer paths' }
     const update = mount([question, answer, followUp, streaming], { streaming: true })
@@ -97,11 +97,14 @@ describe('Document', () => {
     expect(rendered).toEqual(['a2'])
     expect(row('a2')).toHaveTextContent('Longer paths scatter the blue')
 
-    // A new heading renders the outline panel too, and still not the document.
+    // A new heading renders the outline panel and its new entry, and still not the document.
     startCounting()
     update([question, answer, followUp, { ...streaming, text: 'Longer paths\n## Red light' }])
     const heading = stopCounting()
     expect(heading.components.Tabs).toBeGreaterThan(0)
+    expect(heading.components.OutlineItem).toBe(1)
+    // The panel's own three buttons and the new entry; the entries already there stay put.
+    expect(heading.components.Tip).toBe(4)
     expect(heading.components.Document).toBeUndefined()
     expect(screen.getByTestId('outline-a2-0')).toHaveTextContent('Red light')
   })
