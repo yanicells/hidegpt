@@ -877,6 +877,7 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
 });
 
 generateFiles().pipe(
+  // HideGPT: an expected `--check` failure prints one line, not a defect report.
   Effect.catchTag("CheckFailed", (failed) =>
     Effect.sync(() => {
       console.error(failed.detail);
