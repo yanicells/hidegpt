@@ -13,8 +13,11 @@ The woff2 comes from the `material-symbols` npm package (Apache-2.0); 0.49.0
 reproduces the checked-in paths.
 
 To add an icon, add its name to OPSZ under each size it is drawn at, and
-regenerate. If two branches conflict in symbols.ts, merge OPSZ here and re-run
-the script; never resolve symbols.ts by hand.
+regenerate. An icon whose name reaches MIcon through a new prop (a component
+that passes its own `icon` or `name` on) also needs a FORWARDERS entry in
+MaterialIcon.test.ts; the test names the site. If two branches conflict in
+symbols.ts, merge OPSZ here and re-run the script; never resolve symbols.ts by
+hand.
 """
 
 import re
@@ -60,7 +63,10 @@ search settings sort_by_alpha unfold_more videocam view_list view_module
 ALIASES = {"format_paint": "imagesearch_roller"}
 
 class DropEmptySegments(FilterPen):
-    """Skips segments that end where they start; the font has a few, and they only bloat the paths."""
+    """Skips segments that end where they start, and contours that are a single point; the font has a
+    few of each, they fill nothing, and they only bloat the paths."""
+
+    dot = False
 
     def moveTo(self, pt):
         self.current = pt
@@ -79,11 +85,19 @@ class DropEmptySegments(FilterPen):
         self._segment("curveTo", *points)
 
     def qCurveTo(self, *points):
-        # A closed all-off-curve contour ends in None; keep it as drawn.
+        # A closed all-off-curve contour ends in None; keep it as drawn unless all its points coincide.
         if points[-1] is None:
-            super().qCurveTo(*points)
+            self.dot = len(set(points[:-1])) == 1
+            if not self.dot:
+                super().qCurveTo(*points)
         else:
             self._segment("qCurveTo", *points)
+
+    def closePath(self):
+        if self.dot:
+            self.dot = False
+        else:
+            super().closePath()
 
 
 ARITY = {"M": 2, "L": 2, "H": 1, "V": 1, "Q": 4, "C": 6, "Z": 0}
