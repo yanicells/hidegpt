@@ -34,6 +34,9 @@ export function DocumentChrome({
   const thread = snap.threads.find((item) => snap.route.kind === 'doc' && item.id === snap.route.threadId)
   const project = snap.projects.find((item) => thread && item.id === threadProjectId(snap, thread))
   const saved = useSavedFlash(snap.streaming)
+  // While a document opens the header already shows it; the save area says so instead.
+  const opening = snap.openingThreadId !== null
+  const status = opening ? 'Opening…' : snap.streaming ? 'Saving…' : null
 
   const commit = () => {
     if (cancelRef.current) {
@@ -60,6 +63,7 @@ export function DocumentChrome({
               <input
                 ref={titleRef}
                 className="doc-title"
+                readOnly={opening}
                 value={draft ?? snap.title}
                 aria-label="Document title"
                 spellCheck={false}
@@ -92,14 +96,11 @@ export function DocumentChrome({
                 <MIcon name="drive_file_move" />
               </span>
             </Tip>
-            <Tip label={snap.streaming ? 'Saving…' : 'All changes saved in Drive'}>
-              <span className="save-state" role="status" aria-label={snap.streaming ? 'Saving…' : 'Saved to Drive'}>
-                <MIcon
-                  name={snap.streaming ? 'cloud_sync' : 'cloud_done'}
-                  className={snap.streaming ? 'cloud busy' : 'cloud'}
-                />
-                {snap.streaming ? (
-                  <span className="save-text">Saving…</span>
+            <Tip label={status ?? 'All changes saved in Drive'}>
+              <span className="save-state" role="status" aria-label={status ?? 'Saved to Drive'}>
+                <MIcon name={status ? 'cloud_sync' : 'cloud_done'} className={status ? 'cloud busy' : 'cloud'} />
+                {status ? (
+                  <span className="save-text">{status}</span>
                 ) : saved ? (
                   <span className="save-text">Saved to Drive</span>
                 ) : null}

@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -102,7 +102,13 @@ function mount(partial: Partial<Snapshot> = {}, fail: (command: Command) => stri
   }
   window.hidegpt = api
   render(<App />)
-  return { calls, emitMenu: (action: MenuAction) => menuHandlers.forEach((handler) => handler(action)) }
+  /** Main pushing a new snapshot, as a patch of changed fields. */
+  const push = (fields: Partial<Snapshot>) => {
+    snapshot = { ...snapshot, ...fields }
+    seq += 1
+    act(() => listeners.forEach((listener) => listener({ fields, seq })))
+  }
+  return { calls, push, emitMenu: (action: MenuAction) => menuHandlers.forEach((handler) => handler(action)) }
 }
 
 describe('docs home', () => {
@@ -559,11 +565,22 @@ describe('project navigation and creation', () => {
     expect(screen.getByTestId('recent-title')).toHaveTextContent('Course notes')
   })
 
-  it('gives immediate opening feedback and permits cancellation', async () => {
+  it('opens into the editor chrome, says so in the save area, and cancels from the Docs logo', async () => {
     const user = userEvent.setup()
-    const { calls } = mount({ openingThreadId: 'thr_1' })
-    expect(screen.getByTestId('opening-document')).toHaveTextContent('Opening Photosynthesis')
-    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    const { calls, push } = mount({ openingThreadId: 'thr_1' })
+    expect(screen.queryByTestId('docs-home')).toBeNull()
+    const title = screen.getByLabelText('Document title')
+    expect(title).toHaveValue('Photosynthesis')
+    expect(title).toHaveAttribute('readonly')
+    expect(screen.getByRole('status', { name: 'Opening…' })).toHaveTextContent('Opening…')
+    expect(screen.getByTestId('menu-file')).toBeInTheDocument()
+    expect(within(screen.getByTestId('opening-document')).getByTestId('outline')).toBeInTheDocument()
+    // The header the click mounted is the one the open document keeps.
+    push({ openingThreadId: null, route: { kind: 'doc', threadId: 'thr_1' }, title: 'Photosynthesis' })
+    expect(screen.getByLabelText('Document title')).toBe(title)
+    expect(title).not.toHaveAttribute('readonly')
+    push({ openingThreadId: 'thr_2' })
+    await user.click(screen.getByRole('button', { name: 'Docs home' }))
     expect(calls).toContainEqual({ op: 'goHome' })
   })
 })

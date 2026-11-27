@@ -19,6 +19,5 @@
 @import './approvals.css' layer(components);
 @import './composer.css' layer(components);
 @import './streaming.css' layer(components);
-@import './loading.css' layer(components);
 @import './tabs.css' layer(components);
 @import './dialogs.css' layer(components);
