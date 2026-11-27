@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { threadTitle } from '../../../../shared/labels'
 import type { Snapshot } from '../../../../shared/model'
 import { TEMPLATES, type Template } from '../../templates'
 import { MIcon } from '../ui/MaterialIcon'
@@ -46,9 +47,8 @@ export function Home({
         (projectId === 'all' || threadProjectId(snap, thread) === projectId) &&
         (!query || `${thread.name ?? ''} ${thread.preview}`.toLowerCase().includes(query)),
     )
-    .sort((a, b) =>
-      sort === 'title' ? (a.name || a.preview).localeCompare(b.name || b.preview) : b.updatedAt - a.updatedAt,
-    )
+    // By title sorts on the title the card and list row show.
+    .sort((a, b) => (sort === 'title' ? threadTitle(a).localeCompare(threadTitle(b)) : b.updatedAt - a.updatedAt))
   const sections = view === 'list' && sort !== 'title' ? groupByRecency(threads) : [{ key: 'docs', title: '', threads }]
   // Like Docs' list view, the first recency group titles the whole section.
   const groupedTitle = view === 'list' && !query && !folder

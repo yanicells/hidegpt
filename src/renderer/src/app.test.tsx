@@ -472,6 +472,16 @@ describe('home document menus', () => {
     expect(order()).toEqual(['thread-thr_b', 'thread-thr_a'])
     expect(screen.getByText('Last modified')).toBeInTheDocument()
   })
+
+  it('sorts by title on the title it shows, not the raw name', async () => {
+    const user = userEvent.setup()
+    // A blank name shows the preview's first line ("Zeta"), so it sorts after "Beta".
+    mount({ threads: [stubThread('thr_z', 'Zeta', '  '), stubThread('thr_b', 'Beta', 'Beta')] })
+    await user.click(screen.getByTestId('home-sort'))
+    await user.click(await screen.findByTestId('sort-title'))
+    const order = screen.getAllByTestId(/^thread-/).map((card) => card.dataset.testid)
+    expect(order).toEqual(['thread-thr_b', 'thread-thr_z'])
+  })
 })
 
 describe('grouping', () => {

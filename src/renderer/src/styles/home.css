@@ -221,7 +221,7 @@
   font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.1px;
-  color: var(--text);
+  color: var(--text-2);
   @apply whitespace-nowrap overflow-hidden text-ellipsis;
 }
 
