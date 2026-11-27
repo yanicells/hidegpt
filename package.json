@@ -21,6 +21,7 @@
     "protocol": "node src/vendor/effect-codex-app-server/scripts/generate.ts",
     "record:codex": "node --import ./scripts/registerTs.mjs scripts/record-codex-replay.ts",
     "record:claude": "node --import ./scripts/registerTs.mjs scripts/record-claude-replay.ts",
+    "replay:events": "node --import ./scripts/registerTs.mjs scripts/replay-events.ts",
     "postinstall": "node node_modules/electron/install.js"
   },
   "dependencies": {

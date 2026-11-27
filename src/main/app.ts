@@ -76,7 +76,7 @@ const home = () => process.env.HOME ?? process.env.USERPROFILE ?? process.cwd()
 // Codex files a new document without a folder under its own threads directory.
 const defaultCwd = (id: ProviderId) => (id === 'codex' ? `${home()}/.codex/threads` : home())
 
-/** `userData/logs`: main.ndjson, and providers/<library>.ndjson. Help → Report a problem… opens it. */
+/** `userData/logs`: main.ndjson, and activity/<library>.ndjson. Help → Report a problem… opens it. */
 const logsDirectory = join(app.getPath('userData'), 'logs')
 
 const MainLayer = managerLayer({
@@ -85,7 +85,7 @@ const MainLayer = managerLayer({
 }).pipe(
   Layer.provideMerge(demo ? Demo.layer : ProviderRegistry.layerAfter(pathReady)),
   Layer.provideMerge(ProcessSupervisor.layer(demo ? null : join(app.getPath('userData'), 'provider-processes.json'))),
-  Layer.provideMerge(ProviderEventLog.layer(join(logsDirectory, 'providers'))),
+  Layer.provideMerge(ProviderEventLog.layer(join(logsDirectory, 'activity'))),
   Layer.provideMerge(Logging.layer({ directory: logsDirectory, console: !app.isPackaged })),
   Layer.provideMerge(NodeServices.layer),
 )
@@ -95,6 +95,8 @@ const runtime = ManagedRuntime.make(MainLayer)
 const program = Effect.gen(function* () {
   yield* Effect.promise(() => app.whenReady())
   yield* Effect.logInfo('Docs started', { version: app.getVersion(), demo })
+  // Earlier builds named these files after the providers; never holds up the start.
+  yield* Effect.forkScoped(ProviderEventLog.removeOldProviderLogs(logsDirectory))
   const shots = process.env.HIDEGPT_SCREENSHOT
   // The walk drives the demo library; against real providers it would open real documents,
   // so a screenshot run without the fakes fails at once instead of carrying on as the real app.

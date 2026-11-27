@@ -121,8 +121,10 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     `packages/shared/src/logging.ts` (`makeAsyncRotatingFileSink`); the main
     NDJSON logger, after `apps/server/src/serverLogger.ts` and
     `observability/Observability.ts`; the provider event log with its batching
-    writer and skipped text deltas, after
-    `apps/server/src/provider/EventNdjsonLogger.ts`; and logging only defects,
+    writer, schema-encoded lines and skipped text deltas, after
+    `apps/server/src/provider/EventNdjsonLogger.ts`, and its replay through the
+    reducer (`src/main/session/replay.ts`), after
+    `apps/server/src/orchestration-v2/testkit/ProjectionReplay.ts`; and logging only defects,
     from `apps/server/src/observability/DefectReporter.ts`, now in
     `src/provider/DefectReport.ts`.
   - `scripts/dist.ts`, `scripts/builder-config.ts` and
