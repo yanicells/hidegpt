@@ -1,7 +1,8 @@
 {
   "measured": {
-    "commit": "48bdced",
-    "when": "2026-11-27"
+    "commit": "c494bc6",
+    "when": "2026-11-27",
+    "runs": 3
   },
   "options": {
     "docs": 500,
@@ -10,64 +11,102 @@
   },
   "metrics": {
     "open.commits": {
-      "baseline": 12,
-      "max": 14
+      "low": 12,
+      "high": 14,
+      "min": 10,
+      "max": 16
     },
     "stream300.recalcs": {
-      "baseline": 1013,
-      "max": 1115
+      "low": 725,
+      "high": 730,
+      "min": 652,
+      "max": 803
     },
     "stream300.renders": {
-      "baseline": 19108,
-      "max": 21019
+      "low": 62893,
+      "high": 69024,
+      "min": 56603,
+      "max": 75927
+    },
+    "stream300.renders_per_commit_p50": {
+      "low": 7,
+      "high": 7,
+      "min": 7,
+      "max": 7,
+      "headroom": 0,
+      "slack": 0
     },
     "stream300.box_reads": {
-      "baseline": 290179,
-      "max": 319197
+      "low": 64947,
+      "high": 66212,
+      "min": 58452,
+      "max": 72834
     },
     "type_idle300.recalcs": {
-      "baseline": 62,
-      "max": 69
+      "low": 61,
+      "high": 61,
+      "min": 54,
+      "max": 68
     },
     "type_idle300.box_reads": {
-      "baseline": 18910,
-      "max": 20801
+      "low": 18300,
+      "high": 18300,
+      "min": 16470,
+      "max": 20130
     },
     "type_idle300.restyled": {
-      "baseline": 25840,
-      "max": 28424
+      "low": 89727,
+      "high": 89727,
+      "min": 80754,
+      "max": 98700
     },
     "scroll300.commits": {
-      "baseline": 90,
-      "max": 99
+      "low": 128,
+      "high": 197,
+      "min": 115,
+      "max": 217
     },
     "load_all.renders": {
-      "baseline": 24162,
-      "max": 26579
+      "low": 24169,
+      "high": 24169,
+      "min": 21752,
+      "max": 26586
     },
     "reopen.ipc_kb": {
-      "baseline": 1107.4,
-      "max": 1219
+      "low": 1107.4,
+      "high": 1107.4,
+      "min": 996.6,
+      "max": 1218.1
     },
     "reopen.renders": {
-      "baseline": 6653,
-      "max": 7319
+      "low": 8101,
+      "high": 8119,
+      "min": 7290,
+      "max": 8931
     },
     "mem_home.dom_nodes": {
-      "baseline": 8218,
-      "max": 9040
+      "low": 8281,
+      "high": 8281,
+      "min": 7452,
+      "max": 9110
     },
     "session.ipc_kb": {
-      "baseline": 10124.9,
-      "max": 11138
+      "low": 10018.3,
+      "high": 10152.5,
+      "min": 9016.4,
+      "max": 11167.8
     },
     "static.main_js_kb": {
-      "baseline": 2208.9,
-      "max": 2430
+      "low": 2352.9,
+      "high": 2352.9,
+      "min": 2117.6,
+      "max": 2588.3
     },
     "static.renderer_entry_js_kb": {
-      "baseline": 547.1,
-      "max": 602
+      "low": 569.9,
+      "high": 569.9,
+      "min": 512.9,
+      "max": 627
     }
   }
 }
