@@ -96,7 +96,7 @@ const runScenario = <A>(name: string, scenario: ReplayScenario<A>) =>
 describe('CodexAdapter replay', () => {
   it.effect('library: signed-out catalog, empty list, and a new document Codex cannot resume yet', () =>
     Effect.gen(function* () {
-      const { result, finished, initialize } = yield* runScenario('library', library)
+      const { result, events, finished, initialize } = yield* runScenario('library', library)
 
       // The replay client fails on a frame the recording does not hold, so this is also what was sent.
       // The version is today's (swapped in at load); the replay driver checks the sent frame matches it.
@@ -115,6 +115,9 @@ describe('CodexAdapter replay', () => {
         operation: 'thread/resume',
       })
       expect(finished).toEqual({ failure: null, unused: 0 })
+      // The recording holds `remoteControl/status/changed`, which the protocol allowlist leaves
+      // out: it arrives as an unknown notification and must not reach the page.
+      expect(events.filter((event) => event.type === 'notice')).toEqual([])
     }),
   )
 
