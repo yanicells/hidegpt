@@ -3,7 +3,9 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
 import * as Logger from 'effect/Logger'
+import * as Option from 'effect/Option'
 import * as Queue from 'effect/Queue'
+import * as References from 'effect/References'
 
 import * as CodexRpc from '../_generated/meta.gen.ts'
 import { UPSTREAM_METHODS } from '../_generated/upstream.gen.ts'
@@ -14,26 +16,42 @@ import { PROTOCOL_ALLOWLIST } from './allowlist.ts'
 const allowlisted = new Set<string>(Object.values(PROTOCOL_ALLOWLIST).flat())
 const upstream = new Set(UPSTREAM_METHODS)
 
-/** The code that names protocol methods: src/codex and the vendored client's runtime. */
+/** The non-test `.ts` files under `dir`, at any depth, except those `skip` matches. */
+const sourcesIn = (dir: URL, skip?: RegExp) =>
+  readdirSync(dir, { recursive: true, encoding: 'utf8' })
+    .filter((path) => path.endsWith('.ts') && !path.endsWith('.test.ts') && !skip?.test(path))
+    .map((path) => new URL(path, dir))
+
+/**
+ * The code that names protocol methods: src/codex and the vendored package, minus what is
+ * generated from the CLI, the generator itself, and the mock peer.
+ */
 const sources = [
-  ...readdirSync(new URL('../../../codex/', import.meta.url))
-    .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'))
-    .map((name) => new URL(`../../../codex/${name}`, import.meta.url)),
-  ...['client.ts', 'protocol.ts', '_internal/shared.ts', '_internal/stdio.ts'].map(
-    (name) => new URL(`../${name}`, import.meta.url),
-  ),
+  ...sourcesIn(new URL('../../../codex/', import.meta.url)),
+  ...sourcesIn(new URL('../', import.meta.url), /^(_generated|scripts|test)\//),
 ]
+
+/** Methods code names without sending, handling or decoding them, so they need no schema. */
+const NAMED_ONLY: Readonly<Record<string, ReadonlyArray<string>>> = {
+  // The replay harness normalizes a recorded fork request like start and resume; Docs never forks.
+  'vendor/effect-codex-app-server/replay.ts': ['thread/fork'],
+}
+
+/** Every string literal in `source`: quoted, or a template with no `${}`. */
+const literals = (source: string) =>
+  [...source.matchAll(/'([^'\n]+)'|"([^"\n]+)"|`([^`$\n]+)`/g)].map((match) => match[1] ?? match[2] ?? match[3] ?? '')
 
 describe('protocol allowlist', () => {
   // Typed calls to a dropped method already fail typecheck; this also catches a method compared
   // by name (`frame.method === '...'`), which would silently stop matching.
-  it('lists every method src/codex and the client name', () => {
-    const unlisted = sources.flatMap((url) =>
-      [...readFileSync(url, 'utf8').matchAll(/'([^'\n]+)'|"([^"\n]+)"/g)]
-        .map((match) => match[1] ?? match[2] ?? '')
-        .filter((text) => upstream.has(text) && !allowlisted.has(text))
-        .map((method) => `${url.pathname.split('/src/')[1]}: ${method}`),
-    )
+  it('lists every method src/codex and the vendored package name', () => {
+    const unlisted = sources.flatMap((url) => {
+      const file = url.pathname.split('/src/')[1] ?? url.pathname
+      const exempt = new Set(NAMED_ONLY[file])
+      return literals(readFileSync(url, 'utf8'))
+        .filter((text) => upstream.has(text) && !allowlisted.has(text) && !exempt.has(text))
+        .map((method) => `${file}: ${method}`)
+    })
     expect(unlisted, 'add these to scripts/allowlist.ts and run `pnpm protocol`').toEqual([])
   })
 
@@ -67,7 +85,7 @@ describe('protocol allowlist', () => {
         ),
     )
 
-  it.effect('decodes every listed fixture notification and hands the rest to the unknown handler', () =>
+  it.live('decodes every listed fixture notification and hands the rest to the unknown handler', () =>
     Effect.gen(function* () {
       const listed = fixtureNotifications.filter((frame) => frame.method in CodexRpc.SERVER_NOTIFICATION_PARAMS)
       const unlisted = fixtureNotifications.filter((frame) => !listed.includes(frame))
@@ -75,13 +93,14 @@ describe('protocol allowlist', () => {
       expect(listed.length).toBeGreaterThan(0)
       expect(unlisted.length).toBeGreaterThan(0)
 
+      // The client's decode warning names the method and the issue kinds in its annotations.
       const warnings: unknown[] = []
       const { stdio, input } = yield* makeInMemoryStdio()
       const client = yield* CodexClient.make(stdio).pipe(
         Effect.provide(
           Logger.layer([
-            Logger.make(({ logLevel, message }) => {
-              if (logLevel === 'Warn') warnings.push(message)
+            Logger.make(({ logLevel, fiber }) => {
+              if (logLevel === 'Warn') warnings.push(fiber.getRef(References.CurrentLogAnnotations))
             }),
           ]),
         ),
@@ -99,10 +118,19 @@ describe('protocol allowlist', () => {
         yield* Queue.offer(input, new TextEncoder().encode(`${JSON.stringify(frame)}\n`))
       }
 
-      // A notification that failed to decode never reaches its handler, so these would time out.
-      expect(yield* Queue.takeN(decoded, listed.length)).toEqual(listed.map((frame) => frame.method))
-      expect(yield* Queue.takeN(unknown, unlisted.length)).toEqual(unlisted.map((frame) => frame.method))
+      // A notification that fails to decode never reaches its handler. Rather than wait out
+      // vitest's timeout, give up after a second and show the warning that names it.
+      const take = (queue: Queue.Queue<string>, count: number) =>
+        Queue.takeN(queue, count).pipe(
+          Effect.timeoutOption('1 second'),
+          Effect.map((taken) => {
+            if (Option.isNone(taken)) expect(warnings, 'notifications that failed to decode').toEqual([])
+            return Option.getOrElse(taken, () => [])
+          }),
+        )
+      expect(yield* take(decoded, listed.length)).toEqual(listed.map((frame) => frame.method))
+      expect(yield* take(unknown, unlisted.length)).toEqual(unlisted.map((frame) => frame.method))
       expect(warnings).toEqual([])
-    }).pipe(Effect.timeout('5 seconds')),
+    }),
   )
 })

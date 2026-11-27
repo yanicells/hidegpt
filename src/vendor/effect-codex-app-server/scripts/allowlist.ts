@@ -2,7 +2,8 @@
 // these methods and the schemas they reach, instead of every schema the CLI publishes (3.4 MB
 // of source, 1.6 MB of the main bundle). A notification left off arrives as an unknown one:
 // the client hands it to `handleUnknownServerNotification`, which the adapter does not set,
-// so it is dropped. allowlist.test.ts fails when src/codex names a method that is not here.
+// so it is dropped. allowlist.test.ts fails when src/codex or this package names a method
+// that is not here.
 //
 // To use a new method: add it below, run `pnpm protocol`, then use it.
 
