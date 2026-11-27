@@ -19,7 +19,12 @@
   color: var(--page-ink);
 }
 
-/* One white, shadowed sheet per page with Docs' 16px gap; components/document/pages.ts sets the breaks. */
+/*
+ * The white sheets behind the text, one per page. Document.tsx draws them
+ * PAGE_PITCH apart (pageLayout.ts: 1056px page + Docs' 16px gap) and pages.ts
+ * sets the breaks. Each sheet's outline is a 1px #c4c7c5 edge with no blur
+ * (--page-edge), as Docs draws it.
+ */
 .page-sheets {
   @apply absolute inset-0 pointer-events-none;
   z-index: -1;
@@ -79,10 +84,17 @@
 }
 
 /*
- * Docs puts a line's extra leading (0.15 x 1.149em) above the text; CSS splits
- * it above and below. Body lines are all shifted alike, so only a heading's
- * extra half-leading beyond body text's (0.0862em versus 0.0862 x 11pt) shows:
- * nudge heading text down by that, without moving anything after it.
+ * Heading top nudge. Arial's natural line is 1.149em (hhea ascent 1854 +
+ * descent 434 + gap 67, over 2048 units), so 1.15 spacing adds 0.15 x 1.149em
+ * = 0.1724em of leading. Docs puts all of it above the glyphs; CSS puts half
+ * above and half below, so in CSS every line's glyphs sit half of it,
+ * 0.0862em, higher than in Docs. Body lines are all 11pt, so their offset is
+ * the same on every line and the spacing between them matches. A larger
+ * heading is off by more, so nudge it down by the difference from a body
+ * line: 0.0862 x (font size - 11pt), about 1px for the 20pt question. `top`
+ * moves only the paint, so nothing after the heading moves. Checked on the
+ * 2x captures: H1 baseline to first body baseline is 30.1px, against 30.0px
+ * in the Docs reference.
  */
 .doc-question,
 .doc-body :is(h1, h2, h3, h4, h5, h6) {

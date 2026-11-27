@@ -9,11 +9,11 @@
   --line: #c4c7c5;
   --border-strong: #747775;
   /*
-   * One grey, four roles: Home card and thumbnail borders (home.css), the
-   * vertical ruler's border (ruler.css), the callout rule (page.css) and the
-   * scrollbar thumb (workspace.css). Docs draws these in different greys, so a
-   * package that changes one points that usage at its own value and leaves
-   * this token alone.
+   * One grey, three roles: Home card and thumbnail borders (home.css), the
+   * vertical ruler's border (ruler.css) and the callout rule (page.css). The
+   * canvas scrollbar has its own --scrollbar-* tokens (UI-07). Docs draws
+   * these in different greys, so a package that changes one points that
+   * usage at its own value and leaves this token alone.
    */
   --outline: #dadce0;
   --blue: #0b57d0;
@@ -43,7 +43,6 @@
   --hover-menu: rgba(31, 31, 31, 0.06);
   --hover-soft: #f0f4f9;
   --shadow-menu: 0 2px 6px 2px rgba(60, 64, 67, 0.15), 0 1px 2px 0 rgba(60, 64, 67, 0.3);
-  --shadow-page: 0 0 0 0.75pt #d1d1d1, 0 0 3pt 0.75pt #ccc;
   /* Chrome: Google Sans (bundled as Google Sans Flex, see fonts.ts) and Roboto for small labels. */
   --font-ui: 'Google Sans Flex Variable', 'Google Sans', Roboto, Arial, sans-serif;
   --font-text: Roboto, 'Google Sans Flex Variable', Arial, sans-serif;
@@ -66,7 +65,6 @@
   --paper-width: 816px;
   --paper-margin: 96px;
   --rail-width: 56px;
-  --scrollbar-w: 14px;
   /* UI-07: the page's crisp 1px edge, and Docs' scrollbars as Chrome draws them. */
   --page-edge: 0 0 0 1px #c4c7c5;
   --scrollbar-size: 12px;
