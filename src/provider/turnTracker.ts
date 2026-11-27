@@ -34,8 +34,10 @@ export interface TurnTracker {
    * here. With it (the start response, which knows its turn), only that turn is confirmed,
    * and its `nativeTurnId` is the one that counts, even over an id remembered as ended. If
    * that turn already closed, the id is remembered as ended, so the turn's later events can't
-   * come back as the next turn's. That covers only the response arriving first: a closed
-   * turn's start notification that beats its response is still adopted by the next turn.
+   * come back as the next turn's, except when an adopted turn already holds that id: no
+   * response is coming to correct an adopted turn, so the id is its own. That covers only the
+   * response arriving first: a closed turn's start notification that beats its response is
+   * still adopted by the next turn.
    * ARCH-4a closes that, since its items and terminals carry the native id.
    */
   readonly started: (threadId: string, nativeTurnId: string | null, turnId?: TurnId) => Effect.Effect<void>
