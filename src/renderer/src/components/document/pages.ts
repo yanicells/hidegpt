@@ -169,9 +169,12 @@ export class Paginator {
     if (!this.isLive(row)) return false
     const geometry = this.geometry.get(row)
     if (!geometry) return true
+    // Breaks inside a block add to its box; a row that is one unit carries its break as its
+    // own top margin, outside the box.
+    const inside = row.classList.contains('doc-block') ? this.pushOf(row) : 0
     // Its contents changed with no mutation (an image loaded, the wrapping changed), maybe
     // while it was skipped: measure it again.
-    if (Math.abs(height - geometry.height - this.pushOf(row)) > 1) this.dirty.add(row)
+    if (Math.abs(height - geometry.height - inside) > 1) this.dirty.add(row)
     // Rendering now but not when the last pass placed it: its breaks may never have been
     // written live, and a paragraph can only be split once its lines can be read.
     return this.dirty.has(row) || !this.wasLive.has(row)

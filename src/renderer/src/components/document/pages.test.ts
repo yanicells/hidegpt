@@ -33,7 +33,14 @@ function guard(el: Element) {
 function layout(): Map<Element, Box> {
   const boxes = new Map<Element, Box>()
   let y = MARGIN
-  for (const row of Array.from(flow.children)) {
+  for (const row of Array.from(flow.children) as HTMLElement[]) {
+    if (!row.classList.contains('doc-block')) {
+      // A row that is one unit (the composer): its break is its own top margin, outside its box.
+      if (row.hasAttribute('data-page-break')) y += parseFloat(row.style.getPropertyValue('--page-break'))
+      boxes.set(row, { top: y, height: Number(row.dataset.h) })
+      y += Number(row.dataset.h)
+      continue
+    }
     const top = y
     for (const unit of Array.from(row.querySelectorAll<HTMLElement>('.doc-body > *'))) {
       if (unit.hasAttribute('data-page-break')) y += parseFloat(unit.style.getPropertyValue('--page-break'))
@@ -71,7 +78,19 @@ function unit(height: number, tag = 'div'): HTMLElement {
   return el
 }
 
-const units = (row: Element) => Array.from(row.querySelectorAll<HTMLElement>('.doc-body > *'))
+const units = (row: Element): HTMLElement[] =>
+  row.classList.contains('doc-block')
+    ? Array.from(row.querySelectorAll<HTMLElement>('.doc-body > *'))
+    : [row as HTMLElement]
+
+/** The composer: a row that paginates whole. */
+function composer(height: number): HTMLElement {
+  const row = document.createElement('div')
+  row.className = 'composer-wrap'
+  row.dataset.h = String(height)
+  flow.append(row)
+  return row
+}
 
 /** Units of rendered rows that cross a page's top or bottom margin. */
 function misplaced(): HTMLElement[] {
@@ -278,5 +297,23 @@ describe('Paginator', () => {
 
     expect(rendered(last)).toBe(true)
     expect(misplaced()).toEqual([])
+  })
+
+  it('settles in one pass when the composer it pushed reports its size', () => {
+    const above = block(700)
+    const last = composer(100)
+    const passes = vi.fn()
+    paginator = new Paginator(paper, passes)
+    expect(last.hasAttribute('data-page-break')).toBe(false)
+    passes.mockClear()
+
+    // An image above loads: the composer crosses the page and is pushed. Its push is a margin
+    // outside its box, so reading its box back must not look like an unplanned resize.
+    units(above)[0].dataset.h = '800'
+    observer!.deliver([above])
+
+    expect(last.style.getPropertyValue('--page-break')).toBe(`${PAGE_PITCH + MARGIN - 896}px`)
+    expect(misplaced()).toEqual([])
+    expect(passes).toHaveBeenCalledTimes(1)
   })
 })
