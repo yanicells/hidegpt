@@ -24,7 +24,11 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }))
  * Caps far above any load, for tests of what the supervisor does rather than how long it may
  * take: a busy machine must not turn a capped wait into a skipped step. The cap tests use the defaults.
  */
-const UNHURRIED: SupervisorTiming = { stderrDrain: Duration.seconds(10), ledgerReadCap: Duration.seconds(10) }
+const UNHURRIED: SupervisorTiming = {
+  stderrDrain: Duration.seconds(10),
+  ledgerReadCap: Duration.seconds(10),
+  ledgerWriteCap: Duration.seconds(10),
+}
 
 const withSupervisor = <A, E>(
   use: (supervisor: ProcessSupervisor['Service']) => Effect.Effect<A, E>,
@@ -144,6 +148,25 @@ describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
     )
   })
 
+  it.live('lists a server’s pid while it runs, and not once it exits or its scope stops it', () =>
+    withSupervisor((supervisor) =>
+      Effect.gen(function* () {
+        const pids = yield* Effect.scoped(
+          Effect.gen(function* () {
+            const exits = yield* supervisor.spawn({ provider: 'codex', command: '/bin/sh', args: ['-c', 'exit 0'] })
+            const sleeps = yield* supervisor.spawn({ provider: 'codex', command: '/bin/sleep', args: ['30'] })
+            expect(supervisor.livePidsSync()).toEqual([exits.handle.pid, sleeps.handle.pid])
+            yield* Effect.exit(exits.awaitExit)
+            yield* until(() => !supervisor.livePidsSync().includes(exits.handle.pid))
+            return [sleeps.handle.pid]
+          }),
+        )
+        expect(supervisor.livePidsSync()).toEqual([])
+        expect(pids.every((pid) => !running(pid))).toBe(true)
+      }),
+    ),
+  )
+
   /**
    * A supervisor whose one server is a real `sleep` (so the ledger can read its start time; the
    * test stops it) behind a fake handle that is still running and whose kill does `kill`.
@@ -196,11 +219,17 @@ describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
 
   it.live('reports a kill that fails on a server still running, and keeps its record for the next launch', () => {
     const denied = PlatformError.systemError({ _tag: 'PermissionDenied', module: 'ChildProcess', method: 'kill' })
-    const { run, reported, recordOf } = withUnkillable('failed-kill', Effect.fail(denied), spawnSleep)
+    const listed = Effect.gen(function* () {
+      yield* spawnSleep
+      return (yield* ProcessSupervisor).livePidsSync()
+    })
+    const { run, reported, recordOf } = withUnkillable('failed-kill', Effect.fail(denied), listed)
     return run.pipe(
-      Effect.map(() => {
+      Effect.map((pids) => {
         expect(reported().map(({ where }) => where)).toEqual(['supervisor.kill'])
         expect(recordOf()).toMatchObject({ command: '/bin/sleep' })
+        // Still listed, so a quit that runs out of time kills it by pid.
+        expect(pids).toHaveLength(1)
       }),
     )
   })
@@ -400,6 +429,7 @@ describe('ProcessSupervisor.callbackSpawner', { timeout: PROCESS_TEST_TIMEOUT },
             const child = spawn({ command: 'sh', args: ['-c', 'sleep 30 & wait'], env: { PATH: process.env.PATH } })
             pid = child.pid ?? 0
             expect(pid).toBeGreaterThan(0)
+            expect(supervisor.livePidsSync()).toEqual([pid])
             yield* until(() => groupAlive(pid))
           }),
         ),

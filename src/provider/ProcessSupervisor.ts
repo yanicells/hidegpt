@@ -60,10 +60,13 @@ export type SupervisorTiming = {
   readonly stderrDrain: Duration.Duration
   /** How long quit waits on a ledger read around a kill: 1 s before, 1 s after, plus the 2 s group stop, inside quit's 5 s. */
   readonly ledgerReadCap: Duration.Duration
+  /** How long a release waits on the ledger write after its kill; a write still pending is left to the next launch's reap. */
+  readonly ledgerWriteCap: Duration.Duration
 }
 export const DEFAULT_TIMING: SupervisorTiming = {
   stderrDrain: Duration.millis(250),
   ledgerReadCap: Duration.seconds(1),
+  ledgerWriteCap: Duration.seconds(1),
 }
 
 /** What an SDK hands its spawn callback (Claude Code's `SpawnOptions`), plus where stderr goes. */
@@ -96,6 +99,11 @@ export class ProcessSupervisor extends Context.Service<
     readonly callbackSpawner: Effect.Effect<CallbackSpawn, never, Scope.Scope>
     /** Kills servers a previous, crashed run left behind. */
     readonly reapOrphans: Effect.Effect<number>
+    /**
+     * The process groups started and not yet seen to exit, read without a fiber: a quit
+     * that runs out of time kills these by pid before it exits (src/main/lifecycle.ts).
+     */
+    readonly livePidsSync: () => ReadonlyArray<number>
   }
 >()('hidegpt/ProcessSupervisor') {}
 
@@ -142,8 +150,10 @@ const make = (
   spawner: ChildProcessSpawner.ChildProcessSpawner['Service'],
   ledger: ProcessLedger.ProcessLedger['Service'],
   timing: SupervisorTiming,
-) =>
-  ProcessSupervisor.of({
+) => {
+  // Each pid leads its own group. Added at spawn; removed at exit or after a kill that succeeded.
+  const live = new Set<number>()
+  return ProcessSupervisor.of({
     spawn: Effect.fn('ProcessSupervisor.spawn')(function* (options, tailStderr = false) {
       const command = ChildProcess.make(options.command, [...options.args], {
         ...(options.cwd ? { cwd: options.cwd } : {}),
@@ -162,10 +172,12 @@ const make = (
               }),
         ),
       )
+      const pid = handle.pid
+      live.add(pid)
       // Released before the spawner's own kill, so this stops the server: its tree is read while
       // it still runs, its group is stopped, then whatever left the group (a `setsid` daemon).
       // The read is capped, so a slow `ps` never delays the kill past quit's deadline.
-      yield* Effect.acquireRelease(ledger.record(handle.pid, options.command, options.args[0] ?? ''), () =>
+      yield* Effect.acquireRelease(ledger.record(pid, options.command, options.args[0] ?? ''), () =>
         treeReadBeforeKill(ledger, timing.ledgerReadCap).pipe(
           Effect.andThen(
             Effect.exit(
@@ -180,14 +192,24 @@ const make = (
           ),
           // A kill that failed or died is reported and its record kept, so the next launch reaps the server.
           // An interrupted one keeps the record too, without raising the interrupt inside this release.
+          // The write after a kill is capped, so a slow disk cannot hold quit past its deadline.
           Effect.flatMap((exit) =>
             Exit.isSuccess(exit)
-              ? ledger.stop(handle.pid)
+              ? Effect.sync(() => live.delete(pid)).pipe(
+                  Effect.andThen(Effect.timeoutOption(ledger.stop(pid), timing.ledgerWriteCap)),
+                )
               : Cause.hasInterruptsOnly(exit.cause)
                 ? Effect.void
                 : observed(Effect.failCause(exit.cause), { name: 'supervisor.kill' }),
           ),
         ),
+      )
+
+      // Interrupted when the scope closes, before the release above, so the pid stays until the kill.
+      yield* handle.exitCode.pipe(
+        Effect.exit,
+        Effect.andThen(Effect.sync(() => live.delete(pid))),
+        forkObserved({ name: 'supervisor.exitWatch' }),
       )
 
       const tail = yield* Ref.make('')
@@ -304,15 +326,19 @@ const make = (
           name: 'supervisor.ledgerRecord',
         })
         running.set(child, { pid, recorded })
+        live.add(pid)
         child.once('exit', () => {
           signalGroup(pid, 'SIGKILL')
+          live.delete(pid)
           stopTreeOf(child)
         })
         return child
       }
     }),
     reapOrphans: ledger.reap,
+    livePidsSync: () => [...live],
   })
+}
 
 /** The supervisor over Effect's Node spawner; `ledgerPath` null disables the ledger (tests). */
 export const layer = (ledgerPath: string | null, timing: SupervisorTiming = DEFAULT_TIMING) =>
