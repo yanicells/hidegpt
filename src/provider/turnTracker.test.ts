@@ -69,6 +69,18 @@ describe('TurnTracker', () => {
     }),
   )
 
+  it.effect('a closed turn’s late start response does not strand the turn that already took its id', () =>
+    Effect.gen(function* () {
+      const { tracker, types } = yield* setup
+      // A's start notification beat its response, so the next turn on the thread holds A's id.
+      yield* tracker.started('t', 'native-a')
+      yield* tracker.started('t', 'native-a', 'turn-a')
+      yield* tracker.end('t', { status: 'completed', failure: null, nativeTurnId: 'native-a' })
+      expect(types()).toEqual(['turn.started', 'ended:completed'])
+      expect(tracker.current('t')).toBeNull()
+    }),
+  )
+
   it.effect('a start response naming an id remembered as ended still owns its turn', () =>
     Effect.gen(function* () {
       const { tracker, types } = yield* setup
