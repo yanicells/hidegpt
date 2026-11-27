@@ -178,6 +178,8 @@ const BlockRow = memo(function BlockRow({ id, streaming }: { id: string; streami
     </div>
   )
 })
+// The build renames a function expression that shadows its binding (`BlockRow2`); name it for DevTools and tests.
+BlockRow.displayName = 'BlockRow'
 
 const INCHES = [-1, 1, 2, 3, 4, 5, 6, 7]
 

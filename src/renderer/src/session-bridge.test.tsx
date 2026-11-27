@@ -2,12 +2,12 @@
 
 import { StrictMode } from 'react'
 import { act, cleanup, render } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { HideGptApi, SequencedSnapshot, SnapshotPatch } from '../../shared/api'
 import { emptySnapshot, type Snapshot } from '../../shared/model'
 import { applySnapshotPatch, type SnapshotDiff } from '../../shared/snapshot-patch'
-import { useBlock, useBlockRows, useShellSnapshot } from './session-bridge'
+import { subscribeBlock, useBlock, useBlockRows, useShellSnapshot } from './session-bridge'
 
 afterEach(cleanup)
 
@@ -192,5 +192,97 @@ describe('session bridge', () => {
     expect(seen.b).toBeUndefined()
     expect(seen.q).toBe('Why?')
     expect(renders.q).toBe(before.q)
+  })
+
+  it('calls only the listeners of the blocks a patch changed, added or removed', () => {
+    const { emit } = bridge({
+      ...emptySnapshot(),
+      route: { kind: 'doc', threadId: 't' },
+      blocks: [
+        { kind: 'user', id: 'q', text: 'Why?' },
+        { kind: 'agent', id: 'a', text: 'Because' },
+      ],
+    })
+    const heard = { q: vi.fn(), a: vi.fn(), b: vi.fn(), x: vi.fn() }
+    const unsubscribe = Object.entries(heard).map(([id, listener]) => subscribeBlock(id, listener))
+    const calls = () =>
+      Object.fromEntries(Object.entries(heard).map(([id, listener]) => [id, listener.mock.calls.length]))
+
+    emit({ fields: {}, blocks: { length: 2, append: [[1, ' light scatters.']] } })
+    expect(calls()).toEqual({ q: 0, a: 1, b: 0, x: 0 })
+
+    emit({ fields: {}, blocks: { length: 3, set: [[2, { kind: 'agent', id: 'b', text: 'More' }]] } })
+    expect(calls()).toEqual({ q: 0, a: 1, b: 1, x: 0 })
+
+    // Another session: every id goes away and new ones arrive.
+    emit({
+      fields: { route: { kind: 'doc', threadId: 'u' } },
+      blocks: { length: 1, set: [[0, { kind: 'user', id: 'x', text: 'Hi' }]] },
+    })
+    expect(calls()).toEqual({ q: 1, a: 2, b: 2, x: 1 })
+
+    unsubscribe.forEach((stop) => stop())
+  })
+
+  it('replaces the rows when the session changes, and follows a block that changes kind under its id', () => {
+    const { emit } = bridge({
+      ...emptySnapshot(),
+      route: { kind: 'doc', threadId: 't' },
+      blocks: [
+        { kind: 'user', id: 'q', text: 'Why?' },
+        { kind: 'agent', id: 'a', text: 'Because' },
+      ],
+    })
+    let rows: ReturnType<typeof useBlockRows> = []
+    const seen: Record<string, string | undefined> = {}
+    function Rows() {
+      rows = useBlockRows()
+      return null
+    }
+    function Row({ id }: { id: string }) {
+      const block = useBlock(id)
+      seen[id] = block?.kind
+      return null
+    }
+    render(
+      <>
+        <Rows />
+        <Row id="a" />
+        <Row id="x" />
+      </>,
+    )
+    const ofRows = () => rows.map((row) => [row.id, row.kind, row.commentary])
+
+    // The same id, now a progress note, then a callout.
+    emit({
+      fields: {},
+      blocks: { length: 2, set: [[1, { kind: 'agent', id: 'a', text: 'Checking', commentary: true }]] },
+    })
+    expect(ofRows()).toEqual([
+      ['q', 'user', false],
+      ['a', 'agent', true],
+    ])
+    emit({ fields: {}, blocks: { length: 2, set: [[1, { kind: 'callout', id: 'a', title: 'Note', body: 'Read' }]] } })
+    expect(ofRows()).toEqual([
+      ['q', 'user', false],
+      ['a', 'callout', false],
+    ])
+    expect(seen.a).toBe('callout')
+
+    emit({
+      fields: { route: { kind: 'doc', threadId: 'u' } },
+      blocks: {
+        length: 2,
+        set: [
+          [0, { kind: 'user', id: 'x', text: 'Hi' }],
+          [1, { kind: 'agent', id: 'y', text: 'Hello' }],
+        ],
+      },
+    })
+    expect(ofRows()).toEqual([
+      ['x', 'user', false],
+      ['y', 'agent', false],
+    ])
+    expect(seen).toEqual({ a: undefined, x: 'user' })
   })
 })

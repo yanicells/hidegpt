@@ -3,7 +3,7 @@ import { memo, useCallback, useEffect, useState } from 'react'
 import { cn } from '../ui/cn'
 import { MIcon } from '../ui/MaterialIcon'
 import { Tip } from '../ui/tooltip'
-import type { OutlineEntry } from './outline'
+import { sameEntry, type OutlineEntry } from './outline'
 
 const NARROW = '(max-width: 960px)'
 
@@ -91,20 +91,22 @@ export const Tabs = memo(function Tabs({ entries, onNew, onJump }: TabsProps) {
     </aside>
   )
 }, sameTabs)
+// The build renames a function expression that shadows its binding (`Tabs2`); name it for DevTools and tests.
+Tabs.displayName = 'Tabs'
 
-/**
- * One outline entry. Entries keep their identity until their block changes, so
- * a new heading renders the entries of the block being written, not all of them.
- */
-const OutlineItem = memo(function OutlineItem({
-  entry,
-  active,
-  onPick,
-}: {
+type OutlineItemProps = {
   entry: OutlineEntry
   active: boolean
   onPick: (entry: OutlineEntry) => void
-}) {
+}
+
+/**
+ * One outline entry. It compares entries by content: a block gets a new object
+ * when text streams into it or when earlier text is loaded above it, and its
+ * headings usually stay the same. So a new heading, or a page of earlier
+ * turns, renders only the entries that are new or changed.
+ */
+const OutlineItem = memo(function OutlineItem({ entry, active, onPick }: OutlineItemProps) {
   return (
     <li>
       {/* A clipped heading shows in full on hover. */}
@@ -121,7 +123,13 @@ const OutlineItem = memo(function OutlineItem({
       </Tip>
     </li>
   )
-})
+}, sameItem)
+// The build renames a function expression that shadows its binding (`OutlineItem2`); name it for DevTools and tests.
+OutlineItem.displayName = 'OutlineItem'
+
+function sameItem(a: OutlineItemProps, b: OutlineItemProps): boolean {
+  return a.active === b.active && a.onPick === b.onPick && sameEntry(a.entry, b.entry)
+}
 
 function sameTabs(a: TabsProps, b: TabsProps): boolean {
   return (

@@ -52,7 +52,8 @@ function mount(blocks: Block[], fields: Partial<Snapshot> = {}) {
     act(() => {
       seq += 1
       const patch = { ...diffSnapshot(snap, { ...snap, blocks: next }), seq }
-      listeners.forEach((listener) => listener(patch))
+      // IPC hands the page a copy, so a block sent again arrives as a new object.
+      listeners.forEach((listener) => listener(structuredClone(patch)))
     })
 }
 
@@ -107,5 +108,20 @@ describe('Document', () => {
     expect(heading.components.Tip).toBe(4)
     expect(heading.components.Document).toBeUndefined()
     expect(screen.getByTestId('outline-a2-0')).toHaveTextContent('Red light')
+  })
+
+  it('renders only the new outline entries when earlier turns load above', () => {
+    const question: Block = { kind: 'user', id: 'u2', text: 'Why is the sky blue?' }
+    const answer: Block = { kind: 'agent', id: 'a2', text: '## Blue light\n## Red light' }
+    const update = mount([question, answer])
+
+    // Loading earlier text shifts every block, and each one is sent again.
+    startCounting()
+    update([{ kind: 'user', id: 'u1', text: 'What is light?' }, question, answer])
+    const loaded = stopCounting()
+    expect(loaded.components.OutlineItem).toBe(1)
+    // The panel's own three buttons and the new entry.
+    expect(loaded.components.Tip).toBe(4)
+    expect(screen.getByTestId('outline-u1')).toHaveTextContent('What is light?')
   })
 })

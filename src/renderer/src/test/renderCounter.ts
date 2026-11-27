@@ -9,7 +9,8 @@
 
 type Fiber = {
   readonly tag: number
-  readonly type: unknown
+  readonly elementType: unknown
+  readonly return: Fiber | null
   readonly flags: number
   readonly alternate: Fiber | null
   readonly child: Fiber | null
@@ -25,16 +26,20 @@ export type RenderReport = {
 // Function, class, forwardRef, memo and simple memo components.
 const COMPONENT_TAGS = new Set([0, 1, 11, 14, 15])
 const PERFORMED_WORK = 1
+const MEMO = 14
 
 type Named = { displayName?: string; name?: string }
 
+// Names a memo component after the memo, so a `displayName` set on it counts: a
+// simple memo's fiber has the memo as `elementType`, and a memo with a compare
+// function renders its function as a child fiber.
 function nameOf(fiber: Fiber): string | null {
-  const type = fiber.type as (Named & { type?: Named; render?: Named }) | null
+  const parent = fiber.return
+  const memo = parent?.tag === MEMO && (parent.elementType as { type?: unknown }).type === fiber.elementType
+  const type = (memo ? parent : fiber).elementType as (Named & { type?: Named; render?: Named }) | null
   if (!type || (typeof type !== 'object' && typeof type !== 'function')) return null
   const inner = type.type ?? type.render ?? type
-  const name = type.displayName || inner.displayName || inner.name || 'Anonymous'
-  // The transform renames a function expression that shadows its binding: `const Row = memo(function Row…)` gives `Row2`.
-  return name.replace(/(?<=\D)\d+$/, '')
+  return type.displayName || inner.displayName || inner.name || 'Anonymous'
 }
 
 type CounterState = { on: boolean; commits: number; counts: Map<string, number> }

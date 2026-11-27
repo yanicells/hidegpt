@@ -103,7 +103,9 @@ function subscribe(onChange: () => void): () => void {
 /**
  * Subscribes to part of the snapshot. The component re-renders only when the
  * selection changes by `isEqual`, so a streamed delta repaints the document
- * without the chrome. Adapted from T3 Code's thread-detail atoms
+ * without the chrome. Pass a module-level or memoized `select`: a new one is
+ * read again on every render, and if it returns a fresh object each time
+ * without an `isEqual` that holds, React re-renders without end. Adapted from T3 Code's thread-detail atoms
  * (packages/client-runtime/src/state/threadDetail.ts) at commit 8a14762c.
  * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
  */
@@ -192,21 +194,22 @@ export function useBlockRows(): ReadonlyArray<BlockRowInfo> {
  * nothing else.
  */
 export function useBlock(id: string): Block | undefined {
-  const subscribeBlock = useCallback(
-    (onChange: () => void) =>
-      retain(() => {
-        const heard = blockListeners.get(id) ?? new Set()
-        blockListeners.set(id, heard)
-        heard.add(onChange)
-        return () => {
-          heard.delete(onChange)
-          if (heard.size === 0) blockListeners.delete(id)
-        }
-      }),
-    [id],
-  )
+  const subscribe = useCallback((onChange: () => void) => subscribeBlock(id, onChange), [id])
   const read = () => blocksById.get(id)
-  return useSyncExternalStore(subscribeBlock, read, read)
+  return useSyncExternalStore(subscribe, read, read)
+}
+
+/** Calls `onChange` when the block with this id changes, arrives or goes away. Returns the unsubscribe. */
+export function subscribeBlock(id: string, onChange: () => void): () => void {
+  return retain(() => {
+    const heard = blockListeners.get(id) ?? new Set()
+    blockListeners.set(id, heard)
+    heard.add(onChange)
+    return () => {
+      heard.delete(onChange)
+      if (heard.size === 0) blockListeners.delete(id)
+    }
+  })
 }
 
 // The last command from the window that failed. Main answers window commands
