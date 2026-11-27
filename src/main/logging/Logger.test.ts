@@ -86,6 +86,10 @@ describe('Logger.layer', () => {
           detail: 'key\nsk-abcdefghijklmnopqrstuv as\nalice-k, password=foo"bar',
           url: 'http://127.0.0.1:4096',
           pkg: 'react@18.3.1',
+          // Keys are written too: a folder or an address can arrive as one.
+          '/Users/alice-k/secret-dir': 1,
+          'alice.k@example.com': 2,
+          long: 'z'.repeat(200_000),
         }),
         Effect.provide(
           Logging.layer({ directory: dir, console: false, identity }).pipe(Layer.provide(NodeServices.layer)),
@@ -93,8 +97,10 @@ describe('Logger.layer', () => {
       )
       const log = readFileSync(join(dir, 'main.ndjson'), 'utf8')
       const line = JSON.parse(log.trim())
-      expect(Object.keys(line.annotations).sort()).toEqual(['command', 'detail', 'pkg', 'url'])
+      expect(Object.keys(line.annotations)).toHaveLength(7)
       expect(line.annotations).toMatchObject({ url: 'http://127.0.0.1:4096', pkg: 'react@18.3.1' })
+      // A huge annotation is cut like a cause, not written whole.
+      expect(Buffer.byteLength(line.annotations.long)).toBeLessThanOrEqual(MAX_CAUSE_BYTES)
       for (const secret of ['alice-k', 'alice.k@example.com', 'sk-abcdefghijklmnopqrstuv', 'foo"bar'])
         expect(JSON.stringify(line)).not.toContain(secret)
     }),

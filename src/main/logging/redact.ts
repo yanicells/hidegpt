@@ -104,11 +104,20 @@ export const redacting = <Output>(logger: Logger.Logger<unknown, Output>, redact
   Logger.make<unknown, Output>((options) => logger.log({ ...options, cause: redactCause(options.cause, redact) }))
 
 /**
- * Redacts every string value in one JSON log line (messages and annotations included), the way T3
- * redacts its serialized record. The patterns are for plain text, so they run on decoded strings,
- * never on the encoded line, where escapes like `\n` and `\"` would break them.
+ * Redacts one JSON log line, the way T3 redacts its serialized record: every string (messages and
+ * annotations) is redacted, then cut to `MAX_CAUSE_BYTES`, and every object key is redacted. The
+ * patterns are for plain text, so they run on decoded strings, never on the encoded line, where
+ * escapes like `\n` and `\"` would break them. The cause was already redacted and cut by
+ * `redacting`; the second pass is cheap, and after it the cut is no longer exact to the byte.
  */
-export const redactJsonLine =
-  (redact: (text: string) => string) =>
-  (line: string): string =>
-    JSON.stringify(JSON.parse(line), (_key, value: unknown) => (typeof value === 'string' ? redact(value) : value))
+export const redactJsonLine = (redact: (text: string) => string) => {
+  const cut = redactThenCap(redact)
+  const clean = (value: unknown): unknown => {
+    if (typeof value === 'string') return cut(value)
+    if (Array.isArray(value)) return value.map(clean)
+    if (value !== null && typeof value === 'object')
+      return Object.fromEntries(Object.entries(value).map(([key, child]) => [redact(key), clean(child)]))
+    return value
+  }
+  return (line: string): string => JSON.stringify(clean(JSON.parse(line)))
+}

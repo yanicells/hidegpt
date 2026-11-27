@@ -59,7 +59,7 @@ export const layer = (options: LoggingOptions) => {
             ...MAIN_LOG,
             filePath: path.join(options.directory, MAIN_LOG.name),
           })
-          // Every string in the line is redacted (messages and annotations too); `redacting` below also cuts the cause.
+          // Every string and key in the line is redacted and every string cut; `redacting` below does the cause first.
           const file = yield* Logger.batched(Logger.map(Logger.formatJson, redactJsonLine(redact)), {
             window: BATCH_WINDOW,
             flush: (lines) => Effect.ignore(sink.write(lines.map((line) => `${line}\n`).join(''))),
