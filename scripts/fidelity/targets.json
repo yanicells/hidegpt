@@ -105,7 +105,7 @@
       "viewport": 1470,
       "screen": "home",
       "kind": "ink",
-      "box": [1086, 84, 128, 30],
+      "box": [1066, 84, 120, 24],
       "prop": "mass",
       "ref": "home-grid.png",
       "refBox": [1066, 84, 120, 24]
@@ -116,7 +116,7 @@
       "viewport": 1470,
       "screen": "home",
       "kind": "ink",
-      "box": [738, 402, 128, 24],
+      "box": [892, 398, 128, 24],
       "prop": "mass",
       "ref": "home-grid.png",
       "refBox": [892, 398, 128, 24]
@@ -204,7 +204,7 @@
       "viewport": 1470,
       "screen": "home",
       "kind": "ink",
-      "box": [1086, 84, 128, 30],
+      "box": [1066, 84, 120, 24],
       "prop": "w",
       "ref": "home-grid.png",
       "refBox": [1066, 84, 120, 24]
@@ -921,8 +921,9 @@
       "viewport": 1470,
       "screen": "home",
       "kind": "pixel",
-      "at": [1466, 700],
-      "target": "#f0f0f0"
+      "at": [1468.5, 700],
+      "target": "#f0f0f0",
+      "note": "The track gutter right of the 6px thumb (track x 1458-1470, thumb 1461-1467), so the sample never lands on the thumb, whose length depends on the library size. Docs reads #f0f0f0 there too."
     },
     {
       "id": "page.ruler-num.size",
@@ -1167,7 +1168,7 @@
       "viewport": 1470,
       "screen": "home",
       "kind": "ink",
-      "box": [1086, 84, 128, 30],
+      "box": [1066, 84, 120, 24],
       "prop": "y",
       "ref": "home-grid.png",
       "refBox": [1066, 84, 120, 24]
