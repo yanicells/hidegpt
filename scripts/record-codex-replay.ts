@@ -6,7 +6,9 @@
  * `src/codex/fixtures/<scenario>.ndjson`. See docs/replay-fixtures.md.
  *
  *   pnpm record:codex library            # no prompt; any agent may run it
- *   HIDEGPT_RECORD_TURNS=1 pnpm record:codex turn   # a person only: sends 2 prompts
+ *   HIDEGPT_RECORD_TURNS=1 pnpm record:codex turn|stop|approval   # a person only: sends prompts
+ *
+ * The scenarios themselves live in src/codex/replayScenarios.ts, shared with the replay tests.
  *
  * Without HIDEGPT_RECORD_TURNS=1 only `NO_PROMPT_METHODS` (src/codex/replay.ts)
  * can reach Codex, so the recorder cannot start a turn even by mistake.
@@ -23,8 +25,9 @@ import * as Stream from 'effect/Stream'
 import { ChildProcess, ChildProcessSpawner } from 'effect/process'
 
 import * as CodexAdapter from '../src/codex/CodexAdapter.ts'
-import { recordingOptions } from '../src/codex/replay.ts'
-import type { AdapterEvent, ProviderSession, TurnSettings } from '../src/provider/ProviderAdapter.ts'
+import { recordingOptions, withoutPersonalLists } from '../src/codex/replay.ts'
+import { SCENARIOS } from '../src/codex/replayScenarios.ts'
+import type { AdapterEvent } from '../src/provider/ProviderAdapter.ts'
 import {
   encodeTranscript,
   leaks,
@@ -35,21 +38,6 @@ import {
   turnsAllowed,
 } from '../src/provider/replayFixture.ts'
 import * as CodexClient from '../src/vendor/effect-codex-app-server/client.ts'
-
-const SETTINGS: TurnSettings = { model: null, effort: null, serviceTier: null, mode: null }
-/** Fixed and harmless; the fixture's metadata keeps them so the replay test sends the same ones. */
-const TURN_PROMPTS = ['Reply with one short sentence about tea.', 'Now say it again in five words or fewer.']
-
-type Scenario = {
-  readonly description: string
-  readonly sendsTurns: boolean
-  readonly run: (
-    session: ProviderSession,
-    events: ReadonlyArray<AdapterEvent>,
-    workspace: string,
-    entries: ReadonlyArray<ReplayEntry>,
-  ) => Effect.Effect<void, unknown>
-}
 
 /** `account` from the recorded `account/read` answer: null when signed out, a description otherwise. */
 function accountOf(entries: ReadonlyArray<ReplayEntry>): string | null {
@@ -64,74 +52,19 @@ function accountOf(entries: ReadonlyArray<ReplayEntry>): string | null {
       : `type ${String((account as { type?: unknown }).type)}`
 }
 
-const SCENARIOS: Record<string, Scenario> = {
-  library: {
-    description:
-      'Handshake, catalog and document list, signed out; then a new document, which Codex cannot resume before its first turn. No prompt.',
-    sendsTurns: false,
-    run: (session, _events, workspace, entries) =>
-      Effect.gen(function* () {
-        yield* session.loadCatalog
-        // Judged on Codex's own answer: an account at all means the empty CODEX_HOME
-        // found a login after all, so stop before anything personal is written.
-        const account = accountOf(entries)
-        if (account !== null)
-          return yield* Effect.die(
-            new Error(`Codex reported an account (${account}) in the empty CODEX_HOME; nothing was written.`),
-          )
-        yield* Stream.runHead(session.listDocs(''))
-        const created = yield* session.createThread({
-          cwd: workspace,
-          projectId: null,
-          title: null,
-          settings: SETTINGS,
-        })
-        // Codex keeps no transcript until the first turn, so this records its real "no rollout" error.
-        yield* Effect.exit(session.openThread(created.threadId))
-        yield* session.releaseThread(created.threadId)
-      }),
-  },
-  turn: {
-    description: 'A new document, two short turns, then the document opened again to read its history.',
-    sendsTurns: true,
-    run: (session, events, workspace) =>
-      Effect.gen(function* () {
-        const created = yield* session.createThread({
-          cwd: workspace,
-          projectId: null,
-          title: null,
-          settings: SETTINGS,
-        })
-        for (const [index, text] of TURN_PROMPTS.entries()) {
-          const ended = () => events.filter((event) => event.type === 'turnEnded').length
-          const before = ended()
-          yield* session.send(
-            created.threadId,
-            { text, images: [], skill: null, clientId: `local-replay-${index + 1}` },
-            SETTINGS,
-          )
-          yield* Effect.sleep('200 millis').pipe(
-            Effect.repeat({ until: () => ended() > before }),
-            Effect.timeout('3 minutes'),
-          )
-        }
-        yield* session.openThread(created.threadId)
-        yield* session.releaseThread(created.threadId)
-      }),
-  },
-}
-
 /** The adapter's `Connect`, over `codex app-server` with every decoded frame recorded (and turns refused). */
 const recordingConnect = (
   spawner: ChildProcessSpawner.ChildProcessSpawner['Service'],
   env: Record<string, string>,
   cwd: string,
+  config: ReadonlyArray<string>,
   entries: ReplayEntry[],
   allowTurns: boolean,
 ): CodexAdapter.Connect =>
   Effect.gen(function* () {
+    const args = ['app-server', ...config.flatMap((setting) => ['-c', setting])]
     const handle = yield* spawner
-      .spawn(ChildProcess.make(env.CODEX_BIN || 'codex', ['app-server'], { cwd, env, extendEnv: false }))
+      .spawn(ChildProcess.make(env.CODEX_BIN || 'codex', args, { cwd, env, extendEnv: false }))
       .pipe(Effect.orDie)
     const context = yield* Layer.build(CodexClient.layerChildProcess(handle, recordingOptions(entries, allowTurns)))
     return Context.get(context, CodexClient.CodexAppServerClient)
@@ -151,8 +84,9 @@ async function main() {
   const name = process.argv[2] ?? 'library'
   const scenario = SCENARIOS[name]
   if (!scenario) throw new Error(`Unknown scenario "${name}". Choose one of: ${Object.keys(SCENARIOS).join(', ')}.`)
+  const sendsTurns = scenario.prompts.length > 0
   const allowTurns = turnsAllowed()
-  if (scenario.sendsTurns && !allowTurns) throw new TurnRefusedError(`record the "${name}" scenario`)
+  if (sendsTurns && !allowTurns) throw new TurnRefusedError(`record the "${name}" scenario`)
 
   const workspace = realpathSync(mkdtempSync(join(tmpdir(), 'hidegpt-replay-workspace-')))
   const codexHome = realpathSync(mkdtempSync(join(tmpdir(), 'hidegpt-replay-codex-')))
@@ -160,7 +94,7 @@ async function main() {
   // No-prompt runs get an empty Codex home: signed out, with none of the person's documents.
   // Turn runs keep the person's own Codex login, which Codex reads itself.
   const env = Object.fromEntries(
-    Object.entries(scenario.sendsTurns ? process.env : { ...inherited, CODEX_HOME: codexHome }).filter(
+    Object.entries(sendsTurns ? process.env : { ...inherited, CODEX_HOME: codexHome }).filter(
       (pair): pair is [string, string] => pair[1] !== undefined,
     ),
   )
@@ -174,13 +108,29 @@ async function main() {
     await Effect.runPromise(
       Effect.gen(function* () {
         const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-        const session = yield* CodexAdapter.make(recordingConnect(spawner, env, workspace, entries, allowTurns))
-          .openSession
+        const session = yield* CodexAdapter.make(
+          recordingConnect(spawner, env, workspace, scenario.config ?? [], entries, allowTurns),
+        ).openSession
         const events: AdapterEvent[] = []
         yield* Stream.runForEach(session.events, (event) => Effect.sync(() => events.push(event))).pipe(
           Effect.forkScoped,
         )
-        yield* scenario.run(session, events, workspace, entries)
+        yield* scenario.run({
+          session,
+          events,
+          workspace,
+          wait: '3 minutes',
+          // Judged on Codex's own answer: an account at all in the empty CODEX_HOME means it
+          // found a login after all, so stop before anything personal is written.
+          afterCatalog: Effect.suspend(() => {
+            const account = accountOf(entries)
+            return sendsTurns || account === null
+              ? Effect.void
+              : Effect.die(
+                  new Error(`Codex reported an account (${account}) in the empty CODEX_HOME; nothing was written.`),
+                )
+          }),
+        })
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
     )
   } finally {
@@ -196,10 +146,11 @@ async function main() {
     metadata: {
       source: 'scripts/record-codex-replay.ts',
       description: scenario.description,
-      ...(scenario.sendsTurns ? { prompts: TURN_PROMPTS } : {}),
+      ...(sendsTurns ? { prompts: scenario.prompts } : {}),
+      ...(scenario.config ? { config: scenario.config } : {}),
     },
     entries: [
-      ...entries.map((entry) => scrub(entry, machine) as ReplayEntry),
+      ...entries.map((entry) => scrub(withoutPersonalLists(entry), machine) as ReplayEntry),
       { type: 'runtime_exit', status: 'success' },
     ],
   })

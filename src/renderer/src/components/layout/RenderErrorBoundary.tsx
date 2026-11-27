@@ -39,6 +39,17 @@ export class RenderErrorBoundary extends Component<RenderErrorBoundaryProps, Ren
   }
 }
 
+/**
+ * React's `onCaughtError` for the root: one short line per error a boundary
+ * caught, with only its name and a capped message, never the document text
+ * it was rendering. React's default would log the whole error and stack.
+ */
+// TODO: send this to main's defect log once Package A's reporting is on this branch.
+export function reportRenderError(error: unknown): void {
+  const { name, message } = error instanceof Error ? error : { name: typeof error, message: String(error) }
+  console.error('render error', name, message.slice(0, 200))
+}
+
 /** Stands in for one block on the page that couldn't render. */
 export function BlockFallback() {
   return (
