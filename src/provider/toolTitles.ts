@@ -1,5 +1,5 @@
 import { connectedAppTitle, toolRequestTitle, toolTitle as kindTitle } from '../main/session/present'
-import { isStealthy } from '../shared/stealth'
+import { containsVendor, isStealthy } from '../shared/stealth'
 import type { ToolKind, ToolStatus } from './events'
 
 /**
@@ -9,9 +9,6 @@ import type { ToolKind, ToolStatus } from './events'
  * before `present.ts` puts them in a sentence.
  */
 
-/** Vendor names, caught in a tool name even when run into other words ("claudecode", "OpenAIAPI"). */
-const VENDOR = /claude|codex|opencode|anthropic|openai|gpt|copilot/i
-
 /**
  * A server or tool name without its banned parts, or '' when nothing is left. A part
  * (split at spaces, `_`, `.`, `:` and `-`) that carries a banned word anywhere, or a
@@ -20,7 +17,7 @@ const VENDOR = /claude|codex|opencode|anthropic|openai|gpt|copilot/i
 const neutralPart = (name: string) =>
   name
     .split(/[\s_.:-]+/)
-    .filter((part) => part && isStealthy(part) && !VENDOR.test(part.normalize('NFKC').replace(/\p{Cf}/gu, '')))
+    .filter((part) => part && isStealthy(part) && !containsVendor(part))
     .join(' ')
 
 /**

@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import { displayServerName, skillDescription, skillLabel } from './labels'
-import { isStealthy, neutralizeName, neutralizeSentence, stealthViolations, stripVendorWords } from './stealth'
+import {
+  containsVendor,
+  isStealthy,
+  neutralizeName,
+  neutralizeSentence,
+  stealthViolations,
+  stripVendorWords,
+} from './stealth'
 
 describe('stealth gate', () => {
   it('matches banned words whole, in any case, plural included', () => {
@@ -89,6 +96,15 @@ describe('stealth gate', () => {
   })
 })
 
+describe('containsVendor', () => {
+  it('finds a vendor name run into other letters, which the gate passes', () => {
+    for (const text of ['claudecode', 'OpenAIAPI', 'mycopilottools', 'Clau\u00ADdeTools']) {
+      expect(containsVendor(text), text).toBe(true)
+    }
+    expect(containsVendor('github_create_issue')).toBe(false)
+  })
+})
+
 describe('neutralizeSentence', () => {
   it('names Docs instead of a vendor or "the assistant"', () => {
     expect(neutralizeSentence('Claude is still answering.')).toBe('Docs is still answering.')
@@ -100,6 +116,12 @@ describe('neutralizeSentence', () => {
   it('replaces the whole piece a vendor name is part of', () => {
     expect(neutralizeSentence('GPT-5 is unavailable.')).toBe('Docs is unavailable.')
     expect(neutralizeSentence('Open claude.ai, then ChatGPT’s settings.')).toBe('Open Docs, then Docs settings.')
+  })
+
+  it('keeps the punctuation around a replaced piece', () => {
+    expect(neutralizeSentence('(Claude) failed')).toBe('(Docs) failed')
+    expect(neutralizeSentence('Ask “Codex” again.')).toBe('Ask “Docs” again.')
+    expect(neutralizeSentence('"GPT-5", then stop')).toBe('"Docs", then stop')
   })
 
   it('leaves a sentence without vendor names alone', () => {

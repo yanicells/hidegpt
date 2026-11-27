@@ -61,8 +61,7 @@ function banned(word: string): string | null {
  * invisible format characters first, so fullwidth letters and soft hyphens hide nothing.
  */
 export function stealthViolations(text: string): string[] {
-  const visible = text.normalize('NFKC').replace(/\p{Cf}/gu, '')
-  return Array.from(visible.matchAll(/\p{L}+/gu), ([run]) => {
+  return Array.from(visible(text).matchAll(/\p{L}+/gu), ([run]) => {
     const whole = banned(run)
     if (whole) return [whole]
     const parts = bannedParts(Array.from(run.matchAll(CASE_PARTS)))
@@ -73,6 +72,9 @@ export function stealthViolations(text: string): string[] {
     return [...parts, ...capitals].sort((a, b) => a.at - b.at).map((hit) => hit.word)
   }).flat()
 }
+
+/** `text` as it reads: NFKC-normalized, invisible format characters gone. */
+const visible = (text: string): string => text.normalize('NFKC').replace(/\p{Cf}/gu, '')
 
 /** A banned word found in a run, with where it starts and ends. */
 type Hit = { readonly at: number; readonly end: number; readonly word: string }
@@ -110,6 +112,16 @@ export const vendorViolations = (text: string): string[] => stealthViolations(te
 
 const namesVendor = (text: string): boolean => vendorViolations(text).length > 0
 
+const VENDOR_ANYWHERE = new RegExp(VENDOR_WORDS.join('|'), 'i')
+
+/**
+ * Whether a vendor name sits anywhere in `text`, even run into other letters
+ * ("claudecode", "OpenAIAPI"), which the gate reads as ordinary words. Blind to
+ * word boundaries, so it is for name parts that are dropped whole on a match
+ * (`provider/toolTitles.ts`), never for prose.
+ */
+export const containsVendor = (text: string): boolean => VENDOR_ANYWHERE.test(visible(text))
+
 // ---- rewriting -----------------------------------------------------------------------
 //
 // A vendor word can sit inside a larger piece of text ("GPT-5", "ChatGPT's",
@@ -138,7 +150,11 @@ const replacePieces = (text: string, replace: (piece: string) => string): string
 export function neutralizeSentence(text: string): string {
   // `search`, not `test`: a global regex's `test` would carry `lastIndex` into the next call.
   if (!namesVendor(text) && text.search(PHRASES) < 0) return text
-  return replacePieces(text.replace(PHRASES, 'Docs'), (piece) => `Docs${/[.,;:!?)]*$/.exec(piece)![0]}`)
+  // The piece's own punctuation stays on either side: "(Claude)" reads "(Docs)".
+  return replacePieces(
+    text.replace(PHRASES, 'Docs'),
+    (piece) => `${/^[(["“‘']*/.exec(piece)![0]}Docs${/[.,;:!?)\]"”’']*$/.exec(piece)![0]}`,
+  )
 }
 
 const NAME_PARTS = /[\s_:./-]+/
