@@ -21,6 +21,14 @@ const SESSION = 'ses_1'
 /** A subagent's session: the server knows its parent, but the adapter never saw it created. */
 const CHILD = 'ses_child'
 
+/**
+ * Names with a banned word. A name that passes the stealth matcher may show (owner ruling), so
+ * names carry a banned word instead of the marker: the page must hide each one. Free text (an
+ * error, a retry message) carries the marker, since no provider text may show.
+ */
+const BANNED_TOOL = 'opencode_search'
+const BANNED_PERMISSION = 'opencode-helper'
+
 const driver: ContractDriver = {
   provider: 'opencode',
   settings: { model: 'fake/model-a', effort: null, serviceTier: null, mode: 'build' },
@@ -131,7 +139,7 @@ const driver: ContractDriver = {
                   messageID: 'msg_tool',
                   type: 'tool',
                   callID: 'call_tool',
-                  tool: `${marker}_search`,
+                  tool: BANNED_TOOL,
                   state: { status: 'error', input: {}, error: `${marker} tool error`, time: { start: 1, end: 2 } },
                 },
                 time: 1,
@@ -162,10 +170,10 @@ const driver: ContractDriver = {
                 time: 1,
               },
             })
-            return { kept: ['Ran read'] }
+            return { hidden: [BANNED_TOOL], kept: ['Ran read'] }
           case 'requests':
-            yield* ask('per_marker', SESSION, marker)
-            return {}
+            yield* ask('per_marker', SESSION, BANNED_PERMISSION)
+            return { hidden: [BANNED_PERMISSION] }
           case 'notices':
             yield* retrying(`${marker} retrying`)
             return {}
@@ -274,10 +282,6 @@ contractSuite('OpenCode', driver, {
   subagent_outlives_stop: {
     why: 'Stop aborts only the root session; a busy child keeps running (O-9).',
     fails: 'Stop reaches the busy subagent',
-  },
-  passthrough_requests: {
-    why: 'The permission name titles the card.',
-    leaks: ['approval.title: Allow ZZPROV: rm -r build?'],
   },
   passthrough_errors: {
     why: 'An error for no session in particular goes on the banner as written.',

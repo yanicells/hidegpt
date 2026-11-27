@@ -32,6 +32,15 @@ const cliNotice = (text: string, error?: string) =>
     ...(error ? { error } : {}),
   })
 
+/**
+ * Names with a banned word. A name that passes the stealth matcher may show (owner ruling), so
+ * names carry a banned word instead of the marker: the page must hide each one. Free text (an
+ * error, a notice, a request's reason) carries the marker, since no provider text may show.
+ */
+const BANNED_TOOL = 'ClaudeTool'
+const BANNED_MCP = 'mcp__claude_server__openai_search'
+const BANNED_DISPLAY = 'Claude Helper'
+
 const driver: ContractDriver = {
   provider: 'claude',
   settings: { model: 'default', effort: 'high', serviceTier: null, mode: null },
@@ -141,8 +150,8 @@ const driver: ContractDriver = {
           case 'tools':
             yield* push(
               assistantFrame('msg_tools', [
-                { type: 'tool_use', id: 'toolu_m', name: `mcp__${marker}_server__${marker}_search`, input: {} },
-                { type: 'tool_use', id: 'toolu_t', name: `${marker}Tool`, input: {} },
+                { type: 'tool_use', id: 'toolu_m', name: BANNED_MCP, input: {} },
+                { type: 'tool_use', id: 'toolu_t', name: BANNED_TOOL, input: {} },
                 // A tool name that passes the stealth gate may show (an `mcp__` name never does).
                 { type: 'tool_use', id: 'toolu_k', name: 'Lookup', input: {} },
               ]),
@@ -160,15 +169,15 @@ const driver: ContractDriver = {
                 session_id: '',
               }),
             )
-            return { kept: ['Using Lookup'] }
+            return { hidden: [BANNED_TOOL, BANNED_MCP, 'claude_server', 'openai_search'], kept: ['Using Lookup'] }
           case 'requests':
-            yield* ask(`${marker}Tool`, { command: 'ls' }, 'toolu_t', {
+            yield* ask(BANNED_TOOL, { command: 'ls' }, 'toolu_t', {
               title: `${marker} title`,
-              displayName: `${marker} name`,
+              displayName: BANNED_DISPLAY,
               description: `${marker} description`,
               decisionReason: `${marker} reason`,
             })
-            return {}
+            return { hidden: [BANNED_TOOL, BANNED_DISPLAY] }
           case 'notices':
             yield* push(
               cliNotice(`${marker} notice`),
@@ -315,14 +324,6 @@ contractSuite('Claude', driver, {
   provider_notice: {
     why: 'A `<synthetic>` frame is drawn as answer text (PAR-B item 6, C-1).',
     fails: 'provider notices stay off the answer',
-  },
-  passthrough_tools: {
-    why: 'A raw tool name titles its callout (C-3).',
-    leaks: ['callout.title: Using ZZPROVTool'],
-  },
-  passthrough_requests: {
-    why: "The permission's `displayName` titles the card.",
-    leaks: ['approval.title: Allow ZZPROV name?'],
   },
   passthrough_notices: {
     why: 'A `<synthetic>` notice is drawn as answer text (C-1).',

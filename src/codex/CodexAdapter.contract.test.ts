@@ -30,9 +30,20 @@ import { agentItem, makeFakeCodex } from './FakeCodex'
 const THREAD = 'thr_1'
 /** A subagent's thread: Codex spawned it inside the turn, and the adapter never opened it. */
 const CHILD = { threadId: 'thr_child', turnId: 'turn_child' }
-/** Connector names with a banned word: the page must scrub them. */
+/**
+ * Names with a banned word. A name that passes the stealth matcher may show (owner ruling), so
+ * names carry a banned word instead of the marker: the page must hide each one. Free text (an
+ * error, a message, a brief) carries the marker, since no provider text may show.
+ */
 const BANNED_SERVER = 'codex_tools'
 const BANNED_TOOL = 'openai-search'
+const BANNED_NAMES = {
+  namespace: 'codex_space',
+  dynamic: 'codex_dynamic',
+  function: 'codex_function',
+  functions: 'gpt_functions',
+  model: 'gpt-5-codex',
+}
 
 const driver: ContractDriver = {
   provider: 'codex',
@@ -168,8 +179,8 @@ const driver: ContractDriver = {
             yield* completed({
               type: 'dynamicToolCall',
               id: 'dyn_1',
-              namespace: `${marker}_space`,
-              tool: `${marker}_dynamic`,
+              namespace: BANNED_NAMES.namespace,
+              tool: BANNED_NAMES.dynamic,
               arguments: {},
               status: 'completed',
             })
@@ -181,18 +192,21 @@ const driver: ContractDriver = {
               senderThreadId: THREAD,
               receiverThreadIds: [CHILD.threadId],
               prompt: `${marker} brief`,
-              model: `${marker}_model`,
+              model: BANNED_NAMES.model,
               agentsStates: { [CHILD.threadId]: { status: 'completed', message: `${marker} agent message` } },
             })
             yield* completed({
               type: 'functionCallOutput',
               id: 'fn_1',
-              name: `${marker}_function`,
-              namespace: `${marker}_functions`,
+              name: BANNED_NAMES.function,
+              namespace: BANNED_NAMES.functions,
               output: 'ok',
             })
             // `spawnAgent` is an enum, so it cannot carry the marker.
-            return { hidden: ['spawnAgent', BANNED_SERVER, BANNED_TOOL], kept: ['files · lookup'] }
+            return {
+              hidden: ['spawnAgent', BANNED_SERVER, BANNED_TOOL, ...Object.values(BANNED_NAMES)],
+              kept: ['files · lookup'],
+            }
           case 'requests':
             yield* askCommand({ command: 'ls', reason: `${marker} reason` })
             for (const serverName of ['files', BANNED_SERVER]) {
@@ -320,13 +334,8 @@ const GAPS = {
     fails: 'Stop reaches the busy subagent',
   },
   passthrough_tools: {
-    why: "Dynamic and function tool names and namespaces title or fill callouts, and a subagent's brief fills the spawn callout. Connector names are gated: a stealthy one stays, a banned one is dropped.",
-    leaks: [
-      'callout.body: ZZPROV brief',
-      'callout.body: ZZPROV_functions',
-      'callout.title: ZZPROV_function',
-      'callout.title: ZZPROV_space · ZZPROV_dynamic',
-    ],
+    why: "A function call's namespace fills its callout body unchecked, so a banned one shows, and a subagent's brief fills the spawn callout. Connector, dynamic and function tool names are gated.",
+    leaks: ['callout.body: ZZPROV brief', 'callout.body: gpt_functions'],
   },
   passthrough_requests: {
     why: "A connector's elicitation message is the card's body. Its name in the title is gated: a stealthy one stays, a banned one is dropped.",
