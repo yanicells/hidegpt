@@ -69,4 +69,6 @@
   --scrollbar-w: 14px;
   /* UI-11: the side rail's divider, lighter than --line. */
   --rail-divider: #e7eaf0;
+  /* UI-11: the side rail's "+" ink. Docs draws it #000; --page-ink has other roles. */
+  --rail-add-ink: #000;
 }

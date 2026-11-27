@@ -32,9 +32,9 @@
   background: var(--rail-divider);
 }
 
-/* "Get add-ons": the 24px cut, whose plus is 14px of ink, in near black like Docs. */
+/* "Get add-ons": a 14px plus in pure black, as Docs draws it. */
 .rail-add {
-  color: var(--text);
+  color: var(--rail-add-ink);
 }
 
 .rail-hide {
