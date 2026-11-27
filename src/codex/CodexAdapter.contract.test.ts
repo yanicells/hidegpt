@@ -54,8 +54,8 @@ const driver: ContractDriver = {
     const received: Received[] = []
     let hold: { readonly reached: Deferred.Deferred<void>; readonly release: Deferred.Deferred<void> } | null = null
     let starts = 0
-    /** Codex's words when it refuses the next `turn/start` (`rejectStart`). */
-    let refusal: string | null = null
+    /** How Codex answers the next `turn/start` (`rejectStart`): in these words, or never (`null`). */
+    let refusal: { readonly text: string | null } | null = null
     /** The native turn the scripts act on: the newest `turn/start`, or one Codex started itself. */
     let native: string | null = null
     /** The native turn before it. */
@@ -70,9 +70,9 @@ const driver: ContractDriver = {
           }
           if (method !== 'turn/start') return
           if (refusal !== null) {
-            const message = refusal
+            const { text } = refusal
             refusal = null
-            return yield* Effect.fail(rpcFailure(message))
+            return yield* text === null ? Effect.never : Effect.fail(rpcFailure(text))
           }
           // The handler numbers turns in the order they arrive, as this count does.
           starts += 1
@@ -270,11 +270,14 @@ const driver: ContractDriver = {
             release: Effect.asVoid(Deferred.succeed(gate.release, undefined)),
           } satisfies Hold
         }),
-        rejectStart: (message) =>
+        startWaits: true,
+        rejectStart: (text) =>
           Effect.sync(() => {
-            refusal = message
+            refusal = { text }
             return driver.settings
           }),
+        // Codex's word for a document another writer holds, which the adapter rewords.
+        refusals: ['thread-store conflict'],
         askFor: askCommand({ command: 'rm -r build' }),
         fail: (kind) =>
           Effect.gen(function* () {
@@ -378,8 +381,11 @@ const GAPS = {
     leaks: ['banned codex: banner: Codex did not answer in 60 s. Try again, or use Tools → Refresh.'],
   },
   passthrough_rejected: {
-    why: "Codex's refusal of a start is the banner (`formatCodexError` passes other text through). Owner: STL-1 / the errors cleanup.",
-    leaks: ['banner: ZZPROV refused'],
+    why: "Codex's refusal of a start is the banner (`formatCodexError` passes other text through), and its rewording of a writer conflict names ChatGPT. Owner: STL-1 / the errors cleanup.",
+    leaks: [
+      'banned chatgpt: banner: This document is open in ChatGPT or another window. Close it there, then open it here.',
+      'banner: ZZPROV refused',
+    ],
   },
   title_stealth: {
     why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',

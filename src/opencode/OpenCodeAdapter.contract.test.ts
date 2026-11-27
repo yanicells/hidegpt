@@ -37,8 +37,8 @@ const driver: ContractDriver = {
   settings: { model: 'fake/model-a', effort: null, serviceTier: null, mode: 'build' },
   open: Effect.gen(function* () {
     let hold: { reached: () => void; release: Promise<void> } | null = null
-    /** OpenCode's words when it refuses the next prompt (`rejectStart`). */
-    let refusal: string | null = null
+    /** How OpenCode answers the next prompt (`rejectStart`): in these words, or never (`null`). */
+    let refusal: { readonly text: string | null } | null = null
     const fake = makeFakeOpenCode({
       reply: null,
       sessions: [
@@ -53,9 +53,10 @@ const driver: ContractDriver = {
       },
       hold: (method, path) => {
         if (refusal !== null && method === 'POST' && path.endsWith('/prompt_async')) {
-          const message = refusal
+          const { text } = refusal
           refusal = null
-          return Response.json({ name: 'BadRequestError', data: { message } }, { status: 400 })
+          if (text === null) return new Promise<never>(() => {})
+          return Response.json({ name: 'BadRequestError', data: { message: text } }, { status: 400 })
         }
         const held = hold
         if (!held || method !== 'POST' || !path.endsWith('/prompt_async')) return
@@ -252,11 +253,13 @@ const driver: ContractDriver = {
             stream(text),
             Effect.sync(() => fake.finish(SESSION)),
           ),
-        rejectStart: (message) =>
+        startWaits: true,
+        rejectStart: (text) =>
           Effect.sync(() => {
-            refusal = message
+            refusal = { text }
             return driver.settings
           }),
+        refusals: [],
         holdStart: Effect.sync(() => {
           let reached = () => {}
           let release = () => {}
@@ -362,8 +365,8 @@ contractSuite('OpenCode', driver, {
     leaks: ['banned opencode: banner: OpenCode did not answer in 60 s. Try again, or use Tools → Refresh.'],
   },
   passthrough_rejected: {
-    why: "OpenCode's refusal of a prompt is the banner (`errorDetail` reads `body.data.message`). Owner: STL-1 / the errors cleanup.",
-    leaks: ['banner: ZZPROV refused'],
+    why: "OpenCode's refusal of a prompt is the banner (`errorDetail` reads `body.data.message`), and with no message its fallback names OpenCode. Owner: STL-1 / the errors cleanup.",
+    leaks: ['banned opencode: banner: OpenCode did not accept that request.', 'banner: ZZPROV refused'],
   },
   title_stealth: {
     why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',

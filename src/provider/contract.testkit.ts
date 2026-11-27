@@ -40,6 +40,11 @@ import {
  * sentence of a failed send, reply or Stop, recorded as app.ts records it). Not covered here, so
  * text that only reaches these is unchecked:
  * - the sidebar's document titles, and the model and server lists;
+ * - sentences an adapter writes for a refusal no scenario scripts: Claude's 10 s timeout on
+ *   switching effort (`applyFlagSettings`; the model switch's is tested), "Claude is still
+ *   answering…" and "Claude Code stopped…" (a send that crosses a running turn or a closed
+ *   process), "Codex sent an unexpected reply to …", and "OpenCode did not take that answer".
+ *   Each names the provider. Owner: STL-1;
  * - connecting: `BinaryMissingError` ("Codex is not installed…"), `NotLoggedInError`'s hints
  *   ("Run `claude` in a terminal…", "`opencode auth login`"), and `ProviderNotReadyError`'s
  *   default ("… is not connected yet."). Owner: STL-1;
@@ -124,11 +129,18 @@ export interface ContractScript {
   /** Holds the provider's acceptance of the next turn until `release`. */
   readonly holdStart: Effect.Effect<Hold>
   /**
-   * The provider refuses the next turn's start with `message`, its own words. Returns the
-   * settings that send uses: Claude Code only refuses a step a running process takes before a
-   * turn (switching its model), so its driver asks for a new model.
+   * Whether `send` waits until the provider accepts the turn. Claude Code's does not: it waits
+   * only on the steps before (switching the model or effort), then queues the prompt.
    */
-  readonly rejectStart: (message: string) => Effect.Effect<TurnSettings>
+  readonly startWaits: boolean
+  /**
+   * The provider refuses the next turn's start in its own words (`refusal`), or never answers it
+   * (`null`). Returns the settings that send uses: Claude Code can only refuse a step a running
+   * process takes before a turn (switching its model), so its driver asks for a new model.
+   */
+  readonly rejectStart: (refusal: string | null) => Effect.Effect<TurnSettings>
+  /** Refusal texts the adapter rewords for this provider, each tried by `passthrough_rejected`. */
+  readonly refusals: ReadonlyArray<string>
   /** The provider asks the person to approve a command in the open turn; returns the request's native id. */
   readonly askFor: Effect.Effect<string>
   /** The open turn fails. The provider may also report the turn complete afterwards. */
@@ -673,39 +685,55 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
   // A command's own failure reaches the banner too: here, a start the provider never answers.
   passthrough_command: (run) =>
     Effect.gen(function* () {
+      if (!run.script.startWaits) {
+        // The send waits only on the steps before the turn, so one of those never answers. They
+        // run on a running process, so there is one first.
+        yield* answeredTurn(run, 'Summarise week 3', 'Week 3 covers attention.')
+        const settings = yield* run.script.rejectStart(null)
+        const sending = yield* run.send('Look it up', settings).pipe(Effect.exit, Effect.forkScoped)
+        yield* settle
+        yield* TestClock.adjust('61 seconds')
+        expect(Exit.isFailure(yield* Fiber.join(sending)), 'a start that never answers fails the send').toBe(true)
+        yield* settle
+        return
+      }
       const hold = yield* run.script.holdStart
       const sending = yield* run.send('Look it up').pipe(Effect.exit, Effect.forkScoped)
       yield* hold.reached
       // Just past the 60 s start deadline, so no other timer (a stream watchdog) fires.
       yield* TestClock.adjust('61 seconds')
-      const sent = yield* Fiber.join(sending)
+      expect(Exit.isFailure(yield* Fiber.join(sending)), 'a start that never answers fails the send').toBe(true)
+      // The provider accepts late and goes on to answer.
       yield* hold.release
       yield* settle
-      if (Exit.isSuccess(sent)) {
-        // Claude's send never waits on the provider, so nothing timed out and its turn runs.
-        yield* run.script.answer('Done.')
-        yield* awaitEnd(run, sent.value)
-        return
-      }
-      // The page showed the failure and took the message back, so the provider must not run the
-      // turn it accepted late: T3 Code interrupts it (ProviderTurnStartService's interruptTurn).
-      // Otherwise it runs unseen, and a retry runs the work twice.
+      yield* run.script.answer('Done.')
+      yield* settle
+      // The page showed the failure and took the message back, so the turn must not run unseen
+      // (a retry would run the work twice). T3 Code interrupts it as soon as the start is
+      // abandoned (RunExecutionService's interruptTurn).
       expect(interrupts(run), 'a turn accepted after its send failed is stopped').toContainEqual({
         op: 'interrupt',
         target: run.script.nativeTurn(),
       })
       const completed = run.thread().filter((event) => event.type === 'turn.ended' && event.status === 'completed')
       expect(completed, 'no turn the page gave up on completes').toEqual([])
+      expect(
+        run.shown().filter(({ text }) => text.includes('Done.')),
+        "the late turn's answer stays off the page",
+      ).toEqual([])
     }),
 
-  // A start the provider refuses: its own words must not reach the banner.
+  // A start the provider refuses: its words, or the adapter's own for it, must not reach the banner.
   passthrough_rejected: (run) =>
     Effect.gen(function* () {
       // A running process first, since that is where Claude Code can refuse a start.
       yield* answeredTurn(run, 'Summarise week 3', 'Week 3 covers attention.')
-      const settings = yield* run.script.rejectStart(`${MARKER} refused`)
-      const sent = yield* run.send('Look it up', settings).pipe(Effect.exit)
-      expect(Exit.isFailure(sent), 'the refused start fails the send').toBe(true)
+      // In its own words, with no words (the adapter's fallback), and in words the adapter rewords.
+      for (const refusal of [`${MARKER} refused`, '', ...run.script.refusals]) {
+        const settings = yield* run.script.rejectStart(refusal)
+        const sent = yield* run.send('Look it up', settings).pipe(Effect.exit)
+        expect(Exit.isFailure(sent), `a refused start fails the send ("${refusal}")`).toBe(true)
+      }
       yield* settle
     }),
 

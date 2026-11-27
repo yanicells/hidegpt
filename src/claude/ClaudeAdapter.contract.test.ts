@@ -55,7 +55,8 @@ const driver: ContractDriver = {
     let asks = 0
     let results = 0
     let hold: { reached: () => void; release: Promise<void> } | null = null
-    let refusal: string | null = null
+    /** How Claude Code answers the next model switch (`rejectStart`): in these words, or never (`null`). */
+    let refusal: { readonly text: string | null } | null = null
     const live = () => fake.queries.at(-1)
     const running = () => (live()?.prompts.length ?? 0) + selfStarted - results
     /** Waits on the scenario's hold, if it set one; whichever start step comes first takes it. */
@@ -89,9 +90,10 @@ const driver: ContractDriver = {
         // Claude Code refuses a model switch with its own words (`rejectStart`).
         const setModel = query.setModel.bind(query)
         query.setModel = async (model) => {
-          const message = refusal
+          const refused = refusal
           refusal = null
-          if (message !== null) throw new Error(message)
+          if (refused?.text === null) return new Promise<never>(() => {})
+          if (refused) throw new Error(refused.text)
           return setModel(model)
         }
         const interrupt = query.interrupt.bind(query)
@@ -231,11 +233,14 @@ const driver: ContractDriver = {
       script: {
         answer: (text) => Effect.andThen(stream(text), result({ result: text })),
         // The running process refuses to switch to a new model before the turn.
-        rejectStart: (message) =>
+        // The send waits on the model switch, then queues the prompt without waiting for it.
+        startWaits: false,
+        rejectStart: (text) =>
           Effect.sync(() => {
-            refusal = message
+            refusal = { text }
             return { ...driver.settings, model: 'fake-other' }
           }),
+        refusals: [],
         holdStart: Effect.sync(() => {
           let reached = () => {}
           let release = () => {}
@@ -352,8 +357,12 @@ contractSuite('Claude', driver, {
     leaks: ['agent.text: ZZPROV notice error'],
   },
   passthrough_rejected: {
-    why: "Claude Code's refusal of a step before the turn (switching the model) is the banner (`errorDetail` returns the SDK error's message). Owner: STL-1 / the errors cleanup.",
-    leaks: ['banner: ZZPROV refused'],
+    why: "Claude Code's refusal of a step before the turn (switching the model) is the banner (`errorDetail` returns the SDK error's message), and with no message its fallback names Claude. Owner: STL-1 / the errors cleanup.",
+    leaks: ['banned claude: banner: Claude Code could not do that.', 'banner: ZZPROV refused'],
+  },
+  passthrough_command: {
+    why: 'A model switch that never answers fails the send after 10 s with a sentence that names Claude (`providerLabel` in `ProviderTimeoutError.message`). Owner: STL-1.',
+    leaks: ['banned claude: banner: Claude did not answer in 10 s. Try again, or use Tools → Refresh.'],
   },
   title_stealth: {
     why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',
