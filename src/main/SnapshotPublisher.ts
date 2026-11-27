@@ -8,7 +8,7 @@ import * as Stream from 'effect/Stream'
 import { reportDefect } from '../provider/DefectReport'
 import type { SequencedSnapshot, Snapshot, SnapshotDiff, SnapshotPatch } from '../shared/contracts'
 import { diffSnapshot, isEmptyPatch } from '../shared/snapshot-patch'
-import { filterSnapshot } from './session/stealthFilter'
+import { filterDiff, filterSnapshot } from './session/stealthFilter'
 
 /**
  * Sends snapshot changes to the window as patches against what it last got.
@@ -113,7 +113,7 @@ export function makeSnapshotPublisher(
     stage: (diff) => {
       if (delivered === null) return
       seq += 1
-      send({ ...diff, seq }, delivered)
+      send({ ...filterDiff(diff), seq }, delivered)
     },
   }
 }

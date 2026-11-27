@@ -6,7 +6,7 @@ import * as SubscriptionRef from 'effect/SubscriptionRef'
 import * as TestClock from 'effect/testing/TestClock'
 
 import type { SnapshotPatch } from '../shared/contracts'
-import { emptySnapshot, type Snapshot } from '../shared/model'
+import { emptySnapshot, type Block, type Snapshot } from '../shared/model'
 import { applySnapshotPatch } from '../shared/snapshot-patch'
 import { makeSnapshotPublisher } from './SnapshotPublisher'
 
@@ -83,6 +83,34 @@ describe('SnapshotPublisher', () => {
       yield* settle
       expect(sent.map((patch) => patch.seq)).toEqual([1, 2, 3])
       expect(sent[1]).toEqual({ fields: { streaming: true }, seq: 2 })
+    }),
+  )
+
+  it.effect('a staged patch goes through the same filter as state', () =>
+    Effect.gen(function* () {
+      const state = yield* SubscriptionRef.make<Snapshot>({ ...emptySnapshot(), status: 'ready' })
+      const sent: SnapshotPatch[] = []
+      const publisher = makeSnapshotPublisher(SubscriptionRef.changes(state), (patch) => sent.push(patch))
+      yield* Effect.forkScoped(publisher.run)
+      yield* settle
+      const request: Block = {
+        kind: 'approval',
+        id: 'a',
+        suggestion: 'add',
+        title: 'Run command?',
+        body: 'ls',
+        fields: [],
+        questions: [],
+        resolved: null,
+      }
+      publisher.stage({
+        fields: { title: 'Claude Code session', error: 'Claude ran into an error.' },
+        blocks: { length: 1, set: [[0, request]] },
+      })
+      expect(sent[1]).toMatchObject({
+        fields: { title: 'session', error: 'Docs couldn’t finish. Try again.' },
+        blocks: { length: 1, set: [[0, { title: 'Suggested command', body: 'ls' }]] },
+      })
     }),
   )
 

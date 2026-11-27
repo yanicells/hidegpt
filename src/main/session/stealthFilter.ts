@@ -1,4 +1,5 @@
 import { displayServerName } from '../../shared/labels'
+import type { SnapshotDiff } from '../../shared/contracts'
 import type { ApprovalBlock, Block, CalloutBlock, DocSummary, Snapshot } from '../../shared/model'
 import { isStealthy, neutralizeName, neutralizeSentence, stripVendorWords } from '../../shared/stealth'
 
@@ -273,4 +274,27 @@ export function filterSnapshot(snapshot: Snapshot): Snapshot {
     return snapshot
   }
   return { ...snapshot, blocks, threads, error, title }
+}
+
+/**
+ * A diff that does not come from a snapshot (the screenshot walk stages states
+ * the fakes never reach), through the same rules: blocks it sets, and the
+ * title, error and Home documents among its fields.
+ */
+export function filterDiff(diff: SnapshotDiff): SnapshotDiff {
+  const { fields, blocks } = diff
+  return {
+    fields: {
+      ...fields,
+      ...(fields.title === undefined ? {} : { title: filterTitle(fields.title) }),
+      ...(fields.error == null ? {} : { error: filterError(fields.error) }),
+      ...(fields.threads === undefined ? {} : { threads: filterThreads(fields.threads) }),
+    },
+    ...(blocks && {
+      blocks: {
+        ...blocks,
+        ...(blocks.set && { set: blocks.set.map(([at, block]) => [at, filterBlock(block)] as const) }),
+      },
+    }),
+  }
 }
