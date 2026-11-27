@@ -1,73 +1,79 @@
-/* ---------- Banners ---------- */
+/* ---------- Snackbars ---------- */
 
-.banners {
-  @apply shrink-0;
+/* Docs' bottom-left snackbar. Alone it is DocActions' "Link copied"; Banners stacks them in a lane. */
+.snackbar {
+  @apply fixed;
+  left: 24px;
+  bottom: 24px;
+  z-index: 160;
+  padding: 14px 16px;
+  border-radius: 4px;
+  background: #303030;
+  color: #f2f2f2;
+  font-family: var(--font-text);
+  font-size: 14px;
+  line-height: 20px;
+  box-shadow:
+    0 2px 6px 2px rgba(0, 0, 0, 0.15),
+    0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
-.banner {
-  @apply flex items-center justify-center gap-4;
-  padding: 8px 24px;
-  font-size: 13px;
-  color: var(--text-2);
-  background: var(--info-soft);
+/*
+ * Sign-in prompts and errors, bottom-up in the corner. The lane floats over
+ * the window and lets clicks through between snackbars, so one appearing
+ * never moves or blocks the page.
+ */
+.snackbar-lane {
+  @apply fixed flex flex-col items-start;
+  left: 24px;
+  bottom: 24px;
+  z-index: 160;
+  gap: 8px;
+  pointer-events: none;
 }
 
-.banner.danger {
-  background: var(--red-soft);
-  color: var(--red);
+.snackbar-lane .snackbar {
+  @apply static flex items-center;
+  gap: 4px;
+  min-width: 344px;
+  max-width: min(672px, calc(100vw - 48px));
+  min-height: 48px;
+  padding: 6px 8px 6px 16px;
+  pointer-events: auto;
 }
 
-.banner button {
-  color: var(--blue);
-  font-size: 13px;
-  @apply font-medium whitespace-nowrap;
+.snackbar-text {
+  @apply flex-1;
+  padding: 8px 8px 8px 0;
 }
 
-.banner button:hover {
-  text-decoration: underline;
-}
-
-.status {
-  @apply flex-1 grid place-items-center p-6;
-  background: var(--canvas);
-  color: var(--text-2);
-  @apply text-sm text-center;
-}
-
-.status p {
-  margin: 0 0 12px;
-  font-size: 16px;
-  color: var(--text);
-}
-
-.status-reload {
+.snackbar-action {
+  @apply shrink-0 whitespace-nowrap;
   height: 36px;
-  padding: 0 24px;
+  padding: 0 12px;
   border-radius: 18px;
-  background: var(--blue);
-  color: #fff;
+  color: #a8c7fa;
+  font-size: 14px;
   font-weight: 500;
 }
 
-.status-reload:hover {
-  background: var(--blue-dark);
+.snackbar-close {
+  @apply grid place-items-center rounded-full shrink-0;
+  width: 36px;
+  height: 36px;
+  color: #c4c7c5;
 }
 
-.status .error-details-toggle,
-.status .error-details {
-  @apply block mx-auto;
-  margin-top: 12px;
-}
-
-.error-details-toggle {
-  color: var(--blue);
+.snackbar-action:hover,
+.snackbar-close:hover {
+  background: rgba(242, 242, 242, 0.08);
 }
 
 .error-details {
-  max-width: 560px;
+  @apply whitespace-nowrap;
+  padding: 0 8px;
   font-size: 12px;
-  color: var(--text-2);
-  overflow-wrap: anywhere;
+  color: #c4c7c5;
 }
 
 /* The whole window couldn't render: a plain Docs-style notice with a reload. */

@@ -8,6 +8,7 @@ import type { Command, HideGptApi, MenuAction, SnapshotPatch } from '../../share
 import { CAPABILITIES, emptySnapshot, type DocSummary, type ModelOption, type Snapshot } from '../../shared/model'
 import { App } from './app'
 import { clearCommandError } from './session-bridge'
+import { errorCode } from './components/layout/Banners'
 import { groupByRecency } from './components/home/grouping'
 import { projectFolders, threadProjectId } from './components/home/projects'
 import { takePendingDraft } from './templates'
@@ -677,7 +678,10 @@ describe('composer attachments', () => {
     fireEvent.paste(composer, { clipboardData: { files: [png, gif] } })
     expect(await screen.findByTestId('error-banner')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Details' }))
-    expect(screen.getByText('Docs could not save that image. Check your disk space.')).toBeInTheDocument()
+    expect(
+      screen.getByText(`Error ${errorCode('Docs could not save that image. Check your disk space.')}`),
+    ).toBeVisible()
+    expect(screen.queryByText(/disk space/)).toBeNull()
     expect(screen.getByTestId('composer-images').querySelectorAll('img')).toHaveLength(1)
   })
 
@@ -702,22 +706,34 @@ describe('failures and replies', () => {
     await user.type(screen.getByTestId('composer'), 'Why is it green?{Enter}')
     expect(await screen.findByTestId('error-banner')).toHaveTextContent('Something went wrong. Try again.')
     await user.click(screen.getByRole('button', { name: 'Details' }))
-    expect(screen.getByText('Wait for the current answer to finish.')).toBeInTheDocument()
+    expect(screen.queryByText(/current answer/)).toBeNull()
     expect(screen.getByTestId('composer')).toHaveValue('Why is it green?')
   })
 
-  it('shows a library error as a banner without hiding the page', async () => {
+  it('shows a library error as a snackbar with only its code, and never its text', async () => {
     const user = userEvent.setup()
-    const { calls } = mount({ status: 'error', error: 'Docs couldn’t reach this library.' })
+    const message = 'Docs couldn’t reach this library.'
+    const { calls } = mount({ status: 'error', error: message })
     expect(screen.getByTestId('error-banner')).toHaveTextContent('Something went wrong. Try again.')
-    expect(screen.queryByText('Docs couldn’t reach this library.')).toBeNull()
     await user.click(screen.getByRole('button', { name: 'Details' }))
-    expect(screen.getByText('Docs couldn’t reach this library.')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(`Error ${errorCode(message)}`)
+    expect(screen.queryByText(/reach this library/)).toBeNull()
     expect(screen.getByTestId('thread-thr_1')).toBeInTheDocument()
-    await user.click(screen.getByTestId('error-refresh'))
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
     expect(calls).toContainEqual({ op: 'refresh' })
+  })
+
+  it('shows a dismissed library error again when it happens again', async () => {
+    const user = userEvent.setup()
+    const { push } = mount({ status: 'error', error: 'Docs couldn’t reach this library.' })
     await user.click(screen.getByTestId('error-dismiss'))
     expect(screen.queryByTestId('error-banner')).toBeNull()
+    // The same error on the next snapshot is the same occurrence, so it stays dismissed.
+    push({ loadingOlder: false })
+    expect(screen.queryByTestId('error-banner')).toBeNull()
+    push({ status: 'ready', error: null })
+    push({ status: 'error', error: 'Docs couldn’t reach this library.' })
+    expect(screen.getByTestId('error-banner')).toBeInTheDocument()
   })
 
   it('drafts approval answers locally and sends them once', async () => {
