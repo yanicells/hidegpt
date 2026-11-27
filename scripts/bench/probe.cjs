@@ -219,6 +219,8 @@ const api = {
   },
   react: () => contextBridge.executeInMainWorld({ func: () => window.__benchReact?.take() ?? null }),
   reactStart: () => contextBridge.executeInMainWorld({ func: () => window.__benchReact?.start() ?? null }),
+  boxReads: () => contextBridge.executeInMainWorld({ func: () => window.__benchBoxReads?.take() ?? null }),
+  boxReadsStart: () => contextBridge.executeInMainWorld({ func: () => window.__benchBoxReads?.start() ?? null }),
 }
 contextBridge.exposeInMainWorld('__bench', api)
 
@@ -282,3 +284,28 @@ function installReactCounter() {
   }
 }
 if (process.env.BENCH_REACT === '1') contextBridge.executeInMainWorld({ func: installReactCounter })
+
+// ---- box reads (counts runs only) ----
+// Every `getBoundingClientRect` the app makes, in the page's own world as the React counter
+// is: a read after a DOM write forces a layout, so the count gates work that rows do per
+// frame (the paginator measuring rows) whatever the machine's load. The probe's own reads
+// run in its isolated world, whose prototypes are separate, so they are not counted.
+function installBoxReadCounter() {
+  const state = { on: false, reads: 0 }
+  const read = Element.prototype.getBoundingClientRect
+  Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
+    if (state.on) state.reads += 1
+    return read.call(this)
+  }
+  window.__benchBoxReads = {
+    start() {
+      Object.assign(state, { on: true, reads: 0 })
+      return true
+    },
+    take() {
+      state.on = false
+      return state.reads
+    },
+  }
+}
+if (process.env.BENCH_LAYOUT_COUNTS === '1') contextBridge.executeInMainWorld({ func: installBoxReadCounter })

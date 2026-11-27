@@ -27,6 +27,7 @@ function open(url) {
     const socket = new WebSocket(url)
     let nextId = 0
     const pending = new Map()
+    const listeners = new Map()
     let closed = false
     const send = (method, params = {}) =>
       new Promise((done, fail) => {
@@ -50,6 +51,7 @@ function open(url) {
     })
     socket.addEventListener('message', (event) => {
       const message = JSON.parse(event.data)
+      if (message.method) for (const listener of listeners.get(message.method) ?? []) listener(message.params)
       const waiter = pending.get(message.id)
       if (!waiter) return
       pending.delete(message.id)
@@ -60,6 +62,12 @@ function open(url) {
     socket.addEventListener('open', () =>
       resolve({
         send,
+        /** Calls `listener` with the params of every `method` event until the returned function is called. */
+        on(method, listener) {
+          const set = listeners.get(method) ?? new Set()
+          listeners.set(method, set.add(listener))
+          return () => set.delete(listener)
+        },
         /** Evaluates an expression in the page and returns its (awaited) value. */
         async evaluate(expression) {
           const { result, exceptionDetails } = await send('Runtime.evaluate', {

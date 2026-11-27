@@ -52,7 +52,7 @@ function startUsageReader() {
 
 /**
  * Launches `<repo>` (already built) against the fake Codex server.
- * `options`: workDir, userData, logFile, docs, turns, show, react, ipcBytes, throttle, profileStartup.
+ * `options`: workDir, userData, logFile, docs, turns, show, react, ipcBytes, layoutCounts, throttle, profileStartup.
  */
 export async function launch(repo, options) {
   const workDir = options.workDir
@@ -137,6 +137,7 @@ export async function launch(repo, options) {
     BENCH_SHOW: options.show ? '1' : '0',
     BENCH_REACT: options.react ? '1' : '0',
     BENCH_IPC_BYTES: options.ipcBytes ? '1' : '0',
+    BENCH_LAYOUT_COUNTS: options.layoutCounts ? '1' : '0',
     BENCH_PROFILE_STARTUP: options.profileStartup ? '1' : '0',
   }
   // The bench drives the real provider path; the in-process demo and screenshot modes must stay off.
@@ -197,6 +198,34 @@ export async function launch(repo, options) {
   const usage = startUsageReader()
   const { pids } = await main('stats')
 
+  /**
+   * Traces Blink's style passes until the returned function is called, which resolves to
+   * the elements they restyled: the sum of `elementCount` over `UpdateLayoutTree` events.
+   * Exact, unlike `recalc_ms`, so a rule that restyles the whole document shows whatever
+   * the machine's load.
+   */
+  async function traceRestyles() {
+    let restyled = 0
+    const stopCollecting = page.on('Tracing.dataCollected', ({ value }) => {
+      for (const event of value) {
+        if (event.name === 'UpdateLayoutTree') restyled += event.args?.elementCount ?? 0
+      }
+    })
+    const complete = new Promise((resolve) => {
+      const stopWaiting = page.on('Tracing.tracingComplete', () => (stopWaiting(), resolve()))
+    })
+    await page.send('Tracing.start', {
+      traceConfig: { includedCategories: ['devtools.timeline'] },
+      transferMode: 'ReportEvents',
+    })
+    return async () => {
+      await page.send('Tracing.end')
+      await within(complete, 60000, 'waiting for the style trace')
+      stopCollecting()
+      return restyled
+    }
+  }
+
   async function counters() {
     const [stats, perf, used] = await Promise.all([
       main('stats'),
@@ -215,10 +244,16 @@ export async function launch(repo, options) {
     await main('resetLag')
     if (frames) await bench('recordStart()')
     if (react) await bench('reactStart()')
+    if (options.layoutCounts) await bench('boxReadsStart()')
+    const stopTrace = options.layoutCounts ? await traceRestyles() : null
     const before = await counters()
     const result = await step()
     const after = await counters()
     const set = (name, value) => (metrics[`${prefix}.${name}`] = value)
+    if (stopTrace) {
+      set('restyled', await stopTrace())
+      set('box_reads', await bench('boxReads()'))
+    }
     for (const [short, pid] of [
       ['r', pids.renderer],
       ['m', pids.main],

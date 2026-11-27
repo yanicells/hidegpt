@@ -259,6 +259,11 @@ export async function scenario(app, { docs, around = (_phase, run) => run() }) {
   await click('reopen', '[data-testid="thread-doc-0"]', { selector: BLOCK })
   await bench(call('clickWatch', { click: HOME, selector: CARD, quietMs: 250 }))
   await memory('mem_end')
+  // Every byte sent to the window over the session (counts runs only). Exact per session even
+  // where a phase's share is not: the library's growing pages and its resend after a turn land
+  // in whichever phase is running when they arrive.
+  const { stats } = await app.counters()
+  if (stats.ipc.bytes) set('session.ipc_kb', stats.ipc.bytes / 1024)
 
   set('requests', { ...app.requests })
   return metrics
