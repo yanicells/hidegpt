@@ -491,6 +491,17 @@
   transform: rotate(90deg);
 }
 
+/* A step with nothing to show: the same pill, with no arrow and nothing to open. */
+.callout-step {
+  @apply inline-flex items-center select-none;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  background: #f1f3f4;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
 .callout pre {
   margin: 4px 0;
   padding: 8px 12px;
