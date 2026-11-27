@@ -8,9 +8,11 @@ import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
 import type { AdapterEvent, ProviderSession } from '../provider/ProviderAdapter'
+import { appendText, upsertBlock } from '../shared/blocks'
+import type { Block } from '../shared/model'
 import type * as CodexRpc from '../vendor/effect-codex-app-server/rpc.ts'
 import * as CodexAdapter from './CodexAdapter'
-import { BANNED_WORDS } from './mapping.ts'
+import { BANNED_WORDS, HIDDEN_REPLY } from './mapping.ts'
 import { agentItem, makeFakeCodex, rpcFailure, stubThread, stubTurn, userItem, type FakeCodex, type FakeCodexOptions } from './FakeCodex'
 
 const SETTINGS = { model: null, effort: null, serviceTier: null, mode: null }
@@ -385,6 +387,47 @@ describe('CodexAdapter', () => {
     }),
   )
 
+  describe('a reply Codex moderated to hide', () => {
+    /** The page as the session manager folds these events. */
+    const page = (events: ReadonlyArray<AdapterEvent>) =>
+      events.reduce<ReadonlyArray<Block>>(
+        (blocks, event) =>
+          event.type === 'block' ? upsertBlock(blocks, event.block) : event.type === 'text' ? appendText(blocks, event.blockId, event.delta, event.create) : blocks,
+        [],
+      )
+    const hiddenItem = (id: string) => ({
+      ...agentItem(id, 'secret words'),
+      moderation: { moderated: true, display: { mode: 'hide' as const, replacement: { kind: 'wellbeingPromptHelpline' as const }, version: 1 as const } },
+    })
+    const delta = (itemId: string, text: string) => ({ threadId: 'thr_1', turnId: 'turn_1', itemId, delta: text })
+
+    it.effect('drops the deltas that follow a hidden start, while it streams and after', () =>
+      Effect.gen(function* () {
+        const { peer, events } = yield* open()
+        yield* peer.notify('item/started', { threadId: 'thr_1', turnId: 'turn_1', item: hiddenItem('a1'), startedAtMs: 1 })
+        yield* peer.notify('item/agentMessage/delta', delta('a1', 'secret'))
+        yield* peer.notify('item/agentMessage/delta', delta('a1', ' words'))
+        yield* settle
+        expect(page(events)).toEqual([{ kind: 'agent', id: 'a1', text: HIDDEN_REPLY }])
+        yield* peer.notify('item/completed', { threadId: 'thr_1', turnId: 'turn_1', item: hiddenItem('a1'), completedAtMs: 2 })
+        yield* settle
+        expect(page(events)).toEqual([{ kind: 'agent', id: 'a1', text: HIDDEN_REPLY }])
+      }),
+    )
+
+    it.effect('replaces streamed text once the completed reply says to hide it', () =>
+      Effect.gen(function* () {
+        const { peer, events } = yield* open()
+        yield* peer.notify('item/started', { threadId: 'thr_1', turnId: 'turn_1', item: agentItem('a1', ''), startedAtMs: 1 })
+        yield* peer.notify('item/agentMessage/delta', delta('a1', 'secret'))
+        yield* peer.notify('item/agentMessage/delta', delta('a1', ' words'))
+        yield* peer.notify('item/completed', { threadId: 'thr_1', turnId: 'turn_1', item: hiddenItem('a1'), completedAtMs: 2 })
+        yield* settle
+        expect(page(events)).toEqual([{ kind: 'agent', id: 'a1', text: HIDDEN_REPLY }])
+      }),
+    )
+  })
+
   it.effect('a subagent\'s request shows in the document that started it, and Stop ends both turns', () =>
     Effect.gen(function* () {
       const opened = yield* open()
@@ -557,12 +600,9 @@ describe('CodexAdapter', () => {
     }),
   )
 
-  it.effect('answers the current time and declines tools Docs does not host', () =>
+  it.effect('declines tools Docs does not host', () =>
     Effect.gen(function* () {
       const { peer } = yield* open()
-      yield* TestClock.setTime(1_700_000_000_500)
-      const time = yield* peer.request('currentTime/read', { threadId: 'thr_1' })
-      expect(time).toEqual({ currentTimeAt: 1_700_000_000 })
       const tool = yield* peer.request('item/tool/call', {
         threadId: 'thr_1',
         turnId: 'turn_1',

@@ -1,4 +1,3 @@
-import * as Clock from 'effect/Clock'
 import * as Context from 'effect/Context'
 import * as Deferred from 'effect/Deferred'
 import * as Duration from 'effect/Duration'
@@ -41,6 +40,7 @@ import {
   docsFailure,
   docsSafe,
   formatCodexError,
+  isHiddenReply,
   itemToBlock,
   type McpServer,
   type Project,
@@ -160,9 +160,6 @@ export function make(connect: Connect): ProviderAdapter {
       const lineage = makeLineage()
       yield* registerNotifications(client, emit, { loaded, activeTurns, lineage })
 
-      yield* client.handleServerRequest('currentTime/read', () =>
-        Effect.map(Clock.currentTimeMillis, (millis) => ({ currentTimeAt: Math.floor(millis / 1000) })),
-      )
       yield* client.handleServerRequest('item/tool/call', () =>
         Effect.succeed({
           contentItems: [{ type: 'inputText' as const, text: 'This Docs window does not host that tool.' }],
@@ -543,6 +540,8 @@ function registerNotifications(
   const runningUnder = (root: string) => [...activeTurns.keys()].some((thread) => thread !== root && lineage.rootOf(thread) === root)
   /** The "Reconnecting…" banner per thread, cleared once Codex is answering again. */
   const retrying = new Map<string, string>()
+  /** Replies Codex moderated to hide while they stream: their deltas never reach the page. */
+  const hidden = new Set<string>()
   let rateLimits: RateLimits | null = null
 
   const recovered = (threadId: string): ReadonlyArray<AdapterEvent> => {
@@ -556,6 +555,7 @@ function registerNotifications(
     }
     if (p.item.type === 'subAgentActivity' && p.item.kind === 'started') lineage.adopt(p.item.agentThreadId, p.threadId)
     if (lineage.isChild(p.threadId)) return []
+    if (isHiddenReply(p.item)) hidden.add(p.item.id)
     const block = itemToBlock(p.item)
     // An agent message starts empty and grows by deltas; only its completed text replaces them.
     if (!block || (block.kind === 'agent' && !block.text)) return []
@@ -571,7 +571,9 @@ function registerNotifications(
     [
       onThread('item/agentMessage/delta', (p) => [
         ...recovered(p.threadId),
-        { type: 'text', threadId: p.threadId, blockId: p.itemId, delta: p.delta, create: { kind: 'agent' } },
+        ...(hidden.has(p.itemId)
+          ? []
+          : [{ type: 'text' as const, threadId: p.threadId, blockId: p.itemId, delta: p.delta, create: { kind: 'agent' as const } }]),
       ]),
       onThread('item/commandExecution/outputDelta', (p) => [
         ...recovered(p.threadId),
@@ -588,7 +590,11 @@ function registerNotifications(
       ]),
       // Any work starting means Codex is answering again, so the retry banner goes.
       on('item/started', (p) => [...(lineage.isChild(p.threadId) ? [] : recovered(p.threadId)), ...blockEvents(p)]),
-      on('item/completed', blockEvents),
+      on('item/completed', (p) => {
+        const events = blockEvents(p)
+        hidden.delete(p.item.id)
+        return events
+      }),
       on('turn/started', (p) => {
         activeTurns.set(p.threadId, p.turn.id)
         if (lineage.isChild(p.threadId)) return []

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { APPROVALS, BANNED_WORDS, docsFailure, docsSafe, elicitationFields, elicitationResponse, itemToBlock } from './mapping.ts'
+import { APPROVALS, BANNED_WORDS, docsFailure, docsSafe, elicitationFields, elicitationResponse, HIDDEN_REPLY, itemToBlock } from './mapping.ts'
 
 type Params = Parameters<typeof elicitationFields>[0]
 
@@ -55,6 +55,15 @@ describe('docsFailure', () => {
     expect(docsFailure(error, null)).toBe('Docs could not connect. Try again in a moment.')
     expect(docsFailure({ ...error, codexErrorInfo: 'usageLimitExceeded' }, null)).toBe('Limit reached. Try again later.')
   })
+
+  // The message also reads as a usage limit, so a spend cap must win over the reset time.
+  it.each(['apiKeySpendLimitExceeded', 'projectSpendLimitExceeded', 'organizationSpendLimitExceeded'] as const)(
+    'names a %s, which waiting does not lift',
+    (codexErrorInfo) => {
+      const error = { message: 'You hit your usage limit', codexErrorInfo, additionalDetails: null, misalignment: null }
+      expect(docsFailure(error, new Date(2026, 0, 1, 9, 30).getTime())).toBe('Spending limit reached. Raise it to continue.')
+    },
+  )
 })
 
 // T3 Code's own fixture (apps/server/src/provider/CodexMcpElicitation.test.ts, commit 5c6f2f12):
@@ -195,6 +204,20 @@ describe('provider text on the page', () => {
       error: { message: 'Notion returned 500: page missing' },
     }
     expect(itemToBlock(item)).toMatchObject({ body: 'Did not finish' })
+  })
+
+  it('a reply Codex moderated to hide or block never shows its text', () => {
+    const reply = { type: 'agentMessage' as const, id: 'a1', text: 'Original text' }
+    const display = (mode: 'show' | 'hide' | 'block') =>
+      mode === 'show'
+        ? { mode, trustedContacts: 'skip' as const, version: 1 as const }
+        : mode === 'hide'
+          ? { mode, replacement: { kind: 'wellbeingPromptHelpline' as const }, version: 1 as const }
+          : { mode, reason: { kind: 'cyber' as const }, version: 1 as const }
+    const blocks = (['show', 'hide', 'block'] as const).map((mode) =>
+      itemToBlock({ ...reply, moderation: { moderated: true, display: display(mode) } }),
+    )
+    expect(blocks).toMatchObject([{ text: 'Original text' }, { text: HIDDEN_REPLY }, { text: HIDDEN_REPLY }])
   })
 
   it('approval reasons in provider words fall back to Docs wording', () => {

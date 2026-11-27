@@ -190,6 +190,9 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
     const handlers = notificationHandlers.get(notification.method) ?? [];
 
     if (schema) {
+      // HideGPT: a notification nobody subscribed to (e.g. 0.172's `thread/search/partial`)
+      // is ignored undecoded, so its shape can never log a decode warning.
+      if (handlers.length === 0) return Effect.void;
       return decodeNotificationPayload(notification.method, schema, notification.params).pipe(
         Effect.tapError(warnUndecodableNotification),
         Effect.flatMap((decoded) =>
