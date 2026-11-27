@@ -152,10 +152,14 @@ const clockTime = (epochMs: number) => {
   return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
 }
 
+/** Spend caps on an API key, project or organization (codex-cli 0.172.0); they never reset on their own. */
+const SPEND_LIMITS = new Set(['apiKeySpendLimitExceeded', 'projectSpendLimitExceeded', 'organizationSpendLimitExceeded'])
+
 /** A failed turn as one Docs sentence: a known cause gets its own, anything else a neutral one. */
 export function docsFailure(error: TurnError, resetAt: number | null): string {
-  if (isUsageLimit(error)) return resetAt ? `Limit reached. Try again at ${clockTime(resetAt)}.` : 'Limit reached. Try again later.'
   const code = errorCode(error.codexErrorInfo)
+  if (code && SPEND_LIMITS.has(code)) return 'Spending limit reached. Raise it to continue.'
+  if (isUsageLimit(error)) return resetAt ? `Limit reached. Try again at ${clockTime(resetAt)}.` : 'Limit reached. Try again later.'
   if (code === 'contextWindowExceeded') return 'This document is too long to continue. Start a new document.'
   if (code === 'unauthorized') return 'Sign in again to continue.'
   if (code === 'serverOverloaded' || code?.startsWith('http') || code?.startsWith('responseStream')) {
