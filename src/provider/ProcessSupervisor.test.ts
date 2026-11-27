@@ -179,9 +179,9 @@ describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
         layer(ledgerPath, UNHURRIED).pipe(
           Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner)),
           Layer.provideMerge(NodeServices.layer),
+          Layer.provideMerge(logs),
         ),
       ),
-      Effect.provide(logs),
     )
   })
 
