@@ -12,6 +12,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "protocol": "node src/vendor/effect-codex-app-server/scripts/generate.ts",
+    "record:codex": "node --import ./scripts/registerTs.mjs scripts/record-codex-replay.ts",
+    "record:claude": "node --import ./scripts/registerTs.mjs scripts/record-claude-replay.ts",
     "postinstall": "node node_modules/electron/install.js"
   },
   "dependencies": {
