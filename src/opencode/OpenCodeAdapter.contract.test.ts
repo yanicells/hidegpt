@@ -137,7 +137,32 @@ const driver: ContractDriver = {
                 time: 1,
               },
             })
-            return {}
+            // A tool name that passes the stealth gate may show.
+            fake.push({
+              id: 'evt_tool_read',
+              type: 'message.part.updated',
+              properties: {
+                sessionID: SESSION,
+                part: {
+                  id: 'prt_read',
+                  sessionID: SESSION,
+                  messageID: 'msg_tool',
+                  type: 'tool',
+                  callID: 'call_read',
+                  tool: 'read',
+                  state: {
+                    status: 'completed',
+                    input: {},
+                    output: '',
+                    title: '',
+                    metadata: {},
+                    time: { start: 1, end: 2 },
+                  },
+                },
+                time: 1,
+              },
+            })
+            return { kept: ['Ran read'] }
           case 'requests':
             yield* ask('per_marker', SESSION, marker)
             return {}
@@ -231,15 +256,16 @@ const driver: ContractDriver = {
 contractSuite('OpenCode', driver, {
   exit_mid_turn: {
     why: 'A busy status still in flight when the process dies is read after the terminal and adopts a turn that never ends (PAR-C item 2, admission).',
-    fails: 'on ses_1 never ended',
+    stream: ['on ses_1 never ended'],
   },
   respond_after_expiry: {
     why: 'A permission still open when its turn ends stays answerable, and the late reply reaches OpenCode (PAR-C item 3, O-5).',
     fails: "a reply to an expired request is refused: expected 'taken'",
   },
   foreign_terminal: {
-    why: 'A stale `idle` during admission ends the new turn without checking `session.status` (PAR-C item 2).',
+    why: 'A stale `idle` during admission ends the new turn without checking `session.status`, before the turn has even started (PAR-C item 2).',
     fails: "a terminal that is not this turn's leaves it running",
+    stream: ['ended but no turn was open'],
   },
   subagent_request: {
     why: "A request from a child session it never saw created goes to the child's id, so the page never shows it (O-4).",
@@ -258,8 +284,9 @@ contractSuite('OpenCode', driver, {
     leaks: ['banner: ZZPROV server error'],
   },
   passthrough_crash: {
-    why: 'The same in-flight busy status as `exit_mid_turn` adopts a turn that never ends; nothing leaks.',
-    fails: 'on ses_1 never ended',
+    why: 'The same in-flight busy status as `exit_mid_turn` adopts a turn that never ends, and the crash banner names OpenCode (`providerLabel` in `ProcessExitedError.message`; owner ARCH-4c / STL-1).',
+    stream: ['on ses_1 never ended'],
+    leaks: ['banned opencode: banner: OpenCode stopped unexpectedly (exit 1). Docs is reconnecting.'],
   },
   title_stealth: {
     why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',

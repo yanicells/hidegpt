@@ -143,6 +143,8 @@ const driver: ContractDriver = {
               assistantFrame('msg_tools', [
                 { type: 'tool_use', id: 'toolu_m', name: `mcp__${marker}_server__${marker}_search`, input: {} },
                 { type: 'tool_use', id: 'toolu_t', name: `${marker}Tool`, input: {} },
+                // A tool name that passes the stealth gate may show (an `mcp__` name never does).
+                { type: 'tool_use', id: 'toolu_k', name: 'Lookup', input: {} },
               ]),
               // The second tool fails: its error text stays off the page.
               frame({
@@ -158,7 +160,7 @@ const driver: ContractDriver = {
                 session_id: '',
               }),
             )
-            return {}
+            return { kept: ['Using Lookup'] }
           case 'requests':
             yield* ask(`${marker}Tool`, { command: 'ls' }, 'toolu_t', {
               title: `${marker} title`,
@@ -302,8 +304,9 @@ contractSuite('Claude', driver, {
     fails: "a terminal that is not this turn's leaves it running",
   },
   self_started_turn: {
-    why: 'Frames with no turn open start no turn, so the page never shows Working or Stop (PAR-B item 2, C-7).',
+    why: 'Frames with no turn open start no turn, so the page never shows Working or Stop, and the answer streams outside any turn (PAR-B item 2, C-7).',
     fails: 'a turn the provider starts itself shows as started',
+    stream: ['streamed with no turn open'],
   },
   subagent_outlives_stop: {
     why: 'Stop interrupts the query but never calls `Query.stopTask` for a background task, as T3 Code does, so a backgrounded subagent keeps running (PAR-B).',

@@ -2,6 +2,7 @@
 // provider traps, at commit 5c6f2f12. Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 import { describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
+import * as Exit from 'effect/Exit'
 import * as Fiber from 'effect/Fiber'
 import type * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
@@ -9,7 +10,7 @@ import * as Stream from 'effect/Stream'
 import * as S from '../main/session/state'
 import type { Block, ProviderId } from '../shared/model'
 import { stealthViolations } from '../shared/stealth'
-import { contractViolations, expectGap, Leaked, type KnownGap } from './contract.checks'
+import { contractViolations, expectGap, failureMessage, judge, type KnownGap } from './contract.checks'
 import type { ProviderError } from './errors'
 import type { FailureClass, ThreadEvent, TurnId } from './events'
 import {
@@ -29,8 +30,9 @@ import {
  * What each scenario sees is what the window would: events are folded through
  * the session manager's real reducer (`state.ts`) and presented through
  * `present.ts`, as T3 Code's testing strategy asks (only the process boundary
- * is replaced). After every scenario the stream checker (`./contract.checks.ts`) runs over the raw
- * stream, before any leak a pass-through scenario found is reported.
+ * is replaced). After every scenario, passed or not, the stream checker (`./contract.checks.ts`)
+ * runs over the raw stream, and the run fails with every part that failed: the scenario's own
+ * checks, the stream's violations, and any provider text a pass-through scenario found.
  *
  * The fakes are hand-written, so this proves the adapters agree with each
  * other and with our reading of each protocol. Only recorded fixtures prove
@@ -71,7 +73,8 @@ export type KnownGaps = Partial<Record<ScenarioName, KnownGap>>
  * - `hidden`: provider values that cannot carry it (enum values, names with a banned word); they
  *   must not reach the page either.
  * - `kept`: names the page may show because they pass the stealth gate (a connector called
- *   `files`); each must reach the page unchanged, so a scrubber that drops everything fails.
+ *   `files`); each must reach the block the source draws unchanged, so a scrubber that drops
+ *   everything fails. Only `tools` and `requests` draw a block, so only they keep names.
  */
 export type Passed = { readonly hidden?: ReadonlyArray<string>; readonly kept?: ReadonlyArray<string> }
 
@@ -406,10 +409,12 @@ const passthroughScenario = (source: PassthroughSource) => (run: Run) =>
     }
     yield* settle
     const shown = run.shown()
+    // A kept name must show in the block its source draws, not anywhere on the page.
+    const drawn = shown.filter((line) => draws !== undefined && line.startsWith(`${draws}.`))
     for (const name of kept) {
       expect(
-        shown.some((line) => line.includes(name)),
-        `a name that passes the stealth gate stays on the page: ${name}`,
+        drawn.some((line) => line.includes(name)),
+        `a name that passes the stealth gate stays on the ${draws ?? 'page'}: ${name}`,
       ).toBe(true)
     }
     // Provider text stays in the log; the page, cards, hovers, banner and Details never carry it.
@@ -643,18 +648,17 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
 // ---- registration -----------------------------------------------------------------
 
 /**
- * Runs one scenario on a fresh fake, then holds its event stream to the contract, and only then
- * fails with what it leaked: a known leak never hides a broken stream.
+ * Runs one scenario on a fresh fake, then holds its event stream to the contract whether the
+ * scenario passed or not, and fails with every part that failed (`judge`): what the scenario
+ * broke, the stream's violations, and what it leaked. No part hides another.
  */
 export const runScenario = (driver: ContractDriver, name: ScenarioName) =>
   Effect.gen(function* () {
     const run = yield* open(driver)
-    const leaked = (yield* SCENARIO_BODIES[name](run)) ?? []
-    const violations = contractViolations(run.thread(), run.opened)
-    if (violations.length > 0) {
-      return yield* Effect.die(new Error(['The event stream breaks the contract:', ...violations].join('\n  ')))
-    }
-    if (leaked.length > 0) return yield* Effect.die(new Leaked(leaked))
+    const body = yield* Effect.exit(SCENARIO_BODIES[name](run))
+    const leaked = Exit.isSuccess(body) ? (body.value ?? []) : []
+    const failed = judge(failureMessage(body), contractViolations(run.thread(), run.opened), leaked)
+    if (failed) return yield* Effect.die(failed)
   }).pipe(Effect.scoped)
 
 /**
@@ -665,8 +669,11 @@ export function contractSuite(name: string, driver: ContractDriver, knownGaps: K
   describe(`${name} adapter contract`, () => {
     for (const scenario of SCENARIOS) {
       const gap = knownGaps[scenario]
-      if (gap !== undefined && 'leaks' in gap && !scenario.startsWith('passthrough_')) {
+      if (gap !== undefined && gap.leaks !== undefined && !scenario.startsWith('passthrough_')) {
         throw new Error(`${name} ${scenario}: only a passthrough gap lists \`leaks\``)
+      }
+      if (gap !== undefined && gap.fails === undefined && gap.stream === undefined && gap.leaks === undefined) {
+        throw new Error(`${name} ${scenario}: a known gap lists how it fails`)
       }
       if (gap !== undefined) {
         it.effect(`${scenario} (known gap)`, () =>
