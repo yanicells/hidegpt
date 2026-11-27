@@ -222,7 +222,8 @@ T3 Code, and the provider adapters, session manager, process supervision, and
 replay tests follow its patterns, as do smaller pieces of the OpenCode and Claude
 adapters (each marked in place). In the window, the cached Markdown renderer and
 streaming block splitter come from T3 Code's web app, and the store's selectors
-follow its thread-detail state. The tooling follows T3 Code too: the oxlint rules,
+follow its thread-detail state; the document's shortcut matching and
+right-click menu follow its keybinding matcher and context-menu handler. The tooling follows T3 Code too: the oxlint rules,
 Effect diagnostics, knip config, CI workflow, pre-commit checks, and VS Code setup are adapted
 from its setup.
 T3 Code is MIT licensed, Copyright (c) 2026

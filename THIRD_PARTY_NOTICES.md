@@ -150,6 +150,15 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
   - `scripts/bench/probe.cjs`: counting React commits and component renders
     through a stand-in DevTools hook (`installReactCounter`), from
     `apps/web/test/renderCounter.ts` at commit 5c6f2f12.
+  - `src/renderer/src/shortcuts.ts` (commit 5c6f2f12): matching a shortcut
+    by exact modifiers, with Mod as Cmd on macOS and Ctrl elsewhere, and by
+    physical key code as a fallback, from `matchesKeybindingShortcut` in
+    `packages/shared/src/keybindingMatching.ts`.
+  - `src/renderer/src/components/document/DocContextMenu.tsx` and
+    `DocContextPopup.tsx` (commit 5c6f2f12): reading the right-clicked target
+    (selection, editable field) and enabling only the rows that apply, from
+    the context-menu handler in `apps/desktop/src/window/DesktopWindow.ts` and
+    `apps/web/src/contextMenuFallback.ts`.
   - `src/renderer/src/components/ui/`: these Base UI wrappers, adapted from
     `apps/web/src/components/ui/` at commit 8a14762c (each keeps a header
     pointing to its source):
