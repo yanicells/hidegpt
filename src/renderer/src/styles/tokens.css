@@ -77,3 +77,11 @@
   --scrollbar-thumb: #cdcdcd;
   --scrollbar-thumb-hover: #bdbdbd;
 }
+
+/* UI-14 (menus): Docs' menu shadow, one soft neutral layer measured from its 2x menu captures. */
+:root {
+  --shadow-menu-docs: 0 2px 6px 2px rgb(0 0 0 / 15%);
+  /* Docs' faded menu text: #1f1f1f at 38% (disabled rows, shortcuts) and 23% (a disabled row's shortcut). */
+  --menu-ink-dim: rgb(31 31 31 / 38%);
+  --menu-ink-faint: rgb(31 31 31 / 23%);
+}
