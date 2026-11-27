@@ -1,10 +1,11 @@
 import { memo, useCallback, useEffect, useRef } from 'react'
 
-import type { Block, Snapshot } from '../../../../shared/model'
+import type { ApprovalBlock, Block, Snapshot } from '../../../../shared/model'
 import { dispatch, useBlocks } from '../../session-bridge'
 import { BlockFallback, RenderErrorBoundary } from '../layout/RenderErrorBoundary'
 import { SparkIcon } from '../ui/Icons'
 import { BlockView } from './BlockView'
+import { CommentsRail } from './CommentsRail'
 import { Composer } from './Composer'
 import { outlineEntries, type OutlineEntry } from './outline'
 import { PAGE_HEIGHT, PAGE_PITCH, usePages } from './pages'
@@ -41,6 +42,8 @@ export function Document({
   const rows = useProgressiveRows(visibleBlocks.length)
   // The composer waits for the last rows, so it never shows mid-document while a long one opens.
   const allRows = rows >= visibleBlocks.length
+  // Pending suggestions whose rows are on the page; their cards go in the comments rail.
+  const cards = visibleBlocks.slice(0, rows).filter(isPendingSuggestion)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const paperRef = useRef<HTMLElement>(null)
@@ -82,7 +85,10 @@ export function Document({
         { signal },
       )
       for (const type of ['wheel', 'pointerdown', 'keydown'] as const) {
-        window.addEventListener(type, () => settle.abort(), { signal, passive: true })
+        window.addEventListener(type, () => settle.abort(), {
+          signal,
+          passive: true,
+        })
       }
       window.setTimeout(() => settle.abort(), JUMP_SETTLE_MS)
     },
@@ -90,7 +96,8 @@ export function Document({
   )
 
   return (
-    <div className="workspace" data-testid="document" ref={scrollRef}>
+    // has-cards makes room for the rail (approvals.css) without a :has() over the document.
+    <div className={cards.length ? 'workspace has-cards' : 'workspace'} data-testid="document" ref={scrollRef}>
       <div className="doc-layout">
         <VerticalRuler />
         <Tabs onNew={onNew} entries={outline} onJump={jumpTo} />
@@ -129,6 +136,7 @@ export function Document({
             <div className="paper-end" ref={endRef} aria-hidden="true" />
           </article>
         </div>
+        <CommentsRail cards={cards} flowRef={contentRef} />
       </div>
       {/* Docs' floating spark pill; while an answer streams, a click stops it. */}
       <div className="spark-wrap">
@@ -153,6 +161,8 @@ export function Document({
     </div>
   )
 }
+
+const isPendingSuggestion = (block: Block): block is ApprovalBlock => block.kind === 'approval' && !block.resolved
 
 /** How long a jump waits for its smooth scroll to end before giving up on settling. */
 const JUMP_SETTLE_MS = 3000
