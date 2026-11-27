@@ -156,6 +156,44 @@ describe('ProviderSessionManager', () => {
     }),
   )
 
+  it.effect('words a failed turn with a report id, and logs the provider text under that id', () => {
+    const logged: Array<Record<string, unknown>> = []
+    const capture = Logger.make(({ fiber, logLevel, message }) => {
+      if (logLevel === 'Warn' && String(message) === 'Turn failed')
+        logged.push({ ...fiber.getRef(References.CurrentLogAnnotations) })
+    })
+    return Effect.gen(function* () {
+      const { peer, manager } = yield* setup({ reply: null })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* manager.dispatch({ op: 'send', text: 'Hi' })
+      // The fake echoes the person's message as `user-{turnId}`; the end must name that turn.
+      const sent = yield* until(manager, (snapshot) =>
+        snapshot.blocks.some((block) => block.kind === 'user' && block.id.startsWith('user-')),
+      )
+      const turnId = sent.blocks.find((block) => block.id.startsWith('user-'))!.id.slice('user-'.length)
+      yield* peer.notify('turn/completed', {
+        threadId: 'thr_1',
+        turn: {
+          id: turnId,
+          items: [],
+          status: 'failed',
+          error: { message: 'Server overloaded, see https://x.test/s?key=1' },
+        },
+      } as never)
+      const failed = yield* until(manager, (snapshot) => snapshot.error !== null)
+      yield* settle
+      const reportId = /^Docs couldn’t finish\. Try again\. \(Report ([0-9a-f]{8})\)$/.exec(failed.error ?? '')?.[1]
+      expect(reportId).toBeDefined()
+      expect(logged).toEqual([
+        expect.objectContaining({
+          reportId,
+          failureClass: 'provider_error',
+          detail: 'Server overloaded, see https://x.test/s',
+        }),
+      ])
+    }).pipe(Effect.provide(Logger.layer([capture])))
+  })
+
   it.effect('a stop from before a crash does not end a turn sent after the reconnect', () =>
     Effect.gen(function* () {
       // The stop is never answered, and the crash ends the stopped turn without a turnEnded.

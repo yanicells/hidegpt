@@ -18,7 +18,6 @@ import {
 } from '../shared/contracts'
 import type { ProviderId } from '../shared/model'
 import { windowTitle } from '../shared/labels'
-import { describeFailure } from '../provider/DefectReport'
 import { forkObserved, makeRunObserved } from '../provider/observed'
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import * as Demo from './demo'
@@ -32,6 +31,7 @@ import { makeMenu } from './menu'
 import * as ProviderRegistry from './ProviderRegistry'
 import { ProviderSessionManager, layer as managerLayer } from './ProviderSessionManager'
 import { captureScreenshots } from './screenshots'
+import { failedResult } from './failedResult'
 import { makeSnapshotPublisher, reportingThrows } from './SnapshotPublisher'
 import {
   createWindow,
@@ -183,9 +183,8 @@ const program = Effect.gen(function* () {
   const run = (command: Command): Effect.Effect<CommandResult> =>
     (command.op === 'openFolder' ? openFolder : manager.dispatch(command)).pipe(
       Effect.as<CommandResult>({ ok: true }),
-      Effect.catchCause((cause) =>
-        Effect.map(describeFailure(cause), (error): CommandResult => ({ ok: false, error })),
-      ),
+      // A rejection shows in the folder dialog and on the banner, so it gets Docs wording too.
+      Effect.catchCause(failedResult),
       Effect.annotateLogs({ command: command.op }),
     )
 
@@ -237,9 +236,7 @@ const program = Effect.gen(function* () {
       // A rejection is a defect: logged under a report id, with the generic sentence on the page.
       Effect.promise(() => saveImage(bytes, mime)).pipe(
         Effect.map((path): SaveImageResult => ({ ok: true, path })),
-        Effect.catchCause((cause) =>
-          Effect.map(describeFailure(cause), (error): SaveImageResult => ({ ok: false, error })),
-        ),
+        Effect.catchCause(failedResult),
       ),
   })
 

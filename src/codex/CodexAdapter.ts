@@ -21,6 +21,7 @@ import {
   ProviderTimeoutError,
 } from '../provider/errors'
 import { reportDefect } from '../provider/DefectReport'
+import type { Failure } from '../provider/events'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
 import { randomUuidV4 } from '../provider/randomUuid'
 import type { Catalog, TurnSettings } from '../provider/ProviderAdapter'
@@ -40,7 +41,7 @@ import {
   type ApprovalMethod,
   type ApprovalSpec,
   blocksFromTurns,
-  docsFailure,
+  codexFailure,
   docsSafe,
   formatCodexError,
   isHiddenReply,
@@ -626,7 +627,7 @@ function registerNotifications(
     )
 
   /** Per thread: the failure Codex reported for a turn before its `turn/completed`. */
-  const failures = new Map<string, { readonly turnId: string; readonly message: string }>()
+  const failures = new Map<string, { readonly turnId: string; readonly failure: Failure }>()
   /** A stopped document's end, held until its subagents' turns have ended too. */
   const heldEnds = new Map<string, AdapterEvent>()
   const runningUnder = (root: string) =>
@@ -723,19 +724,19 @@ function registerNotifications(
         }
         // Only a failed turn shows an error: its own, else what Codex reported for that turn (T3 reads
         // `latestProviderFailure` the same way).
-        const error =
+        const failure =
           p.turn.status !== 'failed'
             ? undefined
             : p.turn.error
-              ? docsFailure(p.turn.error, usageLimitResetAt(rateLimits))
+              ? codexFailure(p.turn.error, usageLimitResetAt(rateLimits))
               : reported?.turnId === p.turn.id
-                ? reported.message
+                ? reported.failure
                 : undefined
         const end: AdapterEvent = {
           type: 'turnEnded',
           threadId: p.threadId,
           nativeTurnId: p.turn.id,
-          ...(error ? { error } : {}),
+          ...(failure ? { failure } : {}),
         }
         // Stop interrupts the whole lineage; as in T3, the document ends once its subagents have.
         if (p.turn.status === 'interrupted' && runningUnder(p.threadId)) {
@@ -751,7 +752,10 @@ function registerNotifications(
           // An error for a turn that is no longer running belongs to no turn (T3 ignores it too).
           const running = activeTurns.get(p.threadId)
           if (running === undefined || running === p.turnId) {
-            failures.set(p.threadId, { turnId: p.turnId, message: docsFailure(p.error, usageLimitResetAt(rateLimits)) })
+            failures.set(p.threadId, {
+              turnId: p.turnId,
+              failure: codexFailure(p.error, usageLimitResetAt(rateLimits)),
+            })
           }
           return recovered(p.threadId)
         }

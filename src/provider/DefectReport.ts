@@ -6,6 +6,11 @@ import * as Random from 'effect/Random'
 
 import { bannerMessage, type CommandRejectedError, DEFECT_MESSAGE, isExpectedError, type ProviderError } from './errors'
 
+/** Eight hex digits that tie a line on screen to its line in the log. */
+export const newReportId: Effect.Effect<string> = Effect.map(Random.nextIntBetween(0, 0xffff_ffff), (id) =>
+  id.toString(16).padStart(8, '0'),
+)
+
 /**
  * The report id each defect value was logged under. A defect is often seen
  * twice: by `observed` where the work was forked, and again by whoever the
@@ -42,7 +47,7 @@ export const reportDefect = (cause: Cause.Cause<unknown>): Effect.Effect<string>
       yield* Effect.logDebug('Defect seen again').pipe(Effect.annotateLogs({ reportId: first }))
       return first
     }
-    const reportId = (yield* Random.nextIntBetween(0, 0xffff_ffff)).toString(16).padStart(8, '0')
+    const reportId = yield* newReportId
     if (defects.length > 0) {
       yield* Effect.logError('Unhandled defect', Cause.fromReasons(defects)).pipe(Effect.annotateLogs({ reportId }))
       for (const value of values) if (isReference(value) && !reportedIds.has(value)) reportedIds.set(value, reportId)

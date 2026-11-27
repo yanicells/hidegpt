@@ -15,7 +15,9 @@ import type {
   LegacyProviderSession as ProviderSession,
 } from '../provider/legacyEvents'
 import type { ProcessSupervisor, SpawnOptions } from '../provider/ProcessSupervisor'
+import { presentFailure } from '../main/session/present'
 import type { Block } from '../shared/model'
+import { stealthViolations } from '../shared/stealth'
 import type * as CodexRpc from '../vendor/effect-codex-app-server/rpc.ts'
 import * as CodexAdapter from './CodexAdapter'
 import {
@@ -28,7 +30,7 @@ import {
   type FakeCodex,
   type FakeCodexOptions,
 } from './FakeCodex'
-import { BANNED_WORDS, HIDDEN_REPLY } from './mapping.ts'
+import { HIDDEN_REPLY } from './mapping.ts'
 
 const SETTINGS = { model: null, effort: null, serviceTier: null, mode: null }
 
@@ -417,11 +419,16 @@ describe('CodexAdapter', () => {
       yield* peer.notify('error', { error, willRetry: false, threadId: 'thr_1', turnId: 'turn_1' })
       yield* peer.notify('turn/completed', { threadId: 'thr_1', turn: { ...stubTurn('turn_1', [], 'failed'), error } })
       yield* settle
-      const at = new Date(resetsAt * 1000)
-      const time = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
       expect(events).toEqual([
-        { type: 'turnEnded', threadId: 'thr_1', nativeTurnId: 'turn_1', error: `Limit reached. Try again at ${time}.` },
+        {
+          type: 'turnEnded',
+          threadId: 'thr_1',
+          nativeTurnId: 'turn_1',
+          failure: expect.objectContaining({ class: 'usage_limit', resetAt: resetsAt * 1000 }),
+        },
       ])
+      const [end] = events
+      expect(end?.type === 'turnEnded' && end.failure && presentFailure(end.failure)).not.toMatch(/https?:|chatgpt/i)
     }),
   )
 
@@ -444,7 +451,12 @@ describe('CodexAdapter', () => {
       yield* peer.notify('turn/completed', { threadId: 'thr_1', turn: { ...stubTurn('turn_1', [], 'failed'), error } })
       yield* settle
       expect(events).toEqual([
-        { type: 'turnEnded', threadId: 'thr_1', nativeTurnId: 'turn_1', error: 'Something went wrong. Try again.' },
+        {
+          type: 'turnEnded',
+          threadId: 'thr_1',
+          nativeTurnId: 'turn_1',
+          failure: expect.objectContaining({ class: 'unknown' }),
+        },
       ])
     }),
   )
@@ -777,7 +789,7 @@ describe('CodexAdapter', () => {
         type: 'turnEnded',
         threadId: 'thr_1',
         nativeTurnId: 'turn_2',
-        error: 'Sign in again to continue.',
+        failure: expect.objectContaining({ class: 'auth' }),
       })
     }),
   )
@@ -805,7 +817,7 @@ describe('CodexAdapter', () => {
         type: 'turnEnded',
         threadId: 'thr_1',
         nativeTurnId: 'turn_1',
-        error: 'Sign in again to continue.',
+        failure: expect.objectContaining({ class: 'auth' }),
       })
     }),
   )
@@ -827,7 +839,7 @@ describe('CodexAdapter', () => {
         type: 'turnEnded',
         threadId: 'thr_1',
         nativeTurnId: 'turn_1',
-        error: 'Sign in again to continue.',
+        failure: expect.objectContaining({ class: 'auth' }),
       })
     }),
   )
@@ -1171,7 +1183,8 @@ describe('CodexAdapter', () => {
       yield* settle
 
       // Everything a person could read, without the ids and internal tags.
-      const hidden = new Set(['id', 'threadId', 'replaces', 'type', 'kind', 'command'])
+      // A failure's `detail` is Codex's own text for the log; the page shows only its class's sentence.
+      const hidden = new Set(['id', 'threadId', 'replaces', 'type', 'kind', 'command', 'detail'])
       const visible = JSON.stringify(events, (key, value: unknown) => (hidden.has(key) ? undefined : value))
       const shown = visible
         .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
@@ -1179,10 +1192,9 @@ describe('CodexAdapter', () => {
         .replace(/([a-z])(\d)/gi, '$1 $2')
         .replace(/_/g, ' ')
       expect(events.some((event) => event.type === 'block' && event.block.kind === 'approval')).toBe(true)
-      // The house list, shared with docsSafe, so a word missing there can't hide here.
-      const banned = new RegExp(`\\b(?:${BANNED_WORDS.join('|')})(?:e?s)?\\b`, 'i')
-      expect(visible).not.toMatch(banned)
-      expect(shown).not.toMatch(banned)
+      // The house list (src/shared/stealth.ts), the gate docsSafe uses, so a word missing there can't hide here.
+      expect(stealthViolations(visible)).toEqual([])
+      expect(stealthViolations(shown)).toEqual([])
       expect(visible).not.toMatch(/claude|codex|opencode|chatgpt|anthropic|openai|copilot|a\.i\./i)
       expect(shown).not.toMatch(/https?:|www\./i)
     }),

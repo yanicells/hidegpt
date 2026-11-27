@@ -223,7 +223,7 @@ export const captureScreenshots = (
       kind: 'approval',
       id: 'shot-approval',
       suggestion: 'add',
-      title: 'Run command?',
+      title: 'Suggested command',
       body: 'check-example examples/week-3.txt',
       fields: [],
       questions: [],

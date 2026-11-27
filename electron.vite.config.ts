@@ -17,9 +17,11 @@ export default defineConfig({
     // SDK stays external because it starts the CLI that ships inside its package.
     plugins: [externalizeDepsPlugin({ exclude: ['effect', '@effect/platform-node', '@opencode-ai/sdk'] })],
     // Less to read and parse at launch. `keepNames` keeps function and class names, so
-    // stack traces in defect reports stay readable.
+    // stack traces in defect reports stay readable. Chunks are named by hash, not by module:
+    // `CodexAdapter-….js` in the app's archive would name a vendor (the stealth scan in
+    // `pnpm dist` checks).
     esbuild: { keepNames: true },
-    build: { minify: 'esbuild' },
+    build: { minify: 'esbuild', rollupOptions: { output: { chunkFileNames: 'chunk-[hash].js' } } },
   },
   preload: {
     define,

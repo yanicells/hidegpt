@@ -17,8 +17,9 @@
     // The tsconfig plugin name; @effect/tsgo bundles it.
     "@effect/language-service",
   ],
-  // Binaries the scripts run that aren't packages: plutil (macOS, packaging) and uv
-  // (the fidelity check and diff tools are Python, run through uv; README, Fidelity checks).
+  // Binaries the scripts run that aren't packages: plutil (macOS, packaging and the
+  // packaged-app stealth scan) and uv (the fidelity check and diff tools are Python, run
+  // through uv; README, Fidelity checks).
   "ignoreBinaries": ["plutil", "uv"],
   "ignoreIssues": {
     // Vendored from T3 Code and kept whole, so it stays easy to re-sync.

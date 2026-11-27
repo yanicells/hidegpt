@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { presentFailure } from '../main/session/present'
+import { BANNED_WORDS, PROSE_WORDS } from '../shared/stealth'
 import { stubThread } from './FakeCodex'
 import {
   APPROVALS,
-  BANNED_WORDS,
-  docsFailure,
+  codexFailure,
   docsSafe,
   elicitationFields,
   elicitationResponse,
@@ -52,7 +53,7 @@ describe('elicitationResponse', () => {
   })
 })
 
-describe('docsFailure', () => {
+describe('codexFailure', () => {
   it('never repeats the provider text', () => {
     const error = {
       message: 'Visit https://status.openai.com, the model is overloaded',
@@ -60,10 +61,16 @@ describe('docsFailure', () => {
       additionalDetails: null,
       misalignment: null,
     }
-    expect(docsFailure(error, null)).toBe('Docs could not connect. Try again in a moment.')
-    expect(docsFailure({ ...error, codexErrorInfo: 'usageLimitExceeded' }, null)).toBe(
-      'Limit reached. Try again later.',
-    )
+    expect(codexFailure(error, null)).toMatchObject({ class: 'provider_error', resetAt: null })
+    expect(presentFailure(codexFailure(error, null))).not.toMatch(/openai|overloaded|https/i)
+    expect(codexFailure({ ...error, codexErrorInfo: 'usageLimitExceeded' }, 1_000)).toMatchObject({
+      class: 'usage_limit',
+      resetAt: 1_000,
+    })
+    expect(codexFailure({ ...error, codexErrorInfo: 'unauthorized' }, null)).toMatchObject({ class: 'auth' })
+    expect(codexFailure({ ...error, codexErrorInfo: 'contextWindowExceeded' }, null)).toMatchObject({
+      class: 'validation_error',
+    })
   })
 
   // The message also reads as a usage limit, so a spend cap must win over the reset time.
@@ -71,9 +78,10 @@ describe('docsFailure', () => {
     'names a %s, which waiting does not lift',
     (codexErrorInfo) => {
       const error = { message: 'You hit your usage limit', codexErrorInfo, additionalDetails: null, misalignment: null }
-      expect(docsFailure(error, new Date(2026, 0, 1, 9, 30).getTime())).toBe(
-        'Spending limit reached. Raise it to continue.',
-      )
+      expect(codexFailure(error, new Date(2026, 0, 1, 9, 30).getTime())).toMatchObject({
+        class: 'usage_limit',
+        resetAt: null,
+      })
     },
   )
 })
@@ -181,7 +189,7 @@ describe('docsSafe', () => {
   const capitalized = (word: string) => word[0].toUpperCase() + word.slice(1)
 
   it('blocks every house-list word, singular or plural, in any case, inside a sentence', () => {
-    const forms = BANNED_WORDS.flatMap((word) =>
+    const forms = [...BANNED_WORDS, ...PROSE_WORDS].flatMap((word) =>
       [word, plural(word)].flatMap((form) => [form, capitalized(form), form.toUpperCase()]),
     )
     const leaks = forms.map((form) => `Ask the ${form} for help.`).filter((sentence) => docsSafe(sentence) !== null)

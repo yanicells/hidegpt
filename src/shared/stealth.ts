@@ -1,12 +1,21 @@
 /**
  * The stealth gate: words that must never appear in text Docs itself puts on
  * the page, because they would make the page read as an AI tool. Tests run
- * every string `present.ts` owns (and the renderer's own block and banner
- * wording) through it, and `present.ts` uses it at runtime to drop a
- * provider-written title that would leak.
+ * every string `present.ts` owns (and the renderer's own wording) through it,
+ * `present.ts` uses it at runtime to drop a provider-written title that would
+ * leak, and main's last filter (`session/stealthFilter.ts`) rewrites what is
+ * left with the helpers below before a snapshot leaves main.
  *
  * Yani owns these lists; add a word here and every gate picks it up.
  */
+
+/**
+ * Vendor and product names. One string, so the built renderer carries a single
+ * allow-listed literal for the list (see `scripts/stealth-allow.json`).
+ */
+export const VENDOR_WORDS: ReadonlyArray<string> =
+  'claude codex opencode chatgpt anthropic openai gpt copilot hidegpt'.split(' ')
+
 export const BANNED_WORDS: ReadonlyArray<string> = [
   'ai',
   'assistant',
@@ -15,33 +24,32 @@ export const BANNED_WORDS: ReadonlyArray<string> = [
   'prompt',
   'llm',
   'token',
-  'claude',
-  'codex',
-  'opencode',
-  'chatgpt',
-  'anthropic',
-  'openai',
-  'gpt',
-  'copilot',
   'bot',
+  // From the one string above, so the renderer bundle holds no second copy of a vendor name.
+  ...VENDOR_WORDS,
 ]
 
 /**
  * Developer words: none names an AI, but each reads as a tool's internals, not a
  * document editor ("Using mcp__github__create_issue", "Spawned a subagent").
  */
-export const PROSE_WORDS: ReadonlyArray<string> = ['hidegpt', 'mcp', 'sdk', 'cli', 'subagent', 'provider']
+export const PROSE_WORDS: ReadonlyArray<string> = ['mcp', 'sdk', 'cli', 'subagent', 'provider']
 
 const BANNED = new Set([...BANNED_WORDS, ...PROSE_WORDS])
 
 /** A run of letters split where its case changes: "ChatGPTPlus" is "Chat", "GPT", "Plus". */
 const CASE_PARTS = /\p{Lu}+(?=\p{Lu}\p{Ll})|\p{Lu}?\p{Ll}+|\p{Lu}+/gu
+/** A capital run right before lower case, read as a word of its own: "AIsearch", "myGPTs". */
+const CAPITAL_RUNS = /\p{Lu}{2,}(?=\p{Ll})/gu
 
-/** `word` lowercased, if it (or it less a plural "s") is banned. */
+/** `word` lowercased, if it (or it less a plural "s" or "es", as in "codexes") is banned. */
 function banned(word: string): string | null {
   const lower = word.toLowerCase()
   if (BANNED.has(lower)) return lower
-  return lower.endsWith('s') && BANNED.has(lower.slice(0, -1)) ? lower.slice(0, -1) : null
+  const stem = [lower.slice(0, -1), lower.slice(0, -2)].find(
+    (candidate, index) => lower.endsWith(index === 0 ? 's' : 'es') && BANNED.has(candidate),
+  )
+  return stem ?? null
 }
 
 /**
@@ -49,13 +57,37 @@ function banned(word: string): string | null {
  * Case-insensitive and on whole words, where a word is a run of letters, so "_", "-" and
  * digits split words ("claude_ai", "gpt5", "GPT-4o"). A run that is not banned whole is
  * also checked by its case parts ("OpenAI", "ChatGPTPlus"), so "said" and "maintain" pass
- * but "OpenCode" and "useMcp" do not. A plural "s" counts too ("agents", "models").
+ * but "OpenCode" and "useMcp" do not. Adjacent case parts are also tried joined (see
+ * `bannedParts`), so "useOpenCode" counts. A capital run before lower case is checked whole
+ * too ("AIsearch", "myGPTs"), while an all-caps word stays one word ("AIRTABLE", "GMAIL").
+ * Within a run, hits keep their order and repeats ("myGPTsAgent" is "gpt", "agent").
+ * A plural "s" counts too ("agents", "models"). The text is NFKC-normalized and stripped of
+ * invisible format characters first, so fullwidth letters and soft hyphens hide nothing.
  */
 export function stealthViolations(text: string): string[] {
-  return Array.from(text.matchAll(/\p{L}+/gu), ([run]) => {
+  return Array.from(visible(text).matchAll(/\p{L}+/gu), ([run]) => {
     const whole = banned(run)
-    return whole ? [whole] : bannedParts(Array.from(run.matchAll(CASE_PARTS), ([part]) => part))
+    if (whole) return [whole]
+    const parts = bannedParts(Array.from(run.matchAll(CASE_PARTS)))
+    // A capital-run hit over a part hit of the same word is that word seen twice ("myGPTs":
+    // "GPTs" and "GPT"); over a different word it is a word of its own ("MCPrompt": "mcp", "prompt").
+    const capitals = Array.from(run.matchAll(CAPITAL_RUNS), hitOf).filter(
+      (hit): hit is Hit =>
+        hit !== null && !parts.some((part) => part.word === hit.word && hit.at < part.end && part.at < hit.end),
+    )
+    return [...parts, ...capitals].sort((a, b) => a.at - b.at).map((hit) => hit.word)
   }).flat()
+}
+
+/** `text` as it reads: NFKC-normalized, invisible format characters gone. */
+const visible = (text: string): string => text.normalize('NFKC').replace(/\p{Cf}/gu, '')
+
+/** A banned word found in a run, with where it starts and ends. */
+type Hit = { readonly at: number; readonly end: number; readonly word: string }
+
+const hitOf = (match: RegExpExecArray): Hit | null => {
+  const word = banned(match[0])
+  return word ? { at: match.index, end: match.index + match[0].length, word } : null
 }
 
 /**
@@ -63,15 +95,107 @@ export function stealthViolations(text: string): string[] {
  * banned compound split by its own capitals counts ("useOpenCode" is "use", "OpenCode"), while
  * parts that only join into ordinary words ("OpenCase") stay apart.
  */
-function bannedParts(parts: ReadonlyArray<string>): string[] {
-  const found: string[] = []
+function bannedParts(parts: ReadonlyArray<RegExpExecArray>): Hit[] {
+  const found: Hit[] = []
   for (let index = 0; index < parts.length; index += 1) {
-    const joined = index + 1 < parts.length ? banned(parts[index]! + parts[index + 1]!) : null
-    const word = joined ?? banned(parts[index]!)
-    if (word) found.push(word)
-    if (joined) index += 1
+    const part = parts[index]!
+    const next = parts[index + 1]
+    const joinedWord = next ? banned(part[0] + next[0]) : null
+    const hit =
+      next && joinedWord ? { at: part.index, end: next.index + next[0].length, word: joinedWord } : hitOf(part)
+    if (hit) found.push(hit)
+    if (joinedWord) index += 1
   }
   return found
 }
 
 export const isStealthy = (text: string): boolean => stealthViolations(text).length === 0
+
+const VENDORS = new Set(VENDOR_WORDS)
+
+/** The vendor names in `text`: the gate's matches, kept to `VENDOR_WORDS`. */
+export const vendorViolations = (text: string): string[] => stealthViolations(text).filter((word) => VENDORS.has(word))
+
+const namesVendor = (text: string): boolean => vendorViolations(text).length > 0
+
+const VENDOR_ANYWHERE = new RegExp(VENDOR_WORDS.join('|'), 'i')
+
+/**
+ * Whether a vendor name sits anywhere in `text`, even run into other letters
+ * ("claudecode", "OpenAIAPI"), which the gate reads as ordinary words. Blind to
+ * word boundaries, so it is for name parts that are dropped whole on a match
+ * (`provider/toolTitles.ts`), never for prose.
+ */
+export const containsVendor = (text: string): boolean => VENDOR_ANYWHERE.test(visible(text))
+
+// ---- rewriting -----------------------------------------------------------------------
+//
+// A vendor word can sit inside a larger piece of text ("GPT-5", "ChatGPT's",
+// "claude.ai"), so the helpers below replace or drop the whole piece between
+// spaces, never only the word: "Chat with GPT-5" must not become "Chat with -5".
+
+/** A product name that is two words, so it goes as one ("Claude Code" must not leave "Code"). */
+const PRODUCT = /(?<![\p{L}\p{N}])claude code(?![\p{L}\p{N}])/giu
+
+/** Phrases a sentence uses for whoever answers, read as "Docs". */
+const PHRASES = /(?<![\p{L}\p{N}])(?:the model provider|the assistant|claude code)(?![\p{L}\p{N}])/giu
+
+/** Each space-separated piece of `text` that names a vendor, through `replace`; the spaces stay. */
+const replacePieces = (text: string, replace: (piece: string) => string): string =>
+  text
+    .split(/(\s+)/)
+    .map((piece) => (piece.trim() && namesVendor(piece) ? replace(piece) : piece))
+    .join('')
+
+/**
+ * A sentence the page shows, with vendor names and "the assistant" read as
+ * "Docs": "Claude is still answering." reads "Docs is still answering."
+ * Words that are banned but no vendor's name are left; callers check the
+ * result with `isStealthy`.
+ */
+export function neutralizeSentence(text: string): string {
+  // `search`, not `test`: a global regex's `test` would carry `lastIndex` into the next call.
+  if (!namesVendor(text) && text.search(PHRASES) < 0) return text
+  // The piece's own punctuation stays on either side: "(Claude)" reads "(Docs)".
+  return replacePieces(
+    text.replace(PHRASES, 'Docs'),
+    (piece) => `${/^[(["“‘']*/.exec(piece)![0]}Docs${/[.,;:!?)\]"”’']*$/.exec(piece)![0]}`,
+  )
+}
+
+const NAME_PARTS = /[\s_:./-]+/
+
+/**
+ * A provider-given name (a connected app, a skill, a tool) as a Docs label:
+ * split into words, banned words dropped, the rest capitalized.
+ * `claude-in-chrome` reads "In Chrome", `codex:rescue` "Rescue",
+ * `mcp__agent-tools__list_models` "Tools · List" (by its two halves).
+ * A leading prefix that names a vendor goes whole (`anthropic-skills:docx`
+ * reads "Docx"), and so do numbers left behind by a dropped word
+ * (`gpt-5-4-prompting` reads "Prompting"). `fallback` when nothing is left.
+ */
+export function neutralizeName(name: string, fallback: string): string {
+  const colon = name.indexOf(':')
+  const rest = colon > 0 && !isStealthy(name.slice(0, colon)) ? name.slice(colon + 1) : name
+  const words = rest.split(NAME_PARTS).filter(Boolean)
+  const kept = words.filter(isStealthy)
+  const label = (kept.length === words.length ? kept : kept.filter((word) => !/^\d+$/.test(word)))
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+  return label || fallback
+}
+
+/**
+ * A title (the document's, or one on Home) without the pieces that name a
+ * vendor: "Claude Code session" reads "session", "Ask GPT about
+ * photosynthesis" reads "Ask about photosynthesis". Other words stay: the
+ * person may have written "Essay on AI ethics" themselves. `fallback` when
+ * nothing is left; the same string back when nothing named a vendor.
+ */
+export function stripVendorWords(text: string, fallback: string): string {
+  if (!namesVendor(text)) return text
+  const stripped = replacePieces(text.replace(PRODUCT, ' '), () => ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s:·,-]+|[\s:·,-]+$/g, '')
+  return stripped || fallback
+}

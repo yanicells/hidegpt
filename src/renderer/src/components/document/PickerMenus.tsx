@@ -1,7 +1,7 @@
 import type { Snapshot } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
 import { MenuRows, type Item } from '../ui/MenuPanel'
-import { EDIT_MODES, styleSlots } from './toolbarMenus'
+import { EDIT_MODES, modeLabel, styleSlots } from './toolbarMenus'
 
 /**
  * "Normal text ▾": each Docs paragraph style is a model slot. Clicking a slot
@@ -47,10 +47,9 @@ export function ModeMenu({ snap }: { snap: Snapshot }) {
     modes.length > 1
       ? modes.map((mode, index) => ({
           id: mode.id,
-          label: EDIT_MODES[index]?.label ?? mode.label,
+          label: modeLabel(index),
           icon: EDIT_MODES[index]?.icon ?? 'edit_note',
           description: EDIT_MODES[index]?.description,
-          tip: mode.label,
           checked: mode.id === snap.collaborationMode,
           run: () => dispatch({ op: 'setCollaborationMode', name: mode.id }),
         }))

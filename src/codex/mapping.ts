@@ -1,6 +1,9 @@
 import * as Option from 'effect/Option'
 import * as Schema from 'effect/Schema'
 
+import { toolTitle } from '../main/session/present'
+import type { Failure, FailureClass } from '../provider/events'
+import { classify, failureOf } from '../provider/failure'
 import type {
   AccountSummary,
   ApprovalBlock,
@@ -13,6 +16,7 @@ import type {
   ToolServer,
   UserBlock,
 } from '../shared/model'
+import { isStealthy, VENDOR_WORDS } from '../shared/stealth'
 import type * as CodexRpc from '../vendor/effect-codex-app-server/rpc.ts'
 import { ClientRequest__ReasoningEffort } from '../vendor/effect-codex-app-server/schema.ts'
 
@@ -45,66 +49,29 @@ export type RateLimits = CodexRpc.ServerNotificationParamsByMethod['account/rate
 // text gets there. Thread titles, commands, command output and the reply itself are the
 // document's content and are shown as written. ARCH-5 moves this into `present.ts`.
 
-/** Product names, also caught at the start of a run-together word (`OpenAIAPI`, `ChatGPTPlus`). */
-const PRODUCT_NAMES = [
-  'hidegpt',
-  'chatgpt',
-  'claude',
-  'codex',
-  'opencode',
-  'anthropic',
-  'openai',
-  'copilot',
-  'gpt',
-] as const
-/** The house list: none of these, in any case or plural, may reach the page. */
-export const BANNED_WORDS = [
-  ...PRODUCT_NAMES,
-  'ai',
-  'assistant',
-  'agent',
-  'subagent',
-  'model',
-  'prompt',
-  'llm',
-  'token',
-  'bot',
-  'mcp',
-  'sdk',
-  'cli',
-  'provider',
-] as const
-
-/** Any listed word on its own, singular or plural ("codexes", "LLMs"). */
-const BANNED = new RegExp(`\\b(?:${BANNED_WORDS.join('|')})(?:e?s)?\\b`, 'i')
-/** "A.I.", which the word list can't see. */
+/** "A.I.", which a word check can't see. */
 const DOTTED_AI = /(?<![a-z])a\.i(?![a-z])/i
-const PRODUCT_NAME = new RegExp(`^(?:${PRODUCT_NAMES.join('|')})`, 'i')
+const PRODUCT_NAME = new RegExp(`^(?:${VENDOR_WORDS.join('|')})`, 'i')
 /**
- * A product name at the start of a word, ending it or followed by a capital or digit: catches
- * `OpenAIAPI`, `ChatGPTPlus` and `gpt5`, not "Claudette". Plurals ("Claudes") are whole words
- * and `BANNED` catches them.
+ * A vendor name at the start of a word, ending it or followed by a capital or digit: catches
+ * `OpenAIAPI` and `xOPENAIAPI`, which the gate reads as ordinary words, but not "Claudette".
  */
 const startsWithProduct = (word: string) => {
   const name = PRODUCT_NAME.exec(word)?.[0]
   return name !== undefined && !/^[a-z]/.test(word.slice(name.length))
 }
-/**
- * Splits identifiers into words, counting an upper-case run before a capitalized word as its own
- * word: `get_AIResponse` reads "get AI Response", `model2` reads "model 2".
- */
-const words = (text: string) =>
-  text
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/([a-z])(\d)/gi, '$1 $2')
-    .replace(/_/g, ' ')
+/** Splits identifiers into words at case changes, so `xOPENAIAPI` reads "x OPENAIAPI". */
+const words = (text: string) => text.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
 const LINK = /\b(?:https?:\/\/|www\.)\S+/gi
 
-/** Provider text with links removed, or null when what is left would give the provider away. */
+/**
+ * Provider text with links removed, or null when what is left would give the provider away.
+ * The word check is the stealth gate's (`src/shared/stealth.ts`, the one house list); this
+ * adds only what a word check can't see: "A.I." and a vendor name run into a capital run.
+ */
 export function docsSafe(text: string | null | undefined): string | null {
   // NFKC folds look-alike letters (full-width, ligatures); format characters (zero-width joiners)
-  // could otherwise split a word so the list misses it.
+  // could otherwise split a word so the gate misses it.
   const cleaned = (text ?? '')
     .normalize('NFKC')
     .replace(/\p{Cf}/gu, '')
@@ -112,14 +79,10 @@ export function docsSafe(text: string | null | undefined): string | null {
     .replace(/\(\s*\)/g, '')
     .replace(/\s{2,}/g, ' ')
     .trim()
-  const split = words(cleaned)
-  // The raw text is checked too, because the acronym split turns "LLMs" into "LL Ms"; product
-  // names are checked in the split words too, for one run into an all-caps word (`xOPENAIAPI`).
   const banned =
-    BANNED.test(cleaned) ||
-    BANNED.test(split) ||
+    !isStealthy(cleaned) ||
     DOTTED_AI.test(cleaned) ||
-    [...cleaned.split(/[^A-Za-z0-9]+/), ...split.split(/[^A-Za-z0-9]+/)].some(startsWithProduct)
+    [...cleaned.split(/[^A-Za-z0-9]+/), ...words(cleaned).split(/[^A-Za-z0-9]+/)].some(startsWithProduct)
   return cleaned && !banned ? cleaned : null
 }
 
@@ -170,11 +133,6 @@ export function usageLimitResetAt(limits: RateLimits | null): number | null {
   return Math.max(...exhausted.map((window) => (window?.resetsAt ?? 0) * 1000))
 }
 
-const clockTime = (epochMs: number) => {
-  const at = new Date(epochMs)
-  return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
-}
-
 /** Spend caps on an API key, project or organization (codex-cli 0.172.0); they never reset on their own. */
 const SPEND_LIMITS = new Set([
   'apiKeySpendLimitExceeded',
@@ -182,18 +140,27 @@ const SPEND_LIMITS = new Set([
   'organizationSpendLimitExceeded',
 ])
 
-/** A failed turn as one Docs sentence: a known cause gets its own, anything else a neutral one. */
-export function docsFailure(error: TurnError, resetAt: number | null): string {
-  const code = errorCode(error.codexErrorInfo)
-  if (code && SPEND_LIMITS.has(code)) return 'Spending limit reached. Raise it to continue.'
-  if (isUsageLimit(error))
-    return resetAt ? `Limit reached. Try again at ${clockTime(resetAt)}.` : 'Limit reached. Try again later.'
-  if (code === 'contextWindowExceeded') return 'This document is too long to continue. Start a new document.'
-  if (code === 'unauthorized') return 'Sign in again to continue.'
+/** The failure class for a Codex error code; null leaves it to the message (`classify`). */
+function codeClass(code: string | null): FailureClass | null {
+  if (code === 'unauthorized') return 'auth'
+  if (code === 'contextWindowExceeded') return 'validation_error'
   if (code === 'serverOverloaded' || code?.startsWith('http') || code?.startsWith('responseStream')) {
-    return 'Docs could not connect. Try again in a moment.'
+    return 'provider_error'
   }
-  return 'Something went wrong. Try again.'
+  return null
+}
+
+/**
+ * A failed turn as a typed failure, classed from Codex's own error code. The class picks the
+ * sentence the page shows (`presentFailure`); Codex's text goes to the log only. A usage limit
+ * keeps when it resets; a spend cap is one too, but waiting never lifts it, so it has no reset.
+ */
+export function codexFailure(error: TurnError, resetAt: number | null): Failure {
+  const code = errorCode(error.codexErrorInfo)
+  if (code && SPEND_LIMITS.has(code)) return failureOf('usage_limit', error.message)
+  if (isUsageLimit(error)) return { ...failureOf('usage_limit', error.message), resetAt }
+  const failureClass = codeClass(code)
+  return failureClass ? failureOf(failureClass, error.message) : classify({ message: error.message, code })
 }
 
 /** The banner while Codex retries on its own; "Reconnecting… 2/5" keeps its count. */
@@ -325,7 +292,7 @@ export function itemToBlock(item: ThreadItem): Block | null {
       const output = item.aggregatedOutput?.trim()
       return callout(
         item.id,
-        item.status === 'completed' ? 'Ran a command' : 'Running a command',
+        toolTitle('command', item.status === 'completed' ? 'completed' : 'running'),
         output ? `${item.command}\n${output}` : item.command,
       )
     }
@@ -344,7 +311,7 @@ export function itemToBlock(item: ThreadItem): Block | null {
       return callout(item.id, namespace ? `${namespace} · ${tool}` : tool, STATUS[item.status])
     }
     case 'webSearch':
-      return callout(item.id, 'Looked something up', item.query)
+      return callout(item.id, toolTitle('web_search', 'completed'), item.query)
     case 'imageView':
       return callout(item.id, 'Image', item.path)
     case 'imageGeneration':
@@ -360,7 +327,7 @@ export function itemToBlock(item: ThreadItem): Block | null {
       // the client logs and drops that notification. Kept so a widened union still renders.
       // Its raw type would put Codex's own vocabulary on the page, so it gets a neutral title.
       const unknown: { readonly id: string; readonly type: string } = item
-      return callout(unknown.id, 'Finished a step', '')
+      return callout(unknown.id, toolTitle('other', 'completed'), '')
     }
   }
 }
