@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   generatedFromVersion,
   parseRequestEntries,
+  reachableSchemas,
   resolveResponseTypeName,
+  selectAllowed,
   UNRESOLVED_RESPONSE,
   versionMismatch,
+  withoutDescriptions,
 } from './helpers.ts'
 
 // Trimmed from codex-cli 0.172.0's `generate-ts` ClientRequest.ts. It publishes
@@ -56,5 +59,49 @@ import * as CodexSchema from "./schema.gen.ts";`
   it('passes the same version on, and stops when the header is missing', () => {
     expect(versionMismatch('codex-cli 0.167.1', 'codex-cli 0.167.1')).toBeNull()
     expect(versionMismatch(generatedFromVersion(''), 'codex-cli 0.172.0')).toContain('an unknown codex-cli')
+  })
+})
+
+describe('allowlist filter', () => {
+  it('keeps the allowlisted methods in CLI order, and fails on one the CLI dropped', () => {
+    const entries = parseRequestEntries(clientRequest172)
+    expect(selectAllowed('client requests', entries, ['account/logout', 'thread/start'])).toEqual([
+      entries[0],
+      entries[1],
+    ])
+    expect(() => selectAllowed('client requests', entries, ['thread/start', 'thread/read'])).toThrow(
+      'Allowlisted client requests this codex-cli does not publish: thread/read',
+    )
+  })
+
+  it('follows refs from the roots and leaves unreached schemas out', () => {
+    const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` })
+    const schemas = {
+      Params: { type: 'object', properties: { item: ref('Item'), list: { items: [ref('Leaf')] } } },
+      Item: { anyOf: [ref('Leaf'), ref('Item')] },
+      Leaf: { type: 'string' },
+      Unused: { properties: { leaf: ref('Leaf') } },
+    }
+    expect([...reachableSchemas(['Params'], schemas)].toSorted()).toEqual(['Item', 'Leaf', 'Params'])
+    expect(() => reachableSchemas(['Missing'], schemas)).toThrow('Unable to resolve schema: Missing')
+  })
+
+  it('drops description annotations but keeps a property named description', () => {
+    const schema = {
+      description: 'A skill.',
+      type: 'object',
+      properties: {
+        description: { description: 'Shown in the menu.', type: 'string' },
+        tags: { items: { description: 'One tag.', type: 'string' }, type: 'array' },
+      },
+      required: ['description'],
+      enum: [{ description: 'a value, not a schema' }],
+    }
+    expect(withoutDescriptions(schema)).toEqual({
+      type: 'object',
+      properties: { description: { type: 'string' }, tags: { items: { type: 'string' }, type: 'array' } },
+      required: ['description'],
+      enum: [{ description: 'a value, not a schema' }],
+    })
   })
 })

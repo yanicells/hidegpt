@@ -5,10 +5,11 @@ import * as Schema from "effect/Schema";
 
 import * as CodexSchema from "./schema.ts";
 
+// HideGPT: `pnpm protocol` emits only the schemas the allowlist reaches (scripts/allowlist.ts),
+// so these check the copies Docs ships. thread/read, thread/fork and the `ServerNotification`
+// union are not among them.
 const isGetAccountResponse = Schema.is(CodexSchema.V2GetAccountResponse);
-const isThreadReadResponse = Schema.is(CodexSchema.V2ThreadReadResponse);
 const isThreadResumeResponse = Schema.is(CodexSchema.V2ThreadResumeResponse);
-const isThreadForkResponse = Schema.is(CodexSchema.V2ThreadForkResponse);
 const isTurnCompletedNotification = Schema.is(CodexSchema.V2TurnCompletedNotification);
 const decodeThreadResumeResponse = Schema.decodeUnknownSync(CodexSchema.V2ThreadResumeResponse);
 
@@ -25,10 +26,8 @@ it("keeps async questions in live notifications and thread history", () => {
     ],
   } as const;
   for (const schema of [
-    CodexSchema.ServerNotification__ThreadItem,
     CodexSchema.V2ItemStartedNotification__ThreadItem,
     CodexSchema.V2ItemCompletedNotification__ThreadItem,
-    CodexSchema.V2ThreadReadResponse__ThreadItem,
     CodexSchema.V2ThreadResumeResponse__ThreadItem,
   ]) {
     assert.deepEqual(Schema.decodeSync(schema)(item), item);
@@ -43,12 +42,9 @@ it("keeps partial answers in notifications and persisted thread histories", () =
     phase: "partial_answer",
   } as const;
   for (const schema of [
-    CodexSchema.ServerNotification__ThreadItem,
     CodexSchema.V2ItemStartedNotification__ThreadItem,
     CodexSchema.V2ItemCompletedNotification__ThreadItem,
-    CodexSchema.V2ThreadReadResponse__ThreadItem,
     CodexSchema.V2ThreadResumeResponse__ThreadItem,
-    CodexSchema.V2ThreadForkResponse__ThreadItem,
     CodexSchema.V2TurnCompletedNotification__ThreadItem,
   ]) {
     assert.deepEqual(Schema.decodeSync(schema)(item), item);
@@ -76,25 +72,21 @@ it("keeps partial answers in notifications and persisted thread histories", () =
       turns: [{ id: "turn-1", status: "completed", items: [item] }],
     },
   };
-  assert.equal(isThreadForkResponse(response), true);
   assert.equal(isThreadResumeResponse(response), true);
-  assert.equal(isThreadReadResponse({ thread: response.thread }), true);
 });
 
 it("accepts Codex 0.150 multi-agent values", () => {
   const schemas = [
-    CodexSchema.ServerNotification__SubAgentActivityKind,
     CodexSchema.V2ItemStartedNotification__SubAgentActivityKind,
     CodexSchema.V2ItemCompletedNotification__SubAgentActivityKind,
-    CodexSchema.V2ThreadReadResponse__SubAgentActivityKind,
     CodexSchema.V2ThreadResumeResponse__SubAgentActivityKind,
   ];
 
   for (const schema of schemas) {
     assert.equal(Schema.is(schema)("completed"), true);
   }
-  const isServerNotificationCollabAgentTool = Schema.is(
-    CodexSchema.ServerNotification__CollabAgentTool,
+  const isItemStartedCollabAgentTool = Schema.is(
+    CodexSchema.V2ItemStartedNotification__CollabAgentTool,
   );
 
   const isV2ThreadResumeResponseCollabAgentTool = Schema.is(
@@ -102,14 +94,14 @@ it("accepts Codex 0.150 multi-agent values", () => {
   );
 
   for (const tool of ["sendMessage", "followupTask", "interruptAgent", "listAgents"]) {
-    assert.equal(isServerNotificationCollabAgentTool(tool), true);
+    assert.equal(isItemStartedCollabAgentTool(tool), true);
     assert.equal(isV2ThreadResumeResponseCollabAgentTool(tool), true);
   }
-  const isServerNotificationCollabAgentToolCallStatus = Schema.is(
-    CodexSchema.ServerNotification__CollabAgentToolCallStatus,
+  const isItemStartedCollabAgentToolCallStatus = Schema.is(
+    CodexSchema.V2ItemStartedNotification__CollabAgentToolCallStatus,
   );
 
-  assert.equal(isServerNotificationCollabAgentToolCallStatus("interrupted"), true);
+  assert.equal(isItemStartedCollabAgentToolCallStatus("interrupted"), true);
   const isV2ThreadResumeResponseCollabAgentToolCallStatus = Schema.is(
     CodexSchema.V2ThreadResumeResponse__CollabAgentToolCallStatus,
   );
@@ -195,9 +187,7 @@ it("accepts Codex misalignment policy errors for thread responses", () => {
     sandbox: { type: "dangerFullAccess" },
     thread: failedThread,
   };
-  assert.equal(isThreadReadResponse({ thread: failedThread }), true);
   assert.equal(isThreadResumeResponse(resumeLikeResponse), true);
-  assert.equal(isThreadForkResponse(resumeLikeResponse), true);
   const decodedResume = decodeThreadResumeResponse(resumeLikeResponse);
   assert.equal(decodedResume.thread.turns[0]?.error?.codexErrorInfo, "misalignmentPolicyViolation");
   assert.equal(

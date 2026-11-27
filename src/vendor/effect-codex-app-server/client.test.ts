@@ -166,7 +166,8 @@ it.layer(NodeServices.layer)("effect-codex-app-server client", (it) => {
     }),
   );
 
-  // HideGPT: also checks that a notification with no handler is ignored without a warning.
+  // HideGPT: also checks that a listed notification with no handler is ignored without a warning
+  // (`thread/archived` here, sent without the `threadId` its schema requires).
   it.effect("warns once about a notification that fails to decode and keeps dispatching", () =>
     Effect.gen(function* () {
       const secret = "codex-notification-secret-sentinel";
@@ -190,7 +191,7 @@ it.layer(NodeServices.layer)("effect-codex-app-server client", (it) => {
       const send = (params: unknown, method = "item/agentMessage/delta") =>
         Queue.offer(input, new TextEncoder().encode(`${JSON.stringify({ method, params })}\n`));
       const malformed = { itemId: "item-1", threadId: "thread-1", turnId: secret };
-      yield* send(malformed, "thread/search/partial");
+      yield* send({ turnId: secret }, "thread/archived");
       yield* send(malformed);
       yield* send(malformed);
       yield* send({ delta: "ok", itemId: "item-1", threadId: "thread-1", turnId: "turn-1" });

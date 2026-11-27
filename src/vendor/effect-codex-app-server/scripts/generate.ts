@@ -20,12 +20,16 @@ import {
   type MethodEntry,
   parseNotificationEntries,
   parseRequestEntries,
+  reachableSchemas,
   resolveResponseTypeName,
   resolveSchemaTypeName,
+  selectAllowed,
   UNRESOLVED_RESPONSE,
   UNRESOLVED_RESPONSE_ENTRY,
   versionMismatch,
+  withoutDescriptions,
 } from "./helpers.ts";
+import { EXTRA_SCHEMAS, PROTOCOL_ALLOWLIST } from "./allowlist.ts";
 
 // HideGPT: generate from the installed Codex CLI (`codex app-server generate-json-schema`
 // and `generate-ts`) instead of downloading a pinned upstream ref from GitHub, so the
@@ -57,6 +61,7 @@ interface GeneratedPaths {
   readonly schemaOutputPath: string;
   readonly metaOutputPath: string;
   readonly namespacesOutputPath: string;
+  readonly upstreamOutputPath: string;
 }
 
 interface JsonSchemaFile {
@@ -210,6 +215,7 @@ const getGeneratedPaths = Effect.fn("getGeneratedPaths")(function* () {
     schemaOutputPath: path.join(generatedDir, "schema.gen.ts"),
     metaOutputPath: path.join(generatedDir, "meta.gen.ts"),
     namespacesOutputPath: path.join(generatedDir, "namespaces.gen.ts"),
+    upstreamOutputPath: path.join(generatedDir, "upstream.gen.ts"),
   } satisfies GeneratedPaths;
 });
 
@@ -612,7 +618,7 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
   const jsonRoot = path.join(sourceRoot, "json");
   const tsRoot = path.join(sourceRoot, "typescript");
   const UPSTREAM_REF = (yield* runCodex(["--version"])).trim();
-  const { metaOutputPath, namespacesOutputPath, schemaOutputPath } =
+  const { metaOutputPath, namespacesOutputPath, schemaOutputPath, upstreamOutputPath } =
     yield* getGeneratedPaths();
   // HideGPT: a check against a different CLI fails on the version, before a newer protocol
   // can trip the generator.
@@ -695,16 +701,57 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
     }
   }
 
+  const clientRequestRaw = yield* readText(path.join(tsRoot, "ClientRequest.ts"));
+  const clientNotificationRaw = yield* readText(path.join(tsRoot, "ClientNotification.ts"));
+  const serverRequestRaw = yield* readText(path.join(tsRoot, "ServerRequest.ts"));
+  const serverNotificationRaw = yield* readText(path.join(tsRoot, "ServerNotification.ts"));
+
+  const upstreamClientRequests = parseRequestEntries(clientRequestRaw);
+  const upstreamClientNotifications = parseNotificationEntries(clientNotificationRaw);
+  const upstreamServerRequests = parseRequestEntries(serverRequestRaw);
+  const upstreamServerNotifications = parseNotificationEntries(serverNotificationRaw);
+
+  // HideGPT: only the allowlisted methods (allowlist.ts), and below, only the schemas they reach.
+  const { clientRequests, clientNotifications, serverRequests, serverNotifications } =
+    PROTOCOL_ALLOWLIST;
+  const clientRequestEntries = selectAllowed("client requests", upstreamClientRequests, clientRequests);
+  const clientNotificationEntries = selectAllowed(
+    "client notifications",
+    upstreamClientNotifications,
+    clientNotifications,
+  );
+  const serverRequestEntries = selectAllowed("server requests", upstreamServerRequests, serverRequests);
+  const serverNotificationEntries = selectAllowed(
+    "server notifications",
+    upstreamServerNotifications,
+    serverNotifications,
+  );
+
+  const aggregateSchemaNames = new Set(Object.keys(aggregateSchemas));
+  const paramsSchema = (entry: MethodEntry) =>
+    resolveSchemaTypeName(entry.paramsType ?? "undefined", aggregateSchemaNames);
+  const roots = [
+    ...EXTRA_SCHEMAS,
+    ...[...clientRequestEntries, ...serverRequestEntries].flatMap((entry) => [
+      paramsSchema(entry),
+      resolveResponseTypeName(entry.method, entry.paramsType, aggregateSchemaNames),
+    ]),
+    ...[...clientNotificationEntries, ...serverNotificationEntries].map(paramsSchema),
+  ].filter((name) => name !== "undefined" && name !== UNRESOLVED_RESPONSE);
+  const emitted = reachableSchemas(roots, aggregateSchemas);
+  const emittedSchemas: Record<string, Schema.Json> = {};
+
   const generator = makeJsonSchemaGenerator();
   for (const [name, schema] of Object.entries(aggregateSchemas).toSorted(([left], [right]) =>
     left.localeCompare(right),
   )) {
-    aggregateSchemas[name] = adaptSchemaForEffect(schema);
-    generator.addSchema(name, aggregateSchemas[name] as never);
+    if (!emitted.has(name)) continue;
+    emittedSchemas[name] = adaptSchemaForEffect(withoutDescriptions(schema) as Schema.Json);
+    generator.addSchema(name, emittedSchemas[name] as never);
   }
 
   const generatedEntries = new Map<string, string>();
-  const output = generator.generate("openapi-3.1", aggregateSchemas as never, false).trim();
+  const output = generator.generate("openapi-3.1", emittedSchemas as never, false).trim();
   if (output.length > 0) {
     for (const entry of collectSchemaEntries(output)) {
       if (!generatedEntries.has(entry.name)) {
@@ -714,15 +761,6 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
   }
 
   const generatedSchemaNames = new Set(generatedEntries.keys());
-  const clientRequestRaw = yield* readText(path.join(tsRoot, "ClientRequest.ts"));
-  const clientNotificationRaw = yield* readText(path.join(tsRoot, "ClientNotification.ts"));
-  const serverRequestRaw = yield* readText(path.join(tsRoot, "ServerRequest.ts"));
-  const serverNotificationRaw = yield* readText(path.join(tsRoot, "ServerNotification.ts"));
-
-  const clientRequestEntries = parseRequestEntries(clientRequestRaw);
-  const clientNotificationEntries = parseNotificationEntries(clientNotificationRaw);
-  const serverRequestEntries = parseRequestEntries(serverRequestRaw);
-  const serverNotificationEntries = parseNotificationEntries(serverNotificationRaw);
 
   const prelude = [
     "// This file is generated by the effect-codex-app-server package. Do not edit manually.",
@@ -821,7 +859,8 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
 
   const namespaceGroups = new Map<string, Array<JsonSchemaFile>>();
   for (const file of jsonSchemaFiles) {
-    if (!file.namespace) {
+    // HideGPT: `!emitted.has` skips the schemas the allowlist does not reach.
+    if (!file.namespace || !emitted.has(file.exportName)) {
       continue;
     }
     const current = namespaceGroups.get(file.namespace) ?? [];
@@ -851,10 +890,27 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
       }),
   ].join("\n");
 
+  // HideGPT: every method the CLI publishes, allowlisted or not. Only allowlist.test.ts reads it,
+  // to tell a method name in src/codex from any other string; the app never imports it.
+  const upstreamMethods = [
+    ...upstreamClientRequests,
+    ...upstreamClientNotifications,
+    ...upstreamServerRequests,
+    ...upstreamServerNotifications,
+  ].map((entry) => entry.method);
+  const upstreamOutput = [
+    ...prelude,
+    "export const UPSTREAM_METHODS: ReadonlyArray<string> = [",
+    ...[...new Set(upstreamMethods)].toSorted().map((method) => `  ${JSON.stringify(method)},`),
+    "];",
+    "",
+  ].join("\n");
+
   const outputs: ReadonlyArray<readonly [string, string]> = [
     [schemaOutputPath, schemaOutput],
     [metaOutputPath, metaOutput],
     [namespacesOutputPath, namespacesOutput],
+    [upstreamOutputPath, upstreamOutput],
   ];
 
   if (CHECK) {

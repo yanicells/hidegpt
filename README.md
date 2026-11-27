@@ -192,6 +192,8 @@ prompt to a model.
 
 - **Codex**: the vendored client's schemas are regenerated from the installed CLI
   (`pnpm protocol`; `pnpm protocol --check` fails when the CLI version differs).
+  Only the methods Docs uses are generated (`scripts/allowlist.ts` in the vendored
+  package); Codex notifications outside that list are ignored.
   Project creation and thread project assignment use the generated
   `project/create` and `thread/start` schemas. Older CLIs are not supported:
   Docs no longer answers their `currentTime/read` server request, which 0.172.0
