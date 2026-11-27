@@ -33,6 +33,11 @@ import {
  * runs over the raw stream, and the run fails with every part that failed: the scenario's own
  * checks, the stream's violations, and any provider text a pass-through scenario found.
  *
+ * What "the window" covers (`look()` in `open`): every block's strings, the page and window
+ * title, and the banner (a library notice, a failed turn's sentence, the exit error). It does
+ * not see the sidebar's document titles, the model and server lists, or a failed command's
+ * error, so text that only reaches those is not checked here.
+ *
  * The fakes are hand-written, so this proves the adapters agree with each
  * other and with our reading of each protocol. Only recorded fixtures prove
  * the protocols themselves (docs/replay-fixtures.md).
@@ -181,6 +186,9 @@ export const until = (check: () => boolean, what: string) =>
 
 type Ended = Extract<ThreadEvent, { type: 'turn.ended' }>
 
+/** One string the window showed: `where` is its path (`callout.title`, `banner`), `text` the string. */
+type Shown = { readonly where: string; readonly text: string }
+
 /** Everything a scenario can do and see. */
 type Run = {
   readonly session: ProviderSession
@@ -189,8 +197,8 @@ type Run = {
   readonly script: ContractScript
   /** This document's events, in order. */
   readonly thread: () => ReadonlyArray<ThreadEvent>
-  /** Every string the window showed at any point, as `where: text` (`callout.title: …`, `banner: …`). */
-  readonly shown: () => ReadonlyArray<string>
+  /** Every string the window showed at any point, once each. */
+  readonly shown: () => ReadonlyArray<Shown>
   /** Provider values a `passthrough` script sent that must not reach the page (its `Passed.hidden`). */
   readonly hidden: Array<string>
   readonly blocks: () => ReadonlyArray<Block>
@@ -212,7 +220,7 @@ const open = (driver: ContractDriver) =>
     const { provider } = driver
     const threadId = opened.threadId
     const events: AdapterEvent[] = []
-    const shown = new Set<string>()
+    const shown = new Map<string, Shown>()
     const titles: string[] = []
     let state = S.showThread(
       S.adopt(
@@ -230,7 +238,7 @@ const open = (driver: ContractDriver) =>
     /** Adds every string in `value` under its path (`approval.fields.label`), ids and kinds aside. */
     const record = (where: string, value: unknown): void => {
       if (typeof value === 'string') {
-        if (value) shown.add(`${where}: ${value}`)
+        if (value) shown.set(`${where}\0${value}`, { where, text: value })
       } else if (Array.isArray(value)) for (const item of value) record(where, item)
       else if (value !== null && typeof value === 'object') {
         for (const [key, field] of Object.entries(value))
@@ -276,7 +284,7 @@ const open = (driver: ContractDriver) =>
       opened,
       script,
       thread,
-      shown: () => [...shown],
+      shown: () => [...shown.values()],
       hidden: [],
       blocks: () => S.toSnapshot(state).blocks,
       titles: () => titles,
@@ -414,10 +422,10 @@ const passthroughScenario = (source: PassthroughSource) => (run: Run) =>
     yield* settle
     const shown = run.shown()
     // A kept name must show in the block its source draws, not anywhere on the page.
-    const drawn = shown.filter((line) => draws !== undefined && line.startsWith(`${draws}.`))
+    const drawn = shown.filter(({ where }) => draws !== undefined && where.startsWith(`${draws}.`))
     for (const name of kept) {
       expect(
-        drawn.some((line) => line.includes(name)),
+        drawn.some(({ text }) => text.includes(name)),
         `a name that passes the stealth gate stays on the ${draws ?? 'page'}: ${name}`,
       ).toBe(true)
     }
@@ -432,11 +440,12 @@ const passthroughScenario = (source: PassthroughSource) => (run: Run) =>
 const pageLeaks = (run: Run): ReadonlyArray<string> =>
   run
     .shown()
-    .flatMap((line) => {
+    .flatMap(({ where, text }) => {
+      const line = `${where}: ${text}`
       // Only the text: the path names Docs' own block kinds (`agent.text`).
-      const words = [...new Set(stealthViolations(line.slice(line.indexOf(': ') + 2)))]
+      const words = [...new Set(stealthViolations(text))]
       if (words.length > 0) return [`banned ${words.join(', ')}: ${line}`]
-      return line.includes(MARKER) || run.hidden.some((value) => line.includes(value)) ? [line] : []
+      return text.includes(MARKER) || run.hidden.some((value) => text.includes(value)) ? [line] : []
     })
     .sort()
 

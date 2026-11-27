@@ -1,3 +1,4 @@
+import type { ApiError, MessageOutputLengthError } from '@opencode-ai/sdk/v2/client'
 import * as Effect from 'effect/Effect'
 
 import {
@@ -97,17 +98,18 @@ const driver: ContractDriver = {
         fake.push({ id: `evt_${id}`, type: 'permission.asked', properties: request })
         return id
       })
-    const sessionError = (sessionID: string | undefined, message: string, statusCode: number) =>
+    /** A `session.error` as the server sends it; `error` left out means the server sent none. */
+    let errors = 0
+    const rawError = (sessionID: string | undefined, error?: ApiError | MessageOutputLengthError) =>
       Effect.sync(() =>
         fake.push({
-          id: 'evt_error',
+          id: `evt_error_${(errors += 1)}`,
           type: 'session.error',
-          properties: {
-            ...(sessionID ? { sessionID } : {}),
-            error: { name: 'APIError', data: { message, statusCode, isRetryable: statusCode >= 500 } },
-          },
+          properties: { ...(sessionID ? { sessionID } : {}), ...(error ? { error } : {}) },
         }),
       )
+    const sessionError = (sessionID: string | undefined, message: string, statusCode: number) =>
+      rawError(sessionID, { name: 'APIError', data: { message, statusCode, isRetryable: statusCode >= 500 } })
     const retrying = (message: string) =>
       Effect.sync(() => {
         const status = { type: 'retry' as const, attempt: 1, message, next: 5_000 }
@@ -204,12 +206,29 @@ const driver: ContractDriver = {
             yield* retrying(`${marker} retrying`)
             return {}
           case 'errors':
-            // One error for no session in particular, then the turn's own.
+            // Errors for no session in particular go on the banner, so each of the adapter's
+            // fallbacks for an error with no message is sent too (`readableProviderError`): the
+            // HTML page's <title>, the status, neither, the error's name, and no error at all.
+            // Then the turn's own.
             yield* sessionError(undefined, `${marker} server error`, 500)
+            yield* rawError(undefined, {
+              name: 'APIError',
+              data: {
+                message: '<none>',
+                statusCode: 503,
+                isRetryable: true,
+                responseBody: `<html><title>${marker} gateway</title></html>`,
+              },
+            })
+            yield* sessionError(undefined, '<none>', 502)
+            yield* rawError(undefined, { name: 'APIError', data: { message: '<none>', isRetryable: false } })
+            yield* rawError(undefined, { name: 'MessageOutputLengthError', data: {} })
+            yield* rawError(undefined)
             yield* settle
             yield* sessionError(SESSION, `${marker} failed`, 500)
             fake.finish(SESSION)
-            return {}
+            // An error's type name passes the stealth gate but is the server's internals, not a sentence.
+            return { hidden: ['MessageOutputLengthError'] }
           case 'crash':
             // The server writes nothing the adapter reads, so only the page's own wording can show.
             fake.exit(1)
@@ -310,8 +329,15 @@ contractSuite('OpenCode', driver, {
     fails: 'Stop reaches the busy subagent',
   },
   passthrough_errors: {
-    why: 'An error for no session in particular goes on the banner as written.',
-    leaks: ['banner: ZZPROV server error'],
+    why: 'An error for no session in particular goes on the banner as written, and so does each of `readableProviderError`\'s fallbacks when it has no message: the HTML page\'s title, the error\'s type name, and sentences that say "model provider" and "assistant". Owner: ARCH-4c / STL-1.',
+    leaks: [
+      'banned assistant: banner: The assistant ran into an error.',
+      'banned model, provider: banner: The model provider failed the request (HTTP 502).',
+      'banned model, provider: banner: The model provider failed the request and did not include an error message.',
+      'banner: MessageOutputLengthError',
+      'banner: ZZPROV gateway (HTTP 503).',
+      'banner: ZZPROV server error',
+    ],
   },
   passthrough_crash: {
     why: 'The same in-flight busy status as `exit_mid_turn` adopts a turn that never ends, and the crash banner names OpenCode (`providerLabel` in `ProcessExitedError.message`; owner ARCH-4c / STL-1).',
