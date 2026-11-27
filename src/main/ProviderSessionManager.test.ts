@@ -63,6 +63,15 @@ const captureErrorLogs = () => {
   return { logged, layer: Logger.layer([capture]) }
 }
 
+/** Warnings (their message and annotations), instead of the console. */
+const captureWarnings = () => {
+  const logged: Array<{ readonly message: unknown; readonly annotations: Record<string, unknown> }> = []
+  const capture = Logger.make(({ message, fiber, logLevel }) => {
+    if (logLevel === 'Warn') logged.push({ message, annotations: fiber.getRef(References.CurrentLogAnnotations) })
+  })
+  return { logged, layer: Logger.layer([capture]) }
+}
+
 const settle = Effect.yieldNow.pipe(Effect.repeat({ times: 30 }))
 
 /** A Codex document's target, for commands that name their document. */
@@ -824,8 +833,9 @@ describe('ProviderSessionManager: turns', () => {
     }),
   )
 
-  it.effect("a stop the provider refuses says so in Docs' words and leaves the answer running", () =>
-    Effect.gen(function* () {
+  it.effect("a stop the provider refuses says so in Docs' words and leaves the answer running", () => {
+    const { logged, layer } = captureWarnings()
+    return Effect.gen(function* () {
       const { manager } = yield* setup({
         reply: null,
         handlers: { 'turn/interrupt': () => Effect.fail(rpcFailure('codex: no such turn')) },
@@ -849,7 +859,50 @@ describe('ProviderSessionManager: turns', () => {
       const shown = yield* manager.snapshot
       expect(shown).toMatchObject({ streaming: true, stopping: false })
       expect(JSON.stringify(shown)).not.toContain('no such turn')
-    }),
+      // The log says why by the error's fields, never its text.
+      const refused = logged.filter((entry) => JSON.stringify(entry.message).includes('Stop refused'))
+      expect(refused).toHaveLength(1)
+      expect(refused[0]?.annotations).toMatchObject({
+        error: 'ProviderRequestError',
+        provider: 'codex',
+        operation: 'turn/interrupt',
+      })
+      expect(JSON.stringify(refused[0]?.annotations)).not.toContain('no such turn')
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect(
+    'a Stop pressed during a slow start is held, sent once the start lands, and never shows running again',
+    () =>
+      Effect.gen(function* () {
+        const { peer, manager } = yield* setup({
+          reply: null,
+          handlers: {
+            'turn/start': () =>
+              Effect.sleep('15 seconds').pipe(
+                Effect.as({ turn: { id: 'turn_slow', items: [], status: 'inProgress' as const } }),
+              ),
+          },
+        })
+        yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+        yield* Effect.forkScoped(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' }))
+        yield* until(manager, (snapshot) => snapshot.streaming)
+        const stop = yield* Effect.forkChild(Effect.exit(manager.dispatch({ op: 'interrupt', ...doc('thr_1') })))
+        yield* until(manager, (snapshot) => snapshot.stopping)
+        yield* settle
+        // The deadline ends the turn on the page; the stop is still waiting for the start.
+        yield* TestClock.adjust('10 seconds')
+        yield* settle
+        expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false })
+        const reopened = yield* Effect.forkScoped(until(manager, (snapshot) => snapshot.streaming))
+        yield* TestClock.adjust('5 seconds')
+        yield* settle
+        expect(interrupts(peer)).toHaveLength(1)
+        expect(Exit.isSuccess(yield* Fiber.join(stop))).toBe(true)
+        expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false })
+        // The late start did not flash the settled turn back to running.
+        expect(reopened.pollUnsafe()).toBeUndefined()
+      }),
   )
 
   it.effect('a stop that times out is left to the deadline, not put back to running', () =>
@@ -861,8 +914,8 @@ describe('ProviderSessionManager: turns', () => {
           layerAdapters({
             codex: {
               ...codex,
-              // A stop nobody answers, timing out before the deadline: the wrapper waiting for a
-              // start that never comes, or a stop request past its own deadline.
+              // A stop request that the provider never answers, timing out before the deadline
+              // (an adapter whose own request deadline is shorter than `STOP_SETTLE`).
               openSession: Effect.map(codex.openSession, (session) => ({
                 ...session,
                 interrupt: () =>

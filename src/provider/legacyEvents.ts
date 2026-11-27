@@ -1,4 +1,5 @@
 import type * as Cause from 'effect/Cause'
+import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 import * as Exit from 'effect/Exit'
 import * as Queue from 'effect/Queue'
@@ -124,8 +125,13 @@ export interface LegacyProviderAdapter {
   readonly openSession: Effect.Effect<LegacyProviderSession, ProviderError, Scope.Scope>
 }
 
-/** How long Stop waits for the provider to confirm a turn it was just sent. */
-const STOP_WAITS_FOR_START = '10 seconds'
+/**
+ * Stop waits for the provider to confirm a turn it was just sent, with no clock of its own. The
+ * wait is still bounded: a start that never comes fails the send at the `turn/start` deadline,
+ * which abandons the turn and ends the wait. A timer here would drop the stop before the start
+ * lands, and the turn would run on unstopped (T3 keeps such a stop the same way).
+ */
+const STOP_WAITS_FOR_START = Duration.infinity
 
 /** A legacy approval's suggestion verb, as the request kind it stands for. */
 const REQUEST_OF: Record<ApprovalBlock['suggestion'], RequestKind> = {
@@ -243,7 +249,8 @@ const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession) =>
           yield* tracker.started(threadId, typeof nativeTurnId === 'string' ? nativeTurnId : null, turnId)
         }),
       // A Stop that crosses the answer's natural end is not an error: the session state may not
-      // have seen the end yet, and there is nothing left to stop. Only a start that never comes fails.
+      // have seen the end yet, and there is nothing left to stop. A Stop before the start is held
+      // until the start lands, then sent.
       interrupt: (threadId, turnId) =>
         Effect.gen(function* () {
           if (!(yield* tracker.requestStop(threadId, turnId))) return

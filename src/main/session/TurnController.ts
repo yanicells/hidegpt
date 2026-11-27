@@ -47,6 +47,8 @@ import * as S from './state'
  *   defect skips the refusal handling and reaches the banner as a bug. A stop
  *   the provider did not answer in time is a `ProviderTimeoutError`, which
  *   leaves the turn to the deadline instead of putting it back to running.
+ *   Only for a stop actually sent: a stop pressed before the start is held
+ *   until the start lands (no clock of its own), never timed out unsent.
  * - End the turn with `turn.ended` for that turn id. A terminal within
  *   `REFUSED_STOP_GRACE` of a refusal cancels the refusal's banner.
  * - Keep no stop timer of its own (ARCH-4b deletes Claude's
@@ -188,7 +190,7 @@ export const make = (options: TurnControllerOptions): Effect.Effect<TurnControll
             { type: 'turn.ended', threadId, turnId, status: 'interrupted', failure: null },
             at,
           )
-          return [true, S.updateRuntime(ended, key, (item) => ({ ...item, stale: true }))]
+          return [true, S.updateRuntime(ended, key, (item) => ({ ...item, stale: true, settledTurnId: turnId }))]
         })
         if (settled) {
           yield* Effect.logWarning('Stop not confirmed; its processes may still be running').pipe(
@@ -230,9 +232,10 @@ export const make = (options: TurnControllerOptions): Effect.Effect<TurnControll
           { onlyIfMissing: true },
         )
         yield* session.interrupt(threadId, stopping.id).pipe(
-          // Unanswered (the start or the stop request timed out) is not a refusal: the provider may
-          // still stop, so the deadline settles it rather than putting the turn back to running.
-          // T3 treats an unresponsive stop the same way.
+          // Unanswered (the stop request timed out) is not a refusal: the stop was sent and the
+          // provider may still act on it, so the deadline settles the turn rather than putting it
+          // back to running. T3 leaves an unresponsive stop to Force stop; Docs has none, so the
+          // deadline ends it here and the document re-reads on its next open.
           Effect.catchTag('ProviderTimeoutError', (error) =>
             Effect.logWarning('Stop not answered; the deadline settles it').pipe(
               Effect.annotateLogs(errorLogFields(error)),

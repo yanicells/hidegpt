@@ -37,6 +37,11 @@ export type ThreadRuntime = {
   readonly error: string | null
   /** The provider lost this thread's server state (crash); reopening reloads it. */
   readonly stale: boolean
+  /**
+   * The turn a stop deadline ended here before the provider confirmed it. Its late
+   * `turn.started` (a slow start landing after the deadline) must not reopen it.
+   */
+  readonly settledTurnId?: TurnId
 }
 
 /** Everything Home and the toolbar show for one provider. */
@@ -179,7 +184,9 @@ export function removeRuntime(state: State, key: string): State {
 
 /** True when a turn event names a turn other than the open one, so the reducer ignores it. */
 export function isStaleTurnEvent(runtime: ThreadRuntime, event: ThreadEvent): boolean {
-  if (event.type === 'turn.started') return runtime.turn !== null && runtime.turn.id !== event.turnId
+  if (event.type === 'turn.started') {
+    return runtime.turn === null ? runtime.settledTurnId === event.turnId : runtime.turn.id !== event.turnId
+  }
   if (event.type === 'turn.ended') return runtime.turn?.id !== event.turnId
   return false
 }
