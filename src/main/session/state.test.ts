@@ -42,6 +42,40 @@ const running = (turnId = 'turn-1') =>
   S.applyThreadEvent(twoLibraries(), 'codex', { type: 'turn.started', threadId: 'thr_1', turnId }, 1)
 
 describe('session state', () => {
+  it('drops a retrying notice when the turn ends', () => {
+    const notice: Item = { kind: 'notice', id: 'n1', notice: 'retrying', detail: null }
+    let state = S.applyThreadEvent(
+      running(),
+      'codex',
+      { type: 'item.upserted', threadId: 'thr_1', turnId: 'turn-1', item: notice },
+      2,
+    )
+    state = S.applyThreadEvent(
+      state,
+      'codex',
+      { type: 'turn.ended', threadId: 'thr_1', turnId: 'turn-1', status: 'completed', failure: null },
+      3,
+    )
+    expect(runtime(state, 'codex', 'thr_1')?.items.map((item) => item.id)).toEqual(['a1'])
+  })
+
+  it('drops a retrying notice when a new item arrives', () => {
+    const notice: Item = { kind: 'notice', id: 'n1', notice: 'retrying', detail: null }
+    let state = S.applyThreadEvent(
+      running(),
+      'codex',
+      { type: 'item.upserted', threadId: 'thr_1', turnId: 'turn-1', item: notice },
+      2,
+    )
+    state = S.applyThreadEvent(
+      state,
+      'codex',
+      { type: 'item.upserted', threadId: 'thr_1', turnId: 'turn-1', item: assistant('a2', 'Back.') },
+      3,
+    )
+    expect(runtime(state, 'codex', 'thr_1')?.items.map((item) => item.id)).toEqual(['a1', 'a2'])
+  })
+
   it('drops a retrying notice once the turn streams again', () => {
     const notice: Item = { kind: 'notice', id: 'n1', notice: 'retrying', detail: null }
     let state = S.applyThreadEvent(

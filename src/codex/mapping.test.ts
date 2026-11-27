@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { elicitationFields } from './mapping.ts'
+import { elicitationFields, itemToBlock } from './mapping.ts'
 
 type Params = Parameters<typeof elicitationFields>[0]
 
@@ -22,5 +22,41 @@ describe('elicitationFields', () => {
       { id: 'extra', label: 'extra' },
       { id: 'gone', label: 'gone' },
     ])
+  })
+})
+
+describe('itemToBlock', () => {
+  it('titles a connected-app call in Docs’ words, with its names and never its error text in the body', () => {
+    const call = (status: string, error: { message: string } | null) =>
+      itemToBlock({
+        type: 'mcpToolCall',
+        id: 'm1',
+        server: 'github',
+        tool: 'create_issue',
+        status,
+        error,
+      } as unknown as Parameters<typeof itemToBlock>[0])
+    expect(call('completed', null)).toMatchObject({ title: 'Used a connected app', body: 'github · create_issue' })
+    expect(call('failed', { message: 'Bad credentials' })).toMatchObject({
+      title: 'A connected app didn’t respond',
+      body: 'github · create_issue',
+    })
+  })
+
+  it('leaves out a server or tool name that would fail the stealth gate', () => {
+    const call = (server: string, tool: string) =>
+      itemToBlock({
+        type: 'mcpToolCall',
+        id: 'm1',
+        server,
+        tool,
+        status: 'completed',
+        error: null,
+      } as unknown as Parameters<typeof itemToBlock>[0])
+    expect(call('codex_apps', 'gmail_search_emails')).toMatchObject({ body: 'gmail_search_emails' })
+    expect(call('openaiDeveloperDocs', 'search_openai_docs')).toMatchObject({
+      title: 'Used a connected app',
+      body: '',
+    })
   })
 })

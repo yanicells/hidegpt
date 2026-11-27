@@ -620,7 +620,15 @@ function registerNotifications(
       on('error', (p) =>
         p.willRetry
           ? [{ type: 'notice', message: p.error.message }]
-          : [{ type: 'turnEnded', threadId: p.threadId, nativeTurnId: p.turnId, error: p.error.message }],
+          : [
+              {
+                type: 'turnEnded',
+                threadId: p.threadId,
+                // An empty turnId names no turn, so it must not read as another one.
+                ...(p.turnId ? { nativeTurnId: p.turnId } : {}),
+                error: p.error.message,
+              },
+            ],
       ),
       on('warning', (p) => (p.message ? [{ type: 'notice', message: p.message }] : [])),
       on('guardianWarning', (p) => (p.message ? [{ type: 'notice', message: p.message }] : [])),

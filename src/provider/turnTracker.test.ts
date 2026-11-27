@@ -54,6 +54,47 @@ describe('TurnTracker', () => {
     }),
   )
 
+  it.effect('a stopped turn’s late start response keeps its events off the next turn', () =>
+    Effect.gen(function* () {
+      const { tracker, types } = yield* setup
+      yield* tracker.begin('t', 'turn-a')
+      yield* tracker.requestStop('t', 'turn-a')
+      yield* tracker.begin('t', 'turn-b')
+      // A's start response, then its notifications, arrive after B began.
+      yield* tracker.started('t', 'native-a', 'turn-a')
+      yield* tracker.started('t', 'native-a')
+      yield* tracker.end('t', { status: 'completed', failure: null, nativeTurnId: 'native-a' })
+      expect(types()).toEqual(['ended:interrupted'])
+      expect(tracker.current('t')).toBe('turn-b')
+    }),
+  )
+
+  it.effect('a closed turn’s late start response does not strand the turn that already took its id', () =>
+    Effect.gen(function* () {
+      const { tracker, types } = yield* setup
+      // A's start notification beat its response, so the next turn on the thread holds A's id.
+      yield* tracker.started('t', 'native-a')
+      yield* tracker.started('t', 'native-a', 'turn-a')
+      yield* tracker.end('t', { status: 'completed', failure: null, nativeTurnId: 'native-a' })
+      expect(types()).toEqual(['turn.started', 'ended:completed'])
+      expect(tracker.current('t')).toBeNull()
+    }),
+  )
+
+  it.effect('a start response naming an id remembered as ended still owns its turn', () =>
+    Effect.gen(function* () {
+      const { tracker, types } = yield* setup
+      yield* tracker.begin('t', 'turn-a')
+      yield* tracker.started('t', 'native-x')
+      yield* tracker.end('t', { status: 'completed', failure: null })
+      yield* tracker.begin('t', 'turn-b')
+      yield* tracker.started('t', 'native-x', 'turn-b')
+      yield* tracker.end('t', { status: 'completed', failure: null, nativeTurnId: 'native-x' })
+      expect(types()).toEqual(['turn.started', 'ended:completed', 'turn.started', 'ended:completed'])
+      expect(tracker.current('t')).toBeNull()
+    }),
+  )
+
   it.effect('adopts a turn started elsewhere, and fills a failure the provider left out', () =>
     Effect.gen(function* () {
       const { tracker, emitted } = yield* setup

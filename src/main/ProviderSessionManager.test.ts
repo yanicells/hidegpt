@@ -305,6 +305,16 @@ describe('ProviderSessionManager', () => {
     }),
   )
 
+  it.effect('a send the provider refuses frees the document and drops the echo', () =>
+    Effect.gen(function* () {
+      const { manager } = yield* setup({ handlers: { 'turn/start': () => Effect.fail(rpcFailure('busy')) } })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      const before = (yield* manager.snapshot).blocks
+      yield* Effect.flip(manager.dispatch({ op: 'send', text: 'Hi' }))
+      expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false, blocks: before })
+    }),
+  )
+
   it.effect('refuses an empty send so the composer keeps the draft', () =>
     Effect.gen(function* () {
       const { manager } = yield* setup()
