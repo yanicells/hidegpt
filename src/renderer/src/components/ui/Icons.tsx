@@ -22,7 +22,8 @@ const DOCS_BODY =
  * centred across and 0.075 of it from the top, where the old artwork's ink sat
  * (24x32 at 8, 3 in a 40 box). Pass `height` for the artwork alone, with no box;
  * the width defaults to the logo's 3:4. The editor header's mark is 24x32
- * (`height={32}`), Home's 27x37 (`height={37} width={27}`).
+ * (`height={32}`), Home's 27x37 (`height={37} width={27}`). With `height`, the
+ * SVG uses preserveAspectRatio="none", so a `width` off 3:4 stretches the mark.
  */
 export function DocsIcon({ size = 40, height, width }: { size?: number; height?: number; width?: number }) {
   const box =
