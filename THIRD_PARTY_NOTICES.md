@@ -87,6 +87,10 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     from `apps/desktop/src/electron/ElectronProtocol.ts`; deny-by-default
     permission handlers, from `apps/desktop/src/preview/BrowserSession.ts`; and
     the test shape of `ElectronProtocol.test.ts` and `ElectronShell.test.ts`.
+  - `src/main/menu.ts` and `menu.test.ts` (commit 5c6f2f12): the View menu's
+    hidden zoom items, from `apps/desktop/src/window/DesktopApplicationMenu.ts`;
+    walking the menu template for roles and accelerators, from
+    `apps/desktop/src/window/DesktopApplicationMenu.test.ts`.
   - `src/renderer/src/components/layout/RenderErrorBoundary.tsx` (commit
     5c6f2f12): from `apps/web/src/components/RenderErrorBoundary.tsx`.
   - `src/main/ProviderSessionManager.ts` and `src/opencode/OpenCodeAdapter.ts`:
@@ -97,9 +101,14 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     failed commands kept as a local error and replies tracked while they are
     on their way, from `apps/web/src/components/chat/usePendingThreadRequests.ts`
     and `ComposerPendingApprovalActions.tsx` (commit 8a14762c).
-  - `src/renderer/src/components/layout/Banners.tsx`: banner dismissal keyed by
-    the error text, from `apps/web/src/components/chat/ThreadErrorBanner.tsx`
-    (commit 8a14762c).
+  - `src/renderer/src/components/document/Approval.tsx`: suggestion cards
+    worded by a fixed table per request kind rather than the request's own
+    text, from `apps/web/src/components/chat/TimelinePendingApprovalRow.tsx`
+    (commit 5c6f2f12).
+  - `src/renderer/src/components/layout/Banners.tsx`: one lane of notices and
+    a dismissal that clears the error, from
+    `apps/web/src/components/chat/ChatBannerLane.tsx` and `ThreadErrorBanner.tsx`
+    (commit 5c6f2f12).
   - `src/renderer/src/session-bridge.ts`: selector subscriptions that skip
     streamed text, after `packages/client-runtime/src/state/threadDetail.ts`
     (commit 8a14762c).
@@ -121,7 +130,9 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     bottom on upward input (wheel, up keys, a scrollbar press) unless a nested
     box scrolls, and on any other upward scroll (the upward-scroll detector),
     from `apps/web/src/components/chat/timelineViewport.ts` and
-    `timelineScrollTarget.ts` (commit 8a14762c).
+    `timelineScrollTarget.ts` (commit 8a14762c); following on while a chunk
+    carries the end out of view, and the reduced-motion scroll, from
+    `timelineViewport.ts` and `useTimelineFollow.ts` (commit 5c6f2f12).
   - `src/renderer/src/components/ui/`: these Base UI wrappers, adapted from
     `apps/web/src/components/ui/` at commit 8a14762c (each keeps a header
     pointing to its source):

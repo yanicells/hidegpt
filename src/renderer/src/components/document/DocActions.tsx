@@ -10,6 +10,12 @@ import { Tip } from '../ui/tooltip'
 import { ShareDialog } from './ShareDialog'
 
 /**
+ * Crops `history` (a 720-unit glyph) to an 864-unit view box, so its ink fills
+ * 20 of the 24px, as in Docs, with edges still on whole device pixels.
+ */
+const HISTORY_CROP = '48 -912 864 864'
+
+/**
  * Right side of the document header, like Docs: version history (loads
  * earlier content), comments and Meet (costume), the Share split button
  * (Drive's share dialog, and a caret menu of its quick actions), and the spark.
@@ -41,11 +47,11 @@ export function DocActions({ snap }: { snap: Snapshot }) {
           disabled={!canLoadEarlier}
           onClick={() => dispatch({ op: 'loadOlderTurns' })}
         >
-          <MIcon name="history" size={24} />
+          <MIcon name="history" size={24} viewBox={HISTORY_CROP} />
         </button>
       </Tip>
       <Tip label="Open comment history">
-        <span className="header-action" aria-hidden="true">
+        <span className="header-action comments" aria-hidden="true">
           <MIcon name="comment" size={24} />
         </span>
       </Tip>
@@ -59,7 +65,7 @@ export function DocActions({ snap }: { snap: Snapshot }) {
         <Tip label="Private to only me">
           <button type="button" className="share-button" data-testid="share" onClick={() => setSharing(true)}>
             <MIcon name="lock" />
-            <span>Share</span>
+            <span className="cut-text">Share</span>
           </button>
         </Tip>
         <Menu>
@@ -79,7 +85,7 @@ export function DocActions({ snap }: { snap: Snapshot }) {
         </Menu>
       </div>
       <span className="header-action spark" aria-hidden="true">
-        <SparkIcon size={22} />
+        <SparkIcon size={24} />
       </span>
       <ShareDialog snap={snap} open={sharing} onOpenChange={setSharing} onCopyLink={copyLink} />
       {copied ? (

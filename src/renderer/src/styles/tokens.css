@@ -9,11 +9,11 @@
   --line: #c4c7c5;
   --border-strong: #747775;
   /*
-   * One grey, four roles: Home card and thumbnail borders (home.css), the
-   * vertical ruler's border (ruler.css), the callout rule (page.css) and the
-   * scrollbar thumb (workspace.css). Docs draws these in different greys, so a
-   * package that changes one points that usage at its own value and leaves
-   * this token alone.
+   * One grey, three roles: Home card and thumbnail borders (home.css), the
+   * vertical ruler's border (ruler.css) and the callout rule (page.css). The
+   * canvas scrollbar has its own --scrollbar-* tokens (UI-07). Docs draws
+   * these in different greys, so a package that changes one points that
+   * usage at its own value and leaves this token alone.
    */
   --outline: #dadce0;
   --blue: #0b57d0;
@@ -67,4 +67,33 @@
   --paper-margin: 96px;
   --rail-width: 56px;
   --scrollbar-w: 14px;
+  /* UI-02, for UI-06: ruler ticks over the page margins and over the content zone. */
+  --ruler-tick-margin: #747775;
+  --ruler-tick-content: #c4c7c5;
+  /* UI-07: the page's crisp 1px edge, and Docs' scrollbars as Chrome draws them. */
+  --page-edge: 0 0 0 1px #c4c7c5;
+  --scrollbar-size: 12px;
+  --scrollbar-track: #f0f0f0;
+  --scrollbar-thumb: #cdcdcd;
+  --scrollbar-thumb-hover: #bdbdbd;
+  /* UI-11: the side rail's divider, lighter than --line. */
+  --rail-divider: #e7eaf0;
+  /* UI-11: the side rail's "+" ink. Docs draws it #000; --page-ink has other roles. */
+  --rail-add-ink: #000;
+  /* UI-03: the Share pill's label, lock and caret. */
+  --share-ink: #004a77;
+}
+
+/* UI-14 (menus): Docs' menu shadow, one soft neutral layer measured from its 2x menu captures. */
+:root {
+  --shadow-menu-docs: 0 2px 6px 2px rgb(0 0 0 / 15%);
+  /* Docs' faded menu text: #1f1f1f at 38% (disabled rows, shortcuts) and 23% (a disabled row's shortcut). */
+  --menu-ink-dim: rgb(31 31 31 / 38%);
+  --menu-ink-faint: rgb(31 31 31 / 23%);
+}
+
+/* UI-05 (toolbar): Docs' pressed Bold/Italic/Underline pill and its glyph. */
+:root {
+  --toolbar-pressed: #d3e3fd;
+  --toolbar-pressed-ink: #041e49;
 }

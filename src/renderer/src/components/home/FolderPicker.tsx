@@ -1,11 +1,14 @@
 import { useState } from 'react'
 
 import { formatListDate } from '../../../../shared/labels'
+import { request } from '../../session-bridge'
 import { Dialog, DialogClose, DialogPopup, DialogTitle } from '../ui/dialog'
 import { MIcon } from '../ui/MaterialIcon'
 import type { Folder } from './projects'
 
 const UNTITLED = 'Untitled folder'
+/** One fixed sentence: a failure's own text can name the library, so it never shows here. */
+const CREATE_FAILED = 'Couldn’t create that folder. Try again.'
 
 const PICKER_TABS = ['Recent', 'My Drive', 'Shared with me', 'Starred'] as const
 type PickerTab = (typeof PICKER_TABS)[number]
@@ -47,14 +50,14 @@ export function FolderPicker({
     try {
       const path = await window.hidegpt.pickDirectory()
       if (!path) return
-      await window.hidegpt.dispatch({ op: 'createProject', name: name.trim(), cwd: path })
-      const project = window.hidegpt
-        .getSnapshot()
-        .snapshot.projects.find((item) => item.roots.some((root) => root.path === path))
-      if (!project) throw new Error('The folder could not be found. Refresh and try again.')
-      onOpen(project.id)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      const result = await request({ op: 'createProject', name: name.trim(), cwd: path })
+      const project = result.ok
+        ? window.hidegpt.getSnapshot().snapshot.projects.find((item) => item.roots.some((root) => root.path === path))
+        : undefined
+      if (project) onOpen(project.id)
+      else setError(CREATE_FAILED)
+    } catch {
+      setError(CREATE_FAILED)
     } finally {
       setBusy(false)
     }

@@ -1,27 +1,44 @@
 /* ---------- Toolbar pill ---------- */
 
-/* Leaves room for the side rail, like Docs' toolbar stopping short of it. */
+/*
+ * Leaves room for the side rail, like Docs' toolbar stopping short of it. The
+ * wrap is the size container the fold steps below query; the ⋮ row portals
+ * into it so it can query the same width, and the z-index stacks that row
+ * like any other menu.
+ */
 .toolbar-wrap {
-  /* 5px down to the ruler puts its baseline at y=128, as in Docs. */
-  margin: 0 calc(var(--rail-width) + 16px) 5px 16px;
+  position: relative;
+  z-index: 130;
+  container: toolbar / inline-size;
+  /* Pill at y 65-105; 4px down to the ruler puts its baseline at y=128, as in Docs. */
+  margin: 1px calc(var(--rail-width) + 16px) 4px 16px;
 }
 
-/* #f0f4f9, radius 28, 40px tall, padding 0 8px; 30px buttons on a 32px pitch. */
-.toolbar {
-  @apply flex items-center overflow-hidden;
-  height: 40px;
-  padding: 0 8px 0 11px;
+/*
+ * #f0f4f9, radius 28, 40px tall. Measured from Docs at 1470: tools are 30px
+ * buttons with 1px side margins (pitch 32); menu tools (colours, image, align,
+ * spacing) and chips have 2px margins; dividers 3px.
+ */
+.toolbar,
+.toolbar-overflow {
+  @apply flex items-center;
   border-radius: 28px;
   background: var(--pill);
   font-size: 14px;
+}
+
+.toolbar {
+  @apply overflow-hidden;
+  height: 40px;
+  padding: 0 12px 0 11px;
 }
 
 .divider {
   flex: 0 0 auto;
   width: 1px;
   height: 20px;
-  margin: 0 5px;
-  background: #c7c7c7;
+  margin: 0 3px;
+  background: var(--line);
 }
 
 .toolbar-spacer {
@@ -30,9 +47,9 @@
 
 .toolbar-icon {
   @apply relative flex items-center justify-center shrink-0;
-  height: 28px;
-  min-width: 28px;
-  margin: 0 2px;
+  width: 30px;
+  height: 30px;
+  margin: 0 1px;
   border-radius: 4px;
   color: var(--text-2);
 }
@@ -42,28 +59,67 @@
   background: var(--hover);
 }
 
-/* Docs sets the menu search a little apart from undo. */
-.toolbar-icon.tb-search {
-  margin-right: 4px;
+/* Bold, italic and underline when on: Docs' pressed pill. */
+.toolbar-icon[aria-pressed='true'] {
+  background: var(--toolbar-pressed);
+  color: var(--toolbar-pressed-ink);
 }
 
+/* Docs draws tool glyphs 1px below the pill's centre; search and the text colour "A" sit centred. */
+.toolbar-icon:not(.tb-search, .text-color) > svg {
+  translate: 0 1px;
+}
+
+/* Docs sets the menu search a little apart from undo. */
+.toolbar-icon.tb-search {
+  margin-right: 3px;
+}
+
+.toolbar-icon.tb-menu {
+  margin: 0 2px;
+}
+
+/* Docs draws tool carets 8x4: arrow_drop_down at 20px. */
 .toolbar-icon.with-caret {
+  @apply justify-start;
+}
+
+/* Align & indent: one menu button, its caret 18px right of the icon. */
+.toolbar-icon.tb-menu.with-caret {
+  width: 37px;
   padding-left: 2px;
 }
 
-.toolbar-icon .tb-caret {
-  margin: 0 -2px 0 -3px;
+.tb-menu > .tb-caret {
+  margin: 0 -3px 0 -2px;
 }
 
-/* Text colour "A" sits on a black swatch bar, like Docs. */
+/* Lists: a 30px icon button and a 12px caret button, 44px a tool; the caret sits 21px right of the icon. */
+.toolbar-icon.tb-split {
+  width: 42px;
+  padding-left: 5px;
+}
+
+.tb-split > .tb-caret {
+  margin: 0 -4px 0 1px;
+}
+
+/* Text colour "A" on Docs' solid 22x4 black bar, which covers the glyph's own grey one. */
 .toolbar-icon.text-color::after {
   content: '';
   @apply absolute;
-  left: 5px;
-  right: 5px;
-  bottom: 3px;
-  height: 3px;
+  left: 4px;
+  right: 4px;
+  bottom: 5px;
+  height: 4px;
   background: var(--page-ink);
+}
+
+/* The highlighter is 14x12, raised 2.5px over an empty 22x4 colour bar slot. */
+.toolbar-icon.highlight-color > svg {
+  width: 17.5px;
+  height: 17.5px;
+  translate: 0 -2.5px;
 }
 
 /* Toolbar dropdowns: "100% ▾", "Normal text ▾", "Arial ▾". */
@@ -71,9 +127,9 @@
   @apply inline-flex items-center shrink-0 whitespace-nowrap;
   height: 28px;
   margin: 0 2px;
-  padding: 0 0 0 6px;
+  padding: 0 4px 0 10px;
   border-radius: 4px;
-  color: var(--text-2);
+  color: var(--muted);
 }
 
 .chip svg {
@@ -85,6 +141,10 @@
   background: var(--hover);
 }
 
+.chip[aria-expanded='true'] {
+  color: var(--text-2);
+}
+
 /* An open dropdown's ▾ flips to ▴, as in Docs. */
 .chip[aria-expanded='true'] > svg:last-child {
   transform: rotate(180deg);
@@ -94,24 +154,30 @@
   @apply flex-1 overflow-hidden text-ellipsis text-left;
 }
 
-/* Widths and insets put each label and ▾ where Docs draws them (editor-content.png). */
+/* Widths and insets put each label and ▾ where Docs draws them (editor-tabs.png). */
 .chip-zoom {
-  width: 72px;
-  padding-left: 8px;
+  width: 74px;
+  padding: 0 2px 0 8px;
+  color: var(--text-2);
 }
 
 .chip-style {
-  width: 113px;
-  padding-left: 8px;
+  width: 120px;
 }
 
 .chip-font {
-  width: 91px;
-  padding-left: 10px;
+  width: 95px;
 }
 
-.chip-mode {
-  padding: 0 2px 0 6px;
+/* ✎ ▾: Docs' mode chip is 62px, the pencil centred at x 1299 and its caret 21px right (1470 wide). */
+.chip.chip-mode {
+  width: 62px;
+  margin: 0 6px 0 5px;
+  padding: 0 10px;
+}
+
+.chip-mode > svg:last-child {
+  margin-left: 1px;
 }
 
 /* Font size: − [11] +, the box 34x24 with a #747775 outline. */
@@ -121,7 +187,7 @@
 
 .font-size-step {
   @apply grid place-items-center;
-  width: 28px;
+  width: 26px;
   height: 28px;
   border-radius: 4px;
   color: var(--text-2);
@@ -139,87 +205,237 @@
   @apply justify-center;
   width: 34px;
   height: 24px;
-  margin: 0;
   padding: 0;
   border: 1px solid var(--border-strong);
   font-size: 14px;
   color: var(--text-2);
 }
 
+/* ---------- Fold by fit ---------- */
+
 /*
- * Docs folds tool groups behind ⋮ as the window narrows. Each breakpoint hides
- * a group from the toolbar; the ⋮ row hides it again above that breakpoint,
- * so it only ever holds what the toolbar has folded away.
+ * Docs folds tools behind ⋮ one at a time from the right as the pill narrows.
+ * Every item has a fixed width, so each tool gets an exact threshold: the pill
+ * width at which it, ⋮ and the right group just fit. Widths in the pill, from
+ * the content edge (11px padding): search..print 130, spelling 32, paint 32,
+ * zoom..font size with their dividers 419, then the tools (32, menu tools 34,
+ * align 41, lists 44, dividers 7), ⋮ 32, right group 144 (play 32, mode chip
+ * 73, divider 7, collapse 32), right padding 12. Change a width and these
+ * thresholds move with it.
+ *
+ * Each step hides its tools in the pill and shows them in the ⋮ row, which
+ * holds only what the pill has folded. A divider takes its group's last tool's
+ * class, so it leads ⋮ only when that group ends the visible tools.
  */
 .toolbar-overflow {
-  @apply flex items-center;
   width: max-content;
   max-width: calc(100vw - 16px);
-  flex-wrap: wrap;
-  height: auto;
   min-height: 40px;
+  flex-wrap: wrap;
+  padding: 0 8px;
   box-shadow:
     0 1px 3px rgb(60 64 67 / 30%),
     0 4px 8px 3px rgb(60 64 67 / 15%);
 }
 
-@media (max-width: 1360px) {
-  .toolbar:not(.toolbar-overflow) .tb-xl {
-    @apply hidden;
+.toolbar-overflow > *,
+.toolbar-more {
+  display: none;
+}
+
+/*
+ * With every tool in the pill, ⋮ would open an empty row, so it hides, and a
+ * row left open while the window widens past this step hides with it. (Docs
+ * keeps ⋮ at 1470, but its reference document has no spelling button.)
+ */
+@container toolbar (width >= 1359px) {
+  .toolbar-overflow {
+    display: none;
   }
 }
 
-@media (min-width: 1361px) {
-  .toolbar-overflow .tb-xl {
-    @apply hidden;
+@container toolbar (width < 1359px) {
+  .toolbar .toolbar-more,
+  .toolbar-overflow :is(.fold-indent, .fold-clear) {
+    display: flex;
+  }
+
+  .toolbar :is(.fold-indent, .fold-clear) {
+    display: none;
   }
 }
 
-@media (max-width: 1240px) {
-  .toolbar:not(.toolbar-overflow) .tb-wide {
-    @apply hidden;
+@container toolbar (width < 1327px) {
+  .toolbar .fold-outdent {
+    display: none;
+  }
+
+  .toolbar-overflow .fold-outdent {
+    display: flex;
   }
 }
 
-@media (min-width: 1241px) {
-  .toolbar-overflow .tb-wide {
-    @apply hidden;
+@container toolbar (width < 1295px) {
+  .toolbar .fold-numbered {
+    display: none;
+  }
+
+  .toolbar-overflow .fold-numbered {
+    display: flex;
   }
 }
 
-@media (max-width: 1100px) {
-  .toolbar:not(.toolbar-overflow) .tb-lg {
-    @apply hidden;
+@container toolbar (width < 1251px) {
+  .toolbar .fold-bullets {
+    display: none;
+  }
+
+  .toolbar-overflow .fold-bullets {
+    display: flex;
   }
 }
 
-@media (min-width: 1101px) {
-  .toolbar-overflow .tb-lg {
-    @apply hidden;
+@container toolbar (width < 1207px) {
+  .toolbar .fold-checklist {
+    display: none;
+  }
+
+  .toolbar-overflow .fold-checklist {
+    display: flex;
   }
 }
 
+@container toolbar (width < 1163px) {
+  .toolbar .fold-spacing {
+    display: none;
+  }
+
+  .toolbar-overflow .fold-spacing {
+    display: flex;
+  }
+}
+
+@container toolbar (width < 1129px) {
+  .toolbar .fold-align {
+    display: none;
+  }
+
+  .toolbar-overflow .fold-align {
+    display: flex;
+  }
+}
+
+@container toolbar (width < 1088px) {
+  .toolbar .fold-image {
+    display: none;
+  }
+
+  .toolbar-overflow .fold-image {
+    display: flex;
+  }
+}
+
+@container toolbar (width < 1047px) {
+  .toolbar .fold-comment {
+    display: none;
+  }
+
+  .toolbar-overflow .fold-comment {
+    display: flex;
+  }
+}
+
+@container toolbar (width < 1015px) {
+  .toolbar .fold-link {
+    display: none;
+  }
+
+  .toolbar-overflow .fold-link {
+    display: flex;
+  }
+}
+
+@container toolbar (width < 983px) {
+  .toolbar .fold-highlight {
+    display: none;
+  }
+
+  .toolbar-overflow .fold-highlight {
+    display: flex;
+  }
+}
+
+@container toolbar (width < 942px) {
+  .toolbar .fold-text-color {
+    display: none;
+  }
+
+  .toolbar-overflow .fold-text-color {
+    display: flex;
+  }
+}
+
+@container toolbar (width < 908px) {
+  .toolbar .fold-underline {
+    display: none;
+  }
+
+  .toolbar-overflow .fold-underline {
+    display: flex;
+  }
+}
+
+@container toolbar (width < 876px) {
+  .toolbar .fold-italic {
+    display: none;
+  }
+
+  .toolbar-overflow .fold-italic {
+    display: flex;
+  }
+}
+
+@container toolbar (width < 844px) {
+  .toolbar .fold-bold {
+    display: none;
+  }
+
+  .toolbar-overflow .fold-bold {
+    display: flex;
+  }
+}
+
+/* Paint format and spelling sit before the zoom chip, so they fold last. */
+@container toolbar (width < 812px) {
+  .toolbar .fold-paint {
+    display: none;
+  }
+
+  .toolbar-overflow .fold-paint {
+    display: flex;
+  }
+}
+
+@container toolbar (width < 780px) {
+  .toolbar .fold-spell {
+    display: none;
+  }
+
+  .toolbar-overflow .fold-spell {
+    display: flex;
+  }
+}
+
+/* Below that only the play button, which is costume, can go. */
+@container toolbar (width < 748px) {
+  .toolbar .tb-spark {
+    display: none;
+  }
+}
+
+/* The header's history and comment buttons give way on narrow windows. */
 @media (max-width: 960px) {
-  .toolbar:not(.toolbar-overflow) .tb-md,
   .header-action {
-    @apply hidden;
-  }
-}
-
-@media (min-width: 961px) {
-  .toolbar-overflow .tb-md {
-    @apply hidden;
-  }
-}
-
-@media (max-width: 860px) {
-  .toolbar:not(.toolbar-overflow) .tb-sm {
-    @apply hidden;
-  }
-}
-
-@media (min-width: 861px) {
-  .toolbar-overflow .tb-sm {
     @apply hidden;
   }
 }
