@@ -213,4 +213,20 @@ describe('Tabs auto-collapse', () => {
     rerender(panel(false))
     expect(collapsed()).toBe(true)
   })
+
+  it('hands focus to the Show button when the panel folds away from under it', () => {
+    const { rerender } = render(panel(false))
+    const add = screen.getByRole('button', { name: 'Add tab' })
+    add.focus()
+    rerender(panel(true))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Show tabs & outlines' }))
+
+    // Focus elsewhere on the page stays put.
+    rerender(panel(false))
+    const elsewhere = document.body.appendChild(document.createElement('button'))
+    elsewhere.focus()
+    rerender(panel(true))
+    expect(document.activeElement).toBe(elsewhere)
+    elsewhere.remove()
+  })
 })

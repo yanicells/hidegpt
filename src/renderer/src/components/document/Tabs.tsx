@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { cn } from '../ui/cn'
 import { MIcon } from '../ui/MaterialIcon'
@@ -44,6 +44,15 @@ export const Tabs = memo(function Tabs({ entries, onNew, onJump, autoCollapse = 
   }
   const shown = open && (!autoCollapse || peek)
   const reading = useReadingSection(panelRef, entries, shown)
+  // Whether focus is in the open panel. Folding removes the focused item, which drops focus to the
+  // page without a blur from a connected element, so this stays true and the Show button takes focus.
+  const heldFocus = useRef(false)
+  const showRef = useRef<HTMLButtonElement>(null)
+  useLayoutEffect(() => {
+    if (shown || !heldFocus.current) return
+    heldFocus.current = false
+    if (!document.activeElement || document.activeElement === document.body) showRef.current?.focus()
+  }, [shown])
   useEffect(() => {
     const query = window.matchMedia?.(NARROW)
     if (!query) return
@@ -75,6 +84,7 @@ export const Tabs = memo(function Tabs({ entries, onNew, onJump, autoCollapse = 
       <aside className="tabs collapsed" aria-label="Document tabs" data-testid="outline">
         <Tip label="Show tabs & outlines" side="right">
           <button
+            ref={showRef}
             type="button"
             className="tabs-show"
             aria-label="Show tabs & outlines"
@@ -91,7 +101,18 @@ export const Tabs = memo(function Tabs({ entries, onNew, onJump, autoCollapse = 
   }
 
   return (
-    <aside className="tabs" aria-label="Document tabs" data-testid="outline" ref={panelRef}>
+    <aside
+      className="tabs"
+      aria-label="Document tabs"
+      data-testid="outline"
+      ref={panelRef}
+      onFocus={() => {
+        heldFocus.current = true
+      }}
+      onBlur={(event) => {
+        if (event.target.isConnected && !event.currentTarget.contains(event.relatedTarget)) heldFocus.current = false
+      }}
+    >
       <Tip label="Hide tabs & outlines">
         <button
           type="button"
