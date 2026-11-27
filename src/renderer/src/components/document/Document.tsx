@@ -85,10 +85,7 @@ export function Document({
         { signal },
       )
       for (const type of ['wheel', 'pointerdown', 'keydown'] as const) {
-        window.addEventListener(type, () => settle.abort(), {
-          signal,
-          passive: true,
-        })
+        window.addEventListener(type, () => settle.abort(), { signal, passive: true })
       }
       window.setTimeout(() => settle.abort(), JUMP_SETTLE_MS)
     },

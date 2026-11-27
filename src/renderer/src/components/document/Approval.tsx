@@ -73,12 +73,7 @@ export const SuggestionCard = memo(function SuggestionCard({ block }: { block: A
   const reply = async (accept: boolean) => {
     if (busy) return
     setSending(true)
-    await dispatch({
-      op: 'resolveApproval',
-      blockId: block.id,
-      accept,
-      answers,
-    })
+    await dispatch({ op: 'resolveApproval', blockId: block.id, accept, answers })
     setSending(false)
   }
 
