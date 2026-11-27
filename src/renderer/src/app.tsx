@@ -15,6 +15,10 @@ import type { MenuAction } from '../../shared/api'
 export function App() {
   // Streamed text re-renders only the document, which reads its blocks itself.
   const snap = useShellSnapshot()
+  // On <html>, not .app, so portalled menus share the surface's font smoothing (base.css).
+  useLayoutEffect(() => {
+    document.documentElement.dataset.route = snap.route.kind
+  }, [snap.route.kind])
   // Tool activity is hidden unless View → "Show non-printing characters" turns it on.
   const [outputOnly, setOutputOnly] = useState(() => localStorage.getItem('hidegpt-output-only') !== 'false')
   const toggleOutputOnly = () =>

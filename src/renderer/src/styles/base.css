@@ -17,7 +17,20 @@ body {
   font-variation-settings: 'opsz' var(--opsz-display);
   @apply text-sm;
   color: var(--text);
+}
+
+/*
+ * Docs smooths Home's text (antialiased) but not the editor's, which draws
+ * heavier. App sets data-route on <html> so menus and tooltips portalled to
+ * <body> follow the surface they open on.
+ */
+:root[data-route='home'] {
   -webkit-font-smoothing: antialiased;
+}
+
+/* Google Sans Text cut, for labels Docs sets in it; surface packages opt in. */
+.cut-text {
+  font-variation-settings: 'opsz' var(--opsz-text);
 }
 
 button,
