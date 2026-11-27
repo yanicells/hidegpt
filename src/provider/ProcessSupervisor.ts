@@ -207,6 +207,9 @@ const make = (
       )
       const pid = handle.pid
       live.add(pid)
+      // The spawner's `exitCode` also settles early, with the process still running, when its stdin
+      // fails (NodeChildProcessSpawner.ts:732-737); that pid then leaves the list before the kill,
+      // and only the release's own kill and the ledger cover it.
       const unlistOnExit = handle.exitCode.pipe(Effect.exit, Effect.andThen(Effect.sync(() => live.delete(pid))))
       // Released before the spawner's own kill, so this stops the server: its tree is read while
       // it still runs, its group is stopped, then whatever left the group (a `setsid` daemon).
@@ -236,7 +239,9 @@ const make = (
                   Effect.andThen(Effect.timeoutOption(ledger.stop(pid), timing.ledgerWriteCap)),
                 )
               : Effect.andThen(
-                  forkObservedIn(scope, { name: 'supervisor.exitWatch' })(Effect.interruptible(unlistOnExit)),
+                  // A fork is interruptible even from this release, so the watch never holds up
+                  // the supervisor's own close (tested).
+                  forkObservedIn(scope, { name: 'supervisor.exitWatch' })(unlistOnExit),
                   Cause.hasInterruptsOnly(exit.cause)
                     ? Effect.void
                     : observed(Effect.failCause(exit.cause), { name: 'supervisor.kill' }),

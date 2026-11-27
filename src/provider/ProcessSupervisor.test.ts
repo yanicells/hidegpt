@@ -16,12 +16,14 @@ import { join } from 'node:path'
 import * as NodeServices from '@effect/platform-node/NodeServices'
 import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Cause from 'effect/Cause'
+import * as Context from 'effect/Context'
 import * as Deferred from 'effect/Deferred'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 import * as Exit from 'effect/Exit'
 import * as Layer from 'effect/Layer'
 import * as PlatformError from 'effect/PlatformError'
+import * as Scope from 'effect/Scope'
 import { ChildProcess, ChildProcessSpawner } from 'effect/process'
 import * as Sink from 'effect/Sink'
 import * as Stream from 'effect/Stream'
@@ -243,6 +245,26 @@ describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
         yield* until(() => supervisor.livePidsSync().length === 0)
         expect(reported().map(({ where }) => where)).toEqual(['supervisor.kill'])
       }).pipe(Effect.provide(supervisor))
+    })
+  })
+
+  it.live('closes at once with a failed-kill server still watched, which stays listed for the stall kill', () => {
+    const denied = PlatformError.systemError({ _tag: 'PermissionDenied', module: 'ChildProcess', method: 'kill' })
+    const { layer: logs } = captureReports()
+    const supervisorLayer = layerOverLedger(UNHURRIED).pipe(
+      Layer.provide(Layer.merge(fakeSpawner(999_997, Effect.fail(denied), Effect.never), fakeLedger(Effect.void))),
+      Layer.provideMerge(logs),
+    )
+    return Effect.gen(function* () {
+      const scope = yield* Scope.make()
+      const supervisor = Context.get(yield* Layer.buildWithScope(supervisorLayer, scope), ProcessSupervisor)
+      yield* Effect.scoped(supervisor.spawn({ provider: 'codex', command: '/bin/sleep', args: ['30'] }))
+      // Let the exit watch start: a scope closed at once would interrupt it before it runs.
+      yield* Effect.sleep('50 millis')
+      const started = Date.now()
+      yield* Scope.close(scope, Exit.void)
+      expect(Date.now() - started).toBeLessThan(500)
+      expect(supervisor.livePidsSync()).toEqual([999_997])
     })
   })
 
