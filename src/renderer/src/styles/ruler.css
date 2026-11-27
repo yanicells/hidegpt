@@ -9,57 +9,71 @@
   background: var(--canvas);
 }
 
+/*
+ * Docs runs the line under the ruler from the vertical ruler's border (x=15)
+ * to 4px short of the scrollbar. The border image's outset paints it past the
+ * track without widening the scroll area; the plain border is the fallback.
+ * Outsets are divided by the zoom, which scales them.
+ */
 .ruler-track {
   @apply relative;
   width: var(--paper-width);
   height: 18px;
   zoom: var(--page-zoom, 1);
-  border-bottom: 1px solid #c7c7c7;
+  border-bottom: 1px solid var(--line);
+  border-image: linear-gradient(var(--line), var(--line)) 0 0 1 0 / 0 0 1px 0 / 0
+    max(0px, calc((100cqw - 4px - var(--page-left) - var(--page-w)) / var(--page-zoom, 1))) 0
+    max(0px, calc((var(--page-left) - 15px) / var(--page-zoom, 1)));
   font-family: var(--font-text);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1;
   color: var(--text-2);
 }
 
-/*
- * Docs' ticks run the full width, margins included: an 8px tick at each half
- * inch and a 4px tick every eighth. Inch numbers sit above their tick.
- */
-.ruler-track::before {
-  content: '';
+/* Rulers.tsx draws the ticks, from 1px left of the page's edge. */
+.ruler-ticks {
   @apply absolute;
-  left: 0;
-  right: 0;
+  left: -1px;
   bottom: 0;
+  width: calc(var(--paper-width) + 1px);
   height: 8px;
-  background:
-    repeating-linear-gradient(90deg, transparent 0 47px, var(--ruler-tick) 47px 48px, transparent 48px 96px) 0 0 / 100%
-      8px no-repeat,
-    repeating-linear-gradient(90deg, var(--ruler-tick) 0 1px, transparent 1px 12px) 0 4px / 100% 4px no-repeat;
+  overflow: visible;
+  shape-rendering: crispEdges;
 }
 
+.ruler-tick-margin {
+  fill: var(--ruler-tick-margin);
+}
+
+.ruler-tick-content {
+  fill: var(--ruler-tick-content);
+}
+
+/* Baseline at y=122.5, as in Docs. */
 .ruler-num {
   @apply absolute;
-  top: 3px;
+  top: 2.5px;
   transform: translateX(-50%);
 }
 
-/* Docs' blue indent markers: a down-pointing triangle at each margin. */
+/*
+ * Docs' blue indent markers: a down-pointing triangle at each margin, its tip
+ * 2px above the line and centred on the margin's tick.
+ */
 .ruler-indent {
   @apply absolute;
-  top: 0;
+  top: 9px;
   width: 0;
   height: 0;
   border-left: 6px solid transparent;
   border-right: 6px solid transparent;
-  border-top: 7px solid var(--docs-blue);
+  border-top: 6px solid var(--docs-blue);
   transform: translateX(-50%);
 }
 
-/* The left one carries the first-line indent bar on top, a 1px gap apart. */
+/* The left one carries the 4px first-line indent bar on top, a 1px gap apart. */
 .ruler-indent-left {
-  top: 4px;
-  left: var(--paper-margin);
+  left: calc(var(--paper-margin) - 0.5px);
 }
 
 .ruler-indent-left::after {
@@ -68,50 +82,48 @@
   left: -6px;
   top: -11px;
   width: 12px;
-  height: 3px;
+  height: 4px;
   background: var(--docs-blue);
 }
 
 .ruler-indent-right {
-  left: calc(100% - var(--paper-margin));
+  left: calc(100% - var(--paper-margin) - 0.5px);
 }
 
+/* Starts at the line under the horizontal ruler, and sticks there like the ruler above it. */
 .vruler {
   @apply sticky shrink-0;
   left: 0;
-  top: 0;
+  top: 19px;
   z-index: 4;
   width: 16px;
   height: 100vh;
-  /* Starts level with the page top (ruler 20 + page gap 16), so "1" sits 1in below the top margin. */
-  margin-top: 36px;
-  border-right: 1px solid var(--outline);
+  margin-top: 19px;
+  border-right: 1px solid var(--line);
   background: var(--canvas);
   font-family: var(--font-text);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-2);
   zoom: var(--page-zoom, 1);
   overflow: hidden;
 }
 
-/* The same ticks, running down the ruler's right edge. */
-.vruler::before {
-  content: '';
+/* The same ticks down the ruler's right edge, from 1px above the page's top edge. */
+.vruler-ticks {
   @apply absolute;
-  top: 0;
+  top: 16px;
   right: 0;
-  bottom: 0;
   width: 8px;
-  background:
-    repeating-linear-gradient(180deg, transparent 0 47px, var(--ruler-tick) 47px 48px, transparent 48px 96px) 100% 0 /
-      8px 100% no-repeat,
-    repeating-linear-gradient(180deg, var(--ruler-tick) 0 1px, transparent 1px 12px) 100% 0 / 4px 100% no-repeat;
+  /* One page, plus its bottom edge's tick. */
+  height: 1057px;
+  shape-rendering: crispEdges;
 }
 
+/* Right: 2px leaves each number's baseline at x=10, as in Docs. */
 .vruler-num {
   @apply absolute;
   left: 0;
-  right: 6px;
+  right: 2px;
   text-align: center;
   transform: translateY(-50%) rotate(-90deg);
 }
