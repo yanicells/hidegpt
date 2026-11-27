@@ -335,6 +335,12 @@ const checkPagination = (js: <A = unknown>(script: string) => Effect.Effect<A>) 
         for (const block of real) {
           const copy = block.cloneNode(true)
           copy.dataset.screenshotCopy = ''
+          // A copy starts as React renders it: the original's breaks were for where it sits.
+          for (const el of copy.querySelectorAll('[data-page-break], [data-page-split]')) {
+            delete el.dataset.pageBreak
+            delete el.dataset.pageSplit
+            for (const name of ['--page-break', '--split-start', '--split-end']) el.style.removeProperty(name)
+          }
           flow.insertBefore(copy, composer)
         }
       }
