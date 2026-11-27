@@ -18,6 +18,9 @@ import type {
   ToolPart,
 } from '@opencode-ai/sdk/v2/client'
 
+import { requestTitle, toolTitle } from '../provider/toolTitles'
+import type { Failure, FailureClass, ToolKind } from '../provider/events'
+import { failureOf } from '../provider/failure'
 import type {
   ApprovalBlock,
   Block,
@@ -133,15 +136,86 @@ export function userBlock(id: string, parts: ReadonlyArray<Part>): UserBlock | n
   return { kind: 'user', id, text, ...(images.length ? { images } : {}), ...(skills.length ? { skills } : {}) }
 }
 
-/** A failed tool shows Docs' sentence, never the tool's own error text. */
-export function toolCallout(part: ToolPart): CalloutBlock {
-  const state = part.state
-  if (state.status === 'error') return { kind: 'callout', id: part.id, title: TOOL_FAILED, body: '' }
-  const body = state.status === 'completed' ? state.output.slice(0, 2000) : state.status
-  return { kind: 'callout', id: part.id, title: `Ran ${part.tool}`, body }
+/**
+ * OpenCode's built-in tools by kind; null draws no callout (the question tool, whose
+ * card shows it, and the to-do list). Kinds follow T3 Code
+ * (packages/provider-opencode/src/server/toolItems.ts, openCodeToolProjectionKind) at commit 5c6f2f12.
+ * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+ */
+const BUILT_IN_TOOLS = new Map<string, ToolKind | null>([
+  ['bash', 'command'],
+  ['edit', 'file_change'],
+  ['write', 'file_change'],
+  ['patch', 'file_change'],
+  ['apply_patch', 'file_change'],
+  ['multiedit', 'file_change'],
+  ['read', 'file_read'],
+  ['glob', 'file_search'],
+  ['grep', 'file_search'],
+  ['list', 'file_search'],
+  ['lsp', 'file_search'],
+  ['webfetch', 'web_fetch'],
+  ['websearch', 'web_search'],
+  ['codesearch', 'web_search'],
+  ['task', 'subagent'],
+  ['question', null],
+  ['todowrite', null],
+  ['todoread', null],
+])
+
+/**
+ * The kind of step a tool part is, or null when it draws no callout. OpenCode names a
+ * connected app's tool `{server}_{tool}` (`notion_search`), so any other name with an
+ * underscore is one.
+ */
+function toolKind(name: string): ToolKind | null {
+  const normalized = name.toLowerCase()
+  const builtIn = BUILT_IN_TOOLS.get(normalized)
+  if (builtIn !== undefined) return builtIn
+  return normalized.startsWith('mcp__') || normalized.includes('_') ? 'mcp_tool' : 'other'
 }
 
-const TOOL_FAILED = 'A step didn’t finish'
+/**
+ * A `read` result without OpenCode's `<path>…<type>…<content>` envelope.
+ * Adapted from T3 Code (packages/provider-opencode/src/server/toolItems.ts, nativeReadOutput) at commit 5c6f2f12.
+ * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+ */
+function readOutput(output: string): string {
+  const header = /^<path>[^\r\n]+<\/path>\r?\n<type>(directory|file)<\/type>\r?\n/.exec(output)
+  if (header === null) return output
+  const body = output.slice(header[0].length)
+  // File lines are numbered; only a closing tag on its own line ends the envelope.
+  const envelope =
+    header[1] === 'directory'
+      ? /^<entries>\r?\n([\s\S]*?)\r?\n<\/entries>(?=\r?\n|$)/.exec(body)
+      : /^<content>(?:\r?\n)?([\s\S]*?)\r?\n<\/content>(?=\r?\n|$)/.exec(body)
+  // OpenCode can append instructions after the envelope; keep that suffix verbatim.
+  return envelope === null ? output : envelope[1] + body.slice(envelope[0].length)
+}
+
+/** A subtask's description, cut short like a Claude card's preview. */
+const clip = (text: string) => (text.length > 200 ? `${text.slice(0, 199).trimEnd()}…` : text)
+
+/**
+ * A tool part as a callout, or null for a tool the page does not show. A pending or
+ * running step says so and shows nothing yet; a finished one shows its output, and a
+ * failed one says so, never with the tool's own error text.
+ */
+export function toolCallout(part: ToolPart): CalloutBlock | null {
+  const kind = toolKind(part.tool)
+  if (!kind) return null
+  const state = part.state
+  const status = state.status === 'completed' ? 'completed' : state.status === 'error' ? 'failed' : 'running'
+  const title = toolTitle(kind, status, part.tool)
+  // A subtask shows its short description, never its brief or its report (which carries
+  // OpenCode's `<task_metadata>` session id), as on Claude.
+  if (kind === 'subagent') {
+    const description = state.input.description
+    return { kind: 'callout', id: part.id, title, body: typeof description === 'string' ? clip(description) : '' }
+  }
+  const output = state.status !== 'completed' ? '' : kind === 'file_read' ? readOutput(state.output) : state.output
+  return { kind: 'callout', id: part.id, title, body: output.slice(0, 2000) }
+}
 
 export function blocksFromMessages(messages: ReadonlyArray<MessageWithParts>): Block[] {
   const blocks: Block[] = []
@@ -154,7 +228,8 @@ export function blocksFromMessages(messages: ReadonlyArray<MessageWithParts>): B
     const text = messageText(message.parts, '\n\n')
     if (text) blocks.push({ kind: 'agent', id: message.info.id, text })
     for (const part of message.parts) {
-      if (part.type === 'tool') blocks.push(toolCallout(part))
+      const callout = part.type === 'tool' ? toolCallout(part) : null
+      if (callout) blocks.push(callout)
     }
   }
   return blocks
@@ -169,14 +244,30 @@ export function sessionTitle(title: string | undefined, messages: ReadonlyArray<
 
 export const permissionBlockId = (requestId: string) => `approval-${requestId}`
 
+/**
+ * The kind of step an OpenCode permission asks for, so its card asks in the same
+ * words as a Claude one (`requestTitle`); never the permission's own name.
+ * Adapted from T3 Code (packages/provider-opencode/src/server/adapter.ts, openCodePermissionRequestKind)
+ * at commit 5c6f2f12.
+ * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+ */
+function permissionKind(permission: string): ToolKind {
+  const normalized = permission.toLowerCase()
+  if (['edit', 'write', 'patch', 'apply_patch'].includes(normalized)) return 'file_change'
+  if (['read', 'glob', 'grep', 'list', 'lsp', 'external_directory'].includes(normalized)) return 'file_read'
+  if (normalized === 'bash') return 'command'
+  if (normalized === 'webfetch' || normalized === 'websearch' || normalized === 'codesearch') return 'web_search'
+  return 'other'
+}
+
+/** A permission the server asks for, as a suggestion card that quotes what it would touch. */
 export function permissionBlock(request: PermissionRequest): ApprovalBlock {
-  const patterns = request.patterns.length ? `: ${request.patterns.join(', ')}` : ''
   return {
     kind: 'approval',
     id: permissionBlockId(request.id),
-    suggestion: 'format',
-    title: `Allow ${request.permission}${patterns}?`,
-    body: 'More access is needed to continue.',
+    suggestion: 'add',
+    title: requestTitle(permissionKind(request.permission)),
+    body: request.patterns.join(', '),
     fields: [],
     questions: [],
     resolved: null,
@@ -190,7 +281,7 @@ export function questionBlock(request: QuestionRequest): ApprovalBlock {
     kind: 'approval',
     id: permissionBlockId(request.id),
     suggestion: 'question',
-    title: 'Waiting for your response',
+    title: 'Needs your reply',
     body:
       request.questions
         .map((question) => question.question)
@@ -240,7 +331,7 @@ export function imagePart(path: string): FilePartInput {
   }
 }
 
-/** The fields of an OpenCode session error's `data` that the sentence uses. */
+/** The fields of an OpenCode session error's `data` that Docs reads. */
 const ProviderErrorData = Schema.Struct({
   message: Schema.optionalKey(Schema.String),
   statusCode: Schema.optionalKey(Schema.Number),
@@ -248,24 +339,46 @@ const ProviderErrorData = Schema.Struct({
 })
 const decodeProviderErrorData = Schema.decodeUnknownOption(ProviderErrorData)
 
+type ProviderErrorPayload = { readonly name: string; readonly data?: unknown } | undefined
+
+const errorData = (error: ProviderErrorPayload) =>
+  Option.getOrElse(decodeProviderErrorData(error?.data), (): typeof ProviderErrorData.Type => ({}))
+
 /**
- * The model provider's error as one sentence (OpenCode stores `<none>` when it
- * could not read the provider's body).
+ * The model provider's error as one line, for the log only: it can name the vendor
+ * and carry URLs (OpenCode stores `<none>` when it could not read the provider's body).
  * Adapted from T3 Code (packages/provider-opencode/src/server/providerErrorMessage.ts) at commit 8a14762c.
  * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
  */
-export function readableProviderError(error: { name: string; data?: unknown } | undefined): string {
-  if (!error) return 'The assistant ran into an error.'
-  const data = Option.getOrElse(decodeProviderErrorData(error.data), (): typeof ProviderErrorData.Type => ({}))
+function readableProviderError(error: ProviderErrorPayload): string {
+  if (!error) return 'No error was given.'
+  const data = errorData(error)
   const message = data.message?.trim() ?? ''
   if (message && message.toLowerCase() !== '<none>') return message
   const status = data.statusCode
-  const body = data.responseBody
-  const title = body
+  const title = data.responseBody
     ?.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]
     ?.replace(/\s+/g, ' ')
     .trim()
   if (title) return status !== undefined ? `${title} (HTTP ${status}).` : title
-  if (status !== undefined) return `The model provider failed the request (HTTP ${status}).`
-  return message ? 'The model provider failed the request and did not include an error message.' : error.name
+  if (status !== undefined) return `The request failed (HTTP ${status}).`
+  return message ? 'The request failed with no error message.' : error.name
 }
+
+/**
+ * The class of a session error, from its name and HTTP status: a 429 is a usage
+ * limit, as in T3 Code (packages/provider-opencode/src/server/adapter.ts, `session.error`).
+ */
+function providerFailureClass(error: ProviderErrorPayload): FailureClass {
+  if (!error) return 'unknown'
+  const status = errorData(error).statusCode
+  if (error.name === 'ProviderAuthError' || status === 401 || status === 403) return 'auth'
+  if (status === 429) return 'usage_limit'
+  if (error.name === 'APIError' || (status !== undefined && status >= 500)) return 'provider_error'
+  if (error.name === 'ContextOverflowError' || error.name === 'MessageOutputLengthError') return 'validation_error'
+  return 'unknown'
+}
+
+/** Why a session failed: a class Docs words itself, with the provider's text (redacted) for the log. */
+export const providerFailure = (error: ProviderErrorPayload): Failure =>
+  failureOf(providerFailureClass(error), readableProviderError(error))

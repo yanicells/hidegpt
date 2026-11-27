@@ -94,6 +94,17 @@ describe('fromLegacy', () => {
     }).pipe(Effect.scoped),
   )
 
+  it.effect('passes a failure the adapter classed itself through unchanged', () =>
+    Effect.gen(function* () {
+      const { session, push, turnEvents } = yield* setup()
+      yield* session.send('t', 'turn-1', INPUT, SETTINGS)
+      // Pattern matching the text would call this `auth`; the adapter's own class wins.
+      const failure = { class: 'provider_error', detail: 'Please sign in', retryable: true, resetAt: null } as const
+      yield* push({ type: 'turnEnded', threadId: 't', error: 'Please sign in', failure })
+      expect(turnEvents().at(-1)).toMatchObject({ type: 'turn.ended', status: 'failed', failure })
+    }).pipe(Effect.scoped),
+  )
+
   it.effect('holds Stop pressed before the provider accepted the turn, then stops it', () =>
     Effect.gen(function* () {
       const gate = yield* Deferred.make<void>()

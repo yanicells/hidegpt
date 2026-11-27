@@ -36,6 +36,8 @@ const BANNED = new Set([...BANNED_WORDS, ...PROSE_WORDS])
 
 /** A run of letters split where its case changes: "ChatGPTPlus" is "Chat", "GPT", "Plus". */
 const CASE_PARTS = /\p{Lu}+(?=\p{Lu}\p{Ll})|\p{Lu}?\p{Ll}+|\p{Lu}+/gu
+/** A capital run right before lower case, read as a word of its own: "AIsearch", "myGPTs". */
+const CAPITAL_RUNS = /\p{Lu}{2,}(?=\p{Ll})/gu
 
 /** `word` lowercased, if it (or it less a plural "s") is banned. */
 function banned(word: string): string | null {
@@ -49,13 +51,35 @@ function banned(word: string): string | null {
  * Case-insensitive and on whole words, where a word is a run of letters, so "_", "-" and
  * digits split words ("claude_ai", "gpt5", "GPT-4o"). A run that is not banned whole is
  * also checked by its case parts ("OpenAI", "ChatGPTPlus"), so "said" and "maintain" pass
- * but "OpenCode" and "useMcp" do not. A plural "s" counts too ("agents", "models").
+ * but "OpenCode" and "useMcp" do not. Adjacent case parts are also tried joined (see
+ * `bannedParts`), so "useOpenCode" counts. A capital run before lower case is checked whole
+ * too ("AIsearch", "myGPTs"), while an all-caps word stays one word ("AIRTABLE", "GMAIL").
+ * Within a run, hits keep their order and repeats ("myGPTsAgent" is "gpt", "agent").
+ * A plural "s" counts too ("agents", "models"). The text is NFKC-normalized and stripped of
+ * invisible format characters first, so fullwidth letters and soft hyphens hide nothing.
  */
 export function stealthViolations(text: string): string[] {
-  return Array.from(text.matchAll(/\p{L}+/gu), ([run]) => {
+  const visible = text.normalize('NFKC').replace(/\p{Cf}/gu, '')
+  return Array.from(visible.matchAll(/\p{L}+/gu), ([run]) => {
     const whole = banned(run)
-    return whole ? [whole] : bannedParts(Array.from(run.matchAll(CASE_PARTS), ([part]) => part))
+    if (whole) return [whole]
+    const parts = bannedParts(Array.from(run.matchAll(CASE_PARTS)))
+    // A capital-run hit over a part hit of the same word is that word seen twice ("myGPTs":
+    // "GPTs" and "GPT"); over a different word it is a word of its own ("MCPrompt": "mcp", "prompt").
+    const capitals = Array.from(run.matchAll(CAPITAL_RUNS), hitOf).filter(
+      (hit): hit is Hit =>
+        hit !== null && !parts.some((part) => part.word === hit.word && hit.at < part.end && part.at < hit.end),
+    )
+    return [...parts, ...capitals].sort((a, b) => a.at - b.at).map((hit) => hit.word)
   }).flat()
+}
+
+/** A banned word found in a run, with where it starts and ends. */
+type Hit = { readonly at: number; readonly end: number; readonly word: string }
+
+const hitOf = (match: RegExpExecArray): Hit | null => {
+  const word = banned(match[0])
+  return word ? { at: match.index, end: match.index + match[0].length, word } : null
 }
 
 /**
@@ -63,13 +87,16 @@ export function stealthViolations(text: string): string[] {
  * banned compound split by its own capitals counts ("useOpenCode" is "use", "OpenCode"), while
  * parts that only join into ordinary words ("OpenCase") stay apart.
  */
-function bannedParts(parts: ReadonlyArray<string>): string[] {
-  const found: string[] = []
+function bannedParts(parts: ReadonlyArray<RegExpExecArray>): Hit[] {
+  const found: Hit[] = []
   for (let index = 0; index < parts.length; index += 1) {
-    const joined = index + 1 < parts.length ? banned(parts[index]! + parts[index + 1]!) : null
-    const word = joined ?? banned(parts[index]!)
-    if (word) found.push(word)
-    if (joined) index += 1
+    const part = parts[index]!
+    const next = parts[index + 1]
+    const joinedWord = next ? banned(part[0] + next[0]) : null
+    const hit =
+      next && joinedWord ? { at: part.index, end: next.index + next[0].length, word: joinedWord } : hitOf(part)
+    if (hit) found.push(hit)
+    if (joinedWord) index += 1
   }
   return found
 }

@@ -18,6 +18,27 @@ describe('stealth gate', () => {
     expect(stealthViolations('Using mcp__github__create_issue')).toEqual(['mcp'])
   })
 
+  it('reads a capital run before lower case as its own word, but keeps all-caps words whole', () => {
+    expect(stealthViolations('AIsearch')).toEqual(['ai'])
+    expect(stealthViolations('myGPTs')).toEqual(['gpt'])
+    expect(stealthViolations('AIs')).toEqual(['ai'])
+    // In order of appearance, repeats kept.
+    expect(stealthViolations('myGPTsAgent')).toEqual(['gpt', 'agent'])
+    expect(stealthViolations('AIsearchAI')).toEqual(['ai', 'ai'])
+    // A capital run over a different banned word is caught too, but the same word counts once.
+    expect(stealthViolations('MCPrompt')).toEqual(['mcp', 'prompt'])
+    expect(stealthViolations('AIModel')).toEqual(['ai', 'model'])
+    for (const text of ['GMAIL SEND EMAIL', 'AIRTABLE', 'MAINTAINERS', 'BOTANICAL', 'DETAILS']) {
+      expect(isStealthy(text), text).toBe(true)
+    }
+  })
+
+  it('sees through fullwidth letters and invisible format characters', () => {
+    expect(stealthViolations('\uFF23laude')).toEqual(['claude'])
+    expect(stealthViolations('Clau\u00ADde Code')).toEqual(['claude'])
+    expect(stealthViolations('Op\u200DenAI')).toEqual(['openai'])
+  })
+
   it('joins adjacent case parts that make a banned compound, and only those', () => {
     expect(stealthViolations('useOpenCode')).toEqual(['opencode'])
     expect(stealthViolations('openCodeServer')).toEqual(['opencode'])
@@ -25,6 +46,7 @@ describe('stealth gate', () => {
     expect(stealthViolations('askOpenAi')).toEqual(['openai'])
     expect(stealthViolations('myHideGptNotes')).toEqual(['hidegpt'])
     expect(stealthViolations('reOpenCodeBook')).toEqual(['opencode'])
+    expect(stealthViolations('useOpenCodeAIsearch')).toEqual(['opencode', 'ai'])
     for (const text of ['OpenCase', 'openSession', 'codeReview', 'chatRoom']) {
       expect(stealthViolations(text), text).toEqual([])
     }

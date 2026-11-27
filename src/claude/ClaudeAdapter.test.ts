@@ -19,6 +19,7 @@ import type {
   LegacyAdapterEvent as AdapterEvent,
   LegacyProviderSession as ProviderSession,
 } from '../provider/legacyEvents'
+import { stealthViolations } from '../shared/stealth'
 import * as ClaudeAdapter from './ClaudeAdapter'
 import {
   assistantFrame,
@@ -203,14 +204,29 @@ describe('ClaudeAdapter', () => {
     }),
   )
 
-  it.effect('reports a failed result in Claude words', () =>
+  it.effect('ends a failed turn with its class, and the provider text only as the redacted detail', () =>
     Effect.gen(function* () {
       const { fake, session, events } = yield* open({ reply: null })
       yield* send(session, DOC, 'Hi')
       yield* until(() => fake.queries[0]?.prompts.length === 1)
-      fake.queries[0]?.push(resultFrame({ subtype: 'error_max_turns', is_error: true, errors: [] }))
+      fake.queries[0]?.push(
+        resultFrame({
+          subtype: 'error_max_turns',
+          is_error: true,
+          errors: ['Claude reached max turns, see https://x.test/a?key=secret', '[ede_diagnostic] trace 42'],
+        }),
+      )
       yield* until(() => ended(events).length === 1)
-      expect(ended(events)[0]).toMatchObject({ error: 'Claude stopped after reaching its step limit.' })
+      expect(ended(events)[0]).toEqual({
+        type: 'turnEnded',
+        threadId: DOC,
+        failure: {
+          class: 'unknown',
+          detail: 'Claude reached max turns, see https://x.test/a',
+          retryable: null,
+          resetAt: null,
+        },
+      })
     }),
   )
 
@@ -311,7 +327,7 @@ describe('ClaudeAdapter', () => {
       yield* until(() => events.some((event) => event.type === 'block' && event.block.kind === 'approval'))
       expect(events.find((event) => event.type === 'block')).toMatchObject({
         threadId: DOC,
-        block: { id: 'approval-toolu_1', title: 'Allow Bash?', body: 'git status', resolved: null },
+        block: { id: 'approval-toolu_1', title: 'Run this command?', body: 'git status', resolved: null },
       })
       yield* session.respond(DOC, 'approval-toolu_1', { accept: true, answers: {} })
       expect(yield* Effect.promise(() => asked.result)).toEqual({
@@ -321,7 +337,7 @@ describe('ClaudeAdapter', () => {
     }),
   )
 
-  it.effect("never puts the SDK's own prompt sentences, or a vendor-named MCP server, on the card", () =>
+  it.effect('asks by tool kind, never with the tool name, its display name or the SDK sentences', () =>
     Effect.gen(function* () {
       const { fake, session, events } = yield* open({ reply: null })
       yield* send(session, DOC, 'Look it up')
@@ -340,6 +356,12 @@ describe('ClaudeAdapter', () => {
         displayName: 'Claude: search Notion',
       })
       fake.queries[0]!.askTool('mcp__x__claude_search', { query: 'syllabus' }, 'toolu_c', prompt)
+      fake.queries[0]!.askTool('mcp__openai__ask_gpt', { query: 'week 3' }, 'toolu_o', {
+        ...prompt,
+        displayName: 'Copilot: run',
+      })
+      fake.queries[0]!.askTool('Agent', { description: 'Find readings', prompt: 'Search' }, 'toolu_a', prompt)
+      fake.queries[0]!.askTool('WebFetch', { url: 'https://x.test', prompt: 'Summarize' }, 'toolu_f', prompt)
       // A Task card shows its short description, and a long input is clipped.
       fake.queries[0]!.askTool(
         'Task',
@@ -348,18 +370,21 @@ describe('ClaudeAdapter', () => {
         prompt,
       )
       fake.queries[0]!.askTool('Bash', { command: 'x'.repeat(500) }, 'toolu_b', prompt)
-      yield* until(() => events.filter((event) => event.type === 'block').length === 5)
+      yield* until(() => events.filter((event) => event.type === 'block').length === 8)
       const cards = events.flatMap((event) =>
         event.type === 'block' && event.block.kind === 'approval' ? [event.block] : [],
       )
       expect(cards.map((card) => [card.title, card.body])).toEqual([
-        ['Allow Search the web?', 'week 3 readings'],
-        ['Allow notion-search?', 'notes'],
-        ['Allow this tool?', 'syllabus'],
-        ['Allow Task?', 'Summarize week 3'],
-        ['Allow Bash?', `${'x'.repeat(199)}…`],
+        ['Look this up online?', 'week 3 readings'],
+        ['Use Notion?', 'notes'],
+        ['Use X?', 'syllabus'],
+        ['Allow this step?', 'week 3'],
+        ['Allow this step?', 'Find readings'],
+        ['Look this up online?', 'https://x.test'],
+        ['Allow this step?', 'Summarize week 3'],
+        ['Run this command?', `${'x'.repeat(199)}…`],
       ])
-      for (const card of cards) expect(JSON.stringify(card)).not.toMatch(/claude|anthropic/i)
+      for (const card of cards) expect(stealthViolations(`${card.title}\n${card.body}`)).toEqual([])
     }),
   )
 

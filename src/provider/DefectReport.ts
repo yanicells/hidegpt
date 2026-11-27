@@ -6,6 +6,11 @@ import * as Random from 'effect/Random'
 
 import { bannerMessage, type CommandRejectedError, DEFECT_MESSAGE, isExpectedError, type ProviderError } from './errors'
 
+/** Eight hex digits that tie a line on screen to its line in the log. */
+export const newReportId: Effect.Effect<string> = Effect.map(Random.nextIntBetween(0, 0xffff_ffff), (id) =>
+  id.toString(16).padStart(8, '0'),
+)
+
 /**
  * Logs the defect parts of a cause under a fresh report id, and returns the
  * id. Like T3 Code's `DefectReporter`, only defects are logged: a die, or a
@@ -14,7 +19,7 @@ import { bannerMessage, type CommandRejectedError, DEFECT_MESSAGE, isExpectedErr
  */
 export const reportDefect = (cause: Cause.Cause<unknown>): Effect.Effect<string> =>
   Effect.gen(function* () {
-    const reportId = (yield* Random.nextIntBetween(0, 0xffff_ffff)).toString(16).padStart(8, '0')
+    const reportId = yield* newReportId
     const defects = cause.reasons.filter(
       (reason) => reason._tag === 'Die' || (reason._tag === 'Fail' && !isExpectedError(reason.error)),
     )

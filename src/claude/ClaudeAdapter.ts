@@ -315,7 +315,7 @@ export function make(
           const questions = tool === 'AskUserQuestion' ? askedQuestions(input) : null
           const decision = yield* Deferred.make<PermissionResult>()
           approvals.set(id, { threadId, input, questions, decision })
-          const block = questions ? questionBlock(id, questions) : permissionBlock(id, tool, input, options.displayName)
+          const block = questions ? questionBlock(id, questions) : permissionBlock(id, tool, input)
           yield* emit({ type: 'block', threadId, block })
           // Claude Code withdraws the request when the turn stops.
           const withdrawn = Effect.callback<PermissionResult>((resume) => {
@@ -400,9 +400,10 @@ export function make(
               yield* afterTurn(live)
               if (!live.turn) continue
               live.turn = false
-              const failed = live.stopping ? undefined : emission.error
+              const failure = live.stopping ? undefined : emission.failure
               live.stopping = false
-              yield* emit({ type: 'turnEnded', threadId: live.threadId, ...(failed ? { error: failed } : {}) })
+              // Classed here; the session manager words it and logs the provider's text.
+              yield* emit({ type: 'turnEnded', threadId: live.threadId, ...(failure ? { failure } : {}) })
             }
           }
         })

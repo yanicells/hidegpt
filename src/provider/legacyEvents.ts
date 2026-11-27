@@ -7,7 +7,7 @@ import * as Stream from 'effect/Stream'
 
 import type { ApprovalBlock, Block, Capabilities, DocSummary, ProviderId, Skill } from '../shared/model'
 import type { ProviderError } from './errors'
-import type { AssistantItem, Item, RequestItem, RequestKind, ToolItem } from './events'
+import type { AssistantItem, Failure, Item, RequestItem, RequestKind, ToolItem } from './events'
 import { classify } from './failure'
 import type {
   AdapterEvent,
@@ -46,7 +46,15 @@ export type TextTarget = { readonly kind: 'agent' } | { readonly kind: 'callout'
 export type LegacyThreadEvent =
   | { readonly type: 'turnStarted'; readonly threadId: string; readonly nativeTurnId?: string }
   /** The turn's end. The tracker drops it when it names a turn that is not the open one. */
-  | { readonly type: 'turnEnded'; readonly threadId: string; readonly error?: string; readonly nativeTurnId?: string }
+  | {
+      readonly type: 'turnEnded'
+      readonly threadId: string
+      /** The provider's own text, classed here by pattern. */
+      readonly error?: string
+      /** A failure the adapter classed itself from typed fields; wins over `error`. */
+      readonly failure?: Failure
+      readonly nativeTurnId?: string
+    }
   /** Insert or replace by id; `replaces` names the optimistic echo a server user message confirms. */
   | { readonly type: 'block'; readonly threadId: string; readonly block: Block; readonly replaces?: string | null }
   | {
@@ -298,9 +306,11 @@ function translate(event: LegacyAdapterEvent, { tracker, emit, toItems, openRequ
     case 'turnEnded':
       return tracker
         .end(event.threadId, {
-          ...(event.error === undefined
-            ? { status: 'completed', failure: null }
-            : { status: 'failed', failure: classify({ message: event.error }) }),
+          ...(event.failure
+            ? { status: 'failed', failure: event.failure }
+            : event.error === undefined
+              ? { status: 'completed', failure: null }
+              : { status: 'failed', failure: classify({ message: event.error }) }),
           nativeTurnId: event.nativeTurnId ?? null,
         })
         .pipe(

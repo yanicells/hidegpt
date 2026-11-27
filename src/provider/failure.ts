@@ -86,6 +86,19 @@ export function classify(error: NativeError): Failure {
   }
 }
 
+/**
+ * A failure an adapter classed from its provider's own fields (status codes, error
+ * kinds), with the provider text redacted and bounded the same way.
+ */
+export function failureOf(failureClass: FailureClass, message: string): Failure {
+  return {
+    class: failureClass,
+    detail: boundedText(message, MAX_DETAIL_LENGTH),
+    retryable: RULES.find((rule) => rule.class === failureClass)?.retryable ?? null,
+    resetAt: null,
+  }
+}
+
 function redactUrl(match: string): string {
   const trailing = /[),.;!?]+$/u.exec(match)?.[0] ?? ''
   const candidate = trailing.length === 0 ? match : match.slice(0, -trailing.length)

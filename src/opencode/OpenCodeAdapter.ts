@@ -23,9 +23,11 @@ import {
   type ProviderError,
   ProviderTimeoutError,
 } from '../provider/errors'
-import { logDefects, reportDefect } from '../provider/DefectReport'
+import { logDefects, newReportId, reportDefect } from '../provider/DefectReport'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
+import type { Failure } from '../provider/events'
 import type { Catalog } from '../provider/ProviderAdapter'
+import { presentFailure } from '../main/session/present'
 import type {
   LegacyAdapterEvent as AdapterEvent,
   LegacyOpenedThread as OpenedThread,
@@ -44,7 +46,7 @@ import {
   permissionBlockId,
   questionBlock,
   questionId,
-  readableProviderError,
+  providerFailure,
   sessionTitle,
   skillPart,
   splitModelKey,
@@ -329,16 +331,19 @@ export function make(connect: Connect): ProviderAdapter {
         ),
       )
 
-      const endTurn = (sessionId: string, error?: string): ReadonlyArray<AdapterEvent> => {
+      const endTurn = (sessionId: string, failure?: Failure): ReadonlyArray<AdapterEvent> => {
         live.delete(sessionId)
         busy.delete(sessionId)
-        return [{ type: 'turnEnded', threadId: sessionId, ...(error ? { error } : {}) }]
+        return [{ type: 'turnEnded', threadId: sessionId, ...(failure ? { failure } : {}) }]
       }
 
       const onPart = (part: Part): ReadonlyArray<AdapterEvent> => {
         const state = liveOf(part.sessionID)
         const threadId = part.sessionID
-        if (part.type === 'tool') return [{ type: 'block', threadId, block: toolCallout(part) }]
+        if (part.type === 'tool') {
+          const block = toolCallout(part)
+          return block ? [{ type: 'block', threadId, block }] : []
+        }
         if (part.type !== 'text' && part.type !== 'file') return []
         if (state.own.has(part.messageID)) return []
         if (state.roles.get(part.messageID) === 'user') {
@@ -430,10 +435,17 @@ export function make(connect: Connect): ProviderAdapter {
             return emitAll(endTurn(event.properties.sessionID))
           case 'session.error': {
             const { sessionID, error } = event.properties
-            const aborted = error?.name === 'MessageAbortedError'
-            const message = aborted ? undefined : readableProviderError(error)
-            if (!sessionID) return message ? emit({ type: 'notice', message }) : Effect.void
-            return emitAll(endTurn(sessionID, message))
+            if (error?.name === 'MessageAbortedError') return sessionID ? emitAll(endTurn(sessionID)) : Effect.void
+            const failure = providerFailure(error)
+            if (sessionID) return emitAll(endTurn(sessionID, failure))
+            // No turn to end: the banner gets Docs' sentence, the log the provider's text, both one report id.
+            return Effect.gen(function* () {
+              const reportId = yield* newReportId
+              yield* Effect.logWarning('Provider error').pipe(
+                Effect.annotateLogs({ reportId, failureClass: failure.class, detail: failure.detail }),
+              )
+              yield* emit({ type: 'notice', message: presentFailure({ ...failure, reportId }) })
+            })
           }
           case 'permission.asked': {
             const request = event.properties
