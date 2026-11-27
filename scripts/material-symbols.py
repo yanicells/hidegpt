@@ -2,13 +2,15 @@
 
 Docs draws its chrome with Material Symbols Outlined at weight 400, grade 0,
 unfilled, in 20px and 24px optical sizes. This pins those axes, extracts the
-outlines of only the icons listed below, and writes them as SVG paths
-(viewBox "0 -960 960 960", same as Google's own SVG exports).
+outlines of only the icons listed below, each at only the optical sizes the
+renderer draws it at, and writes them as SVG paths (viewBox "0 -960 960 960",
+same as Google's own SVG exports).
 
 Usage (dev only; fonttools is not an app dependency):
-  python3 -m venv /tmp/ms && /tmp/ms/bin/pip install fonttools brotli
-  /tmp/ms/bin/python scripts/material-symbols.py path/to/material-symbols-outlined.woff2
-The woff2 comes from the `material-symbols` npm package (Apache-2.0).
+  uv run --with fonttools --with brotli python scripts/material-symbols.py path/to/material-symbols-outlined.woff2
+  pnpm exec oxfmt src/renderer/src/components/ui/symbols.ts
+The woff2 comes from the `material-symbols` npm package (Apache-2.0); 0.49.0
+reproduces the checked-in paths.
 """
 
 import sys
@@ -20,28 +22,31 @@ from fontTools.pens.transformPen import TransformPen
 from fontTools.ttLib import TTFont
 from fontTools.varLib.instancer import instantiateVariableFont
 
-NAMES = """
-menu apps search photo_camera slideshow list_alt unfold_more more_vert view_list view_module sort_by_alpha folder folder_open
-arrow_drop_down arrow_right arrow_back add remove check close group star drive_file_move
-cloud_done history comment videocam lock undo redo print spellcheck format_paint format_bold
-format_italic format_underlined format_color_text ink_highlighter link add_comment image
-format_align_left format_line_spacing checklist format_list_bulleted format_list_numbered
-format_indent_decrease format_indent_increase format_clear edit keyboard_arrow_up article
-file_copy person_add mail download radio_button_checked add_to_drive delete offline_pin info
-shield language description content_cut content_copy content_paste select_all find_replace
-visibility table smart_button add_link draw bar_chart horizontal_rule mood
-special_character functions bookmark toc text_format format_size view_column border_style
-tag crop_rotate translate mic notifications settings accessibility_new monitoring help
-school extension code keyboard rate_review difference format_quote format_list_numbered_rtl
-dictionary person logout manage_accounts edit_note account_circle text_fields
-format_align_center format_align_right format_align_justify page_header page_footer
-insert_page_break expand_more chevron_right list cloud_sync water_drop shield_person
-content_paste_go add_reaction keep find_in_page keyboard_arrow_down open_in_new
-drive_file_rename_outline text_rotation_none
-""".split()
-
-# Icons Docs draws filled (File > New and Print, Drive's folders); emitted as `<name>_fill`.
-FILLED = "article folder print table slideshow list_alt draw ink_highlighter".split()
+# The icons the renderer draws, by optical size: MIcon draws sizes up to 20px
+# from the 20px cut and larger ones from the 24px cut. MaterialIcon.test.ts fails
+# when these lists and the renderer's MIcon sites disagree. A `_fill` name is the
+# filled glyph (FILL 1), as Docs draws File > New, Print and Drive's folders.
+OPSZ = {
+    20: """
+accessibility_new add add_comment add_link add_to_drive arrow_drop_down arrow_right article
+article_fill bar_chart bookmark border_style check checklist chevron_right close cloud_done
+cloud_sync code content_copy content_cut content_paste crop_rotate delete description dictionary
+difference download draw draw_fill drive_file_move edit edit_note extension file_copy find_replace
+folder format_align_left format_bold format_clear format_color_text format_indent_decrease
+format_indent_increase format_italic format_line_spacing format_list_bulleted format_list_numbered
+format_list_numbered_rtl format_paint format_quote format_underlined functions help history
+horizontal_rule image info ink_highlighter insert_page_break keyboard keyboard_arrow_up language
+link list list_alt_fill lock logout mail mic monitoring mood more_vert notifications offline_pin
+page_header person_add photo_camera print print_fill radio_button_checked rate_review redo remove
+school search select_all settings shield_person slideshow_fill smart_button special_character
+spellcheck star table table_fill tag text_fields text_format toc translate undo view_column
+visibility water_drop
+""".split(),
+    24: """
+apps arrow_back arrow_drop_down close comment folder folder_fill help history menu more_vert
+search settings sort_by_alpha unfold_more videocam view_list view_module
+""".split(),
+}
 
 # Keys drawn from a different glyph. Docs' Paint format tool is a paint roller;
 # the font's own format_paint is a brush.
@@ -74,39 +79,44 @@ class DropEmptySegments(FilterPen):
             self._segment("qCurveTo", *points)
 
 
-def paths(font_path: str, opsz: int, fill: int = 0, names: list[str] = NAMES) -> dict[str, str]:
-    font = TTFont(font_path)
-    font = instantiateVariableFont(font, {"FILL": fill, "GRAD": 0, "wght": 400, "opsz": opsz})
-    glyphs = font.getGlyphSet()
+def paths(font_path: str, opsz: int, names: list[str]) -> dict[str, str]:
+    """Path data per name at one optical size; `_fill` names come from the FILL 1 instance."""
     out = {}
-    for name in names:
-        glyph = ALIASES.get(name, name)
-        if glyph not in glyphs:
-            sys.exit(f"missing icon: {glyph}")
-        pen = SVGPathPen(glyphs, ntos=lambda n: str(round(n)))
-        # Font units are y-up from the baseline; SVG viewBox 0 -960 960 960 is y-down.
-        glyphs[glyph].draw(TransformPen(DropEmptySegments(pen), (1, 0, 0, -1, 0, 0)))
-        out[f"{name}_fill" if fill else name] = pen.getCommands()
+    for fill in (0, 1):
+        font = instantiateVariableFont(TTFont(font_path), {"FILL": fill, "GRAD": 0, "wght": 400, "opsz": opsz})
+        glyphs = font.getGlyphSet()
+        for name in names:
+            if name.endswith("_fill") != bool(fill):
+                continue
+            base = name.removesuffix("_fill")
+            glyph = ALIASES.get(base, base)
+            if glyph not in glyphs:
+                sys.exit(f"missing icon: {glyph}")
+            pen = SVGPathPen(glyphs, ntos=lambda n: str(round(n)))
+            # Font units are y-up from the baseline; SVG viewBox 0 -960 960 960 is y-down.
+            glyphs[glyph].draw(TransformPen(DropEmptySegments(pen), (1, 0, 0, -1, 0, 0)))
+            out[name] = pen.getCommands()
     return out
 
 def main() -> None:
     src = sys.argv[1]
-    small = paths(src, 20) | paths(src, 20, fill=1, names=FILLED)
-    large = paths(src, 24) | paths(src, 24, fill=1, names=FILLED)
+    cuts = {opsz: paths(src, opsz, names) for opsz, names in OPSZ.items()}
     lines = [
         "// Generated by scripts/material-symbols.py from Material Symbols Outlined",
         "// (Apache-2.0, https://github.com/google/material-design-icons): wght 400, GRAD 0, FILL 0 (FILL 1 for *_fill).",
         "// Do not edit by hand; add names to the script and regenerate.",
         "",
-        "/** SVG path data per icon, keyed by optical size (viewBox 0 -960 960 960). */",
+        "/** SVG path data per icon, keyed by the optical sizes it is drawn at (viewBox 0 -960 960 960). */",
         "export const SYMBOLS = {",
     ]
-    for name in sorted(small):
-        lines.append(f"  {name}: {{ 20: '{small[name]}', 24: '{large[name]}' }},")
+    names = sorted(set().union(*cuts.values()))
+    for name in names:
+        entries = ", ".join(f"{opsz}: '{cuts[opsz][name]}'" for opsz in OPSZ if name in cuts[opsz])
+        lines.append(f"  {name}: {{ {entries} }},")
     lines += ["} as const", "", "export type SymbolName = keyof typeof SYMBOLS", ""]
     target = Path(__file__).resolve().parent.parent / "src/renderer/src/components/ui/symbols.ts"
     target.write_text("\n".join(lines))
-    print(f"wrote {len(small)} icons to {target}")
+    print(f"wrote {len(names)} icons to {target}")
 
 if __name__ == "__main__":
     main()
