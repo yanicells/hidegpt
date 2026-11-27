@@ -12,7 +12,7 @@ import * as Schema from 'effect/Schema'
 import * as Stream from 'effect/Stream'
 
 import type { AdapterEvent } from '../provider/ProviderAdapter'
-import { readTranscript, type ReplayEntry } from '../provider/replayFixture'
+import { readTranscript, type ReplayEntry, type ReplayTranscript } from '../provider/replayFixture'
 import { type ReplayScenario, SETTINGS, type TurnResult } from '../provider/replayScenario'
 import * as CodexClient from '../vendor/effect-codex-app-server/client.ts'
 import * as CodexReplay from '../vendor/effect-codex-app-server/replay.ts'
@@ -28,13 +28,29 @@ import { approval, library, stop, turn } from './replayScenarios'
  */
 
 const fixture = (name: string) => new URL(`./fixtures/${name}.ndjson`, import.meta.url).pathname
+
+/**
+ * A recording's `initialize` carries the app version it was recorded at. Swap in today's version so a
+ * version bump doesn't fail every replay; the client name is still compared as recorded.
+ */
+const atCurrentVersion = (transcript: ReplayTranscript): ReplayTranscript => ({
+  ...transcript,
+  entries: transcript.entries.map((entry) => {
+    if (entry.type !== 'expect_outbound' || entry.label !== 'initialize') return entry
+    const frame = entry.frame as { params: { clientInfo: Record<string, unknown> } }
+    return {
+      ...entry,
+      frame: { ...frame, params: { ...frame.params, clientInfo: { ...frame.params.clientInfo, version } } },
+    }
+  }),
+})
 const WORKSPACE = '/tmp/replay-workspace'
 
 /** Opens a session over a recording; `finished` checks every recorded frame was used. */
 const replay = (name: string, options: CodexClient.CodexAppServerClientOptions = {}) =>
   Effect.gen(function* () {
     const transcript = Schema.decodeUnknownSync(CodexReplay.CodexAppServerReplayTranscript)(
-      readTranscript(fixture(name)),
+      atCurrentVersion(readTranscript(fixture(name))),
     )
     const driver = yield* CodexReplay.makeReplayDriver(transcript)
     const connect: CodexAdapter.Connect = Layer.build(CodexReplay.layerReplayWithDriver(driver, options)).pipe(

@@ -348,12 +348,28 @@ describe('OpenCodeAdapter', () => {
 
   it.effect('titles a document OpenCode has not named "Untitled document", not after its first message', () =>
     Effect.gen(function* () {
-      const { session } = yield* open({ sessions: [stubSession(SESSION, '', '/tmp/course')] })
+      // OpenCode's own default title for a session its title step has not renamed yet.
+      const unnamed = 'New session - 2026-11-27T10:04:12.345Z'
+      const { fake, session, events } = yield* open({ sessions: [stubSession(SESSION, unnamed, '/tmp/course')] })
       const opened = yield* session.openThread(SESSION)
       expect(opened.title).toBe('Untitled document')
       expect(opened.blocks[0]).toMatchObject({ kind: 'user', text: 'Summarise week 3' })
       // Home's list gives it no name either.
-      expect(toDoc(stubSession(SESSION, '')).name).toBeNull()
+      expect(toDoc(stubSession(SESSION, unnamed))).toMatchObject({ name: null, preview: 'Untitled document' })
+      expect(toDoc(stubSession(SESSION, ''))).toMatchObject({ name: null, preview: 'Untitled document' })
+      // A new document's default title never reaches the header; the real name does once OpenCode sets it.
+      const update = (id: string, title: string) =>
+        fake.push({
+          id,
+          type: 'session.updated',
+          properties: { sessionID: 'ses_new', info: stubSession('ses_new', title, '/tmp/course') },
+        })
+      update('evt_t1', 'New session - 2026-11-27T10:05:00.000Z')
+      update('evt_t2', 'Week 4 plan')
+      yield* until(() => events.some((event) => event.type === 'title'))
+      expect(events.filter((event) => event.type === 'title')).toEqual([
+        { type: 'title', threadId: 'ses_new', title: 'Week 4 plan' },
+      ])
     }),
   )
 

@@ -40,6 +40,7 @@ import {
   joinAgentText,
   type MessageWithParts,
   modelKey,
+  namedTitle,
   permissionBlock,
   permissionBlockId,
   questionBlock,
@@ -462,9 +463,10 @@ export function make(connect: Connect): ProviderAdapter {
               return Effect.void
             }
             if (event.type === 'session.created') return emit({ type: 'invalidate', part: 'docs' })
-            if (!info.title || titles.get(info.id) === info.title) return Effect.void
-            titles.set(info.id, info.title)
-            return emit({ type: 'title', threadId: info.id, title: info.title })
+            const title = namedTitle(info.title)
+            if (!title || titles.get(info.id) === title) return Effect.void
+            titles.set(info.id, title)
+            return emit({ type: 'title', threadId: info.id, title })
           }
           case 'session.deleted':
             opened.delete(event.properties.info.id)
@@ -610,7 +612,8 @@ export function make(connect: Connect): ProviderAdapter {
               client.session.get({ sessionID: threadId, directory: dir(threadId) }, opts(signal)),
             )
             directories.set(threadId, info.data.directory)
-            if (info.data.title) titles.set(threadId, info.data.title)
+            const named = namedTitle(info.data.title)
+            if (named) titles.set(threadId, named)
             const [page, streaming, pending] = yield* Effect.all(
               [messagesPage(threadId), isBusy(threadId), pendingFor(threadId)],
               { concurrency: 'unbounded' },
