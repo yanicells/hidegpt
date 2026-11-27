@@ -2,9 +2,6 @@
 // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { HOME } from '../shared/model'
-import type { Snapshot } from '../shared/contracts'
-
 const electronApp = vi.hoisted(() => ({ isPackaged: true }))
 vi.mock('electron', () => ({ app: electronApp, Menu: {} }))
 
@@ -12,13 +9,13 @@ const { template } = await import('./menu')
 
 type Item = Electron.MenuItemConstructorOptions
 
-const home = { route: HOME } as unknown as Snapshot
-const doc = { route: { kind: 'doc', id: 'd1' } } as unknown as Snapshot
+const home = 'home'
+const doc = 'doc'
 
-function build(snap: Snapshot, platform: NodeJS.Platform = 'darwin') {
+function build(page: typeof home | typeof doc, platform: NodeJS.Platform = 'darwin') {
   vi.spyOn(process, 'platform', 'get').mockReturnValue(platform)
   const handlers = { dispatch: vi.fn(), send: vi.fn(), reportProblem: vi.fn() }
-  return { menu: template(snap, handlers), ...handlers }
+  return { menu: template(page, handlers), ...handlers }
 }
 
 /** Every item, submenus included. */
@@ -37,7 +34,7 @@ function find(items: readonly Item[], label: string): Item {
  * `menu-item-roles.ts`. A role missing here fails the test below, so a new role
  * cannot slip in an unchecked shortcut.
  */
-const ROLE_SHORTCUTS: Record<string, (isMac: boolean) => string | undefined> = {
+const ROLE_SHORTCUTS: Record<string, (platform: NodeJS.Platform) => string | undefined> = {
   about: () => undefined,
   close: () => 'CmdOrCtrl+W',
   copy: () => 'CmdOrCtrl+C',
@@ -49,13 +46,13 @@ const ROLE_SHORTCUTS: Record<string, (isMac: boolean) => string | undefined> = {
   hideOthers: () => 'Command+Alt+H',
   minimize: () => 'CmdOrCtrl+M',
   paste: () => 'CmdOrCtrl+V',
-  quit: (isMac) => (isMac ? 'CmdOrCtrl+Q' : undefined),
-  redo: (isMac) => (isMac ? 'Shift+CmdOrCtrl+Z' : 'Control+Y'),
+  quit: (platform) => (platform === 'win32' ? undefined : 'CmdOrCtrl+Q'),
+  redo: (platform) => (platform === 'win32' ? 'Control+Y' : 'Shift+CmdOrCtrl+Z'),
   reload: () => 'CmdOrCtrl+R',
   resetZoom: () => 'CmdOrCtrl+0',
   selectAll: () => 'CmdOrCtrl+A',
-  toggleDevTools: (isMac) => (isMac ? 'Alt+Command+I' : 'Ctrl+Shift+I'),
-  togglefullscreen: (isMac) => (isMac ? 'Control+Command+F' : 'F11'),
+  toggleDevTools: (platform) => (platform === 'darwin' ? 'Alt+Command+I' : 'Ctrl+Shift+I'),
+  togglefullscreen: (platform) => (platform === 'darwin' ? 'Control+Command+F' : 'F11'),
   undo: () => 'CmdOrCtrl+Z',
   unhide: () => undefined,
   windowMenu: () => undefined,
@@ -81,12 +78,13 @@ function chord(accelerator: string, isMac: boolean): string {
 }
 
 /** The shortcut an item answers to: its own, else its role's. */
-function shortcut(item: Item, isMac: boolean): string | undefined {
+function shortcut(item: Item, platform: NodeJS.Platform): string | undefined {
+  const isMac = platform === 'darwin'
   if (item.accelerator) return chord(item.accelerator, isMac)
   if (!item.role) return undefined
   const fallback = ROLE_SHORTCUTS[item.role]
   if (!fallback) throw new Error(`Add role "${item.role}" and its default shortcut to ROLE_SHORTCUTS`)
-  const accelerator = fallback(isMac)
+  const accelerator = fallback(platform)
   return accelerator && chord(accelerator, isMac)
 }
 
@@ -141,14 +139,41 @@ describe('menu', () => {
 
   it('binds every shortcut once, role defaults and development items included', () => {
     electronApp.isPackaged = false
-    for (const platform of ['darwin', 'win32'] as const) {
+    for (const platform of ['darwin', 'win32', 'linux'] as const) {
       const isMac = platform === 'darwin'
-      const shortcuts = flatten(build(doc, platform).menu).flatMap((item) => shortcut(item, isMac) ?? [])
-      expect(shortcuts, platform).toContain(chord('CmdOrCtrl+Z', isMac))
+      const shortcuts = flatten(build(doc, platform).menu).flatMap((item) => shortcut(item, platform) ?? [])
+      for (const key of ['CmdOrCtrl+Z', 'CmdOrCtrl+=', 'CmdOrCtrl+Plus', 'CmdOrCtrl+numadd']) {
+        expect(shortcuts, platform).toContain(chord(key, isMac))
+      }
       expect(
         shortcuts.filter((key, index) => shortcuts.indexOf(key) !== index),
         platform,
       ).toEqual([])
+    }
+  })
+
+  it('zooms in on Cmd+= and keeps the other zoom keys out of sight', () => {
+    for (const platform of ['darwin', 'win32'] as const) {
+      const zoom = flatten(build(doc, platform).menu).filter((item) =>
+        ['zoomIn', 'zoomOut', 'resetZoom'].includes(item.role ?? ''),
+      )
+      const visible = zoom.filter((item) => item.visible !== false)
+      expect(
+        visible.map((item) => [item.role, item.accelerator]),
+        platform,
+      ).toEqual([
+        ['resetZoom', undefined],
+        ['zoomIn', 'CmdOrCtrl+='],
+        ['zoomOut', undefined],
+      ])
+      const hidden = zoom.filter((item) => item.visible === false).map((item) => item.accelerator)
+      expect(hidden, platform).toEqual([
+        'CmdOrCtrl+Plus',
+        ...(platform === 'darwin' ? ['CmdOrCtrl+Shift+='] : []),
+        'CmdOrCtrl+num0',
+        'CmdOrCtrl+numadd',
+        'CmdOrCtrl+numsub',
+      ])
     }
   })
 

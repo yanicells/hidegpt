@@ -1,6 +1,6 @@
 import { app, Menu } from 'electron'
 
-import type { Command, MenuAction, Snapshot } from '../shared/contracts'
+import type { Command, MenuAction, Route, Snapshot } from '../shared/contracts'
 
 /**
  * The application menu, rebuilt only when something it shows changes. Menu
@@ -18,23 +18,23 @@ export function makeMenu(handlers: MenuHandlers): (snap: Snapshot) => void {
   let shown = ''
   return (snap) => {
     // The page (Home or a document) is the only thing the menu depends on.
-    const next = snap.route.kind
-    if (next === shown) return
-    shown = next
-    Menu.setApplicationMenu(Menu.buildFromTemplate(template(snap, handlers)))
+    const page = snap.route.kind
+    if (page === shown) return
+    shown = page
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template(page, handlers)))
   }
 }
 
 /**
- * The menu for `snap`, trimmed to what an installed Docs app window shows:
+ * The menu for `page` (Home or a document), trimmed to what an installed Docs app window shows:
  * Docs, File, Edit, View, History, Window, Help. Accounts and connections live
  * in the page (the account menu and Extensions), as they do in Docs.
  * Exported for tests.
  */
-export function template(snap: Snapshot, handlers: MenuHandlers): Electron.MenuItemConstructorOptions[] {
+export function template(page: Route['kind'], handlers: MenuHandlers): Electron.MenuItemConstructorOptions[] {
   const { dispatch, send } = handlers
   const isMac = process.platform === 'darwin'
-  const inDoc = snap.route.kind === 'doc'
+  const inDoc = page === 'doc'
   return [
     ...(isMac
       ? [
@@ -88,8 +88,9 @@ export function template(snap: Snapshot, handlers: MenuHandlers): Electron.MenuI
         { label: 'Reload this page', accelerator: 'CmdOrCtrl+R', click: () => dispatch({ op: 'refresh' }) },
         { type: 'separator' },
         { role: 'resetZoom' },
-        { role: 'zoomIn' },
+        { role: 'zoomIn', accelerator: 'CmdOrCtrl+=' },
         { role: 'zoomOut' },
+        ...hiddenZoomItems(isMac),
         { type: 'separator' },
         { role: 'togglefullscreen' },
         // Development keeps a renderer reload on Alt+Cmd+R: Cmd+R reloads the page's
@@ -120,5 +121,23 @@ export function template(snap: Snapshot, handlers: MenuHandlers): Electron.MenuI
         : [{ role: 'minimize' }],
     },
     { role: 'help', submenu: [{ label: 'Report a problem…', click: handlers.reportProblem }] },
+  ]
+}
+
+// `hiddenZoomItems` is adapted from T3 Code (apps/desktop/src/window/DesktopApplicationMenu.ts,
+// the View menu's hidden zoom items) at commit 5c6f2f12. Copyright (c) 2026 T3 Tools Inc. MIT License.
+/**
+ * Other keys for the zoom items above, as hidden items so the menu shows one
+ * of each. `zoomIn`'s default, Cmd+Plus, needs Shift on most keyboards, so
+ * the visible item takes Cmd+= and these keep Cmd+Plus, Shift+Cmd+= (macOS)
+ * and the keypad, whose keys don't match number-row shortcuts.
+ */
+function hiddenZoomItems(isMac: boolean): Electron.MenuItemConstructorOptions[] {
+  return [
+    { role: 'zoomIn', accelerator: 'CmdOrCtrl+Plus', visible: false },
+    ...(isMac ? [{ role: 'zoomIn' as const, accelerator: 'CmdOrCtrl+Shift+=', visible: false }] : []),
+    { role: 'resetZoom', accelerator: 'CmdOrCtrl+num0', visible: false },
+    { role: 'zoomIn', accelerator: 'CmdOrCtrl+numadd', visible: false },
+    { role: 'zoomOut', accelerator: 'CmdOrCtrl+numsub', visible: false },
   ]
 }
