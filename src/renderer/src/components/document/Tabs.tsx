@@ -107,20 +107,28 @@ type OutlineItemProps = {
  * turns, renders only the entries that are new or changed.
  */
 const OutlineItem = memo(function OutlineItem({ entry, active, onPick }: OutlineItemProps) {
+  const text = truncate(entry.text)
+  const button = (
+    <button
+      type="button"
+      className={cn('outline-item', entry.level === 2 && 'sub', active && 'active')}
+      data-testid={`outline-${entry.key}`}
+      aria-current={active ? 'location' : undefined}
+      onClick={() => onPick(entry)}
+    >
+      {text}
+    </button>
+  )
+  // A clipped heading shows in full on hover; the others skip the tooltip's render.
   return (
     <li>
-      {/* A clipped heading shows in full on hover. */}
-      <Tip label={truncate(entry.text) === entry.text ? undefined : entry.text} side="right">
-        <button
-          type="button"
-          className={cn('outline-item', entry.level === 2 && 'sub', active && 'active')}
-          data-testid={`outline-${entry.key}`}
-          aria-current={active ? 'location' : undefined}
-          onClick={() => onPick(entry)}
-        >
-          {truncate(entry.text)}
-        </button>
-      </Tip>
+      {text === entry.text ? (
+        button
+      ) : (
+        <Tip label={entry.text} side="right">
+          {button}
+        </Tip>
+      )}
     </li>
   )
 }, sameItem)

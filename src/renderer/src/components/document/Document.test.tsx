@@ -100,14 +100,19 @@ describe('Document', () => {
 
     // A new heading renders the outline panel and its new entry, and still not the document.
     startCounting()
-    update([question, answer, followUp, { ...streaming, text: 'Longer paths\n## Red light' }])
+    update([
+      question,
+      answer,
+      followUp,
+      { ...streaming, text: 'Longer paths\n## Red light at sunset, after a long way through the air' },
+    ])
     const heading = stopCounting()
-    expect(heading.components.Tabs).toBeGreaterThan(0)
+    expect(heading.components.Tabs).toBe(1)
     expect(heading.components.OutlineItem).toBe(1)
-    // The panel's own three buttons and the new entry; the entries already there stay put.
+    // The panel's own three buttons and the new entry, which is clipped and so shows in full on hover.
     expect(heading.components.Tip).toBe(4)
     expect(heading.components.Document).toBeUndefined()
-    expect(screen.getByTestId('outline-a2-0')).toHaveTextContent('Red light')
+    expect(screen.getByTestId('outline-a2-0')).toHaveTextContent('Red light at sunset')
   })
 
   it('renders only the new outline entries when earlier turns load above', () => {
@@ -120,8 +125,8 @@ describe('Document', () => {
     update([{ kind: 'user', id: 'u1', text: 'What is light?' }, question, answer])
     const loaded = stopCounting()
     expect(loaded.components.OutlineItem).toBe(1)
-    // The panel's own three buttons and the new entry.
-    expect(loaded.components.Tip).toBe(4)
+    // The panel's own three buttons; the new entry fits, so it has no tooltip.
+    expect(loaded.components.Tip).toBe(3)
     expect(screen.getByTestId('outline-u1')).toHaveTextContent('What is light?')
   })
 })

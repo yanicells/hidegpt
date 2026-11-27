@@ -39,7 +39,11 @@ export function inOutputView(block: { kind: Block['kind']; commentary?: boolean 
 const wholeOutline = (snap: Snapshot) => outlineEntries(snap.blocks)
 const outputOutline = (snap: Snapshot) => outlineEntries(snap.blocks.filter(inOutputView))
 
-/** Same heading at the same place, though the block around it may be a new object. */
+/**
+ * Same heading at the same place, though the block around it may be a new
+ * object. It must compare every `OutlineEntry` field: while it holds,
+ * `OutlineItem` keeps the old entry and hands that one to a jump.
+ */
 export function sameEntry(a: OutlineEntry, b: OutlineEntry): boolean {
   return (
     a.key === b.key && a.blockId === b.blockId && a.text === b.text && a.level === b.level && a.heading === b.heading

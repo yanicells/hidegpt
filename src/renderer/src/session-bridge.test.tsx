@@ -253,7 +253,8 @@ describe('session bridge', () => {
     )
     const ofRows = () => rows.map((row) => [row.id, row.kind, row.commentary])
 
-    // The same id, now a progress note, then a callout.
+    // The same id, now a progress note, then an answer again, then a callout:
+    // each step changes only `commentary` or only `kind`.
     emit({
       fields: {},
       blocks: { length: 2, set: [[1, { kind: 'agent', id: 'a', text: 'Checking', commentary: true }]] },
@@ -261,6 +262,11 @@ describe('session bridge', () => {
     expect(ofRows()).toEqual([
       ['q', 'user', false],
       ['a', 'agent', true],
+    ])
+    emit({ fields: {}, blocks: { length: 2, set: [[1, { kind: 'agent', id: 'a', text: 'Because' }]] } })
+    expect(ofRows()).toEqual([
+      ['q', 'user', false],
+      ['a', 'agent', false],
     ])
     emit({ fields: {}, blocks: { length: 2, set: [[1, { kind: 'callout', id: 'a', title: 'Note', body: 'Read' }]] } })
     expect(ofRows()).toEqual([

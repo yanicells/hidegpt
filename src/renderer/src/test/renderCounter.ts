@@ -23,8 +23,10 @@ export type RenderReport = {
   readonly components: Readonly<Record<string, number>>
 }
 
-// Function, class, forwardRef, memo and simple memo components.
-const COMPONENT_TAGS = new Set([0, 1, 11, 14, 15])
+// Function, class, forwardRef and simple memo components. A memo with a compare
+// function (14) renders its function as a child fiber, which counts under the
+// memo's name, so the memo fiber itself is skipped and one render counts once.
+const COMPONENT_TAGS = new Set([0, 1, 11, 15])
 const PERFORMED_WORK = 1
 const MEMO = 14
 
