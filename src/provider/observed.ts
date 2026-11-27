@@ -14,8 +14,8 @@ import { isExpectedError } from './errors'
  * nothing, so these say at the call site what happens when the work fails.
  *
  * The lint rule `hidegpt/no-unobserved-effect` bans the bare forms (forks,
- * `Effect.run*`, `.runFork`, `.runCallback`, `Effect.ignore`, `Effect.tapError`)
- * everywhere else; see "Background work" in docs/architecture.md.
+ * runs, ignores, `tapError` and causes caught into `Effect.void`) everywhere
+ * else; the full list is under "Background work" in docs/architecture.md.
  */
 
 export interface Observed {

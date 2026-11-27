@@ -46,6 +46,11 @@ const MESSAGES: Record<string, string> = {
     'Effect.tapErrorTag: a Die skips it, as it skips tapError. For a rollback use undoOnFailure (src/provider/observed.ts); to only log a typed error, disable this line with a reason.',
 }
 
+/** Catches that see a Die, so a handler that only returns `Effect.void` drops it. */
+const CAUSE_CATCHES = new Set(['catchCause', 'catchCauseIf', 'catchCauseFilter'])
+const droppedCauseMessage = (name: string) =>
+  `Effect.${name}(..., () => Effect.void): drops even a defect without a trace, as ignoreCause does. Use observed(effect, { name, quiet }) from src/provider/observed.ts.`
+
 /** The message for `name` used from Effect (`Effect.name`, an alias, or a named import), if it is banned. */
 const effectMessage = (name: string) =>
   FORKS.has(name)
@@ -59,6 +64,7 @@ const effectMessage = (name: string) =>
 type Visitor = ReturnType<NonNullable<Rule['create']>>
 type Member = Parameters<NonNullable<Visitor['MemberExpression']>>[0]
 type Expression = Member['object']
+type Call = Parameters<NonNullable<Visitor['CallExpression']>>[0]
 
 /** `fork` in `Effect.fork` or `Effect['fork']`, as T3 Code's `getPropertyName`. */
 const propertyName = (node: Member) =>
@@ -90,6 +96,24 @@ const rule = {
           node.object.type === 'Identifier' &&
           roots.has(node.object.name) &&
           propertyName(node) === 'Effect'
+
+    /** Effect's name for what `callee` calls: `Effect.x`, an alias, or a named import. */
+    const effectCallee = (callee: Call['callee']) =>
+      callee.type === 'MemberExpression' && isEffect(callee.object)
+        ? propertyName(callee)
+        : callee.type === 'Identifier'
+          ? named.get(callee.name)
+          : undefined
+    const isEffectVoid = (node: Expression | null | undefined): boolean =>
+      node?.type === 'MemberExpression' && isEffect(node.object) && propertyName(node) === 'void'
+    /** A handler that returns `Effect.void` and does nothing else: `() => Effect.void`, or a block of one return. */
+    const returnsOnlyVoid = (handler: Call['arguments'][number] | undefined) => {
+      if (handler?.type !== 'ArrowFunctionExpression' && handler?.type !== 'FunctionExpression') return false
+      const body = handler.body
+      if (body?.type !== 'BlockStatement') return isEffectVoid(body)
+      const [only, ...rest] = body.body
+      return rest.length === 0 && only?.type === 'ReturnStatement' && isEffectVoid(only.argument)
+    }
 
     return {
       ImportDeclaration(node) {
@@ -151,6 +175,11 @@ const rule = {
       },
       // A named import, called (`forkScoped(effect)`) or passed (`effect.pipe(forkScoped)`).
       CallExpression(node) {
+        // `Effect.catchCause(effect, () => Effect.void)`, data-first or in a pipe: the handler is last.
+        const called = effectCallee(node.callee)
+        if (called !== undefined && CAUSE_CATCHES.has(called) && returnsOnlyVoid(node.arguments.at(-1))) {
+          context.report({ node, message: droppedCauseMessage(called) })
+        }
         for (const used of [node.callee, ...node.arguments]) {
           const name = used.type === 'Identifier' ? named.get(used.name) : undefined
           const message = name === undefined ? undefined : effectMessage(name)

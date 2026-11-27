@@ -13,7 +13,7 @@ tester.run('hidegpt/no-unobserved-effect', rule, {
   valid: [
     // The observed helpers and awaited work.
     `${header}export const a = forkObserved({ name: 'x' })(Effect.void)`,
-    `${header}export const b = observed(Effect.void, { name: 'x' }).pipe(Effect.catchCause(() => Effect.void))`,
+    `${header}export const b = observed(Effect.void, { name: 'x' })`,
     `${header}export const c = Effect.forEach([1], () => Effect.void, { concurrency: 'unbounded' })`,
     // A name shared with Effect but imported from elsewhere, or not imported at all.
     "import { ignore } from './lists'\nexport const e = ignore([1])",
@@ -24,6 +24,10 @@ tester.run('hidegpt/no-unobserved-effect', rule, {
     `${header}export const s = Effect['succeed'](1)`,
     // A computed key that is not a string literal is not followed.
     `${header}const key = 'succeed'\nexport const s = Effect[key](1)`,
+    // A cause caught and handled, or only typed failures dropped (a Die passes `catch` on).
+    `${header}export const c = Effect.catchCause(Effect.void, (cause) => Effect.logError(cause))`,
+    `${header}export const c = Effect.void.pipe(Effect.catch(() => Effect.void))`,
+    `${header}export const c = Effect.catchCause(Effect.void, () => { flag(); return Effect.void })`,
     // Not a banned name, even one every object inherits.
     `${header}export const s = Effect.constructor`,
     // Not Effect's: a unified processor's sync run.
@@ -105,6 +109,27 @@ tester.run('hidegpt/no-unobserved-effect', rule, {
     {
       code: `${header}export const i = Effect.ignoreCause(Effect.void)`,
       errors: [{ message: /^Effect\.ignoreCause: drops a defect, or with \{ log \} logs it without a report id/ }],
+    },
+    // A cause caught into Effect.void: data-first, piped, a block body, catchCauseIf, a named import.
+    {
+      code: `${header}export const c = Effect.catchCause(Effect.void, () => Effect.void)`,
+      errors: [{ message: /^Effect\.catchCause\(\.\.\., \(\) => Effect\.void\): drops even a defect/ }],
+    },
+    {
+      code: `${header}export const c = Effect.void.pipe(Effect.catchCause(() => Effect.void))`,
+      errors: [{ message: /^Effect\.catchCause\(/ }],
+    },
+    {
+      code: `${header}export const c = Effect.void.pipe(Effect.catchCause(function () { return Effect.void }))`,
+      errors: [{ message: /^Effect\.catchCause\(/ }],
+    },
+    {
+      code: `${header}export const c = Effect.void.pipe(Effect.catchCauseIf(() => true, () => Effect.void))`,
+      errors: [{ message: /^Effect\.catchCauseIf\(/ }],
+    },
+    {
+      code: `${header}import { catchCause } from 'effect/Effect'\nexport const c = Effect.void.pipe(catchCause(() => Effect.void))`,
+      errors: [{ message: /^Effect\.catchCause\(/ }],
     },
     {
       code: `${header}export const t = Effect.void.pipe(Effect.tapError(() => Effect.void))`,
