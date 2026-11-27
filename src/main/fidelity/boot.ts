@@ -1,4 +1,6 @@
 import { app } from 'electron'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { pinClock } from './clock'
 
@@ -16,6 +18,10 @@ if (process.env.HIDEGPT_FAKE !== '1' || !process.env.HIDEGPT_SCREENSHOT || !proc
   process.exit(1)
 }
 
+// pnpm fidelity:shots kills a run that hangs, or is interrupted, by this PID.
+const shots = process.env.HIDEGPT_SCREENSHOT
+mkdirSync(shots, { recursive: true })
+writeFileSync(join(shots, 'electron.pid'), String(process.pid))
 app.dock?.hide()
 // A window that is never shown counts as hidden, and Chromium would throttle its timers and frames.
 app.commandLine.appendSwitch('disable-renderer-backgrounding')

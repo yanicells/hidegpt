@@ -267,8 +267,7 @@
       "kind": "style",
       "selector": ".chip-style .chip-label",
       "prop": "color",
-      "target": "#5f6368",
-      "tol": 6
+      "target": "#5f6368"
     },
     {
       "id": "font.chip.font.colour",
@@ -278,8 +277,7 @@
       "kind": "style",
       "selector": ".chip-font .chip-label",
       "prop": "color",
-      "target": "#5f6368",
-      "tol": 6
+      "target": "#5f6368"
     },
     {
       "id": "header.logo.x",
@@ -343,7 +341,7 @@
         "selector": ".doc-title",
         "prop": "right"
       },
-      "target": 7.0
+      "target": 7
     },
     {
       "id": "header.title-icon.pitch",
@@ -414,11 +412,12 @@
       "section": "3.2",
       "viewport": 1470,
       "screen": "document-ref",
-      "kind": "style",
-      "selector": ".share-button",
-      "prop": "color",
-      "target": "#004a77",
-      "tol": 16
+      "kind": "ink",
+      "selector": ".share-button > span",
+      "prop": "darkest",
+      "target": "#0a4467",
+      "tol": 16,
+      "note": "Saturated: the darkest Share pixel within 16 per channel of the measured value (section 5, UI-03)."
     },
     {
       "id": "header.history.ink",
@@ -781,7 +780,8 @@
       "selector": ".chip-mode",
       "prop": "w",
       "target": 62,
-      "tol": 1
+      "tol": 1,
+      "note": "Section 3.3 gives the width as about 62px, so 1px either way."
     },
     {
       "id": "icons.blank-plus.size",
@@ -804,7 +804,8 @@
       "selector": ".rail-divider + .rail-app",
       "pad": 0,
       "prop": "w",
-      "target": 14
+      "target": 14,
+      "tol": 1
     },
     {
       "id": "icons.home-list.colour",
@@ -814,8 +815,7 @@
       "kind": "style",
       "selector": "[aria-label=\"List view\"]",
       "prop": "color",
-      "target": "#5f6368",
-      "tol": 4
+      "target": "#5f6368"
     },
     {
       "id": "page.ruler-line.left-of-page",
@@ -824,8 +824,7 @@
       "screen": "document-ref",
       "kind": "pixel",
       "at": [100, 128],
-      "target": "#c4c7c5",
-      "tol": 6
+      "target": "#c4c7c5"
     },
     {
       "id": "page.vruler.border",
@@ -834,8 +833,7 @@
       "screen": "document-ref",
       "kind": "pixel",
       "at": [15.5, 300],
-      "target": "#c4c7c5",
-      "tol": 6
+      "target": "#c4c7c5"
     },
     {
       "id": "page.edge.colour",
@@ -844,8 +842,7 @@
       "screen": "document-ref",
       "kind": "pixel",
       "at": [300, 400],
-      "target": "#c4c7c5",
-      "tol": 4
+      "target": "#c4c7c5"
     },
     {
       "id": "page.edge.no-halo",
@@ -855,7 +852,7 @@
       "kind": "pixel",
       "at": [297.5, 400],
       "target": "#f9fafd",
-      "tol": 2
+      "note": "The canvas as captured: CSS #f8fafd is drawn as #f9fafd."
     },
     {
       "id": "page.scrollbar.track",
@@ -864,8 +861,7 @@
       "screen": "document-ref",
       "kind": "pixel",
       "at": [1412.5, 300],
-      "target": "#f0f0f0",
-      "tol": 2
+      "target": "#f0f0f0"
     },
     {
       "id": "page.scrollbar.thumb",
@@ -874,8 +870,7 @@
       "screen": "document-ref",
       "kind": "pixel",
       "at": [1408, 300],
-      "target": "#cdcdcd",
-      "tol": 2
+      "target": "#cdcdcd"
     },
     {
       "id": "page.scrollbar.starts-below-ruler",
@@ -885,7 +880,7 @@
       "kind": "pixel",
       "at": [1408, 120],
       "target": "#f9fafd",
-      "tol": 2
+      "note": "The canvas as captured: CSS #f8fafd is drawn as #f9fafd."
     },
     {
       "id": "home.scrollbar.track",
@@ -894,8 +889,7 @@
       "screen": "home",
       "kind": "pixel",
       "at": [1466, 700],
-      "target": "#f0f0f0",
-      "tol": 2
+      "target": "#f0f0f0"
     },
     {
       "id": "page.ruler-num.size",
@@ -925,7 +919,8 @@
       "kind": "style",
       "selector": ".doc-body p",
       "prop": "line-height",
-      "target": "19.38px"
+      "target": "19.38px",
+      "tol": 0.05
     },
     {
       "id": "tabs.new.cx",
@@ -935,7 +930,8 @@
       "kind": "box",
       "selector": ".tabs-new",
       "prop": "cx",
-      "target": 252.7
+      "target": 252.7,
+      "tol": 1
     },
     {
       "id": "tabs.pill-more.x",
@@ -945,6 +941,7 @@
       "kind": "box",
       "selector": ".tab-pill-more",
       "prop": "x",
+      "tol": 1,
       "target": 239.3
     },
     {
@@ -955,6 +952,7 @@
       "kind": "box",
       "selector": ".tabs-hide",
       "prop": "x",
+      "tol": 1,
       "target": 29
     },
     {
@@ -965,6 +963,7 @@
       "kind": "box",
       "selector": ".tab-pill",
       "prop": "y",
+      "tol": 1,
       "target": 235
     },
     {
@@ -975,6 +974,7 @@
       "kind": "box",
       "selector": ".tab-pill-name",
       "prop": "x",
+      "tol": 1,
       "target": 79
     },
     {
@@ -985,6 +985,7 @@
       "kind": "box",
       "selector": ".outline-item",
       "prop": "y",
+      "tol": 1,
       "target": 274.6
     },
     {
@@ -995,6 +996,7 @@
       "kind": "box",
       "selector": ".outline-item",
       "prop": "w",
+      "tol": 1,
       "target": 195
     },
     {
@@ -1005,7 +1007,8 @@
       "kind": "box",
       "selector": ".rail-divider",
       "prop": "y",
-      "target": 355
+      "target": 355,
+      "tol": 1
     },
     {
       "id": "rail.divider.colour",
@@ -1025,7 +1028,8 @@
       "kind": "box",
       "selector": ".rail-divider + .rail-app",
       "prop": "cy",
-      "target": 400
+      "target": 400,
+      "tol": 1
     },
     {
       "id": "home.logo.x",
@@ -1301,7 +1305,8 @@
       "selector": ".menu-separator",
       "prop": "background-color",
       "target": "#c9cbca",
-      "tol": 6
+      "tol": 6,
+      "note": "Section 3.8: read from the scaled 1402 reference, so plus or minus 6."
     },
     {
       "id": "menus.style.width",
@@ -1340,7 +1345,8 @@
         "selector": ".style-menu .menu-item",
         "prop": "y"
       },
-      "target": 72
+      "target": 72,
+      "tol": 1
     },
     {
       "id": "suggestion.off-paper.1402.100",

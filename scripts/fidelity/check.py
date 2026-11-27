@@ -20,7 +20,8 @@ Metric kinds (each names a phase, default "core", a viewport and a screen):
          Docs reference, and `mass` compares as a ratio
   pixel  the colour under a point (`at` [x, y])
 A metric passes at `target` within `tol`, or between `min` and `max`.
-Colours compare per channel; strings compare exactly.
+Colours compare per channel, alpha included; strings compare exactly. Default
+tolerances follow the report's section 5; a `note` says why a metric departs.
 """
 
 import argparse

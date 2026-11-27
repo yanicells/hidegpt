@@ -29,9 +29,10 @@ type Loaders = { readonly [K in ProviderId]: () => Promise<ProviderAdapter> }
 const fromLoaders = (loaders: Loaders) =>
   ProviderRegistry.of({
     adapter: (id) =>
-      Effect.tryPromise({ try: loaders[id], catch: (cause) => cause }).pipe(
-        Effect.catch((cause) =>
-          reportDefect(Cause.die(cause)).pipe(
+      // A rejected import is a defect: reported with its cause, then turned into the banner error.
+      Effect.promise(loaders[id]).pipe(
+        Effect.catchCauseIf(Cause.hasDies, (cause) =>
+          reportDefect(cause).pipe(
             Effect.andThen(
               Effect.fail(
                 new ProviderRequestError({

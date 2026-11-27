@@ -7,8 +7,8 @@ import * as CodexAdapter from '../codex/CodexAdapter'
 import { makeFakeCodex } from '../codex/FakeCodex'
 import * as OpenCodeAdapter from '../opencode/OpenCodeAdapter'
 import { makeFakeOpenCode } from '../opencode/FakeOpenCode'
-import { CAPABILITIES } from '../shared/model'
-import { capabilityMismatches, type ProviderAdapter, type ProviderSession } from './ProviderAdapter'
+import { CAPABILITIES, type Capabilities } from '../shared/model'
+import type { ProviderAdapter, ProviderSession } from './ProviderAdapter'
 
 /**
  * The renderer shows sign-in, "Connect" and "Add project" from the capability flags;
@@ -19,6 +19,24 @@ const ADAPTERS: ReadonlyArray<ProviderAdapter> = [
   OpenCodeAdapter.make(makeFakeOpenCode().connect),
   ClaudeAdapter.make(() => Promise.resolve(makeFakeClaude().sdk)),
 ]
+
+/** The optional session methods each capability flag promises. `gitProjects` names no method. */
+const CAPABILITY_METHODS: ReadonlyArray<readonly [keyof Capabilities, keyof ProviderSession]> = [
+  ['login', 'login'],
+  ['login', 'logout'],
+  ['connectTools', 'connectTool'],
+  ['createProjects', 'createProject'],
+]
+
+/** Each flag/method pair that disagrees, e.g. `login: true but logout is missing`; empty when they agree. */
+function capabilityMismatches(capabilities: Capabilities, session: ProviderSession): string[] {
+  return CAPABILITY_METHODS.flatMap(([flag, method]) => {
+    const present = session[method] !== undefined
+    return present === capabilities[flag]
+      ? []
+      : [`${flag}: ${capabilities[flag]} but ${method} is ${present ? 'present' : 'missing'}`]
+  })
+}
 
 const session = (overrides: Partial<ProviderSession>) => overrides as ProviderSession
 
