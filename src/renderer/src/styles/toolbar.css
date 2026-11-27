@@ -243,7 +243,17 @@
   display: none;
 }
 
-/* With every tool in the pill, ⋮ would open an empty row, so it hides. */
+/*
+ * With every tool in the pill, ⋮ would open an empty row, so it hides, and a
+ * row left open while the window widens past this step hides with it. (Docs
+ * keeps ⋮ at 1470, but its reference document has no spelling button.)
+ */
+@container toolbar (width >= 1359px) {
+  .toolbar-overflow {
+    display: none;
+  }
+}
+
 @container toolbar (width < 1359px) {
   .toolbar .toolbar-more,
   .toolbar-overflow :is(.fold-indent, .fold-clear) {

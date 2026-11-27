@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -50,5 +50,28 @@ describe('formatting toggles', () => {
     for (const copy of screen.getAllByRole('button', { name: 'Italic' })) {
       expect(copy).toHaveAttribute('aria-pressed', 'false')
     }
+  })
+
+  it('leaves focus in the composer while the ⋮ row opens, is used and closes', async () => {
+    const user = userEvent.setup()
+    render(
+      <>
+        <Toolbar snap={emptySnapshot()} />
+        <textarea aria-label="Composer" />
+      </>,
+    )
+    const composer = screen.getByRole('textbox', { name: 'Composer' })
+    composer.focus()
+
+    await user.click(screen.getByTestId('toolbar-more'))
+    const row = await screen.findByRole('dialog', { name: 'More tools' })
+    expect(composer).toHaveFocus()
+
+    await user.click(within(row).getByRole('button', { name: 'Bold' }))
+    expect(composer).toHaveFocus()
+
+    await user.click(screen.getByTestId('toolbar-more'))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'More tools' })).toBeNull())
+    expect(composer).toHaveFocus()
   })
 })

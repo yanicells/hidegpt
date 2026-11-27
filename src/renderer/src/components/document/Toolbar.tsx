@@ -156,7 +156,13 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
         <FoldingTools marks={marks} onToggle={toggleMark} />
         <Popover>
           <Tip label="More">
-            <PopoverTrigger className="toolbar-icon toolbar-more" aria-label="More" data-testid="toolbar-more">
+            <PopoverTrigger
+              className="toolbar-icon toolbar-more"
+              aria-label="More"
+              data-testid="toolbar-more"
+              // Like the tools themselves, ⋮ never takes focus (and the caret) from the composer.
+              onMouseDown={(event) => event.preventDefault()}
+            >
               <MIcon name="more_vert" />
             </PopoverTrigger>
           </Tip>
@@ -168,8 +174,12 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
               render={renderClosingPositioner}
               sideOffset={8}
             >
-              {/* Like Docs, opening the row leaves focus (and the caret) in the composer. */}
-              <PopoverPrimitive.Popup className="popover-panel toolbar-overflow" initialFocus={false}>
+              {/* Opening the row leaves focus where it was, so the composer keeps its caret. */}
+              <PopoverPrimitive.Popup
+                className="popover-panel toolbar-overflow"
+                aria-label="More tools"
+                initialFocus={false}
+              >
                 <FoldingTools overflow marks={marks} onToggle={toggleMark} />
               </PopoverPrimitive.Popup>
             </PopoverPrimitive.Positioner>
