@@ -61,13 +61,17 @@ request has a deadline, so nothing stays on "Working…". See
 
 ## Provider compatibility
 
-Checked on 5 November 2026 against Codex CLI **0.166.0**, OpenCode **1.18.34**
-(through `@opencode-ai/sdk` 1.19), and Claude Code **2.1.318** (through
-`@anthropic-ai/claude-agent-sdk` 0.3.283). No check sent a prompt to a model.
+Checked against Codex CLI **0.172.0** (27 November 2026), and on 5 November 2026
+against OpenCode **1.18.34** (through `@opencode-ai/sdk` 1.19) and Claude Code
+**2.1.318** (through `@anthropic-ai/claude-agent-sdk` 0.3.283). No check sent a
+prompt to a model.
 
 - **Codex**: the vendored client's schemas are regenerated from the installed CLI
-  (`pnpm protocol`). Project creation and thread project assignment use the
-  generated `project/create` and `thread/start` schemas.
+  (`pnpm protocol`; `pnpm protocol --check` fails when the CLI version differs).
+  Project creation and thread project assignment use the generated
+  `project/create` and `thread/start` schemas. Older CLIs are not supported:
+  Docs no longer answers their `currentTime/read` server request, which 0.172.0
+  removed.
 - **OpenCode**: requests go through the official SDK client and were checked
   against the locally served `/doc` OpenAPI schema: `/experimental/session` for
   the cross-project catalog (cursor paging), session create/rename/status,
