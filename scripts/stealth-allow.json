@@ -22,7 +22,8 @@
       "part": "renderer",
       "literal": "claude",
       "count": 1,
-      "reason": "Provider id in src/shared/labels.ts (library order). Never shown."
+      "shared": 0,
+      "reason": "Provider id in src/shared/labels.ts (library order), personal builds only: a shared build leaves Claude out. Never shown."
     },
     {
       "part": "renderer",

@@ -16,7 +16,7 @@ import {
   wantsSigning,
 } from './builder-config.ts'
 import { assertNoClaude, packagedArchives } from './shared-build-guard.ts'
-import { assertStealthyApps } from './stealth-scan.ts'
+import { assertStealthyApps, assertStealthyBundle } from './stealth-scan.ts'
 import { verifyPreloadBundle } from './verify-preload-bundle.ts'
 
 /**
@@ -54,6 +54,8 @@ rmSync('out', { recursive: true, force: true })
 execFileSync('pnpm', ['exec', 'electron-vite', 'build'], { stdio: 'inherit', env: viteEnv })
 
 verifyPreloadBundle(readFileSync('out/preload/index.cjs', 'utf8'))
+// The renderer and preload this package ships, not the personal build `pnpm build` makes.
+assertStealthyBundle('out', personal ? 'personal' : 'shared')
 
 // Stale artifacts from an earlier run would otherwise sit beside the new ones, unchecked.
 const dir = outputDir(env)

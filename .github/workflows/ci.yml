@@ -60,5 +60,7 @@ jobs:
         run: pnpm build
 
       # No banned word in the built renderer or preload (scripts/stealth-allow.json lists the exceptions).
+      # `pnpm build` makes the personal renderer; the shared one (what `pnpm dist` ships by default) is
+      # built and scanned on its own.
       - name: Stealth scan
-        run: pnpm stealth:scan
+        run: pnpm stealth:scan && pnpm stealth:scan:shared

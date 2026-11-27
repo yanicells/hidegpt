@@ -42,11 +42,25 @@ describe('checkHits', () => {
       'renderer: "Powered by Claude" has Claude (1x)',
     ])
     expect(checkHits(bundleHits([js(`f("codex", "codex", "codex")`)]), allowed)).toEqual([
-      'renderer: "codex" appears 3x, allowed 2x',
+      'renderer: "codex" appears 3x, allowed 2x (personal)',
     ])
     expect(checkHits(bundleHits([js(`f("codex")`)]), allowed)).toEqual([
-      'renderer: "codex" appears 1x; lower its count in stealth-allow.json to 1',
+      'renderer: "codex" appears 1x in a personal build; lower its count in stealth-allow.json to 1',
     ])
+  })
+
+  it('holds a shared build to its own count, and a personal build to the plain one', () => {
+    const claude = [{ part: 'renderer', literal: 'claude', count: 1, shared: 0, reason: 'id' }] as const
+    expect(checkHits(bundleHits([js(`f("claude")`)]), claude, 'personal')).toEqual([])
+    expect(checkHits(bundleHits([js(`f()`)]), claude, 'shared')).toEqual([])
+    expect(checkHits(bundleHits([js(`f("claude")`)]), claude, 'shared')).toEqual([
+      'renderer: "claude" appears 1x, allowed 0x (shared)',
+    ])
+    expect(checkHits(bundleHits([js(`f()`)]), claude, 'personal')).toEqual([
+      'renderer: "claude" appears 0x in a personal build; lower its count in stealth-allow.json to 0',
+    ])
+    // Without a `shared` count, both builds expect `count`.
+    expect(checkHits(bundleHits([js(`f("codex", "codex")`)]), allowed, 'shared')).toEqual([])
   })
 
   it('starts the allow-list at 35 occurrences or fewer, each with a reason', () => {
@@ -79,6 +93,8 @@ describe('appLeaks', () => {
       'Contents/Resources/claude',
       // Paths go through the shared gate, so a vendor name inside a longer name fails too.
       'app.asar:out/main/CodexAdapter-abc.js',
+      'app.asar:out/main/ClaudeAdapter-abc.js',
+      'app.asar:out/main/OpenCodeAdapter-abc.js',
       'Contents/Frameworks/ClaudeHelper.app',
     ]
     expect(appLeaks(paths, ['Claude Helper'], [sdk])).toEqual([...paths, 'Info.plist: "Claude Helper"'])

@@ -11,22 +11,32 @@ import { stealthViolations, VENDOR_WORDS, vendorViolations } from '../src/shared
 /**
  * Stealth scans of what ships, so no banned word lands in the app unnoticed.
  *
- * - `pnpm stealth:scan` (after `pnpm build`, and in CI) reads every string the
- *   built renderer and preload carry. A string that looks like prose must pass
- *   the banned list; every string must pass the vendor list unless
- *   `stealth-allow.json` names it, with a reason and a count. The counts only
- *   go down: a literal seen more often than allowed fails, and so does one
- *   seen less often, until its count is lowered.
+ * - `assertStealthyBundle` reads every string the built renderer and preload
+ *   carry. A string that looks like prose must pass the banned list; every
+ *   string must pass the vendor list unless `stealth-allow.json` names it,
+ *   with a reason and a count. The counts only go down: a literal seen more
+ *   often than allowed fails, and so does one seen less often, until its count
+ *   is lowered. An entry's `shared` count, when given, is what a shared build
+ *   (`HIDEGPT_PERSONAL=0`, no Claude) must hold instead.
+ *   `pnpm stealth:scan` runs it on `out/` for the build `HIDEGPT_PERSONAL`
+ *   names (personal when unset, as `pnpm build`), CI and `pnpm check` run it on
+ *   both builds, and `pnpm dist` runs it on the build it is about to package.
  * - `pnpm dist` ends with `assertStealthyApps`: no file path in `Docs.app`, no
  *   path inside its `app.asar` and no `Info.plist` string may name a vendor.
  */
 
 export type Part = 'renderer' | 'preload'
 
+/** Which renderer a scan reads: a personal build compiles Claude in, a shared one leaves it out. */
+export type Build = 'personal' | 'shared'
+
 export type AllowedLiteral = {
   readonly part: Part
   readonly literal: string
+  /** Occurrences in a personal build. */
   readonly count: number
+  /** Occurrences in a shared build, when they differ from `count`. */
+  readonly shared?: number
   readonly reason: string
 }
 export type AllowedPath = { readonly path: string; readonly reason: string }
@@ -103,7 +113,12 @@ export function bundleHits(files: ReadonlyArray<BundleFile>): Hit[] {
 const preview = (text: string) => JSON.stringify(text.length > 120 ? `${text.slice(0, 117)}...` : text)
 
 /** What is wrong with the hits against the allow-list; empty means the bundle passes. */
-export function checkHits(hits: ReadonlyArray<Hit>, allowed: ReadonlyArray<AllowedLiteral>): string[] {
+export function checkHits(
+  hits: ReadonlyArray<Hit>,
+  allowed: ReadonlyArray<AllowedLiteral>,
+  build: Build = 'personal',
+): string[] {
+  const expected = (entry: AllowedLiteral) => (build === 'shared' ? (entry.shared ?? entry.count) : entry.count)
   const key = (part: Part, literal: string) => `${part}\u0000${literal}`
   const seen = new Map<string, { hit: Hit; count: number }>()
   for (const hit of hits) {
@@ -116,14 +131,16 @@ export function checkHits(hits: ReadonlyArray<Hit>, allowed: ReadonlyArray<Allow
   for (const [id, { hit, count }] of seen) {
     const entry = entries.get(id)
     if (!entry) problems.push(`${hit.part}: ${preview(hit.literal)} has ${hit.words.join(', ')} (${count}x)`)
-    else if (count > entry.count)
-      problems.push(`${hit.part}: ${preview(hit.literal)} appears ${count}x, allowed ${entry.count}x`)
+    else if (count > expected(entry))
+      problems.push(`${hit.part}: ${preview(hit.literal)} appears ${count}x, allowed ${expected(entry)}x (${build})`)
   }
   for (const [id, entry] of entries) {
     const count = seen.get(id)?.count ?? 0
-    if (count < entry.count) {
+    if (count < expected(entry)) {
+      const field = build === 'shared' ? 'shared count' : 'count'
       problems.push(
-        `${entry.part}: ${preview(entry.literal)} appears ${count}x; lower its count in stealth-allow.json to ${count}`,
+        `${entry.part}: ${preview(entry.literal)} appears ${count}x in a ${build} build; ` +
+          `lower its ${field} in stealth-allow.json to ${count}`,
       )
     }
   }
@@ -224,15 +241,33 @@ export function assertStealthyApps(outputDir: string): void {
   }
 }
 
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+/**
+ * Throws unless the renderer and preload built into `outDir` pass the bundle
+ * scan for `build`. `pnpm dist` calls it on the build it packages.
+ */
+export function assertStealthyBundle(outDir: string, build: Build): void {
   const started = performance.now()
-  const files = builtFiles(new URL('../out', import.meta.url).pathname)
+  const files = builtFiles(outDir)
   const hits = bundleHits(files)
-  const problems = checkHits(hits, readAllowList().bundle)
+  const problems = checkHits(hits, readAllowList().bundle, build)
   const ms = Math.round(performance.now() - started)
   if (problems.length > 0) {
-    console.error(`Stealth scan failed (${files.length} files, ${ms} ms):\n  ${problems.join('\n  ')}`)
+    throw new Error(
+      `Stealth scan of the ${build} build failed (${files.length} files, ${ms} ms):\n  ${problems.join('\n  ')}`,
+    )
+  }
+  console.log(
+    `Stealth scan: ${build} build, ${files.length} files clean in ${ms} ms (${hits.length} allowed occurrences)`,
+  )
+}
+
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  // The same reading as electron.vite.config.ts: unset means personal.
+  const build: Build = process.env.HIDEGPT_PERSONAL === '0' ? 'shared' : 'personal'
+  try {
+    assertStealthyBundle(new URL('../out', import.meta.url).pathname, build)
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error)
     process.exit(1)
   }
-  console.log(`Stealth scan: ${files.length} files clean in ${ms} ms (${hits.length} allowed occurrences)`)
 }
