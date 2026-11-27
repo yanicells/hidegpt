@@ -1,6 +1,7 @@
 /* Document tabs panel: 280px, pinned beside the page. Outline items are
- * Google Sans 14px #444746 with padding 10px 0 10px 21px; the active one is
- * #0b57d0 with a bar on the outline's guide line. */
+ * Google Sans 14px #444746 with padding 10px 0 10px 21px, 195px wide at most;
+ * the active one is #0b57d0 with a bar on the outline's guide line. Offsets
+ * below are measured against Docs at 1402px (UI audit section 3.6). */
 .tabs {
   @apply sticky shrink-0 overflow-y-auto;
   top: 20px;
@@ -25,7 +26,7 @@
 }
 
 .tabs-hide {
-  margin: 0 0 16px;
+  margin: 0 0 16px -3px;
 }
 
 .tabs-show {
@@ -47,8 +48,8 @@
 .tabs-head {
   @apply flex items-center justify-between;
   height: 32px;
-  padding: 0 4px 0 12px;
-  margin-bottom: 8px;
+  padding: 0 11px 0 12px;
+  margin-bottom: 10px;
   font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.1px;
@@ -65,9 +66,9 @@
 /* "Tab 1": the selected tab pill. */
 .tab-pill {
   @apply flex items-center;
-  gap: 12px;
+  gap: 9px;
   height: 40px;
-  padding: 0 8px 0 18px;
+  padding: 0 13px 0 18px;
   border-radius: 20px;
   background: #d3e3fd;
   color: #0842a0;
@@ -100,7 +101,7 @@
 /* Heading outline under the tab, hung from a thin guide line. */
 .doc-outline {
   @apply list-none relative;
-  margin: 4px 0 0 28px;
+  margin: 0 24px 0 28px;
   padding: 0;
   border-left: 1px solid var(--line);
 }
