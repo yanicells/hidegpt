@@ -140,7 +140,7 @@ export function resultTable(result, options = {}) {
 }
 
 /** The run options that change what a session does; results that differ in them do not compare. */
-const SESSION_OPTIONS = ['docs', 'turns', 'throttle']
+const SESSION_OPTIONS = ['docs', 'turns', 'throttle', 'shown']
 
 const percent = (from, to) => {
   if (from === 0) return to === 0 ? '0%' : 'new'
@@ -151,8 +151,9 @@ const percent = (from, to) => {
 /** How far apart two `{median, min, max, n}` are, as the last column of the comparison. */
 export function verdict(name, from, to) {
   if (from.median === to.median) return 'same'
-  // A count is exact, so one sample is enough; anything else needs a spread to compare against.
-  if ((from.n < 2 || to.n < 2) && tier(name) !== 'count') return '1 sample'
+  // React commits and renders, and shipped sizes, repeat exactly, so one sample is enough. Anything
+  // else needs a spread to compare against, IPC bytes too: they depend on when the app sent them.
+  if ((from.n < 2 || to.n < 2) && !/\.(commits|renders)$/.test(name) && !name.startsWith('static.')) return '1 sample'
   if (!(from.min > to.max || to.min > from.max)) return 'within spread'
   if (from.median <= 0 || to.median <= 0) return 'real'
   return from.median >= to.median ? `real, ${(from.median / to.median).toFixed(2)}x less` : `real, ${(to.median / from.median).toFixed(2)}x more`

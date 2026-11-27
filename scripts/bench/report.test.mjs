@@ -4,7 +4,7 @@ import { owner } from './profile.mjs'
 import { compareTable, median, tier, verdict } from './report.mjs'
 
 const stat = (median, min = median, max = median, n = 3) => ({ median, min, max, n })
-const result = (label, summary, options = {}) => ({ label, commit: label, options: { runs: 3, docs: 500, turns: 300, throttle: 1, ...options }, summary })
+const result = (label, summary, options = {}) => ({ label, commit: label, options: { runs: 3, docs: 500, turns: 300, throttle: 1, shown: false, ...options }, summary })
 /** The comparison row for `name`. */
 const rowOf = (table, name) => table.split('\n').find((line) => line.startsWith(`| ${name} |`))
 
@@ -36,9 +36,12 @@ describe('verdict', () => {
   it('gives no ratio when before is 0', () => {
     expect(verdict('stream30.late_frames', stat(0), stat(4, 3, 5))).toBe('real')
   })
-  it('does not call a single sample real, except for a count', () => {
-    expect(verdict('open.settled_ms', stat(100, 100, 100, 1), stat(50, 50, 50, 1))).toBe('1 sample')
-    expect(verdict('stream30.renders', stat(100, 100, 100, 1), stat(50, 50, 50, 1))).toBe('real, 2.00x less')
+  it('does not call a single sample real, except for React counts and shipped sizes', () => {
+    const one = (value) => stat(value, value, value, 1)
+    expect(verdict('open.settled_ms', one(100), one(50))).toBe('1 sample')
+    expect(verdict('cold.ipc_kb', one(1743), one(1475))).toBe('1 sample')
+    expect(verdict('stream30.renders', one(100), one(50))).toBe('real, 2.00x less')
+    expect(verdict('static.main_js_kb', one(2876), one(1100))).toBe('real, 2.61x less')
   })
 })
 
@@ -48,8 +51,20 @@ describe('compareTable', () => {
     expect(rowOf(table, 'cold.listed_ms')).toContain('only in before')
     expect(rowOf(table, 'cold.all_cards_ms')).toContain('only in after')
   })
+  it('counts the samples of a result written before `n` was recorded from its runs', () => {
+    const old = (label, values) => ({ ...result(label, { 'open.settled_ms': { median: values[0], min: Math.min(...values), max: Math.max(...values) } }), runs: values.map((value) => ({ 'open.settled_ms': value })) })
+    expect(rowOf(compareTable(old('a', [100]), old('b', [50])), 'open.settled_ms')).toContain('1 sample')
+    expect(rowOf(compareTable(old('a', [100, 100, 100]), old('b', [50, 50, 50])), 'open.settled_ms')).toContain('real, 2.00x less')
+  })
+  it('takes React counts and IPC bytes from the counts run', () => {
+    const counted = (label, counts) => ({ ...result(label, {}), counts })
+    const table = compareTable(counted('a', { 'stream30.renders': 100, 'stream30.ipc_kb': 304 }), counted('b', { 'stream30.renders': 50, 'stream30.ipc_kb': 35 }), { all: true })
+    expect(rowOf(table, 'stream30.renders')).toContain('real, 2.00x less')
+    expect(rowOf(table, 'stream30.ipc_kb')).toContain('1 sample')
+  })
   it('warns when the sessions differ', () => {
     expect(compareTable(result('a', {}), result('b', {}, { docs: 20 }))).toContain('docs 500 vs 20')
+    expect(compareTable(result('a', {}), result('b', {}, { shown: true }))).toContain('shown false vs true')
     expect(compareTable(result('a', {}), result('b', {}))).not.toContain('Warning')
   })
 })
