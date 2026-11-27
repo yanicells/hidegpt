@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { HideGptApi, SequencedSnapshot, SnapshotPatch } from '../../shared/api'
 import { emptySnapshot, type Snapshot } from '../../shared/model'
 import { applySnapshotPatch, type SnapshotDiff } from '../../shared/snapshot-patch'
-import { useBlocks, useShellSnapshot } from './session-bridge'
+import { useBlock, useBlockRows, useShellSnapshot } from './session-bridge'
 
 afterEach(cleanup)
 
@@ -63,7 +63,7 @@ describe('session bridge', () => {
     }
     function Blocks() {
       renders.blocks += 1
-      const block = useBlocks()[0]
+      const block = useBlock('a')
       text = block?.kind === 'agent' ? block.text : ''
       return null
     }
@@ -99,7 +99,7 @@ describe('session bridge', () => {
     send({ fields: {}, blocks: { length: 1, append: [[0, 'lo']] } })
     let text = ''
     function Blocks() {
-      const block = useBlocks()[0]
+      const block = useBlock('a')
       text = block?.kind === 'agent' ? block.text : ''
       return null
     }
@@ -124,7 +124,7 @@ describe('session bridge', () => {
     })
     let text = ''
     function Blocks() {
-      const block = useBlocks()[0]
+      const block = useBlock('a')
       text = block?.kind === 'agent' ? block.text : ''
       return null
     }
@@ -135,5 +135,62 @@ describe('session bridge', () => {
     drop()
     deliver()
     expect(text).toBe('Hello, world')
+  })
+
+  it('tells only the rows whose block changed, and keeps the row list while text streams', () => {
+    const { emit } = bridge({
+      ...emptySnapshot(),
+      route: { kind: 'doc', threadId: 't' },
+      blocks: [
+        { kind: 'user', id: 'q', text: 'Why?' },
+        { kind: 'agent', id: 'a', text: 'Because' },
+      ],
+    })
+    const renders: Record<string, number> = { rows: 0, q: 0, a: 0, b: 0 }
+    const seen: Record<string, string | undefined> = {}
+    let rows: ReturnType<typeof useBlockRows> = []
+    function Rows() {
+      renders.rows += 1
+      rows = useBlockRows()
+      return null
+    }
+    function Row({ id }: { id: string }) {
+      renders[id] += 1
+      const block = useBlock(id)
+      seen[id] = block?.kind === 'agent' || block?.kind === 'user' ? block.text : undefined
+      return null
+    }
+    render(
+      <>
+        <Rows />
+        <Row id="q" />
+        <Row id="a" />
+        <Row id="b" />
+      </>,
+    )
+    const before = { ...renders }
+    const firstRows = rows
+
+    emit({ fields: {}, blocks: { length: 2, append: [[1, ' light scatters.']] } })
+    expect(seen.a).toBe('Because light scatters.')
+    expect(renders).toEqual({ ...before, a: before.a + 1 })
+    expect(rows).toBe(firstRows)
+
+    // A new block changes the rows; the rows already there stay put.
+    emit({ fields: {}, blocks: { length: 3, set: [[2, { kind: 'agent', id: 'b', text: 'More', commentary: true }]] } })
+    expect(seen.b).toBe('More')
+    expect(renders).toEqual({ ...before, rows: before.rows + 1, a: before.a + 1, b: before.b + 1 })
+    expect(rows.map((row) => [row.id, row.kind, row.commentary])).toEqual([
+      ['q', 'user', false],
+      ['a', 'agent', false],
+      ['b', 'agent', true],
+    ])
+
+    // A block that goes away reads as missing.
+    emit({ fields: {}, blocks: { length: 1 } })
+    expect(seen.a).toBeUndefined()
+    expect(seen.b).toBeUndefined()
+    expect(seen.q).toBe('Why?')
+    expect(renders.q).toBe(before.q)
   })
 })
