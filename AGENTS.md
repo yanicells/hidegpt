@@ -205,11 +205,13 @@ pnpm record:codex library   # re-record a no-prompt replay fixture (also record:
 pnpm screenshot   # PNGs of home + document with a fake session
 pnpm fidelity:shots && pnpm fidelity:check   # hidden captures scored against Docs (README)
 pnpm dist         # package dist/Docs-*.dmg; HIDEGPT_PERSONAL=1 adds Claude, in dist/personal/
+pnpm bench        # perf bench against a fake provider; see scripts/bench/README.md
 ```
 
 `HIDEGPT_FAKE=1` runs every library's real adapter against its in-process
-fake (`src/main/demo.ts`, fictional documents only) — use it for UI work,
-screenshots and the bench.
+fake (`src/main/demo.ts`, fictional documents only) — use it for UI work and
+screenshots. The perf bench (`pnpm bench`) instead runs the real Codex adapter
+against a fake `codex app-server` process, so it measures the real transport.
 
 `HIDEGPT_PERSONAL` is a build-time flag (`__HIDEGPT_PERSONAL__`, read only
 through `PERSONAL_BUILD` in `src/shared/labels.ts`). Runs from source set it;
