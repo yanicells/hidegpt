@@ -114,6 +114,12 @@ label,
 
 /* ---------- Responsive ---------- */
 
+/*
+ * The .home-header grid here never applies: home-header.css and home.css's own
+ * 960px block sit in the components layer, which wins over base. Only the
+ * wordmark hiding takes effect. UI-12 owns the narrow Home header and settles
+ * both halves.
+ */
 @media (max-width: 960px) {
   .home-header {
     grid-template-columns: auto minmax(0, 1fr) auto;

@@ -49,11 +49,13 @@
   @apply relative flex items-start min-h-full;
   min-width: max-content;
   /*
-   * CSS px left between the page's right edge and the 14px scrollbar, minus
+   * CSS px left between the page's right edge and the scrollbar (--scrollbar-w), minus
    * what a suggestion card needs there at this zoom (24px gap, 256px card,
    * 16px air); approvals.css puts the card in the margin when it is positive.
    */
-  --card-room: calc((100cqw - var(--scrollbar-w) - var(--page-left) - var(--page-w)) / 1px - (24 + 256 + 16) * var(--page-zoom, 1));
+  --card-room: calc(
+    (100cqw - var(--scrollbar-w) - var(--page-left) - var(--page-w)) / 1px - (24 + 256 + 16) * var(--page-zoom, 1)
+  );
 }
 
 .workspace:has(.tabs.collapsed) {

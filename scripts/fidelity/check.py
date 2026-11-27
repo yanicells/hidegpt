@@ -20,7 +20,8 @@ Metric kinds (each names a phase, default "core", a viewport and a screen):
          Docs reference, and `mass` compares as a ratio
   pixel  the colour under a point (`at` [x, y])
 A metric passes at `target` within `tol`, or between `min` and `max`.
-Colours compare per channel; strings compare exactly.
+Colours compare per channel, alpha included; strings compare exactly. Default
+tolerances follow the report's section 5; a `note` says why a metric departs.
 """
 
 import argparse
@@ -130,8 +131,13 @@ def judge(metric, measured, target):
     """(passed, measured text, target text)."""
     if is_colour(target):
         tol = metric.get('tol', DEFAULT_TOL['colour'])
-        got = imaging.parse_colour(measured) if measured else None
         want = imaging.parse_colour(target)
+        try:
+            got = imaging.parse_colour(measured) if measured else None
+        except ValueError:
+            # A colour syntax parse_colour doesn't read (oklch(), color(srgb ...)) fails
+            # this metric, not the whole check.
+            return False, f'{measured!r} (unreadable colour)', target + (f' ±{tol}' if tol else '')
         shown = imaging.hex_colour(got) if got else repr(measured)
         passed = got is not None and max(abs(a - b) for a, b in zip(got, want)) <= tol
         return passed, shown, target + (f' ±{tol}' if tol else '')

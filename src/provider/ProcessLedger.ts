@@ -125,10 +125,22 @@ export function parseProcessTable(table: string): ReadonlyArray<ProcessRow> {
   })
 }
 
-/** A command's stdout, or none when it fails. */
-const run = (command: string, args: ReadonlyArray<string>) =>
+/** Absolute paths on macOS: PATH puts Homebrew and `~/.local/bin` first. */
+const PS = process.platform === 'darwin' ? '/bin/ps' : 'ps'
+const SYSCTL = '/usr/sbin/sysctl'
+
+/**
+ * A command's stdout, or none when it fails or runs past `timeoutMs`. The
+ * timeout is hard, as T3 Code's process runner makes it: the child gets
+ * SIGKILL (not a SIGTERM it may ignore), and a child that still holds its pipes
+ * open is given up on half a second later.
+ * Adapted from T3 Code (apps/server/src/processRunner.ts, `timeoutOption` and the
+ * force kill) at commit 5c6f2f12.
+ * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+ */
+export const run = (command: string, args: ReadonlyArray<string>, timeoutMs = COMMAND_TIMEOUT_MS) =>
   Effect.callback<Option.Option<string>>((resume) => {
-    execFile(
+    const child = execFile(
       command,
       [...args],
       // C locale and UTC, so start times parse the same on every machine; a big table must fit.
@@ -136,28 +148,31 @@ const run = (command: string, args: ReadonlyArray<string>) =>
         encoding: 'utf8',
         env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' },
         maxBuffer: 16 * 1024 * 1024,
-        timeout: COMMAND_TIMEOUT_MS,
+        timeout: timeoutMs,
+        killSignal: 'SIGKILL',
       },
       (error, stdout) => resume(Effect.succeed(error ? Option.none() : Option.some(stdout))),
     )
-  })
+    // Interrupted (a timeout below, a capped read, a closing scope): the child goes too.
+    return Effect.sync(() => void child.kill('SIGKILL'))
+  }).pipe(Effect.timeoutOrElse({ duration: timeoutMs + 500, orElse: () => Effect.succeedNone }))
 
 /** The start time of `pid` in epoch ms; 0 when it is gone. */
 export const startOf = (pid: number) =>
-  Effect.map(run('ps', ['-o', 'lstart=', '-p', String(pid)]), (out) =>
+  Effect.map(run(PS, ['-o', 'lstart=', '-p', String(pid)]), (out) =>
     Option.match(out, { onNone: () => 0, onSome: lstartMillis }),
   )
 
 /** Every process, or none when `ps` fails or lists nothing. Command lines only when asked: they are most of the output. */
 const readProcessTable = (withCommands: boolean) =>
-  Effect.map(run('ps', ['-A', '-o', `pid=,ppid=,pgid=,lstart=${withCommands ? ',command=' : ''}`]), (out) =>
+  Effect.map(run(PS, ['-A', '-o', `pid=,ppid=,pgid=,lstart=${withCommands ? ',command=' : ''}`]), (out) =>
     Option.filter(Option.map(out, parseProcessTable), (rows) => rows.length > 0),
   )
 
 /** When this machine booted, in epoch ms; 0 when unknown (nothing is dropped for it). */
 const readBootTime = Effect.gen(function* () {
   if (process.platform === 'darwin') {
-    const out = yield* run('sysctl', ['-n', 'kern.boottime'])
+    const out = yield* run(SYSCTL, ['-n', 'kern.boottime'])
     const sec = Option.getOrUndefined(out)?.match(/sec = (\d+)/)?.[1]
     return sec ? Number(sec) * 1000 : 0
   }
@@ -307,7 +322,15 @@ export const layer = (filePath: string | null, options: LedgerOptions = {}) =>
         }
         if (changed) yield* save
       })
-      yield* Effect.forkScoped(Effect.forever(Effect.andThen(Effect.sleep(TRACK_EVERY), track)))
+      // A defect in one read is logged, not the end of tracking.
+      yield* Effect.forkScoped(
+        Effect.forever(
+          Effect.andThen(
+            Effect.sleep(TRACK_EVERY),
+            Effect.catchCause(track, (cause) => Effect.logWarning('ledger', cause)),
+          ),
+        ),
+      )
 
       return ProcessLedger.of({
         record: (pid, command, arg) =>
