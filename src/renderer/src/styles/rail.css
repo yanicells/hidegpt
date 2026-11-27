@@ -24,11 +24,17 @@
   background: var(--hover);
 }
 
+/* The last app and its margin end at y=346; this puts the divider at y=355 and the "+" centre at y=400, as in Docs. */
 .rail-divider {
   width: 20px;
   height: 1px;
-  margin: -6px 0 22px;
-  background: var(--line);
+  margin: 9px 0 24px;
+  background: var(--rail-divider);
+}
+
+/* "Get add-ons": the 24px cut, whose plus is 14px of ink, in near black like Docs. */
+.rail-add {
+  color: var(--text);
 }
 
 .rail-hide {

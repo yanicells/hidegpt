@@ -23,8 +23,8 @@ export function SideRail() {
       ))}
       <span className="rail-divider" />
       <Tip label="Get add-ons" side="left">
-        <span className="rail-app">
-          <MIcon name="add" />
+        <span className="rail-app rail-add">
+          <MIcon name="add" size={24} />
         </span>
       </Tip>
       <Tip label="Hide side panel" side="left">
