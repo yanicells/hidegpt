@@ -18,19 +18,20 @@ if (process.env.HIDEGPT_FAKE !== '1' || !process.env.HIDEGPT_SCREENSHOT || !proc
   process.exit(1)
 }
 
-// pnpm fidelity:shots kills a run that hangs, or is interrupted, by this PID.
-const shots = process.env.HIDEGPT_SCREENSHOT
-mkdirSync(shots, { recursive: true })
-writeFileSync(join(shots, 'electron.pid'), String(process.pid))
-app.dock?.hide()
 // Without sRGB (see below), captures come out in the display's profile and match no
-// target. Checked before ready, as T3 Code's DesktopPreReadyPlatform.ts checks switches.
-if (!app.commandLine.hasSwitch('force-color-profile')) {
+// target. Checked before ready and before the PID file, as T3 Code's
+// DesktopPreReadyPlatform.ts reads and checks a switch's value.
+if (app.commandLine.getSwitchValue('force-color-profile') !== 'srgb') {
   console.error(
     'HIDEGPT_HIDDEN needs --force-color-profile=srgb on the Electron command line; use pnpm fidelity:shots.',
   )
   process.exit(1)
 }
+// pnpm fidelity:shots kills a run that hangs, or is interrupted, by this PID.
+const shots = process.env.HIDEGPT_SCREENSHOT
+mkdirSync(shots, { recursive: true })
+writeFileSync(join(shots, 'electron.pid'), String(process.pid))
+app.dock?.hide()
 // A window that is never shown counts as hidden, and Chromium would throttle its timers and frames.
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
 app.commandLine.appendSwitch('disable-background-timer-throttling')
