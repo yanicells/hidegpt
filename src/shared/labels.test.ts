@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { accountLabel, avatarLetter, libraryName, PROVIDERS, providersFor, windowTitle } from './labels'
+import { accountLabel, avatarLetter, formatListDate, libraryName, PROVIDERS, providersFor, windowTitle } from './labels'
 
 describe('account labels', () => {
   it('shows an address as it is', () => {
@@ -46,5 +46,17 @@ describe('windowTitle', () => {
 
   it('names a document without a title "Untitled document"', () => {
     expect(windowTitle(doc, '  ')).toBe('Untitled document - Google Docs')
+  })
+})
+
+describe('formatListDate', () => {
+  const now = new Date(2026, 10, 27, 18, 0)
+  const at = (date: Date) => date.getTime() / 1000
+
+  it('gives a time for today and a full date otherwise, like Docs', () => {
+    // ICU builds differ on the space before PM (U+0020 or U+202F).
+    expect(formatListDate(at(new Date(2026, 10, 27, 15, 5)), now).replace(/\s/g, ' ')).toBe('3:05 PM')
+    expect(formatListDate(at(new Date(2026, 10, 4, 9, 0)), now)).toBe('Nov 4, 2026')
+    expect(formatListDate(null, now)).toBe('')
   })
 })

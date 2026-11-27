@@ -44,12 +44,16 @@ function sameDay(date: Date, now: Date): boolean {
   )
 }
 
+// Built once: `toLocale*String` builds a new formatter on every call, which
+// cost a fifth of rendering Home's cards.
+const timeFormat = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' })
+const dateFormat = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+
 /** List view shows a time for today and a full date otherwise, like Docs. */
 export function formatListDate(unixSeconds: number | null | undefined, now = new Date()): string {
   if (!unixSeconds) return ''
   const date = new Date(unixSeconds * 1000)
-  if (sameDay(date, now)) return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return (sameDay(date, now) ? timeFormat : dateFormat).format(date)
 }
 
 export function avatarLetter(account: AccountSummary | null): string {
