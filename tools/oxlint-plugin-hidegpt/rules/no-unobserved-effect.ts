@@ -28,8 +28,8 @@ const EFFECT_RUNS = new Set([
   'runCallback',
   'runCallbackWith',
 ])
-/** Fiber-starting runs on any object, such as `runtime.runFork(...)`. */
-const ANY_RUNS = new Set(['runFork', 'runCallback'])
+/** Runs on any object, such as `runtime.runFork(...)` or a ManagedRuntime's `runPromise`. */
+const ANY_RUNS = new Set(['runFork', 'runCallback', 'runPromise'])
 
 const forkMessage = (name: string) =>
   `Effect.${name}: fork through forkObserved or forkObservedIn (src/provider/observed.ts), so a defect is reported.`
@@ -42,6 +42,8 @@ const MESSAGES: Record<string, string> = {
     'Effect.ignoreCause: drops a defect, or with { log } logs it without a report id. Use observed(effect, { name, quiet }) from src/provider/observed.ts.',
   tapError:
     'Effect.tapError: a Die skips it. For a rollback use undoOnFailure (src/provider/observed.ts); to only log a typed error, disable this line with a reason.',
+  tapErrorTag:
+    'Effect.tapErrorTag: a Die skips it, as it skips tapError. For a rollback use undoOnFailure (src/provider/observed.ts); to only log a typed error, disable this line with a reason.',
 }
 
 /** The message for `name` used from Effect (`Effect.name`, an alias, or a named import), if it is banned. */

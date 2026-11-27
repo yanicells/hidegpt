@@ -43,10 +43,10 @@ tester.run('hidegpt/no-unobserved-effect', rule, {
       code: `${header}export const r = () => Effect.${name}(Effect.void)`,
       errors: [{ message: new RegExp(`^Effect\\.${name}: start work from a callback through makeRunObserved`) }],
     })),
-    {
-      code: `${header}export const r = (runtime: { runFork: (e: unknown) => void }) => runtime.runFork(Effect.void)`,
-      errors: [{ message: /^\.runFork: start work from a callback through makeRunObserved/ }],
-    },
+    ...['runFork', 'runCallback', 'runPromise'].map((name) => ({
+      code: `${header}export const r = (runtime: { ${name}: (e: unknown) => void }) => runtime.${name}(Effect.void)`,
+      errors: [{ message: new RegExp(`^\\.${name}: start work from a callback through makeRunObserved`) }],
+    })),
     // Aliases: a namespace, `Effect` renamed, the root module, and named imports.
     {
       code: "import * as E from 'effect/Effect'\nexport const f = E.forkChild(E.void)",
@@ -109,6 +109,12 @@ tester.run('hidegpt/no-unobserved-effect', rule, {
     {
       code: `${header}export const t = Effect.void.pipe(Effect.tapError(() => Effect.void))`,
       errors: [{ message: /^Effect\.tapError: a Die skips it\. For a rollback use undoOnFailure/ }],
+    },
+    {
+      code: `${header}export const t = Effect.void.pipe(Effect.tapErrorTag('ProviderRequestError', () => Effect.void))`,
+      errors: [
+        { message: /^Effect\.tapErrorTag: a Die skips it, as it skips tapError\. For a rollback use undoOnFailure/ },
+      ],
     },
   ],
 })
