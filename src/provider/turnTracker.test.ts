@@ -81,6 +81,19 @@ describe('TurnTracker', () => {
     }),
   )
 
+  it.effect('an adopted turn with no id yet keeps a closed turn’s late events off it', () =>
+    Effect.gen(function* () {
+      const { tracker, types } = yield* setup
+      // A re-sync while streaming adopts the running turn before its id is known.
+      yield* tracker.started('t', null)
+      // Then an earlier, closed turn's start response and terminal arrive.
+      yield* tracker.started('t', 'native-x', 'turn-x')
+      yield* tracker.end('t', { status: 'completed', failure: null, nativeTurnId: 'native-x' })
+      expect(types()).toEqual(['turn.started'])
+      expect(tracker.current('t')).not.toBeNull()
+    }),
+  )
+
   it.effect('a sent turn that took a stopped turn’s id keeps only its own events', () =>
     Effect.gen(function* () {
       const { tracker, emitted } = yield* setup
