@@ -1,0 +1,186 @@
+/*
+ * Menus for the toolbar's align, line spacing and list tools
+ * (components/document/ToolMenus.tsx). Measured from Docs' 2x captures in
+ * research/gdocs-ref (menu-align, menu-line-spacing, menu-checklist,
+ * menu-bullets, menu-numbered). Each opens flush under its tool and lines up
+ * with the tool's left edge.
+ */
+
+.tool-menu {
+  min-width: 0;
+}
+
+/* ---------- List tools: glyph half and caret half ---------- */
+
+/*
+ * The 42px tool is two hover targets, as in Docs: the 30px glyph and the 12px
+ * caret, each shaded on its own; the caret stays shaded while its menu is open.
+ * The glyph keeps Docs' 1px drop inside its padding, so its shade sits square.
+ */
+.toolbar-icon.tb-split {
+  padding: 0;
+}
+
+.toolbar-icon.tb-split:hover {
+  background: none;
+}
+
+.tb-split > .tb-split-icon {
+  box-sizing: content-box;
+  padding: 6px 5px 4px;
+  border-radius: 4px;
+  translate: none;
+}
+
+.tb-split > .tb-caret {
+  @apply flex items-center justify-center self-stretch;
+  width: 12px;
+  margin: 0;
+  border-radius: 4px;
+  color: inherit;
+  outline: none;
+}
+
+.tb-split > .tb-caret > svg {
+  flex: none;
+  margin: 0 -4px;
+  translate: 0 1px;
+}
+
+.tb-split > .tb-split-icon:hover,
+.tb-split > .tb-caret:hover,
+.tb-split > .tb-caret[aria-expanded='true'] {
+  background: var(--hover);
+}
+
+/* ---------- Align & indent: a 122x40 palette of four 26px buttons ---------- */
+
+.align-menu {
+  padding: 7px 6px;
+  background: #eaeef5;
+}
+
+.align-palette {
+  @apply flex;
+  gap: 2px;
+}
+
+.align-option {
+  @apply grid place-items-center cursor-pointer;
+  width: 26px;
+  height: 26px;
+  border-radius: 2px;
+  background: var(--pill);
+  color: var(--text-2);
+  outline: none;
+}
+
+.align-option[data-checked] {
+  background: var(--toolbar-pressed);
+  color: var(--toolbar-pressed-ink);
+}
+
+/* Hover darkens whichever fill the button has. */
+.align-option[data-highlighted] {
+  background-image: linear-gradient(var(--hover), var(--hover));
+}
+
+/* ---------- Line & paragraph spacing: a 262px menu of standard rows ---------- */
+
+.spacing-menu {
+  width: 262px;
+}
+
+/* ---------- Preset grids (checklist, bullets, numbering) ---------- */
+
+/* Bullets and numbering: 3x2 cells of 74x84, 6px apart, 17px in from the top and bottom, 11px from the sides. */
+.preset-grid {
+  @apply grid;
+  grid-template-columns: repeat(3, 74px);
+  grid-auto-rows: 84px;
+  gap: 6px;
+  padding: 10px 11px;
+}
+
+/* Under the bullets grid, the "Checklist menu" row's rule is 13px below the cells. */
+.preset-grid + .menu-separator {
+  margin-top: 3px;
+}
+
+.checklist-menu .preset-grid {
+  grid-template-columns: repeat(2, 83px);
+  grid-auto-rows: 48px;
+}
+
+.preset {
+  @apply relative block cursor-pointer;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  outline: none;
+}
+
+.preset[data-highlighted] {
+  background: var(--hover-menu);
+}
+
+/* One preview line: its mark at the level's indent, then a 3px grey bar to 7px from the edge. */
+.preset-row {
+  @apply absolute flex items-center whitespace-nowrap;
+  top: calc(6px + 15px * var(--row));
+  left: calc(7px + 14px * var(--level));
+  right: 7px;
+  height: 11px;
+  font: 11px/11px var(--font-page);
+  color: #222;
+}
+
+/* Bars start 14px after the mark's indent, or 3px after a wider mark ("1.1."). */
+.preset-mark {
+  box-sizing: border-box;
+  min-width: 14px;
+  padding-right: 3px;
+}
+
+.preset-bar {
+  flex: 1;
+  min-width: 3px;
+  height: 3px;
+  background: #d4d4d4;
+}
+
+/* Checklist previews: two 10px boxes 15px apart, each with a 6px bar; the first preset crosses out the ticked line. */
+.check-preset {
+  padding-top: 11px;
+}
+
+.check-row {
+  @apply relative flex items-center;
+  gap: 6px;
+  height: 10px;
+  margin: 0 8px 5px;
+}
+
+.check-box {
+  @apply grid place-items-center shrink-0;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 1px solid #454746;
+  border-radius: 1.5px;
+  color: #454746;
+}
+
+.check-preset .preset-bar {
+  height: 6px;
+  background: #dbdce0;
+}
+
+.check-preset.strike .check-row:last-child::after {
+  content: '';
+  @apply absolute;
+  left: 15px;
+  right: -1px;
+  top: 4.5px;
+  height: 1px;
+  background: #454746;
+}
