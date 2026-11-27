@@ -67,4 +67,6 @@
   --paper-margin: 96px;
   --rail-width: 56px;
   --scrollbar-w: 14px;
+  /* UI-03: the Share pill's label, lock and caret. */
+  --share-ink: #004a77;
 }

@@ -8,14 +8,15 @@
 /*
  * Logo | title + menubar | header actions. Chrome is ~113px tall with the toolbar.
  * The 12px left padding puts the logo artwork (8px inside its 40px button) at
- * x=20 and the title box at x=53, as in Docs at 1470.
+ * x=20; the 2px gap puts the title box at x=54 and the menubar's "File" ink
+ * at x=63, as in Docs at 1470.
  */
 .doc-top {
   @apply grid items-center;
   grid-template-columns: auto minmax(0, 1fr) auto;
   height: 64px;
   padding: 0 15px 0 12px;
-  column-gap: 1px;
+  column-gap: 2px;
 }
 
 .doc-home {
@@ -186,7 +187,7 @@ button.header-action:disabled {
   @apply flex items-center;
   height: 40px;
   background: var(--blue-soft);
-  color: #004a77;
+  color: var(--share-ink);
   font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.1px;
