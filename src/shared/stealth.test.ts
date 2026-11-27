@@ -25,6 +25,9 @@ describe('stealth gate', () => {
     // In order of appearance, repeats kept.
     expect(stealthViolations('myGPTsAgent')).toEqual(['gpt', 'agent'])
     expect(stealthViolations('AIsearchAI')).toEqual(['ai', 'ai'])
+    // A capital run over a different banned word is caught too, but the same word counts once.
+    expect(stealthViolations('MCPrompt')).toEqual(['mcp', 'prompt'])
+    expect(stealthViolations('AIModel')).toEqual(['ai', 'model'])
     for (const text of ['GMAIL SEND EMAIL', 'AIRTABLE', 'MAINTAINERS', 'BOTANICAL', 'DETAILS']) {
       expect(isStealthy(text), text).toBe(true)
     }

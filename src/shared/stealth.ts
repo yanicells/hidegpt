@@ -51,7 +51,9 @@ function banned(word: string): string | null {
  * Case-insensitive and on whole words, where a word is a run of letters, so "_", "-" and
  * digits split words ("claude_ai", "gpt5", "GPT-4o"). A run that is not banned whole is
  * also checked by its case parts ("OpenAI", "ChatGPTPlus"), so "said" and "maintain" pass
- * but "OpenCode" and "useMcp" do not. A capital run before lower case is checked whole
+ * but "OpenCode" and "useMcp" do not. Two adjacent case parts are tried joined first, so a
+ * compound split by its own capitals counts ("useOpenCode", "myHideGptNotes"), while parts
+ * that only join into ordinary words ("OpenCase") stay apart. A capital run before lower case is checked whole
  * too ("AIsearch", "myGPTs"), while an all-caps word stays one word ("AIRTABLE", "GMAIL").
  * Within a run, hits keep their order and repeats ("myGPTsAgent" is "gpt", "agent").
  * A plural "s" counts too ("agents", "models"). The text is NFKC-normalized and stripped of
@@ -63,9 +65,11 @@ export function stealthViolations(text: string): string[] {
     const whole = banned(run)
     if (whole) return [whole]
     const parts = bannedParts(Array.from(run.matchAll(CASE_PARTS)))
-    // A capital-run hit inside a part hit is the same word seen twice ("myGPTs": "GPTs" and "GPT").
+    // A capital-run hit over a part hit of the same word is that word seen twice ("myGPTs":
+    // "GPTs" and "GPT"); over a different word it is a word of its own ("MCPrompt": "mcp", "prompt").
     const capitals = Array.from(run.matchAll(CAPITAL_RUNS), hitOf).filter(
-      (hit): hit is Hit => hit !== null && !parts.some((part) => hit.at < part.end && part.at < hit.end),
+      (hit): hit is Hit =>
+        hit !== null && !parts.some((part) => part.word === hit.word && hit.at < part.end && part.at < hit.end),
     )
     return [...parts, ...capitals].sort((a, b) => a.at - b.at).map((hit) => hit.word)
   }).flat()
