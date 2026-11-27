@@ -1,3 +1,5 @@
+import { memo } from 'react'
+
 const INCH = 96
 const EIGHTH = INCH / 8
 const PAGE_WIDTH = 816
@@ -39,9 +41,10 @@ function Ticks({ className, ticks }: { className: string; ticks: { margin: strin
  * Docs' horizontal ruler over the page: inches count from the left margin,
  * ticks are darker over the margins, and blue markers sit at both indents.
  * Like Docs, each tick and number sits 1px left of its inch, on the page's
- * edge rather than inside it. Decorative.
+ * edge rather than inside it. Decorative, and static: memo keeps the
+ * document's re-renders (one per streamed block) from reaching it.
  */
-export function Ruler() {
+export const Ruler = memo(function Ruler() {
   return (
     <div className="ruler" aria-hidden="true">
       <div className="ruler-track">
@@ -56,14 +59,15 @@ export function Ruler() {
       </div>
     </div>
   )
-}
+})
 
 /**
  * The vertical ruler along the left edge of the editor, numbered like the
  * horizontal one: "1" at the page's top edge, then inches from the top margin.
- * Its ticks start 16px down, 1px above the page's top edge. Decorative.
+ * Its ticks start 16px down, 1px above the page's top edge. Decorative and
+ * static, like Ruler.
  */
-export function VerticalRuler() {
+export const VerticalRuler = memo(function VerticalRuler() {
   return (
     <div className="vruler" aria-hidden="true">
       <Ticks className="vruler-ticks" ticks={V_TICKS} />
@@ -75,4 +79,4 @@ export function VerticalRuler() {
       ))}
     </div>
   )
-}
+})

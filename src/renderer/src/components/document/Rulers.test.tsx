@@ -3,7 +3,7 @@
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { VerticalRuler, rulerTicks } from './Rulers'
+import { Ruler, VerticalRuler, rulerTicks } from './Rulers'
 
 afterEach(cleanup)
 
@@ -39,12 +39,27 @@ describe('ruler ticks', () => {
   })
 })
 
-describe('VerticalRuler', () => {
+describe('rulers', () => {
+  it('colours the margin ticks with the margin path and the content ticks with the content path', () => {
+    for (const [Component, length, vertical] of [
+      [Ruler, 816, false],
+      [VerticalRuler, 1056, true],
+    ] as const) {
+      const { container, unmount } = render(<Component />)
+      const ticks = rulerTicks(length, vertical)
+      expect(container.querySelector('.ruler-tick-margin')?.getAttribute('d')).toBe(ticks.margin)
+      expect(container.querySelector('.ruler-tick-content')?.getAttribute('d')).toBe(ticks.content)
+      unmount()
+    }
+  })
+
   it('labels the top margin "1", like the horizontal ruler labels the left one', () => {
     const { container } = render(<VerticalRuler />)
     const labels = [...container.querySelectorAll<HTMLElement>('.vruler-num')]
     expect(labels.map((label) => label.textContent)).toEqual(['1', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'])
-    // The top "1" sits on the page's top edge, two inches above the content's "1".
-    expect(parseFloat(labels[1].style.top) - parseFloat(labels[0].style.top)).toBe(192)
+    // Each sits half a pixel below its tick: the top "1" on the page's top edge
+    // (ticks start 16px down), the content's "1" two inches lower.
+    expect(labels[0].style.top).toBe('16.5px')
+    expect(labels[1].style.top).toBe('208.5px')
   })
 })

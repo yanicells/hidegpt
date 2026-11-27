@@ -13,7 +13,8 @@
  * Docs runs the line under the ruler from the vertical ruler's border (x=15)
  * to 4px short of the scrollbar. The border image's outset paints it past the
  * track without widening the scroll area; the plain border is the fallback.
- * 100cqw is the canvas including its scrollbar. Outsets are divided by the
+ * 100cqw is the canvas including its scrollbar, whose width is --scrollbar-size
+ * (UI-07) or, before that lands, --scrollbar-w. Outsets are divided by the
  * zoom, which scales them.
  */
 .ruler-track {
@@ -23,8 +24,14 @@
   zoom: var(--page-zoom, 1);
   border-bottom: 1px solid var(--line);
   border-image: linear-gradient(var(--line), var(--line)) 0 0 1 0 / 0 0 1px 0 / 0
-    max(0px, calc((100cqw - var(--scrollbar-w) - 4px - var(--page-left) - var(--page-w)) / var(--page-zoom, 1))) 0
-    max(0px, calc((var(--page-left) - 15px) / var(--page-zoom, 1)));
+    max(
+      0px,
+      calc(
+        (100cqw - var(--scrollbar-size, var(--scrollbar-w)) - 4px - var(--page-left) - var(--page-w)) /
+          var(--page-zoom, 1)
+      )
+    )
+    0 max(0px, calc((var(--page-left) - 15px) / var(--page-zoom, 1)));
   font-family: var(--font-text);
   font-size: 11px;
   line-height: 1;
@@ -59,7 +66,8 @@
 
 /*
  * Docs' blue indent markers: a down-pointing triangle at each margin, its tip
- * 2px above the line and centred on the margin's tick.
+ * 2px above the line. Docs centres it on the margin tick's left edge, 1px left
+ * of the margin.
  */
 .ruler-indent {
   @apply absolute;
@@ -74,7 +82,7 @@
 
 /* The left one carries the 4px first-line indent bar on top, a 1px gap apart. */
 .ruler-indent-left {
-  left: calc(var(--paper-margin) - 0.5px);
+  left: calc(var(--paper-margin) - 1px);
 }
 
 .ruler-indent-left::after {
@@ -88,7 +96,7 @@
 }
 
 .ruler-indent-right {
-  left: calc(100% - var(--paper-margin) - 0.5px);
+  left: calc(100% - var(--paper-margin) - 1px);
 }
 
 /* Starts at the line under the horizontal ruler, and sticks there like the ruler above it. */
