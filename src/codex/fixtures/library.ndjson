@@ -1,5 +1,5 @@
 {"type":"transcript_start","provider":"codex","protocol":"codex.app-server","version":"0.167.1","scenario":"library","metadata":{"source":"scripts/record-codex-replay.ts","description":"Handshake, catalog and document list, signed out; then a new document, which Codex cannot resume before its first turn. No prompt."}}
-{"type":"expect_outbound","label":"initialize","frame":{"id":1,"method":"initialize","params":{"capabilities":{"experimentalApi":true},"clientInfo":{"name":"hidegpt","title":"Docs","version":"0.1.0"}}}}
+{"type":"expect_outbound","label":"initialize","frame":{"id":1,"method":"initialize","params":{"capabilities":{"experimentalApi":true},"clientInfo":{"name":"docs-desktop","title":"Docs","version":"0.1.0"}}}}
 {"type":"emit_inbound","label":"initialize","frame":{"id":1,"result":{"userAgent":"hidegpt/0.167.1 (Mac OS 27.0.1; arm64) unknown (hidegpt; 0.1.0)","codexHome":"/tmp/replay-codex-home","platformFamily":"unix","platformOs":"macos"}}}
 {"type":"expect_outbound","label":"initialized","frame":{"method":"initialized"}}
 {"type":"expect_outbound","label":"account/read","frame":{"id":2,"method":"account/read","params":{"refreshToken":false}}}

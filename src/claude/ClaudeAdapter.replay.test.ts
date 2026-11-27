@@ -27,7 +27,7 @@ const WORKSPACE = '/tmp/replay-workspace'
 
 /** A real folder for the scenario, so the adapter keeps it as the cwd, mapped back to the recorder's placeholder. */
 const workspace = Effect.acquireRelease(
-  Effect.sync(() => realpathSync(mkdtempSync(join(tmpdir(), 'hidegpt-replay-test-')))),
+  Effect.sync(() => realpathSync(mkdtempSync(join(tmpdir(), 'docs-replay-test-')))),
   (dir) => Effect.sync(() => rmSync(dir, { recursive: true, force: true })),
 ).pipe(Effect.map((dir) => ({ dir, paths: [[dir, WORKSPACE]] as const })))
 

@@ -57,6 +57,8 @@ export const makeIpc = (ipcMain: IpcMainLike, isTrusted: SenderGuard) => {
   ): Effect.Effect<void, never, R | Scope.Scope> =>
     Effect.gen(function* () {
       const context = yield* Effect.context<R>()
+      // The bridge itself: Electron awaits the promise, and `handler` never fails, so nothing is left unobserved.
+      // oxlint-disable-next-line hidegpt/no-unobserved-effect -- the IPC bridge is a callback boundary by design
       const runPromise = Effect.runPromiseWith(context)
       const decode = Schema.decodeUnknownEffect(spec.payload)
       const encode = Schema.encodeEffect(spec.result)

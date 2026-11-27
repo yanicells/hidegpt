@@ -43,7 +43,7 @@ export function createWindow(opts: { onDidFinishLoad: () => void }): BrowserWind
     ...initialBounds(),
     minWidth: 720,
     minHeight: 560,
-    title: 'Docs',
+    title: 'Google Docs',
     backgroundColor: '#ffffff',
     show: false,
     titleBarStyle: isMac ? 'hiddenInset' : 'default',

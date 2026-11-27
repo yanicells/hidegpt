@@ -30,6 +30,10 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     `apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.testkit.ts`;
     and the scrubbing in `src/provider/replayFixture.ts`, from
     `apps/server/scripts/codexReplayRecordingRecords.ts`.
+  - `src/codex/client.ts`: naming the client in `initialize` and setting
+    `CODEX_INTERNAL_ORIGINATOR_OVERRIDE` at spawn, from
+    `codexAppServerEnvironment` and `buildCodexInitializeParams` in
+    `apps/server/src/provider/CodexProvider.ts` (commit 5c6f2f12).
   - `src/provider/randomUuid.ts`: v4 UUIDs drawn from Effect's `Random`, from
     `packages/provider-core/src/server/randomUuid.ts` (commit 5c6f2f12).
   - `src/codex/mapping.ts`: turning Codex errors into Docs sentences and the
@@ -147,6 +151,12 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     `.vite-hooks/pre-commit`; and `.vscode/settings.json`,
     `.vscode/extensions.json` and the `.vscode/tsdk/tsgo` language-server shim
     from `.vscode/`.
+  - `tools/oxlint-plugin-hidegpt/` (commit 5c6f2f12): a JS plugin for
+    oxlint with the plugin and rule shape of `oxlint-plugin-t3code/index.ts`
+    and `rules/no-global-process-runtime.ts`, and
+    `rules/require-suppression-reason.ts` with its tests, adapted; the "Background work" and
+    "Callback bridges" conventions in `docs/architecture.md` follow
+    `docs/internals/effect-services.md`.
   - `src/main/logging/` (commit 5c6f2f12): the rotating file sink, from
     `packages/shared/src/logging.ts` (`makeAsyncRotatingFileSink`); the main
     NDJSON logger, after `apps/server/src/serverLogger.ts` and
@@ -158,7 +168,9 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     (`src/main/logging/redact.ts`), from `redactCauseCredentials` in
     `packages/shared/src/observability.ts` and its use in
     `apps/server/src/serverLogger.ts`, extended to the home folder, the
-    account name, and more credential shapes.
+    account name, emails, a 2 KB cap, and more credential shapes, whose
+    patterns live in `src/shared/redact.ts` and are shared with the replay
+    scrubbing.
   - `scripts/dist.ts`, `scripts/builder-config.ts` and
     `scripts/verify-preload-bundle.ts`: the electron-builder config built in
     code, signing only when asked and dropping empty signing variables, and the
