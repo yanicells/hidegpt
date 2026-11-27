@@ -115,9 +115,10 @@ serialized once more to size it. The timed runs carry no such instrumentation.
 `compare` lists every headline metric found in either result (`--all` for every metric).
 It marks a change `real` only when the two ranges (min to max over the runs) do not
 overlap, and anything else `within spread`. A metric with one sample on either side reads
-`1 sample` unless it is a count, which is exact; one found on one side only reads
-`only in before` or `only in after`. Results whose sessions differ (`docs`, `turns`,
-`throttle`) get a warning above the table.
+`1 sample`, except React `commits` and `renders` and the `static.` sizes, which repeat
+exactly (IPC bytes do not, see above). One found on one side only reads `only in before`
+or `only in after`. Results whose sessions differ (`docs`, `turns`, `throttle`, a shown
+window) get a warning above the table.
 
 `cold.fcp_ms` is not a headline: a window that is never shown can report its first paint
 after the first card painted. Such a run records `cold.fcp_late_ms` (how much later) in
@@ -151,15 +152,16 @@ Read it next to that phase's `recalc_ms` and `layout_ms`.
 ## How it stays safe and out of the way
 
 - `hook.cjs` is preloaded into the main process (`electron -r`). It gives the app its
-  own profile folder, and patches `child_process` so that `codex` resolves to the fake
-  server and every other program the app tries to start is refused (reported as
-  `cold.blocked_spawns`). The runner sends nothing until the fake server has connected.
+  own profile folder, and installs `spawn-guard.cjs`, which patches `child_process` so
+  that `codex` resolves to the fake server and every other program the app tries to start
+  fails with ENOENT (counted as `cold.blocked_spawns` and listed after the runs). The runner sends nothing until the fake server has connected.
 - The window is never shown or focused and the app has no Dock icon, but it renders
   at full frame rate (background throttling is off). `--show` shows it.
 - The app gets empty folders for `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and the `XDG_*`
   homes, so nothing it runs in-process can read real provider config or history.
 - One bench at a time: a second one stops at once while the first holds
-  `$TMPDIR/hidegpt-bench.lock`. A lock left by a bench that died is taken over.
+  `$TMPDIR/hidegpt-bench.lock` (`lock.mjs`). A lock left by a bench that died is taken
+  over, by a rename only one taker can win.
 - Every DevTools and main-process request has a deadline, and a launch plus session that
   runs past `--timeout` seconds (900 by default) is killed by pid and fails the run.
 - `--throttle 4` slows the renderer's main thread four times, like a slower laptop.
@@ -172,6 +174,8 @@ Read it next to that phase's `recalc_ms` and `layout_ms`.
 | `scenario.mjs` | the session, phase by phase |
 | `launch.mjs` | starts the app, connects to it, `measure()` |
 | `hook.cjs` | in the main process: isolation, hidden window, IPC and event-loop counters |
+| `spawn-guard.cjs` | in the main process: only the fake Codex server may start |
+| `lock.mjs` | one bench at a time |
 | `probe.cjs` | in the page: paint, frame, key and DOM timing; React commit counter |
 | `fake-codex.mjs` | the stand-in provider and its deterministic library |
 | `cdp.mjs` | DevTools protocol client |

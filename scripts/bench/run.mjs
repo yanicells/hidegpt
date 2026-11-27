@@ -13,6 +13,7 @@ import { parseArgs } from 'node:util'
 import { gzipSync } from 'node:zlib'
 
 import { launch, sleep } from './launch.mjs'
+import { releaseLock, takeLock } from './lock.mjs'
 import { summarizeProfile } from './profile.mjs'
 import { compareTable, HEADLINE, resultTable, summarize } from './report.mjs'
 import { PHASES, scenario } from './scenario.mjs'
@@ -65,29 +66,8 @@ const sessionTimeout = Number(flags.timeout)
 
 // One bench at a time on this machine: two would measure each other.
 const lockFile = join(tmpdir(), 'hidegpt-bench.lock')
-function takeLock() {
-  try {
-    writeFileSync(lockFile, String(process.pid), { flag: 'wx' })
-    return
-  } catch (error) {
-    if (error.code !== 'EEXIST') throw error
-  }
-  const holder = Number(readFileSync(lockFile, 'utf8'))
-  let alive = false
-  try {
-    alive = Number.isInteger(holder) && holder > 0 && process.kill(holder, 0)
-  } catch (error) {
-    alive = error.code === 'EPERM'
-  }
-  if (alive) throw new Error(`another bench is running (pid ${holder}, ${lockFile}); wait for it to finish`)
-  // Left by a bench that died: take it over.
-  rmSync(lockFile, { force: true })
-  writeFileSync(lockFile, String(process.pid), { flag: 'wx' })
-}
-takeLock()
-process.on('exit', () => {
-  if (existsSync(lockFile) && readFileSync(lockFile, 'utf8') === String(process.pid)) rmSync(lockFile, { force: true })
-})
+takeLock(lockFile)
+process.on('exit', () => releaseLock(lockFile))
 
 if (flags.build) {
   console.log(`building ${repo} …`)
@@ -110,7 +90,18 @@ process.on('SIGINT', () => void (current ? current.close().finally(() => process
 /** One launch and one full session. */
 async function session(name, { counts = false, around, profileStartup = false } = {}) {
   const noise = { load_before: loadavg()[0], spin_ms: spin() }
-  const app = await launch(repo, {
+  // The deadline covers the launch too; an app that comes up after it is stopped at once.
+  let app = null
+  let late = false
+  let timer = null
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      late = true
+      app?.kill()
+      reject(new Error(`${name}: the session ran past ${sessionTimeout} s and the app was stopped (app log: ${join(work, `${name}.log`)})`))
+    }, sessionTimeout * 1000)
+  })
+  const launching = launch(repo, {
     workDir: work,
     userData: join(work, 'userData'),
     logFile: join(work, `${name}.log`),
@@ -121,22 +112,21 @@ async function session(name, { counts = false, around, profileStartup = false } 
     ipcBytes: counts,
     throttle,
     profileStartup,
+  }).then((launched) => {
+    app = launched
+    if (late) launched.kill()
+    return launched
   })
-  current = app
-  let timer = null
-  const deadline = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      app.kill()
-      reject(new Error(`${name}: the session ran past ${sessionTimeout} s and the app was stopped (app log: ${join(work, `${name}.log`)})`))
-    }, sessionTimeout * 1000)
-  })
+  // A launch that fails after the deadline has nobody waiting on it.
+  launching.catch(() => {})
   try {
+    current = await Promise.race([launching, deadline])
     const metrics = await Promise.race([scenario(app, { docs, around: around?.(app) }), deadline])
     return { ...metrics, 'noise.load': Math.max(noise.load_before, loadavg()[0]), 'noise.spin_ms': noise.spin_ms }
   } finally {
     clearTimeout(timer)
     current = null
-    await app.close()
+    if (app && !late) await app.close()
   }
 }
 
