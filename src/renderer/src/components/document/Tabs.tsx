@@ -1,15 +1,12 @@
-import { memo, useEffect, useRef, useState, type RefObject } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 
 import { cn } from '../ui/cn'
 import { MIcon } from '../ui/MaterialIcon'
 import { Tip } from '../ui/tooltip'
-import { outlineTarget, sectionAt, type OutlineEntry } from './outline'
+import type { OutlineEntry } from './outline'
+import { useReadingSection } from './useReadingSection'
 
 const NARROW = '(max-width: 960px)'
-// The reading line, 10% down the canvas: the active section is the one holding it.
-// The observed area runs from far above the canvas down to that line, so a heading
-// crossing it in either direction (or a jump past it) changes its intersection.
-const READING_LINE = '1000000px 0px -90% 0px'
 
 /**
  * Docs' "Document tabs" panel: one "Tab 1" pill and the heading outline below
@@ -132,42 +129,6 @@ function sameTabs(a: TabsProps, b: TabsProps): boolean {
       return entry.key === other.key && entry.text === other.text && entry.level === other.level
     })
   )
-}
-
-/**
- * The key of the section at the reading line of the canvas that holds `panel`,
- * or null until the observer first reports. The observer calls back only when
- * a heading crosses the line, and each call reads one box per heading.
- */
-function useReadingSection(
-  panel: RefObject<HTMLElement | null>,
-  entries: ReadonlyArray<OutlineEntry>,
-  open: boolean,
-): string | null {
-  const [key, setKey] = useState<string | null>(null)
-  useEffect(() => {
-    const root = panel.current?.closest<HTMLElement>('.workspace')
-    if (!open || !root || typeof IntersectionObserver === 'undefined') return
-    const observer = new IntersectionObserver(
-      (records) => {
-        const line = records[0]?.rootBounds?.bottom
-        if (line === undefined) return
-        // Headings can render after the panel (late rows, lazy Markdown), so each
-        // report looks them up again and watches any new ones.
-        const targets = entries.map((entry) => outlineTarget(root, entry))
-        for (const target of targets) if (target) observer.observe(target)
-        const tops = targets.map((target) => target?.getBoundingClientRect().top)
-        setKey(sectionAt(entries, tops, line)?.key ?? null)
-      },
-      { root, rootMargin: READING_LINE },
-    )
-    for (const entry of entries) {
-      const target = outlineTarget(root, entry)
-      if (target) observer.observe(target)
-    }
-    return () => observer.disconnect()
-  }, [panel, entries, open])
-  return key
 }
 
 export function truncate(text: string, limit = 48): string {
