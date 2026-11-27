@@ -76,12 +76,15 @@ export class Paginator {
   private resetFrame = 0
   private disposed = false
 
-  constructor(
-    private readonly paper: HTMLElement,
-    private readonly onPages: (pages: number) => void,
-  ) {
+  private readonly paper: HTMLElement
+  private readonly onPages: (pages: number) => void
+
+  constructor(paper: HTMLElement, onPages: (pages: number) => void) {
+    this.paper = paper
+    this.onPages = onPages
     // Breaks left by an earlier instance (a remount) aren't in this one's books.
-    for (const el of Array.from(paper.querySelectorAll<HTMLElement>('[data-page-break], [data-page-split]'))) clearBreak(el)
+    for (const el of Array.from(paper.querySelectorAll<HTMLElement>('[data-page-break], [data-page-split]')))
+      clearBreak(el)
     this.width = parseFloat(getComputedStyle(paper).width)
     this.mutations = new MutationObserver((records) => this.onMutations(records))
     // Our own break writes are attributes outside the filter, so they don't retrigger this.
@@ -92,7 +95,8 @@ export class Paginator {
       attributes: true,
       attributeFilter: ['data-streaming'],
     })
-    this.resizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver((entries) => this.onResize(entries))
+    this.resizes =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver((entries) => this.onResize(entries))
     paper.addEventListener('contentvisibilityautostatechange', this.onVisibility, true)
     void document.fonts?.ready.then(() => {
       if (this.disposed) return
@@ -128,7 +132,8 @@ export class Paginator {
       const row = this.rowOf(record.target)
       if (row) this.dirty.add(row)
       // Rows came or went; the sheets React redraws are neither.
-      changed ||= row !== null || record.target === this.paper || (record.target as Element).classList?.contains('paper-flow')
+      changed ||=
+        row !== null || record.target === this.paper || (record.target as Element).classList?.contains('paper-flow')
       for (const node of Array.from(record.removedNodes)) {
         if (node instanceof HTMLElement && this.observed.delete(node)) this.resizes?.unobserve(node)
       }
@@ -366,7 +371,9 @@ export class Paginator {
 
 /** The paper's own scaffolding isn't page text. */
 function isRowOfPaper(el: HTMLElement): boolean {
-  return !el.classList.contains('page-sheets') && !el.classList.contains('paper-end') && !el.classList.contains('paper-flow')
+  return (
+    !el.classList.contains('page-sheets') && !el.classList.contains('paper-end') && !el.classList.contains('paper-flow')
+  )
 }
 
 /**
@@ -375,7 +382,9 @@ function isRowOfPaper(el: HTMLElement): boolean {
  */
 function skippable(row: HTMLElement): boolean {
   return (
-    row.classList.contains('doc-block') && !row.hasAttribute('data-streaming') && !row.querySelector(':scope > .suggestion-row')
+    row.classList.contains('doc-block') &&
+    !row.hasAttribute('data-streaming') &&
+    !row.querySelector(':scope > .suggestion-row')
   )
 }
 
@@ -384,7 +393,12 @@ function skippable(row: HTMLElement): boolean {
  * out: a push moves its own unit and everything after it, a split everything after its
  * band. A row that is one unit carries its push as its own top margin, above its box.
  */
-function measureRow(row: HTMLElement, rect: DOMRect, scale: number, written?: Map<HTMLElement, PageBreak<HTMLElement>>): Geometry {
+function measureRow(
+  row: HTMLElement,
+  rect: DOMRect,
+  scale: number,
+  written?: Map<HTMLElement, PageBreak<HTMLElement>>,
+): Geometry {
   if (!row.classList.contains('doc-block')) {
     const own = written?.get(row)
     const unit = { el: row, offset: -(own?.push ?? 0), height: rect.height / scale, heading: false, paragraph: false }

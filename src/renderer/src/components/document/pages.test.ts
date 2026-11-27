@@ -133,7 +133,9 @@ beforeEach(() => {
     const el = this.startContainer as HTMLElement
     guard(el)
     const { top, height } = layout().get(el)!
-    const lines = Array.from({ length: Math.round(height / 20) }, (_, line) => rect({ top: top + line * 20, height: 20 }))
+    const lines = Array.from({ length: Math.round(height / 20) }, (_, line) =>
+      rect({ top: top + line * 20, height: 20 }),
+    )
     return lines as unknown as DOMRectList
   }
   // jsdom has no checkVisibility; pages.ts asks a row's first child.
@@ -197,7 +199,11 @@ describe('Paginator', () => {
 
     const writes: MutationRecord[] = []
     const watch = new MutationObserver((records) => writes.push(...records))
-    watch.observe(paper, { subtree: true, attributes: true, attributeFilter: ['style', 'data-page-break', 'data-page-split'] })
+    watch.observe(paper, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style', 'data-page-break', 'data-page-split'],
+    })
     const first = units(row)[0]
     first.dataset.h = '800.3'
     first.textContent = 'grew'

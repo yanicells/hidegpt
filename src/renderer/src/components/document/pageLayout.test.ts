@@ -45,10 +45,7 @@ describe('layoutPages', () => {
     const units = [unit('a', 0, 800), unit('b', 820, 100)]
     const fresh = layoutPages([row(96, units), row(1016, [unit('c', 0, 50)])], noLines)
     // Row 1 kept its break, so it is 252 taller and pushes row 2 down by as much.
-    const cached = layoutPages(
-      [row(96, units, { height: 1172, applied: 252 }), row(1268, [unit('c', 0, 50)])],
-      noLines,
-    )
+    const cached = layoutPages([row(96, units, { height: 1172, applied: 252 }), row(1268, [unit('c', 0, 50)])], noLines)
     expect(cached).toEqual(fresh)
     expect(fresh.breaks[1]).toEqual([])
   })
