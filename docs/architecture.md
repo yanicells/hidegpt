@@ -159,7 +159,13 @@ What gets renamed, by install route:
 | OpenCode from npm (`opencode-ai`: a Node launcher)                                                                                 | no                                                           |
 | Anything behind a version manager's shim (mise, Volta, asdf, proto), or any other script                                           | no                                                           |
 
-Any failure starts the original command: not found, an unknown script, a disk that can't clone. A clone that fails to start (removed meanwhile, refused by a security tool) is deleted, and the original starts in its place. `DOCS_HELPER_RENAME=0` turns renaming off; for an app opened from Finder, run `launchctl setenv DOCS_HELPER_RENAME 0` and relaunch Docs. Demo mode never clones.
+Any failure starts the original command: not found, an unknown script, a disk that can't clone. So does a clone that fails to start, whether Node reports it as an error (ENOENT, EACCES: removed meanwhile) or throws it from `spawn` (EPERM, ENOEXEC: refused by a security tool, not a program). The original then starts with the caller's env, not the variables meant for the clone. The clone is deleted only once the original has started, so a failure both share (a missing working folder) leaves a good clone in place. `DOCS_HELPER_RENAME=0` turns renaming off; for an app opened from Finder, run `launchctl setenv DOCS_HELPER_RENAME 0` and relaunch Docs. Demo mode never clones.
+
+Only the process name changes. Still visible:
+
+- The arguments, in `ps -o command` or Activity Monitor's inspector: `…/Docs Helper app-server`, `serve --port …`.
+- The clone's path, under `~/Library/Application Support/Docs/helpers/`.
+- Processes the CLIs start themselves, under their own names. Codex runs `codex-code-mode-host` (a sibling binary, reached through the mirrored link) and `git fetch` for its `openai/plugins` repository.
 
 Only one Docs runs per profile (`app.requestSingleInstanceLock`, as in T3 Code's `DesktopClerk`). The lock is taken at the top of `app.ts`, before the runtime runs, so a second launch builds nothing and quits. The first one focuses its window; a launch that arrives during startup is remembered and focuses the window once it exists. Demo mode keeps no ledger and skips the lock, so `pnpm screenshot` runs beside the real app.
 

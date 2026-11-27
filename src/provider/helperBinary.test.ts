@@ -18,6 +18,7 @@ import { basename, dirname, join } from 'node:path'
 
 import { afterAll, describe, expect, it } from 'vitest'
 
+import { PACKAGED_BINARY_NAME } from '../claude/executable'
 import { HELPER_NAME, MIRROR_LIMIT, STAMP, resolveHelper } from './helperBinary'
 import { FIRST_LAUNCH_MS, codexInstall, executable, nodeAt, processName } from './helperBinary.testing'
 
@@ -148,6 +149,8 @@ describe.runIf(process.platform === 'darwin')('resolveHelper', () => {
     expect(resolveHelper(source, undefined, dir, { platform: 'linux', env: {} })).toEqual(unchanged)
     expect(resolveHelper(source, undefined, null, mac)).toEqual(unchanged)
     expect(resolveHelper(renamed, undefined, dir, mac).command).toBe(renamed)
+    // The personal build's binary is left alone because it already has this name.
+    expect(PACKAGED_BINARY_NAME).toBe(HELPER_NAME)
     expect(resolveHelper(script, undefined, dir, mac).command).toBe(script)
     expect(resolveHelper(data, undefined, dir, mac).command).toBe(data)
     // A link to a binary of an unrelated name, or to a version manager's shim, runs whatever its
