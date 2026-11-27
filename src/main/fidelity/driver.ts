@@ -4,12 +4,10 @@ import { join } from 'node:path'
 
 import * as Effect from 'effect/Effect'
 
-import { clockScript, nextMinute } from './clock'
+import { answered } from '../pageDeadline'
+import { clockScript, startStep } from './clock'
 
 type Point = { x: number; y: number }
-
-/** How long one page script, CDP command or capture may take before the phase gives up. */
-const PAGE_TIMEOUT = '15 seconds'
 
 /** CSS selector -> the computed properties `pnpm fidelity:check` reads from it (`targets.json`). */
 export type Probes = Readonly<Record<string, ReadonlyArray<string>>>
@@ -115,33 +113,26 @@ const captureStyle = `(() => {
  */
 export const makeDriver = (win: BrowserWindow, root: string, phase: string, probes: Probes) =>
   Effect.gen(function* () {
-    // Wall time, not the pinned `Date`, which jumps forward at each step.
+    // Wall time, not the pinned `Date`, which jumps at each step.
     const started = performance.now()
     const manifest: Manifest = { phase, shots: [], failures: [], ms: 0 }
     mkdirSync(root, { recursive: true })
     const dbg = win.webContents.debugger
     dbg.attach('1.3')
 
-    // A page that never answers (a hung or gone renderer) ends the phase rather than the
-    // whole walk timing out step by step, as the stock walk's PAGE_TIMEOUT does (screenshots.ts).
+    // Every request to the page has the stock walk's deadline (pageDeadline.ts). After the
+    // first hang the phase stops, rather than timing out step by step.
     let hung = false
-    const answered = <A>(what: string, ask: () => Promise<A>) =>
-      Effect.promise(ask).pipe(
-        Effect.timeoutOrElse({
-          duration: PAGE_TIMEOUT,
-          orElse: () =>
-            Effect.suspend(() => {
-              hung = true
-              return Effect.die(new Error(`The page did not answer in time: ${what}`))
-            }),
-        }),
-      )
+    const onHang = () => {
+      hung = true
+    }
     const cdp = <A = unknown>(method: string, params: Record<string, unknown> = {}) =>
-      answered(`CDP ${method}`, () => dbg.sendCommand(method, params) as Promise<A>)
+      answered(`CDP ${method}`, () => dbg.sendCommand(method, params) as Promise<A>, onHang)
     const js = <A = unknown>(script: string) =>
       answered(
         script.replace(/\s+/g, ' ').trim().slice(0, 80),
         () => win.webContents.executeJavaScript(script) as Promise<A>,
+        onHang,
       )
     const pause = (ms = 150) => Effect.sleep(`${ms} millis`)
 
@@ -287,11 +278,11 @@ export const makeDriver = (win: BrowserWindow, root: string, phase: string, prob
     const blur = () => js('document.activeElement && document.activeElement.blur()')
 
     /**
-     * Runs one step from the next whole minute (`nextMinute`). A failure is recorded and
-     * the next step runs, unless the page stopped answering.
+     * Runs one step on its own minute of the pinned clock (`startStep`). A failure is
+     * recorded and the next step runs, unless the page stopped answering.
      */
     const step = <A, E>(name: string, effect: Effect.Effect<A, E>) =>
-      Effect.suspend(() => js(nextMinute())).pipe(
+      Effect.suspend(() => js(startStep())).pipe(
         Effect.andThen(effect),
         Effect.asVoid,
         Effect.catchCause((cause) =>

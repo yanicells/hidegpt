@@ -102,11 +102,12 @@ pnpm fidelity:check --failing --only toolbar
 ```
 
 To prove a change moves no pixels (or only the ones it should), capture both
-sides into their own directories and compare them:
+sides into their own directories and compare them. "Before" is the branch your
+work is based on:
 
 ```sh
-git switch main && pnpm fidelity:shots --out tmp/before
-git switch my-branch && pnpm fidelity:shots --out tmp/after
+git switch <your base branch> && pnpm fidelity:shots --out tmp/before
+git switch <your branch> && pnpm fidelity:shots --out tmp/after
 pnpm fidelity:diff tmp/before tmp/after     # "137 identical", or each screen that changed
 pnpm fidelity:diff tmp/before tmp/after --out tmp/overlays   # red overlays of the changes
 ```
@@ -116,12 +117,16 @@ is every phase on Ctrl-C.
 
 Captures are 2x PNGs with a JSON dump beside each: element boxes, computed fonts
 and colours, the faces Chromium actually drew, and the selectors `targets.json`
-probes. The clock, time zone, locale and colour scheme are pinned, and pages are
+probes. The clock, time zone, locale and colour scheme are pinned, colours are
+drawn in sRGB (so a pixel is its CSS value on any display), and pages are
 rastered on the CPU (GPU raster antialiases icons slightly differently each run),
 so two runs on the same commit are pixel-identical. CPU and GPU raster draw page
 text identically; icon edges can differ by a level or two from what the app shows
-on screen. Targets hold the Google Docs values from the
-UI audit. A selector may change when markup changes; a target value may not.
+on screen. The pinned clock starts at 15:00 UTC on 2 March 2026, and each step starts
+at 15:00 plus its index in minutes. A step's timestamps therefore don't depend on how
+long earlier steps took. A step that runs over a minute rolls its own displayed
+minute, and the next step goes back to its fixed start. Targets hold the Google Docs
+values from the UI audit. A selector may change when markup changes; a target value may not.
 
 The check and diff tools are Python. With [uv](https://docs.astral.sh/uv/)
 installed (`brew install uv`) the `pnpm` scripts fetch their dependencies
