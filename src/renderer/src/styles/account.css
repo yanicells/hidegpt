@@ -7,7 +7,7 @@
   padding: 8px;
   border-radius: 28px;
   background: #e9eef6;
-  box-shadow: var(--shadow-menu);
+  box-shadow: var(--shadow-menu-docs);
 }
 
 .account-card {

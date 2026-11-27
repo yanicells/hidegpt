@@ -105,7 +105,7 @@
   padding: 8px 0;
   border-radius: 8px;
   background: var(--surface);
-  box-shadow: var(--shadow-menu);
+  box-shadow: var(--shadow-menu-docs);
   font-family: var(--font-ui);
   font-size: 14px;
 }
