@@ -48,13 +48,15 @@ const ipc = { sends: 0, bytes: 0, byChannel: {}, measureMs: 0 }
 const COUNT_BYTES = env.BENCH_IPC_BYTES === '1'
 let win = null
 app.on('browser-window-created', (_event, created) => {
+  // Every window stays hidden; the first is the app's document window and is the one measured.
+  if (env.BENCH_SHOW !== '1') {
+    created.show = () => {}
+    created.showInactive = () => {}
+    created.focus = () => {}
+  }
   if (win) return
   win = created
   marks.windowCreated = now()
-  if (env.BENCH_SHOW !== '1') {
-    created.show = () => {}
-    created.focus = () => {}
-  }
   created.setSize(Number(env.BENCH_WIDTH ?? 1440), Number(env.BENCH_HEIGHT ?? 900))
   const contents = created.webContents
   contents.setBackgroundThrottling(false)

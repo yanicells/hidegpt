@@ -1,6 +1,7 @@
 // The session the perf bench drives, one phase per user-visible action. Every phase
 // writes flat `phase.metric` numbers into `metrics`; see README.md for what each means.
 import { sleep } from './launch.mjs'
+import { median } from './report.mjs'
 
 const CARD = '[data-testid^="thread-"]'
 const BLOCK = '.doc-block'
@@ -156,8 +157,13 @@ export async function scenario(app, { docs, around = (_phase, run) => run() }) {
     set('cold.app_ready_ms', since(stats.marks.ready))
     set('cold.window_ms', since(stats.marks.windowCreated))
     set('cold.dom_ready_ms', since(stats.marks.domReady))
-    set('cold.fcp_ms', since(cold['first-contentful-paint'] ?? cold['first-paint']))
-    set('cold.first_card_ms', since(cold.firstCard))
+    // A hidden window can report first paint after the first card painted. Such a run keeps
+    // how late it was (`cold.fcp_late_ms`) instead of a first paint that marks nothing.
+    const fcp = since(cold['first-contentful-paint'] ?? cold['first-paint'])
+    const firstCard = since(cold.firstCard)
+    if (fcp !== null && firstCard !== null && fcp > firstCard) set('cold.fcp_late_ms', fcp - firstCard)
+    else set('cold.fcp_ms', fcp)
+    set('cold.first_card_ms', firstCard)
     if (cold.allCards) set('cold.all_cards_ms', since(cold.allCards))
     // The provider finished listing the library: start-up up to here is the main process and the provider.
     if (app.listedAt()) set('cold.listed_ms', since(app.listedAt()))
@@ -198,10 +204,9 @@ export async function scenario(app, { docs, around = (_phase, run) => run() }) {
         const seen = await bench(call('clickWatch', { click: '[data-testid="load-older"]', selector: BLOCK, gt: true, quietMs: 250, timeout: 30000 }))
         pages.push(seen.settled)
       }
-      pages.sort((a, b) => a - b)
       set('load_all.pages', pages.length)
-      set('load_all.page_p50_ms', pages[Math.floor(pages.length / 2)] ?? 0)
-      set('load_all.page_max_ms', pages[pages.length - 1] ?? 0)
+      set('load_all.page_p50_ms', median(pages) ?? 0)
+      set('load_all.page_max_ms', Math.max(0, ...pages))
       // The quiet wait after each page is the bench's, not the app's.
       set('load_all.total_ms', Date.now() - started - pages.length * 250)
     },

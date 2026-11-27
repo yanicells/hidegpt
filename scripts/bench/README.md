@@ -112,8 +112,16 @@ Latency definitions:
 them costs CPU: a React DevTools-style hook walks each commit, and each IPC message is
 serialized once more to size it. The timed runs carry no such instrumentation.
 
-`compare` marks a change `real` only when the two ranges (min to max over the runs) do
-not overlap. Anything else is `within spread`.
+`compare` lists every headline metric found in either result (`--all` for every metric).
+It marks a change `real` only when the two ranges (min to max over the runs) do not
+overlap, and anything else `within spread`. A metric with one sample on either side reads
+`1 sample` unless it is a count, which is exact; one found on one side only reads
+`only in before` or `only in after`. Results whose sessions differ (`docs`, `turns`,
+`throttle`) get a warning above the table.
+
+`cold.fcp_ms` is not a headline: a window that is never shown can report its first paint
+after the first card painted. Such a run records `cold.fcp_late_ms` (how much later) in
+its place.
 
 ## Busy machine or quiet machine
 
@@ -148,6 +156,12 @@ Read it next to that phase's `recalc_ms` and `layout_ms`.
   `cold.blocked_spawns`). The runner sends nothing until the fake server has connected.
 - The window is never shown or focused and the app has no Dock icon, but it renders
   at full frame rate (background throttling is off). `--show` shows it.
+- The app gets empty folders for `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and the `XDG_*`
+  homes, so nothing it runs in-process can read real provider config or history.
+- One bench at a time: a second one stops at once while the first holds
+  `$TMPDIR/hidegpt-bench.lock`. A lock left by a bench that died is taken over.
+- Every DevTools and main-process request has a deadline, and a launch plus session that
+  runs past `--timeout` seconds (900 by default) is killed by pid and fails the run.
 - `--throttle 4` slows the renderer's main thread four times, like a slower laptop.
 
 ## Files

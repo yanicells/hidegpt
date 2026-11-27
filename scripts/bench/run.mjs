@@ -2,12 +2,12 @@
 // The perf bench. Drives a built copy of the app through one fixed session against a
 // fake Codex server and reports what it cost. See README.md in this folder.
 //
-//   node scripts/bench/run.mjs [--repo <dir>] [--label <name>] [--runs 3] [--build]
+//   node scripts/bench/run.mjs [--repo <dir>] [--label <name>] [--runs 3] [--build] [--timeout 900]
 //   node scripts/bench/run.mjs profile --phase stream300[,open] [--repo <dir>]
 //   node scripts/bench/run.mjs compare <before.json> <after.json>
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { cpus, loadavg, totalmem } from 'node:os'
+import { cpus, loadavg, tmpdir, totalmem } from 'node:os'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { gzipSync } from 'node:zlib'
@@ -31,6 +31,7 @@ const { values: flags, positionals } = parseArgs({
     docs: { type: 'string', default: '500' },
     turns: { type: 'string', default: '300' },
     phase: { type: 'string', default: 'stream300' },
+    timeout: { type: 'string', default: '900' },
     all: { type: 'boolean', default: false },
   },
 })
@@ -59,6 +60,34 @@ const work = join(out, '.work', label)
 const docs = Number(flags.docs)
 const turns = Number(flags.turns)
 const throttle = Number(flags.throttle)
+/** Seconds one launch and session may take before the app is killed and the run fails. */
+const sessionTimeout = Number(flags.timeout)
+
+// One bench at a time on this machine: two would measure each other.
+const lockFile = join(tmpdir(), 'hidegpt-bench.lock')
+function takeLock() {
+  try {
+    writeFileSync(lockFile, String(process.pid), { flag: 'wx' })
+    return
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error
+  }
+  const holder = Number(readFileSync(lockFile, 'utf8'))
+  let alive = false
+  try {
+    alive = Number.isInteger(holder) && holder > 0 && process.kill(holder, 0)
+  } catch (error) {
+    alive = error.code === 'EPERM'
+  }
+  if (alive) throw new Error(`another bench is running (pid ${holder}, ${lockFile}); wait for it to finish`)
+  // Left by a bench that died: take it over.
+  rmSync(lockFile, { force: true })
+  writeFileSync(lockFile, String(process.pid), { flag: 'wx' })
+}
+takeLock()
+process.on('exit', () => {
+  if (existsSync(lockFile) && readFileSync(lockFile, 'utf8') === String(process.pid)) rmSync(lockFile, { force: true })
+})
 
 if (flags.build) {
   console.log(`building ${repo} …`)
@@ -94,10 +123,18 @@ async function session(name, { counts = false, around, profileStartup = false } 
     profileStartup,
   })
   current = app
+  let timer = null
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      app.kill()
+      reject(new Error(`${name}: the session ran past ${sessionTimeout} s and the app was stopped (app log: ${join(work, `${name}.log`)})`))
+    }, sessionTimeout * 1000)
+  })
   try {
-    const metrics = await scenario(app, { docs, around: around?.(app) })
+    const metrics = await Promise.race([scenario(app, { docs, around: around?.(app) }), deadline])
     return { ...metrics, 'noise.load': Math.max(noise.load_before, loadavg()[0]), 'noise.spin_ms': noise.spin_ms }
   } finally {
+    clearTimeout(timer)
     current = null
     await app.close()
   }
@@ -199,6 +236,8 @@ for (let i = 0; i <= total; i += 1) {
   const note = i === 0 ? ' (first launch, start-up kept apart)' : ''
   console.log(`  run ${i}: ${((Date.now() - started) / 1000).toFixed(0)} s, load ${metrics['noise.load'].toFixed(1)}, spin ${metrics['noise.spin_ms'].toFixed(0)} ms${note}`)
 }
+const blocked = [...new Set(runs.flatMap((run) => (run['cold.blocked'] ? run['cold.blocked'].split(', ') : [])))]
+if (blocked.length) console.log(`  programs the app tried to start, refused: ${blocked.join(', ')}`)
 const [first, ...timed] = runs
 const counts = flags['no-counts'] ? null : await session('counts', { counts: true })
 if (counts) console.log('  counts run done')
