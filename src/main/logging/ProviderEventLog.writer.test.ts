@@ -10,7 +10,7 @@ import * as Layer from 'effect/Layer'
 import * as Logger from 'effect/Logger'
 import { onTestFinished, vi } from 'vitest'
 
-import { ProviderEventLog, layer } from './ProviderEventLog'
+import { ProviderEventLog, activityFile, layer } from './ProviderEventLog'
 import type { RotatingFileSink } from './rotatingFileSink'
 
 // Writing any line about thread `bad` is a Docs bug.
@@ -46,7 +46,7 @@ describe('ProviderEventLog writer', () => {
         yield* log.record('codex', { type: 'turn.started', threadId: 'good', turnId: 't2' })
         yield* Effect.sleep('700 millis')
         // Read before the scope closes: its last flush would write the line even with the writer gone.
-        expect(readFileSync(join(dir, 'codex.ndjson'), 'utf8')).toContain('"threadId":"good"')
+        expect(readFileSync(join(dir, activityFile('codex')), 'utf8')).toContain('"threadId":"good"')
       }).pipe(Effect.provide(layer(dir)))
       expect(logged).toEqual([expect.stringContaining('sink bug')])
     }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, Logger.layer([capture]))))
