@@ -1,9 +1,13 @@
+import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
+import { useCallback, useRef, useState } from 'react'
+
 import type { Snapshot } from '../../../../shared/model'
 import { dispatch } from '../../session-bridge'
+import { renderClosingPositioner } from '../ui/closing-positioner'
 import { PlaySparkIcon } from '../ui/Icons'
 import { MIcon } from '../ui/MaterialIcon'
 import { MenuRows } from '../ui/MenuPanel'
-import { Popover, PopoverPopup, PopoverTrigger } from '../ui/popover'
+import { Popover, PopoverTrigger } from '../ui/popover'
 import { capitalize } from '../ui/text'
 import { Tip } from '../ui/tooltip'
 import { Chip } from './Chip'
@@ -19,7 +23,7 @@ import {
   tierForSize,
   ZOOMS,
 } from './toolbarMenus'
-import { Decor, FoldingTools, ToolButton } from './ToolbarTools'
+import { Decor, FoldingTools, type Mark, ToolButton } from './ToolbarTools'
 import { fitZoom, usePageZoom } from './usePageZoom'
 
 /**
@@ -41,17 +45,27 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
     const next = order[Math.max(0, Math.min(order.length - 1, order.indexOf(snap.serviceTier ?? null) + step))]
     if (next !== (snap.serviceTier ?? null)) void dispatch({ op: 'setServiceTier', serviceTier: next })
   }
+  // The ⋮ row portals into the wrap, the size container both rows query (toolbar.css).
+  const wrap = useRef<HTMLDivElement>(null)
+  const [marks, setMarks] = useState<ReadonlySet<Mark>>(() => new Set())
+  const toggleMark = useCallback((mark: Mark) => {
+    setMarks((current) => {
+      const next = new Set(current)
+      if (!next.delete(mark)) next.add(mark)
+      return next
+    })
+  }, [])
 
   return (
-    <div className="toolbar-wrap">
+    <div className="toolbar-wrap" ref={wrap}>
       <div className="toolbar" role="toolbar" aria-label="Document settings">
         <Decor name="search" label="Search the menus (⌥/)" className="tb-search" />
         {/* execCommand is deprecated but still the only way to drive the composer's native undo stack. */}
         <ToolButton name="undo" label="Undo (⌘Z)" onClick={() => document.execCommand('undo')} />
         <ToolButton name="redo" label="Redo (⌘Y)" onClick={() => document.execCommand('redo')} />
         <ToolButton name="print" label="Print (⌘P)" onClick={() => window.print()} />
-        <Decor name="spellcheck" label="Spelling and grammar check (⌘⌥X)" className="tb-sm" />
-        <Decor name="format_paint" label="Paint format" className="tb-sm" />
+        <Decor name="spellcheck" label="Spelling and grammar check (⌘⌥X)" className="fold-spell" />
+        <Decor name="format_paint" label="Paint format" className="fold-paint" />
         <Chip testId="chip-zoom" label={`${zoom}%`} className="chip-zoom" menuClass="zoom-menu" tip="Zoom">
           <MenuRows
             itemPrefix="zoom"
@@ -138,20 +152,41 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
             </button>
           </Tip>
         </span>
-        <FoldingTools />
         <span className="divider" aria-hidden="true" />
+        <FoldingTools marks={marks} onToggle={toggleMark} />
         <Popover>
           <Tip label="More">
-            <PopoverTrigger className="toolbar-icon" aria-label="More" data-testid="toolbar-more">
+            <PopoverTrigger
+              className="toolbar-icon toolbar-more"
+              aria-label="More"
+              data-testid="toolbar-more"
+              // Like the tools themselves, ⋮ never takes focus (and the caret) from the composer.
+              onMouseDown={(event) => event.preventDefault()}
+            >
               <MIcon name="more_vert" />
             </PopoverTrigger>
           </Tip>
-          <PopoverPopup className="toolbar toolbar-overflow" align="end" sideOffset={8}>
-            <FoldingTools overflow />
-          </PopoverPopup>
+          <PopoverPrimitive.Portal container={wrap}>
+            <PopoverPrimitive.Positioner
+              align="end"
+              className="menu-positioner"
+              collisionPadding={8}
+              render={renderClosingPositioner}
+              sideOffset={8}
+            >
+              {/* Opening the row leaves focus where it was, so the composer keeps its caret. */}
+              <PopoverPrimitive.Popup
+                className="popover-panel toolbar-overflow"
+                aria-label="More tools"
+                initialFocus={false}
+              >
+                <FoldingTools overflow marks={marks} onToggle={toggleMark} />
+              </PopoverPrimitive.Popup>
+            </PopoverPrimitive.Positioner>
+          </PopoverPrimitive.Portal>
         </Popover>
         <div className="toolbar-spacer" />
-        <span className="toolbar-icon" aria-hidden="true">
+        <span className="toolbar-icon tb-spark" aria-hidden="true">
           <PlaySparkIcon />
         </span>
         <Chip

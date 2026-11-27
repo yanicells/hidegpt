@@ -91,3 +91,9 @@
   --menu-ink-dim: rgb(31 31 31 / 38%);
   --menu-ink-faint: rgb(31 31 31 / 23%);
 }
+
+/* UI-05 (toolbar): Docs' pressed Bold/Italic/Underline pill and its glyph. */
+:root {
+  --toolbar-pressed: #d3e3fd;
+  --toolbar-pressed-ink: #041e49;
+}

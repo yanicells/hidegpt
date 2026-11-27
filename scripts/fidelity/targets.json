@@ -515,7 +515,8 @@
         "selector": ".chip-zoom .chip-label",
         "prop": "x"
       },
-      "target": 422.5
+      "target": 425.0,
+      "note": "Measured on editor-tabs.png: the pressed Bold pill spans x 608-638 (centre 623), one 32px pitch before italic's 655; the section 3.3 table's 422 does not fit italic's 457 target."
     },
     {
       "id": "toolbar.offset.italic",
@@ -641,7 +642,8 @@
         "selector": ".chip-zoom .chip-label",
         "prop": "x"
       },
-      "target": 798.0
+      "target": 797.0,
+      "note": "Measured on editor-tabs.png: caret ink at x 995, 21px right of the icon at 974, as section 5 (UI-05) states."
     },
     {
       "id": "toolbar.offset.bullets",
@@ -669,7 +671,8 @@
         "selector": ".chip-zoom .chip-label",
         "prop": "x"
       },
-      "target": 842.0
+      "target": 841.0,
+      "note": "Measured on editor-tabs.png: caret ink at x 1039, 21px right of the icon at 1018, as section 5 (UI-05) states."
     },
     {
       "id": "toolbar.offset.numbered",
@@ -697,7 +700,8 @@
         "selector": ".chip-zoom .chip-label",
         "prop": "x"
       },
-      "target": 886.0
+      "target": 885.0,
+      "note": "Measured on editor-tabs.png: caret ink at x 1083, 21px right of the icon at 1062, as section 5 (UI-05) states."
     },
     {
       "id": "toolbar.caret.width",
@@ -782,6 +786,36 @@
       "target": 62,
       "tol": 1,
       "note": "Section 3.3 gives the width as about 62px, so 1px either way."
+    },
+    {
+      "id": "toolbar.fold.1402.last-tool",
+      "section": "3.3",
+      "viewport": 1402,
+      "screen": "document",
+      "kind": "box",
+      "selector": ".toolbar .toolbar-more",
+      "prop": "x",
+      "relativeTo": {
+        "selector": ".toolbar .fold-numbered",
+        "prop": "right"
+      },
+      "target": 2,
+      "note": "Section 3.3: at 1402 Docs shows tools through the numbered list, then ⋮ with no divider. The gap is the two tools' 1px margins; a divider would make it 9, an extra tool 34."
+    },
+    {
+      "id": "toolbar.fold.1280.last-tool",
+      "section": "3.3",
+      "viewport": 1280,
+      "screen": "document",
+      "kind": "box",
+      "selector": ".toolbar .toolbar-more",
+      "prop": "x",
+      "relativeTo": {
+        "selector": ".toolbar .fold-spacing",
+        "prop": "right"
+      },
+      "target": 3,
+      "note": "Fold by fit (section 5, UI-05), not a Docs capture: at 1280 the checklist no longer fits, so line spacing (2px margin) is the last tool before ⋮ (1px margin)."
     },
     {
       "id": "icons.blank-plus.size",
