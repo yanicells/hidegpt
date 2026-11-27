@@ -1,0 +1,73 @@
+{
+  "measured": {
+    "commit": "48bdced",
+    "when": "2026-11-27"
+  },
+  "options": {
+    "docs": 500,
+    "turns": 300,
+    "throttle": 1
+  },
+  "metrics": {
+    "open.commits": {
+      "baseline": 11,
+      "max": 13
+    },
+    "stream300.recalcs": {
+      "baseline": 1010,
+      "max": 1111
+    },
+    "stream300.renders": {
+      "baseline": 19108,
+      "max": 21019
+    },
+    "stream300.box_reads": {
+      "baseline": 290179,
+      "max": 319197
+    },
+    "type_idle300.recalcs": {
+      "baseline": 62,
+      "max": 69
+    },
+    "type_idle300.box_reads": {
+      "baseline": 18300,
+      "max": 20130
+    },
+    "type_idle300.restyled": {
+      "baseline": 25840,
+      "max": 28424
+    },
+    "scroll300.commits": {
+      "baseline": 90,
+      "max": 99
+    },
+    "load_all.renders": {
+      "baseline": 24162,
+      "max": 26579
+    },
+    "reopen.ipc_kb": {
+      "baseline": 1107.4,
+      "max": 1219
+    },
+    "reopen.renders": {
+      "baseline": 6653,
+      "max": 7319
+    },
+    "mem_home.dom_nodes": {
+      "baseline": 8218,
+      "max": 9040
+    },
+    "session.ipc_kb": {
+      "baseline": 9990.9,
+      "max": 10991
+    },
+    "static.main_js_kb": {
+      "baseline": 2208.9,
+      "max": 2430
+    },
+    "static.renderer_entry_js_kb": {
+      "baseline": 547.1,
+      "max": 602
+    }
+  }
+}

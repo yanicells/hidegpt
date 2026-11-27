@@ -52,6 +52,7 @@ extension only; no script runs `tsc`.
 | `pnpm fidelity:diff`           | Compare two captures pixel by pixel                                                                                                                                          |
 | `pnpm dist`                    | Package a macOS `.dmg` into `dist/` (see [Packaging](#packaging))                                                                                                            |
 | `pnpm bench`                   | Perf bench: drives the built app through a fixed session against a fake provider and reports CPU, layout, IPC, memory and latency ([scripts/bench](scripts/bench/README.md)) |
+| `pnpm bench:check`             | Perf budgets: one counts run of the bench against `scripts/bench/budgets.json`; fails over budget ([docs/performance.md](docs/performance.md))                               |
 
 **Blank document** or a template creates an "Untitled document" right away, like Docs;
 rename it from the title field. Projects are folders. The folder icon (**Open file
@@ -220,6 +221,6 @@ adapters (each marked in place). In the window, the cached Markdown renderer and
 streaming block splitter come from T3 Code's web app, and the store's selectors
 follow its thread-detail state. The tooling follows T3 Code too: the oxlint rules,
 Effect diagnostics, knip config, CI workflow, pre-commit checks, and VS Code setup are adapted
-from its setup.
+from its setup, and the wire-size budget test follows its transport payload tests.
 T3 Code is MIT licensed, Copyright (c) 2026
 T3 Tools Inc.; the full notice is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

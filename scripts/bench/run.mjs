@@ -5,6 +5,7 @@
 //   node scripts/bench/run.mjs [--repo <dir>] [--label <name>] [--runs 3] [--build] [--timeout 900]
 //   node scripts/bench/run.mjs profile --phase stream300[,open] [--repo <dir>]
 //   node scripts/bench/run.mjs compare <before.json> <after.json>
+//   node scripts/bench/run.mjs check [--update] [--wait] [--from <result.json> ...]
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { cpus, loadavg, tmpdir, totalmem } from 'node:os'
@@ -12,8 +13,9 @@ import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { gzipSync } from 'node:zlib'
 
+import { checkBudgets, checkReport, updateBudgets } from './budgets.mjs'
 import { launch, sleep } from './launch.mjs'
-import { releaseLock, takeLock } from './lock.mjs'
+import { releaseLock, takeLock, waitForLock } from './lock.mjs'
 import { summarizeProfile } from './profile.mjs'
 import { compareTable, HEADLINE, resultTable, summarize } from './report.mjs'
 import { PHASES, scenario } from './scenario.mjs'
@@ -34,9 +36,12 @@ const { values: flags, positionals } = parseArgs({
     phase: { type: 'string', default: 'stream300' },
     timeout: { type: 'string', default: '900' },
     all: { type: 'boolean', default: false },
+    update: { type: 'boolean', default: false },
+    wait: { type: 'boolean', default: false },
+    from: { type: 'string', multiple: true },
   },
 })
-const command = ['profile', 'compare'].includes(positionals[0]) ? positionals[0] : 'run'
+const command = ['profile', 'compare', 'check'].includes(positionals[0]) ? positionals[0] : 'run'
 
 if (command === 'compare') {
   const [before, after] = positionals.slice(1).map((file) => JSON.parse(readFileSync(file, 'utf8')))
@@ -44,6 +49,27 @@ if (command === 'compare') {
   console.log(compareTable(before, after, { all: flags.all }))
   process.exit(0)
 }
+
+const budgetsFile = join(import.meta.dirname, 'budgets.json')
+/**
+ * Checks the first result against budgets.json, exiting 1 over budget; with --update,
+ * rewrites budgets.json from all of them instead.
+ */
+function check(results) {
+  const budgets = JSON.parse(readFileSync(budgetsFile, 'utf8'))
+  const [result] = results
+  if (flags.update) {
+    const next = updateBudgets(results, budgets)
+    writeFileSync(budgetsFile, `${JSON.stringify(next, null, 2)}\n`)
+    console.log(`\n${checkReport(checkBudgets(result, next), next)}`)
+    console.log(`wrote ${budgetsFile} from ${results.length} runs of ${result.commit}; commit it and say why in the PR`)
+    process.exit(0)
+  }
+  const checked = checkBudgets(result, budgets)
+  console.log(`\n${checkReport(checked, budgets)}`)
+  process.exit(checked.passed ? 0 : 1)
+}
+if (command === 'check' && flags.from) check(flags.from.map((file) => JSON.parse(readFileSync(file, 'utf8'))))
 
 const repo = resolve(flags.repo)
 const git = (...args) => {
@@ -55,7 +81,7 @@ const git = (...args) => {
 }
 const commit = git('rev-parse', '--short', 'HEAD')
 const branch = git('rev-parse', '--abbrev-ref', 'HEAD')
-const label = flags.label ?? (branch === 'HEAD' ? commit : branch)
+const label = flags.label ?? (command === 'check' ? 'check' : branch === 'HEAD' ? commit : branch)
 const out = resolve(flags.out)
 const work = join(out, '.work', label)
 const docs = Number(flags.docs)
@@ -66,7 +92,8 @@ const sessionTimeout = Number(flags.timeout)
 
 // One bench at a time on this machine: two would measure each other.
 const lockFile = join(tmpdir(), 'hidegpt-bench.lock')
-takeLock(lockFile)
+if (flags.wait) await waitForLock(lockFile, { onWait: (why) => console.log(`${why}; waiting …`) })
+else takeLock(lockFile)
 process.on('exit', () => releaseLock(lockFile))
 
 if (flags.build) {
@@ -117,6 +144,7 @@ async function session(name, { counts = false, around, profileStartup = false } 
     show: flags.show,
     react: counts,
     ipcBytes: counts,
+    layoutCounts: counts,
     throttle,
     profileStartup,
   }).then((launched) => {
@@ -228,7 +256,8 @@ if (command === 'profile') {
 
 // ---- run ----
 const runs = []
-const total = Number(flags.runs)
+// The check needs only counts: a first launch and the counts run.
+const total = command === 'check' ? 0 : Number(flags.runs)
 // The first launch fills the V8 compile cache; only its start-up numbers are kept, apart.
 rmSync(join(work, 'userData'), { recursive: true, force: true })
 console.log(
@@ -246,7 +275,7 @@ for (let i = 0; i <= total; i += 1) {
 const blocked = [...new Set(runs.flatMap((run) => (run['cold.blocked'] ? run['cold.blocked'].split(', ') : [])))]
 if (blocked.length) console.log(`  programs the app tried to start, refused: ${blocked.join(', ')}`)
 const [first, ...timed] = runs
-const counts = flags['no-counts'] ? null : await session('counts', { counts: true })
+const counts = flags['no-counts'] && command !== 'check' ? null : await session('counts', { counts: true })
 if (counts) console.log('  counts run done')
 
 const result = {
@@ -274,3 +303,10 @@ writeFileSync(join(out, `${label}.json`), `${JSON.stringify(result, null, 2)}\n`
 writeFileSync(join(out, `${label}.md`), resultTable(result, { all: true }))
 console.log(`\n${resultTable(result, { only: HEADLINE })}`)
 console.log(`full results: ${join(out, `${label}.json`)} and .md`)
+if (command === 'check' && flags.update) {
+  // A budget is set from the higher of two counts runs: some counts move a few percent.
+  const again = await session('counts-2', { counts: true })
+  writeFileSync(join(out, `${label}-2.json`), `${JSON.stringify({ ...result, counts: again }, null, 2)}\n`)
+  check([result, { ...result, counts: again }])
+}
+if (command === 'check') check([result])
