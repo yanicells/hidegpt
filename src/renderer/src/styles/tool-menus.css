@@ -112,8 +112,11 @@
   grid-auto-rows: 48px;
 }
 
+/* A cell is a menu item, without the row's 32px height and side padding. */
 .preset {
   @apply relative block cursor-pointer;
+  height: auto;
+  padding: 0;
   border: 1px solid var(--line);
   background: var(--surface);
   outline: none;
@@ -123,7 +126,7 @@
   background: var(--hover-menu);
 }
 
-/* One preview line: its mark at the level's indent, then a 3px grey bar to 7px from the edge. */
+/* One preview line: its mark (#222 text or a drawn bullet) at the level's indent, then a 3px grey bar to 7px from the edge. */
 .preset-row {
   @apply absolute flex items-center whitespace-nowrap;
   top: calc(6px + 15px * var(--row));
