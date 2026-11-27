@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 
 import { Paginator } from './pages'
 import { PAGE_HEIGHT, PAGE_PITCH } from './pageLayout'
@@ -10,6 +10,7 @@ import { PAGE_HEIGHT, PAGE_PITCH } from './pageLayout'
  * margin, units stack inside their row, each unit is as tall as its `data-h`, and a pushed
  * unit's top margin is its `--page-break`. Lines are 20px apart. Reading a unit, its style or
  * its lines inside a skipped row throws, since in Chromium that read would force the row's layout.
+ * `zoom` scales client rects, as the page zoom does.
  */
 
 const MARGIN = 96
@@ -20,6 +21,8 @@ let flow: HTMLElement
 let paginator: Paginator | undefined
 let frames: FrameRequestCallback[] = []
 let observer: { deliver: (rows: HTMLElement[]) => void } | undefined
+let boxReads: MockInstance<() => DOMRect>
+let zoom = 1
 const skipped = new Set<Element>()
 /** Whether `content-visibility` renders a row; tests that scroll replace it. */
 let rendered = (row: Element) => !skipped.has(row)
@@ -30,7 +33,13 @@ function guard(el: Element) {
   if (row && row !== el && !rendered(row)) throw new Error('read inside a skipped row')
 }
 
+/** The last layout, kept until anything in the paper changes: `takeRecords` tells synchronously. */
+let laidOut: Map<Element, Box> | null = null
+let edits: MutationObserver
+
 function layout(): Map<Element, Box> {
+  if (edits.takeRecords().length) laidOut = null
+  if (laidOut) return laidOut
   const boxes = new Map<Element, Box>()
   let y = MARGIN
   for (const row of Array.from(flow.children) as HTMLElement[]) {
@@ -42,7 +51,7 @@ function layout(): Map<Element, Box> {
       continue
     }
     const top = y
-    for (const unit of Array.from(row.querySelectorAll<HTMLElement>('.doc-body > *'))) {
+    for (const unit of units(row)) {
       if (unit.hasAttribute('data-page-break')) y += parseFloat(unit.style.getPropertyValue('--page-break'))
       const height = Number(unit.dataset.h)
       boxes.set(unit, { top: y, height })
@@ -51,11 +60,13 @@ function layout(): Map<Element, Box> {
     boxes.set(row, { top, height: y - top })
   }
   boxes.set(paper, { top: 0, height: y + MARGIN })
+  laidOut = boxes
   return boxes
 }
 
-function rect({ top, height }: Box): DOMRect {
-  return { top, height, bottom: top + height, left: 0, right: 816, width: 816, x: 0, y: top, toJSON: () => ({}) }
+function rect(box: Box): DOMRect {
+  const [top, height, width] = [box.top * zoom, box.height * zoom, 816 * zoom]
+  return { top, height, bottom: top + height, left: 0, right: width, width, x: 0, y: top, toJSON: () => ({}) }
 }
 
 /** A block of units, as Markdown renders an answer: `row > div > .doc-body > units`. */
@@ -78,9 +89,10 @@ function unit(height: number, tag = 'div'): HTMLElement {
   return el
 }
 
+/** A row's units, walked rather than queried so the stub's reads don't count as the paginator's. */
 const units = (row: Element): HTMLElement[] =>
   row.classList.contains('doc-block')
-    ? Array.from(row.querySelectorAll<HTMLElement>('.doc-body > *'))
+    ? (Array.from(row.firstElementChild!.firstElementChild!.children) as HTMLElement[])
     : [row as HTMLElement]
 
 /** The composer: a row that paginates whole. */
@@ -105,6 +117,13 @@ function misplaced(): HTMLElement[] {
     })
 }
 
+/** Every unit's written break, in document order. */
+function breaks(): string[] {
+  return Array.from(flow.children)
+    .flatMap(units)
+    .map((el) => ['--page-break', '--split-start', '--split-end'].map((name) => el.style.getPropertyValue(name)).join())
+}
+
 /** Runs the frames queued so far: MutationObserver records first, as in a browser. */
 async function nextFrame() {
   await Promise.resolve()
@@ -116,6 +135,7 @@ async function nextFrame() {
 beforeEach(() => {
   frames = []
   skipped.clear()
+  zoom = 1
   rendered = (row) => !skipped.has(row)
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback))
   vi.stubGlobal('cancelAnimationFrame', () => {})
@@ -138,7 +158,7 @@ beforeEach(() => {
       disconnect() {}
     },
   )
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+  boxReads = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
     guard(this)
     return rect(layout().get(this) ?? { top: 0, height: 0 })
   })
@@ -167,11 +187,16 @@ beforeEach(() => {
   flow.className = 'paper-flow'
   paper.append(flow)
   document.body.append(paper)
+  laidOut = null
+  // Delivery drains the records too, so it drops the layout as well.
+  edits = new MutationObserver(() => (laidOut = null))
+  edits.observe(paper, { subtree: true, childList: true, attributes: true, characterData: true })
 })
 
 afterEach(() => {
   paginator?.dispose()
   paginator = undefined
+  edits.disconnect()
   paper.remove()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -315,5 +340,78 @@ describe('Paginator', () => {
     expect(last.style.getPropertyValue('--page-break')).toBe(`${PAGE_PITCH + MARGIN - 896}px`)
     expect(misplaced()).toEqual([])
     expect(passes).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads only the edited row and the last one in a 600-row document', async () => {
+    const rows = Array.from({ length: 600 }, () => block(100))
+    paginator = new Paginator(paper, () => {})
+    // Spies that call through, recording which element each query ran on.
+    const queries = [vi.spyOn(Element.prototype, 'querySelector'), vi.spyOn(Element.prototype, 'querySelectorAll')]
+    boxReads.mockClear()
+
+    const last = rows.at(-1)!
+    units(last)[0].dataset.h = '150'
+    units(last)[0].textContent = 'edited'
+    await nextFrame()
+
+    // The paper, the row and its one unit.
+    expect(boxReads.mock.calls.length).toBeLessThanOrEqual(4)
+    expect(queries.flatMap((query) => query.mock.contexts).every((el) => el === last)).toBe(true)
+    expect(misplaced()).toEqual([])
+  })
+
+  it('moves the rows under an edited middle row without reading them', async () => {
+    const rows = Array.from({ length: 600 }, () => block(100))
+    paginator = new Paginator(paper, () => {})
+    boxReads.mockClear()
+
+    units(rows[300])[0].dataset.h = '180'
+    units(rows[300])[0].textContent = 'edited'
+    await nextFrame()
+
+    // The paper, the row, its unit and the last row, which checks where the rest went.
+    expect(boxReads.mock.calls.length).toBeLessThanOrEqual(4)
+    expect(misplaced()).toEqual([])
+  })
+
+  it('places the same breaks as a full recompute after a middle row resizes on its own', () => {
+    const rows = Array.from({ length: 60 }, (_, index) => block(100 + (index % 7) * 30, 60))
+    paginator = new Paginator(paper, () => {})
+
+    // An image in a middle row loads: no mutation, only the observer reports it.
+    units(rows[30])[0].dataset.h = '420'
+    observer!.deliver([rows[30]])
+    const incremental = breaks()
+
+    paginator.dispose()
+    paginator = new Paginator(paper, () => {})
+    expect(breaks()).toEqual(incremental)
+    expect(misplaced()).toEqual([])
+  })
+
+  it('reads every row again when a row moved without any report', async () => {
+    const rows = Array.from({ length: 60 }, () => block(100))
+    paginator = new Paginator(paper, () => {})
+
+    // A row grows with nothing reporting it, then a pass runs for an edit at the end.
+    units(rows[10])[0].dataset.h = '180'
+    units(rows.at(-1)!)[0].textContent = 'edited'
+    await nextFrame()
+
+    expect(misplaced()).toEqual([])
+  })
+
+  it('reads every row again after a zoom change', async () => {
+    const rows = Array.from({ length: 60 }, () => block(100))
+    paginator = new Paginator(paper, () => {})
+    boxReads.mockClear()
+
+    zoom = 1.25
+    units(rows.at(-1)!)[0].textContent = 'edited'
+    await nextFrame()
+
+    const read = new Set(boxReads.mock.contexts)
+    expect(rows.every((row) => read.has(row))).toBe(true)
+    expect(misplaced()).toEqual([])
   })
 })

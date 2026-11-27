@@ -37,6 +37,15 @@ export function usePages(paperRef: RefObject<HTMLElement | null>): number {
 /** A row's units as they would sit without its breaks, plus lines read so far. */
 type Geometry = { units: PageUnit<HTMLElement>[]; height: number; lines: Map<HTMLElement, Lines | null> }
 
+/**
+ * Where a row sat after the last pass and its writes, in page px from the paper's top, and
+ * the row before it then: a new row above it means its place can't be shifted, only read.
+ */
+type Place = { top: number; height: number; after: HTMLElement | null }
+
+/** How far a predicted place may be off before every row is read again. */
+const PLACE_TOLERANCE = 0.5
+
 /** Passes one frame may run before the rest waits for the next frame, so a layout that never settles can't hang it. */
 const MAX_PASSES_PER_FRAME = 6
 
@@ -49,6 +58,12 @@ const MAX_SETTLE_PASSES = 3
  * out just to be measured. A row is measured with its breaks in place and the pushes they
  * are known to add taken back out, so a pass only reads and then writes what changed:
  * one layout, the one the frame was going to do. Pagination itself is arithmetic (`layoutPages`).
+ *
+ * Box reads are limited too: a pass reads only the rows it measures, rows something reported
+ * (a resize, a visibility change, a new neighbour above), and the last row. Every other row
+ * keeps its place from the last pass, moved by how much the rows read above it grew, and by
+ * the breaks that pass wrote. The last row checks that prediction; when it is off, every row
+ * is read again, so a change nothing reported costs one slow pass and never a wrong break.
  */
 export class Paginator {
   private readonly geometry = new WeakMap<HTMLElement, Geometry>()
@@ -63,6 +78,14 @@ export class Paginator {
   private readonly wasLive = new WeakSet<HTMLElement>()
   private readonly dirty = new Set<HTMLElement>()
   private readonly observed = new Set<HTMLElement>()
+  /** Each row's place after the last pass; replaced whole by every pass. */
+  private places = new Map<HTMLElement, Place>()
+  /** Rows reported moved or resized since the last pass, which read their box again. */
+  private readonly moved = new Set<HTMLElement>()
+  /** The rows in order, until a row comes or goes. */
+  private rowList: HTMLElement[] | null = null
+  /** `skippable(row)`, until a mutation in the row. */
+  private readonly canSkip = new WeakMap<HTMLElement, boolean>()
   private readonly mutations: MutationObserver
   private readonly resizes: ResizeObserver | null
   /**
@@ -70,6 +93,8 @@ export class Paginator {
    * than every pass. Observing the paper instead would report its every change in height.
    */
   private width: number
+  /** The paper's client width at the last pass: it changes with the zoom. */
+  private clientWidth = 0
   private frame = 0
   /** Passes run this frame; cleared by the next frame. */
   private passes = 0
@@ -103,9 +128,17 @@ export class Paginator {
       // Text measured in a fallback font wraps differently now.
       this.width = parseFloat(getComputedStyle(paper).width)
       for (const row of this.rows()) this.dirty.add(row)
-      this.schedule()
+      this.onFonts()
     })
+    document.fonts?.addEventListener('loadingdone', this.onFonts)
     this.run()
+  }
+
+  /** A font that loaded moves text with no mutation: place every row again. Rows it resized report themselves. */
+  private readonly onFonts = () => {
+    if (this.disposed) return
+    this.places = new Map()
+    this.schedule()
   }
 
   dispose() {
@@ -115,6 +148,7 @@ export class Paginator {
     this.mutations.disconnect()
     this.resizes?.disconnect()
     this.paper.removeEventListener('contentvisibilityautostatechange', this.onVisibility, true)
+    document.fonts?.removeEventListener('loadingdone', this.onFonts)
   }
 
   private schedule() {
@@ -130,10 +164,14 @@ export class Paginator {
     let changed = false
     for (const record of records) {
       const row = this.rowOf(record.target)
-      if (row) this.dirty.add(row)
+      if (row) {
+        this.dirty.add(row)
+        this.canSkip.delete(row)
+      }
       // Rows came or went; the sheets React redraws are neither.
-      changed ||=
-        row !== null || record.target === this.paper || (record.target as Element).classList?.contains('paper-flow')
+      const holder = record.target === this.paper || (record.target as Element).classList?.contains('paper-flow')
+      if (holder && record.type === 'childList') this.rowList = null
+      changed ||= row !== null || holder
       for (const node of Array.from(record.removedNodes)) {
         if (node instanceof HTMLElement && this.observed.delete(node)) this.resizes?.unobserve(node)
       }
@@ -152,7 +190,11 @@ export class Paginator {
     for (const entry of entries) {
       const row = entry.target as HTMLElement
       // RO sizes are layout px, like the cache: the page zoom doesn't scale them.
-      unplanned = this.unplanned(row, entry.borderBoxSize?.[0]?.blockSize ?? row.offsetHeight, true) || unplanned
+      const height = entry.borderBoxSize?.[0]?.blockSize ?? row.offsetHeight
+      // A size the last pass's writes predicted moves nothing below the row.
+      const place = this.places.get(row)
+      if (!place || Math.abs(height - place.height) > PLACE_TOLERANCE) this.moved.add(row)
+      unplanned = this.unplanned(row, height, true) || unplanned
     }
     if (unplanned) this.settle()
   }
@@ -201,6 +243,7 @@ export class Paginator {
     const row = event.target as HTMLElement
     const { skipped } = event as ContentVisibilityAutoStateChangeEvent
     this.skipped.set(row, skipped)
+    this.moved.add(row)
     // A row the observer saw no resize for may still need breaks after the rows above it moved.
     if (!skipped && !this.wasLive.has(row)) this.schedule()
   }
@@ -218,6 +261,7 @@ export class Paginator {
   }
 
   private rows(): HTMLElement[] {
+    if (this.rowList) return this.rowList
     const rows: HTMLElement[] = []
     for (const child of Array.from(this.paper.children)) {
       if (!(child instanceof HTMLElement)) continue
@@ -227,21 +271,31 @@ export class Paginator {
         rows.push(child)
       }
     }
+    this.rowList = rows
     return rows
+  }
+
+  private skips(row: HTMLElement): boolean {
+    let skips = this.canSkip.get(row)
+    if (skips === undefined) {
+      skips = skippable(row)
+      this.canSkip.set(row, skips)
+    }
+    return skips
   }
 
   /** Asks the row itself whether it's skipped right now. */
   private refreshSkipped(row: HTMLElement) {
     const child = row.firstElementChild
     // jsdom has no checkVisibility, and lays nothing out anyway.
-    if (skippable(row) && typeof child?.checkVisibility === 'function') {
+    if (this.skips(row) && typeof child?.checkVisibility === 'function') {
       this.skipped.set(row, !child.checkVisibility({ contentVisibilityAuto: true }))
     }
   }
 
   /** Whether a row is laid out right now. Only blocks can be skipped. */
   private isLive(row: HTMLElement): boolean {
-    if (!skippable(row)) return true
+    if (!this.skips(row)) return true
     if (!this.skipped.has(row)) this.refreshSkipped(row)
     return this.skipped.get(row) !== true
   }
@@ -291,23 +345,32 @@ export class Paginator {
     // The page zoom scales client rects; layout values stay in page px.
     const scale = box.width / this.width
     if (!scale) return false
-    const rects = rows.map((row) => row.getBoundingClientRect())
+    if (box.width !== this.clientWidth) {
+      // Text lays out again at a new zoom or width, so no place can be trusted.
+      this.clientWidth = box.width
+      this.places = new Map()
+    }
+    let places: Place[] | undefined
     if (ifUnplanned) {
       // A row the last pass's breaks moved into or out of view, or resized some other way.
+      places = this.locate(rows, box)
       let unplanned = false
       rows.forEach((row, index) => {
-        unplanned = this.unplanned(row, rects[index].height / scale, true) || unplanned
+        unplanned = this.unplanned(row, places![index].height, true) || unplanned
       })
       if (!unplanned) return false
     }
     const live = rows.map((row) => this.isLive(row))
+    const measure = rows.map((row, index) => {
+      const stale = this.dirty.has(row) || !this.geometry.has(row) || !this.skips(row)
+      // A skipped row can't be measured without laying it out; it keeps its breaks until it renders.
+      if (stale && !live[index]) this.geometry.delete(row)
+      return stale && live[index]
+    })
+    places ??= this.locate(rows, box, (index) => measure[index] || this.dirty.has(rows[index]))
     rows.forEach((row, index) => {
-      const stale = this.dirty.has(row) || !this.geometry.has(row) || !skippable(row)
-      if (stale && live[index]) {
-        this.geometry.set(row, measureRow(row, rects[index], scale, this.written.get(row)))
-      } else if (stale) {
-        // A skipped row can't be measured without laying it out; it keeps its breaks until it renders.
-        this.geometry.delete(row)
+      if (measure[index]) {
+        this.geometry.set(row, measureRow(row, places![index], box.top, scale, this.written.get(row)))
       }
       if (live[index]) this.wasLive.add(row)
       else this.wasLive.delete(row)
@@ -318,8 +381,8 @@ export class Paginator {
     })
     this.dirty.clear()
     const pageRows: PageRow<HTMLElement>[] = rows.map((row, index) => ({
-      top: (rects[index].top - box.top) / scale,
-      height: rects[index].height / scale,
+      top: places![index].top,
+      height: places![index].height,
       live: live[index],
       measured: this.geometry.get(row) ?? null,
       applied: this.pushOf(row),
@@ -336,14 +399,58 @@ export class Paginator {
       return geometry.lines.get(unit.el) ?? null
     })
 
-    // Writes.
+    // Writes. A live row's new breaks move what follows it by their change in push (inside a
+    // block's box, or a one-unit row's own top margin), so the places follow without a read.
     let wrote = false
+    let shift = 0
     rows.forEach((row, index) => {
+      const place = places![index]
+      place.top += shift
       const next = layout.breaks[index]
-      if (next) wrote = this.writeBreaks(row, next) || wrote
+      if (!next || !this.writeBreaks(row, next)) return
+      wrote = true
+      if (!live[index]) return
+      const push = this.pushOf(row) - pageRows[index].applied
+      if (row.classList.contains('doc-block')) place.height += push
+      else place.top += push
+      shift += push
     })
     this.onPages(layout.pages)
     return wrote
+  }
+
+  /**
+   * Every row's place now. Without `read`, reads every row. With it, reads the rows it
+   * names, rows reported moved, rows with no place or a new row above them, and the last
+   * row; the rest keep their place, moved by how much the rows read above them grew. The
+   * last row checks that guess and, off by more than PLACE_TOLERANCE, every row is read.
+   */
+  private locate(rows: HTMLElement[], box: DOMRect, read?: (index: number) => boolean): Place[] {
+    const scale = box.width / this.width
+    const places: Place[] = []
+    // How far the rows below the last one read have moved; null after a row with no place.
+    let delta: number | null = 0
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index]
+      const after = index > 0 ? rows[index - 1] : null
+      const old = this.places.get(row)
+      const guess = old && old.after === after && delta !== null ? old.top + delta : null
+      const last = index === rows.length - 1
+      if (read && old && guess !== null && !last && !read(index) && !this.moved.has(row)) {
+        places.push({ top: guess, height: old.height, after })
+        continue
+      }
+      const rect = row.getBoundingClientRect()
+      const place = { top: (rect.top - box.top) / scale, height: rect.height / scale, after }
+      if (read && last && (guess === null || Math.abs(place.top - guess) > PLACE_TOLERANCE)) {
+        return this.locate(rows, box)
+      }
+      places.push(place)
+      delta = old ? place.top + place.height - (old.top + old.height) : null
+    }
+    this.moved.clear()
+    this.places = new Map(rows.map((row, index) => [row, places[index]]))
+    return places
   }
 
   /** Replaces a row's written breaks with `next`, touching only elements that change. Returns whether any did. */
@@ -398,14 +505,15 @@ function skippable(row: HTMLElement): boolean {
  */
 function measureRow(
   row: HTMLElement,
-  rect: DOMRect,
+  place: Place,
+  paperTop: number,
   scale: number,
   written?: Map<HTMLElement, PageBreak<HTMLElement>>,
 ): Geometry {
   if (!row.classList.contains('doc-block')) {
     const own = written?.get(row)
-    const unit = { el: row, offset: -(own?.push ?? 0), height: rect.height / scale, heading: false, paragraph: false }
-    return { units: [unit], height: rect.height / scale, lines: new Map() }
+    const unit = { el: row, offset: -(own?.push ?? 0), height: place.height, heading: false, paragraph: false }
+    return { units: [unit], height: place.height, lines: new Map() }
   }
   let moved = 0
   const units = Array.from(row.querySelectorAll<HTMLElement>(BLOCK_UNITS), (el) => {
@@ -413,7 +521,7 @@ function measureRow(
     const own = written?.get(el)
     const unit = {
       el,
-      offset: (box.top - rect.top) / scale - moved - (own?.kind === 'push' ? own.push : 0),
+      offset: (box.top - paperTop) / scale - place.top - moved - (own?.kind === 'push' ? own.push : 0),
       height: box.height / scale - (own?.kind === 'split' ? own.push : 0),
       heading: /^H[1-6]$/.test(el.tagName),
       paragraph: el.tagName === 'P',
@@ -421,7 +529,7 @@ function measureRow(
     moved += own?.push ?? 0
     return unit
   })
-  return { units, height: rect.height / scale - moved, lines: new Map() }
+  return { units, height: place.height - moved, lines: new Map() }
 }
 
 /** A paragraph's line tops relative to its own top, in page px, without its split if it has one. */
