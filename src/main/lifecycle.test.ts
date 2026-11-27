@@ -185,6 +185,23 @@ describe('lifecycle: throws outside any fiber', () => {
     expect(options.quit).toHaveBeenCalledTimes(1)
   })
 
+  it('still reports a program that dies after a storm already took the fatal path', async () => {
+    const { options, lines, lifecycle } = harness()
+    const thrown = lifecycle.thrown('main.uncaughtException')
+    for (let i = 0; i < 4; i++) thrown(new Error('storm'))
+    await settle()
+    expect(options.quit).toHaveBeenCalledTimes(1)
+    lifecycle.programExited(Exit.die(new Error('finalizer bug')))
+    await settle()
+    const reports = lines.filter((line) => line.message === 'Unhandled defect')
+    expect(reports.map((line) => line.annotations.where)).toEqual([
+      ...Array(4).fill('main.uncaughtException'),
+      'main.program',
+    ])
+    expect(options.showErrorBox).toHaveBeenCalledTimes(1)
+    expect(options.quit).toHaveBeenCalledTimes(1)
+  })
+
   it('reports unhandled rejections without counting them toward the quit', async () => {
     const { options, lines, lifecycle } = harness()
     const rejected = lifecycle.thrown('main.unhandledRejection')

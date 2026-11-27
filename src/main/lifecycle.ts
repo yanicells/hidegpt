@@ -136,9 +136,19 @@ export const makeLifecycle = (options: LifecycleOptions) => {
     options.quit()
   }
 
-  /** The observer on the program's fiber: an exit that is not a plain interrupt is fatal. */
+  /** Reports `cause` once under `where`, straight to the file if the runtime cannot. */
+  const report = (cause: Cause.Cause<unknown>, where: string) =>
+    void run(reportDefect(cause).pipe(Effect.annotateLogs({ where }), Effect.asVoid)).then((reported) => {
+      if (!reported) logSync('Error', 'Unhandled defect', { where }, cause)
+    })
+
+  /**
+   * The observer on the program's fiber: an exit that is not a plain interrupt is fatal.
+   * After an earlier fatal (a storm of throws that already quit), the cause is still reported.
+   */
   const programExited = (exit: Exit.Exit<unknown, unknown>) => {
     if (exit._tag === 'Success' || Cause.hasInterruptsOnly(exit.cause)) return
+    if (fatalStarted) return report(exit.cause, 'main.program')
     void fatal(START_FAILED, { where: 'main.program' }, exit.cause)
   }
 
@@ -148,10 +158,7 @@ export const makeLifecycle = (options: LifecycleOptions) => {
    * `THROW_WINDOW_MS` are fatal; rejections are not counted (see `THROW_LIMIT`).
    */
   const thrown = (where: 'main.uncaughtException' | 'main.unhandledRejection') => (error: unknown) => {
-    const cause = Cause.die(error)
-    void run(reportDefect(cause).pipe(Effect.annotateLogs({ where }), Effect.asVoid)).then((reported) => {
-      if (!reported) logSync('Error', 'Unhandled defect', { where }, cause)
-    })
+    report(Cause.die(error), where)
     if (where !== 'main.uncaughtException') return
     const at = now()
     throws = [...throws.filter((time) => at - time < THROW_WINDOW_MS), at]
@@ -177,11 +184,11 @@ export const makeLifecycle = (options: LifecycleOptions) => {
     void run(Effect.logDebug('Shutdown started'))
     const deadline = setTimeout(() => {
       stalled = true
-      // Each pid is a group whose leader was not seen to exit (a leader that exited is off the
-      // list, and what its group left is the next launch's reap). One whose kill failed stays
-      // listed and is not re-checked: that would mean an async `ps` past the deadline. A pid
-      // cannot be reused while its group has members, so a wrong kill needs the whole group
-      // gone and its id taken by a new group leader within this quit; that risk is accepted.
+      // Each pid is a group whose leader was not seen to exit: a leader that exits leaves the
+      // list, even after a failed kill (the supervisor keeps watching it), and what its group
+      // left is the next launch's reap. A pid cannot be reused while its leader runs, so a wrong
+      // kill needs the leader to exit and its id to go to a new group leader in the moment
+      // before the exit is seen; no `ps` check is worth an async read past the deadline.
       const pids = options.livePids()
       let killed = 0
       for (const pid of pids) {
