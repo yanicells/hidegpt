@@ -1,39 +1,62 @@
 import { execFileSync, spawn as spawnChild } from 'node:child_process'
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import * as NodeServices from '@effect/platform-node/NodeServices'
 import { afterAll, describe, expect, it } from '@effect/vitest'
+import * as Cause from 'effect/Cause'
+import * as Context from 'effect/Context'
+import * as Deferred from 'effect/Deferred'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
+import * as Exit from 'effect/Exit'
 import * as Layer from 'effect/Layer'
 import * as PlatformError from 'effect/PlatformError'
-import { ChildProcessSpawner } from 'effect/process'
+import * as Scope from 'effect/Scope'
+import { ChildProcess, ChildProcessSpawner } from 'effect/process'
 import * as Sink from 'effect/Sink'
 import * as Stream from 'effect/Stream'
 
+import { HELPER_NAME, resolveHelper } from './helperBinary'
+import { FIRST_LAUNCH_MS, codexInstall, nodeAt, processName } from './helperBinary.testing'
 import { captureReports } from './observed.testkit'
-import { DEFAULT_TIMING, ProcessSupervisor, layer, type SupervisorTiming } from './ProcessSupervisor'
+import * as ProcessLedger from './ProcessLedger'
+import { DEFAULT_TIMING, ProcessSupervisor, layer, layerOverLedger, type SupervisorTiming } from './ProcessSupervisor'
 
 /** Real processes: the supervisor's job is the boundary with the OS, so nothing here is faked. */
-const dir = mkdtempSync(join(tmpdir(), 'hidegpt-supervisor-'))
+const dir = mkdtempSync(join(tmpdir(), 'docs-supervisor-'))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
 /**
  * Caps far above any load, for tests of what the supervisor does rather than how long it may
  * take: a busy machine must not turn a capped wait into a skipped step. The cap tests use the defaults.
  */
-const UNHURRIED: SupervisorTiming = { stderrDrain: Duration.seconds(10), ledgerReadCap: Duration.seconds(10) }
+const UNHURRIED: SupervisorTiming = {
+  stderrDrain: Duration.seconds(10),
+  ledgerReadCap: Duration.seconds(10),
+  ledgerWriteCap: Duration.seconds(10),
+}
 
 const withSupervisor = <A, E>(
   use: (supervisor: ProcessSupervisor['Service']) => Effect.Effect<A, E>,
   ledgerPath: string | null = null,
   timing: SupervisorTiming = UNHURRIED,
+  helpersDirectory: string | null = null,
 ) =>
   Effect.gen(function* () {
     return yield* use(yield* ProcessSupervisor)
-  }).pipe(Effect.provide(layer(ledgerPath, timing).pipe(Layer.provideMerge(NodeServices.layer))))
+  }).pipe(Effect.provide(layer(ledgerPath, timing, helpersDirectory).pipe(Layer.provideMerge(NodeServices.layer))))
 
 /** Like an MCP server that daemonizes with setsid: a group kill alone misses it. */
 const WITH_DAEMON = `/usr/bin/perl -MPOSIX -e 'POSIX::setsid(); sleep 30' & wait`
@@ -144,6 +167,121 @@ describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
     )
   })
 
+  it.live('lists a server’s pid while it runs, and not once it exits or its scope stops it', () =>
+    withSupervisor((supervisor) =>
+      Effect.gen(function* () {
+        const pids = yield* Effect.scoped(
+          Effect.gen(function* () {
+            const exits = yield* supervisor.spawn({ provider: 'codex', command: '/bin/sh', args: ['-c', 'exit 0'] })
+            const sleeps = yield* supervisor.spawn({ provider: 'codex', command: '/bin/sleep', args: ['30'] })
+            expect(supervisor.livePidsSync()).toEqual([exits.handle.pid, sleeps.handle.pid])
+            yield* Effect.exit(exits.awaitExit)
+            yield* until(() => !supervisor.livePidsSync().includes(exits.handle.pid))
+            return [sleeps.handle.pid]
+          }),
+        )
+        expect(supervisor.livePidsSync()).toEqual([])
+        expect(pids.every((pid) => !running(pid))).toBe(true)
+      }),
+    ),
+  )
+
+  /** A spawner whose one server is `pid`, still running, whose kill does `kill`. */
+  const fakeSpawner = (
+    pid: number,
+    kill: Effect.Effect<void, PlatformError.PlatformError>,
+    exitCode: Effect.Effect<ChildProcessSpawner.ExitCode, PlatformError.PlatformError> = Effect.never,
+  ) =>
+    Layer.succeed(
+      ChildProcessSpawner.ChildProcessSpawner,
+      ChildProcessSpawner.make(() =>
+        Effect.succeed(
+          ChildProcessSpawner.makeHandle({
+            pid: ChildProcessSpawner.ProcessId(pid),
+            exitCode,
+            isRunning: Effect.succeed(true),
+            kill: () => kill,
+            stdin: Sink.drain,
+            stdout: Stream.empty,
+            stderr: Stream.empty,
+            all: Stream.empty,
+            getInputFd: () => Sink.drain,
+            getOutputFd: () => Stream.empty,
+            unref: Effect.succeed(Effect.void),
+          }),
+        ),
+      ),
+    )
+
+  /** A ledger that records nothing; its `stop` is `stop`. */
+  const fakeLedger = (stop: Effect.Effect<void>) =>
+    Layer.succeed(
+      ProcessLedger.ProcessLedger,
+      ProcessLedger.ProcessLedger.of({
+        record: () => Effect.void,
+        forget: () => Effect.void,
+        stop: () => stop,
+        track: Effect.void,
+        reap: Effect.succeed(0),
+      }),
+    )
+
+  it.live('keeps a server whose kill failed listed until it exits, even after its scope closed', () => {
+    const denied = PlatformError.systemError({ _tag: 'PermissionDenied', module: 'ChildProcess', method: 'kill' })
+    const { layer: logs, reported } = captureReports()
+    return Effect.gen(function* () {
+      const exited = yield* Deferred.make<ChildProcessSpawner.ExitCode>()
+      const supervisor = layerOverLedger(UNHURRIED).pipe(
+        Layer.provide(
+          Layer.merge(fakeSpawner(999_998, Effect.fail(denied), Deferred.await(exited)), fakeLedger(Effect.void)),
+        ),
+        Layer.provideMerge(logs),
+      )
+      yield* Effect.gen(function* () {
+        const supervisor = yield* ProcessSupervisor
+        yield* Effect.scoped(supervisor.spawn({ provider: 'codex', command: '/bin/sleep', args: ['30'] }))
+        expect(supervisor.livePidsSync()).toEqual([999_998])
+        yield* Deferred.succeed(exited, ChildProcessSpawner.ExitCode(0))
+        yield* until(() => supervisor.livePidsSync().length === 0)
+        expect(reported().map(({ where }) => where)).toEqual(['supervisor.kill'])
+      }).pipe(Effect.provide(supervisor))
+    })
+  })
+
+  it.live('closes at once with a failed-kill server still watched, which stays listed for the stall kill', () => {
+    const denied = PlatformError.systemError({ _tag: 'PermissionDenied', module: 'ChildProcess', method: 'kill' })
+    const { layer: logs } = captureReports()
+    const supervisorLayer = layerOverLedger(UNHURRIED).pipe(
+      Layer.provide(Layer.merge(fakeSpawner(999_997, Effect.fail(denied), Effect.never), fakeLedger(Effect.void))),
+      Layer.provideMerge(logs),
+    )
+    return Effect.gen(function* () {
+      const scope = yield* Scope.make()
+      const supervisor = Context.get(yield* Layer.buildWithScope(supervisorLayer, scope), ProcessSupervisor)
+      yield* Effect.scoped(supervisor.spawn({ provider: 'codex', command: '/bin/sleep', args: ['30'] }))
+      // Let the exit watch start: a scope closed at once would interrupt it before it runs.
+      yield* Effect.sleep('50 millis')
+      const started = Date.now()
+      yield* Scope.close(scope, Exit.void)
+      expect(Date.now() - started).toBeLessThan(500)
+      expect(supervisor.livePidsSync()).toEqual([999_997])
+    })
+  })
+
+  it.live('stops waiting on a ledger write that never lands after a kill, and drops the pid', () => {
+    const hungLedger = fakeLedger(Effect.never)
+    // Nothing is signalled: the kill is fake, so the pid needs no real process.
+    const supervisor = layerOverLedger({ ...UNHURRIED, ledgerWriteCap: Duration.millis(50) }).pipe(
+      Layer.provide(Layer.merge(fakeSpawner(999_999, Effect.void), hungLedger)),
+    )
+    return Effect.gen(function* () {
+      const supervisor = yield* ProcessSupervisor
+      yield* Effect.scoped(supervisor.spawn({ provider: 'codex', command: '/bin/sleep', args: ['30'] }))
+      expect(supervisor.livePidsSync()).toEqual([])
+      // An uncapped write hangs the release, which no timeout can interrupt: the test's own timeout fails it.
+    }).pipe(Effect.provide(supervisor))
+  })
+
   /**
    * A supervisor whose one server is a real `sleep` (so the ledger can read its start time; the
    * test stops it) behind a fake handle that is still running and whose kill does `kill`.
@@ -157,23 +295,6 @@ describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
     const ledgerPath = join(dir, `${name}-ledger.json`)
     const pid = spawnChild('/bin/sleep', ['30']).pid ?? 0
     daemons.push(pid)
-    const spawner = ChildProcessSpawner.make(() =>
-      Effect.succeed(
-        ChildProcessSpawner.makeHandle({
-          pid: ChildProcessSpawner.ProcessId(pid),
-          exitCode: Effect.never,
-          isRunning: Effect.succeed(true),
-          kill: () => kill,
-          stdin: Sink.drain,
-          stdout: Stream.empty,
-          stderr: Stream.empty,
-          all: Stream.empty,
-          getInputFd: () => Sink.drain,
-          getOutputFd: () => Stream.empty,
-          unref: Effect.succeed(Effect.void),
-        }),
-      ),
-    )
     const recordOf = () => JSON.parse(readFileSync(ledgerPath, 'utf8'))[pid]
     return {
       reported,
@@ -181,7 +302,7 @@ describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
       run: use.pipe(
         Effect.provide(
           layer(ledgerPath, UNHURRIED).pipe(
-            Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner)),
+            Layer.provide(fakeSpawner(pid, kill)),
             Layer.provideMerge(NodeServices.layer),
             Layer.provideMerge(logs),
           ),
@@ -196,11 +317,17 @@ describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
 
   it.live('reports a kill that fails on a server still running, and keeps its record for the next launch', () => {
     const denied = PlatformError.systemError({ _tag: 'PermissionDenied', module: 'ChildProcess', method: 'kill' })
-    const { run, reported, recordOf } = withUnkillable('failed-kill', Effect.fail(denied), spawnSleep)
+    const listed = Effect.gen(function* () {
+      yield* spawnSleep
+      return (yield* ProcessSupervisor).livePidsSync()
+    })
+    const { run, reported, recordOf } = withUnkillable('failed-kill', Effect.fail(denied), listed)
     return run.pipe(
-      Effect.map(() => {
+      Effect.map((pids) => {
         expect(reported().map(({ where }) => where)).toEqual(['supervisor.kill'])
         expect(recordOf()).toMatchObject({ command: '/bin/sleep' })
+        // Still listed, so a quit that runs out of time kills it by pid.
+        expect(pids).toHaveLength(1)
       }),
     )
   })
@@ -389,6 +516,21 @@ describe('ProcessSupervisor.callbackSpawner', { timeout: PROCESS_TEST_TIMEOUT },
     }),
   )
 
+  it.live('drops a child from the live list once it exits', () =>
+    withSupervisor((supervisor) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const spawn = yield* supervisor.callbackSpawner
+          const child = spawn({ command: 'sh', args: ['-c', 'exit 0'], env: { PATH: process.env.PATH } })
+          const pid = child.pid ?? 0
+          expect(pid).toBeGreaterThan(0)
+          yield* until(() => child.exitCode !== null)
+          yield* until(() => !supervisor.livePidsSync().includes(pid))
+        }),
+      ),
+    ),
+  )
+
   it.live('runs each child in its own group and kills the whole group when the scope closes', () =>
     Effect.gen(function* () {
       let pid = 0
@@ -400,6 +542,7 @@ describe('ProcessSupervisor.callbackSpawner', { timeout: PROCESS_TEST_TIMEOUT },
             const child = spawn({ command: 'sh', args: ['-c', 'sleep 30 & wait'], env: { PATH: process.env.PATH } })
             pid = child.pid ?? 0
             expect(pid).toBeGreaterThan(0)
+            expect(supervisor.livePidsSync()).toEqual([pid])
             yield* until(() => groupAlive(pid))
           }),
         ),
@@ -427,4 +570,302 @@ describe('ProcessSupervisor.callbackSpawner', { timeout: PROCESS_TEST_TIMEOUT },
       expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))).toEqual({})
     }),
   )
+})
+
+describe.runIf(process.platform === 'darwin')('ProcessSupervisor under the helper name', () => {
+  const sleeper = { command: process.execPath, args: ['-e', 'setTimeout(() => {}, 5000)'] }
+  let count = 0
+  /** A fresh helpers folder for each test. */
+  const helpersDir = () => join(dir, `helpers-${(count += 1)}`)
+  const ledgerEntries = (path: string) =>
+    Object.values(JSON.parse(readFileSync(path, 'utf8')) as Record<string, { command: string }>)
+  /** The started child's pid, or undefined when the start threw (a refused clone's failure stands). */
+  const pidOf = (start: () => { readonly pid?: number | undefined }) => {
+    try {
+      return start().pid
+    } catch {
+      return undefined
+    }
+  }
+  /** The ledger's entries, or none when nothing was ever recorded. */
+  const recorded = (path: string) => (existsSync(path) ? ledgerEntries(path) : [])
+  /**
+   * Ways a clone that is there (its stamp matches) fails to start, as when it is removed between
+   * the lookup and the spawn or a security tool refuses it. Node emits the first as an "error"
+   * (ENOENT) and throws the second from `spawn` (ENOEXEC).
+   */
+  const BROKEN = [
+    { failure: 'a missing interpreter (an emitted error)', text: '#!/hidegpt/no-such-interpreter\n' },
+    { failure: 'a file that is not a program (a thrown error)', text: 'not a program\n' },
+  ]
+  /** Makes the clone of `command` (as found on `env`'s PATH) and breaks it with `text`. */
+  const brokenClone = (helpers: string, text: string, command = process.execPath, env?: Record<string, string>) => {
+    const clone = resolveHelper(command, env, helpers)
+    expect(clone.command.endsWith(`/${HELPER_NAME}`)).toBe(true)
+    writeFileSync(clone.command, text)
+    return clone
+  }
+
+  it.live(
+    'starts a CLI as Docs Helper and records that path in the ledger',
+    () =>
+      Effect.gen(function* () {
+        const ledgerPath = join(dir, 'helper-ledger.json')
+        yield* withSupervisor(
+          (supervisor) =>
+            Effect.scoped(
+              Effect.gen(function* () {
+                const { handle } = yield* supervisor.spawn({ provider: 'codex', ...sleeper })
+                expect(processName(handle.pid)).toBe(HELPER_NAME)
+                expect(ledgerEntries(ledgerPath)).toEqual([
+                  expect.objectContaining({ command: expect.stringMatching(/\/Docs Helper$/) }),
+                ])
+              }),
+            ),
+          ledgerPath,
+          UNHURRIED,
+          helpersDir(),
+        )
+      }),
+    FIRST_LAUNCH_MS,
+  )
+
+  it.live(
+    'starts an SDK’s CLI as Docs Helper too, and records that path',
+    () =>
+      Effect.gen(function* () {
+        const ledgerPath = join(dir, 'helper-callback-ledger.json')
+        yield* withSupervisor(
+          (supervisor) =>
+            Effect.scoped(
+              Effect.gen(function* () {
+                const spawn = yield* supervisor.callbackSpawner
+                // A bare name on the SDK's own PATH only: the lookup reads the env the SDK passes.
+                const bin = join(dir, 'sdk-bin')
+                nodeAt(join(bin, 'hidegpt-sleeper'))
+                const child = spawn({ ...sleeper, command: 'hidegpt-sleeper', env: { PATH: bin } })
+                yield* Effect.callback<void>((resume) => void child.once('spawn', () => resume(Effect.void)))
+                expect(processName(child.pid ?? 0)).toBe(HELPER_NAME)
+                yield* until(() => {
+                  try {
+                    return ledgerEntries(ledgerPath).some(({ command }) => command.endsWith(`/${HELPER_NAME}`))
+                  } catch {
+                    return false
+                  }
+                })
+              }),
+            ),
+          ledgerPath,
+          UNHURRIED,
+          helpersDir(),
+        )
+      }),
+    FIRST_LAUNCH_MS,
+  )
+
+  for (const { failure, text } of BROKEN) {
+    it.live(
+      `starts the original when the clone will not start (${failure}), then drops that clone`,
+      () =>
+        Effect.gen(function* () {
+          const helpers = helpersDir()
+          const clone = brokenClone(helpers, text).command
+          const ledgerPath = join(dir, `helper-fallback-ledger-${count}.json`)
+          yield* withSupervisor(
+            (supervisor) =>
+              Effect.scoped(
+                Effect.gen(function* () {
+                  const { handle } = yield* supervisor.spawn({ provider: 'codex', ...sleeper })
+                  expect(processName(handle.pid)).toBe('node')
+                  expect(ledgerEntries(ledgerPath)).toEqual([expect.objectContaining({ command: process.execPath })])
+                }),
+              ),
+            ledgerPath,
+            UNHURRIED,
+            helpers,
+          )
+          // Dropped, so it is rebuilt once the retry wait (helperBinary.ts) is over.
+          expect(existsSync(clone)).toBe(false)
+        }),
+      FIRST_LAUNCH_MS,
+    )
+
+    it.live(
+      `starts an SDK’s original CLI when its clone will not start (${failure})`,
+      () =>
+        Effect.gen(function* () {
+          const helpers = helpersDir()
+          const clone = brokenClone(helpers, text).command
+          yield* withSupervisor(
+            (supervisor) =>
+              Effect.scoped(
+                Effect.gen(function* () {
+                  const spawn = yield* supervisor.callbackSpawner
+                  const child = spawn({ ...sleeper, env: {} })
+                  yield* Effect.callback<void>((resume) => void child.once('spawn', () => resume(Effect.void)))
+                  expect(processName(child.pid ?? 0)).toBe('node')
+                }),
+              ),
+            null,
+            UNHURRIED,
+            helpers,
+          )
+          expect(existsSync(clone)).toBe(false)
+        }),
+      FIRST_LAUNCH_MS,
+    )
+  }
+
+  it.live(
+    'leaves an interrupted clone start interrupted, without starting the original',
+    () =>
+      Effect.gen(function* () {
+        const helpers = helpersDir()
+        const clone = resolveHelper(process.execPath, undefined, helpers).command
+        const ledgerPath = join(dir, `helper-interrupt-ledger-${count}.json`)
+        const started: string[] = []
+        // The real spawner, except that the clone's start is interrupted, as by a scope closing at that instant.
+        const interruptingClone = Layer.effect(
+          ChildProcessSpawner.ChildProcessSpawner,
+          Effect.gen(function* () {
+            const real = yield* ChildProcessSpawner.ChildProcessSpawner
+            return ChildProcessSpawner.make((command) => {
+              if (!ChildProcess.isStandardCommand(command)) return real.spawn(command)
+              started.push(command.command)
+              return command.command === clone ? Effect.interrupt : real.spawn(command)
+            })
+          }),
+        ).pipe(Layer.provide(NodeServices.layer))
+
+        const exit = yield* Effect.exit(
+          Effect.scoped(
+            Effect.gen(function* () {
+              const supervisor = yield* ProcessSupervisor
+              return yield* supervisor.spawn({ provider: 'codex', ...sleeper })
+            }),
+          ).pipe(
+            Effect.provide(
+              layer(ledgerPath, UNHURRIED, helpers).pipe(
+                Layer.provide(interruptingClone),
+                Layer.provideMerge(NodeServices.layer),
+              ),
+            ),
+          ),
+        )
+        expect(Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)).toBe(true)
+        expect(started).toEqual([clone])
+        expect(recorded(ledgerPath)).toEqual([])
+        expect(existsSync(clone)).toBe(true)
+      }),
+    FIRST_LAUNCH_MS,
+  )
+
+  for (const { failure, text } of BROKEN) {
+    it.live(
+      `does not start an SDK’s original CLI for an already aborted start (${failure})`,
+      () =>
+        Effect.gen(function* () {
+          const helpers = helpersDir()
+          const clone = brokenClone(helpers, text).command
+          const ledgerPath = join(dir, `helper-aborted-ledger-${count}.json`)
+          yield* withSupervisor(
+            (supervisor) =>
+              Effect.gen(function* () {
+                const spawn = yield* supervisor.callbackSpawner
+                expect(pidOf(() => spawn({ ...sleeper, env: {}, signal: AbortSignal.abort() }))).toBeUndefined()
+              }).pipe(Effect.scoped),
+            ledgerPath,
+            UNHURRIED,
+            helpers,
+          )
+          expect(recorded(ledgerPath)).toEqual([])
+          // Nothing started, so the clone is not judged: the next start tries it again.
+          expect(existsSync(clone)).toBe(true)
+        }),
+      FIRST_LAUNCH_MS,
+    )
+  }
+
+  it.live(
+    'keeps a good clone when the original cannot start either (a missing folder)',
+    () =>
+      Effect.gen(function* () {
+        const helpers = helpersDir()
+        const clone = resolveHelper(process.execPath, undefined, helpers).command
+        // The same file throughout: never dropped and rebuilt.
+        const inode = statSync(clone).ino
+        const cwd = join(dir, 'hidegpt-no-such-folder')
+        yield* withSupervisor(
+          (supervisor) =>
+            Effect.scoped(
+              Effect.gen(function* () {
+                yield* Effect.flip(supervisor.spawn({ provider: 'codex', ...sleeper, cwd }))
+                expect(statSync(clone).ino).toBe(inode)
+                const spawn = yield* supervisor.callbackSpawner
+                const child = spawn({ ...sleeper, cwd, env: {} })
+                expect(child.pid).toBeUndefined()
+              }),
+            ),
+          null,
+          UNHURRIED,
+          helpers,
+        )
+        expect(statSync(clone).ino).toBe(inode)
+      }),
+    FIRST_LAUNCH_MS,
+  )
+
+  /** Starts the launcher through one of the two paths and waits for it to exit. */
+  const PATHS = [
+    {
+      path: 'spawn',
+      run: (supervisor: ProcessSupervisor['Service'], env: Record<string, string>) =>
+        Effect.scoped(
+          Effect.flatMap(supervisor.spawn({ provider: 'codex', command: 'codex', args: [], env }), ({ awaitExit }) =>
+            Effect.ignore(awaitExit),
+          ),
+        ),
+    },
+    {
+      path: 'callbackSpawner',
+      run: (supervisor: ProcessSupervisor['Service'], env: Record<string, string>) =>
+        Effect.scoped(
+          Effect.flatMap(supervisor.callbackSpawner, (spawn) =>
+            Effect.callback<void>((resume) => {
+              spawn({ command: 'codex', args: [], env }).once('exit', () => resume(Effect.void))
+            }),
+          ),
+        ),
+    },
+  ]
+
+  for (const { path, run } of PATHS) {
+    it.live(
+      `starts the original Codex launcher with the caller’s env, not its clone’s variables (${path})`,
+      () =>
+        Effect.gen(function* () {
+          const prefix = join(dir, `codex-npm-${path}`)
+          const out = join(prefix, 'launcher-env.json')
+          const { launcher } = codexInstall(
+            join(prefix, 'lib'),
+            `#!${process.execPath}\nrequire('fs').writeFileSync(process.env.ENV_OUT, JSON.stringify(process.env))\n`,
+          )
+          const bin = join(prefix, 'bin')
+          mkdirSync(bin)
+          symlinkSync(launcher, join(bin, 'codex'))
+          const env = { PATH: bin, ENV_OUT: out }
+          const helpers = helpersDir()
+          // The clone would have started with the launcher's variables; the caller's env has none.
+          const clone = brokenClone(helpers, 'not a program\n', 'codex', env)
+          expect(clone.env).toMatchObject({ CODEX_MANAGED_BY_NPM: '1' })
+
+          yield* withSupervisor((supervisor) => run(supervisor, env), null, UNHURRIED, helpers)
+          const seen = JSON.parse(readFileSync(out, 'utf8')) as Record<string, string>
+          expect(seen.ENV_OUT).toBe(out)
+          expect(Object.keys(seen).filter((name) => name.startsWith('CODEX_MANAGED_'))).toEqual([])
+          expect(existsSync(clone.command)).toBe(false)
+        }),
+      FIRST_LAUNCH_MS,
+    )
+  }
 })

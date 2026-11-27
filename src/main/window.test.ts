@@ -36,6 +36,7 @@ import {
   registerDocsProtocol,
   wireNavigation,
   safeExternalUrl,
+  type WindowWarn,
 } from './window'
 
 describe('navigation guards', () => {
@@ -149,13 +150,13 @@ describe('recoverRenderer', () => {
       loadURL: vi.fn(async (_url: string) => undefined),
       webContents: Object.assign(new EventEmitter(), { forcefullyCrashRenderer: vi.fn() }),
     })
-    recoverRenderer(win as unknown as BrowserWindow, 'docs://app/index.html', () => Date.now())
+    const warn = vi.fn<WindowWarn>()
+    recoverRenderer(win as unknown as BrowserWindow, 'docs://app/index.html', warn, () => Date.now())
     const gone = (reason: string) => win.webContents.emit('render-process-gone', {}, { reason, exitCode: 1 })
-    return { win, gone }
+    return { win, gone, warn }
   }
 
   it('reloads a crashed renderer three times a minute, then shows a page with a way back', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const { win, gone } = fakeWindow()
     const loaded = () => win.loadURL.mock.calls.map(([url]) => url)
     for (let i = 0; i < 4; i++) {
@@ -179,16 +180,17 @@ describe('recoverRenderer', () => {
   })
 
   it('logs a reload that fails instead of leaving it unhandled', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const { win, gone } = fakeWindow()
-    win.loadURL.mockRejectedValueOnce(new Error('ERR_ABORTED'))
+    const { win, gone, warn } = fakeWindow()
+    win.loadURL.mockRejectedValueOnce(
+      Object.assign(new Error('ERR_ABORTED (-3) loading docs://app'), { code: 'ERR_ABORTED' }),
+    )
     gone('crashed')
     await vi.advanceTimersByTimeAsync(1_000)
-    expect(warn).toHaveBeenCalledWith('window reload failed', expect.any(Error))
+    // Fields only: the error's text (which names the URL) stays out of the log.
+    expect(warn).toHaveBeenLastCalledWith('Window reload failed', { error: 'Error', code: 'ERR_ABORTED' })
   })
 
   it('leaves a clean exit or a closed window alone', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const { win, gone } = fakeWindow()
     gone('clean-exit')
     vi.advanceTimersByTime(1_000)
@@ -199,7 +201,6 @@ describe('recoverRenderer', () => {
   })
 
   it('drops a pending hang kill when the renderer crashes, so the reloaded one survives', () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const { win, gone } = fakeWindow()
     win.emit('unresponsive')
     vi.advanceTimersByTime(5_000)
@@ -248,7 +249,7 @@ describe('wireNavigation', () => {
         setWindowOpenHandler: vi.fn(),
       }),
     }
-    wireNavigation(win as unknown as BrowserWindow, appUrl, onAppLoad)
+    wireNavigation(win as unknown as BrowserWindow, appUrl, onAppLoad, vi.fn())
     const navigate = (url: string) => {
       const event = { preventDefault: vi.fn() }
       win.webContents.emit('will-navigate', event, url)

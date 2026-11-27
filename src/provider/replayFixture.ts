@@ -4,6 +4,8 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { homedir, hostname, userInfo } from 'node:os'
 
+import { EMAIL, REDACTED, TOKEN, wholeWord } from '../shared/redact'
+
 /**
  * Replay fixtures: a provider conversation recorded from the real CLI, one JSON
  * record per line. The first line names the provider, protocol, CLI version and
@@ -78,14 +80,10 @@ export const REPLAY_HOME = '/home/replay-user'
 const REPLAY_USER = 'replay-user'
 const REPLAY_HOST = 'replay-host'
 const REPLAY_EMAIL = 'replay-user@example.com'
-const REDACTED = '<redacted>'
 
 /** Keys whose string values are secrets or per-install ids, whatever they hold. */
 const SECRET_KEYS =
   /^(?:.*token|.*secret|.*password|apikey|api_key|authorization|cookie|installationid|accountid|organizationid|orguuid|accountuuid)$/i
-const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g
-/** JWTs and provider API keys. */
-const TOKEN = /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|\bsk-(?:ant-)?[A-Za-z0-9_-]{16,}/g
 const MAC_TEMP = /(?:\/private)?\/var\/folders\/[^\s"'/]+\/[^\s"'/]+\/T/g
 /** Another account's home folder, for paths the recorder did not know about. */
 const OTHER_HOME = /\/(?:Users|home)\/(?!replay-user\b)[^\s"'/\\]+/g
@@ -121,10 +119,7 @@ function namePatterns(
   const unique = [...new Map(named.map((entry) => [entry[0].toLowerCase(), entry])).values()]
   return unique
     .sort(([a], [b]) => b.length - a.length)
-    .map(([name, placeholder]) => {
-      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      return [new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, 'gi'), placeholder] as const
-    })
+    .map(([name, placeholder]) => [wholeWord(name, 'gi'), placeholder] as const)
 }
 
 const usableHome = (home: string) => home.length > 1

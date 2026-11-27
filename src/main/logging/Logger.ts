@@ -10,7 +10,7 @@ import * as Logger from 'effect/Logger'
 import * as Path from 'effect/Path'
 import * as References from 'effect/References'
 
-import { type Identity, makeRedactor, redacting } from './redact'
+import { type Identity, makeRedactor, redacting, redactJsonLine, redactThenCap } from './redact'
 import { makeRotatingFileSink } from './rotatingFileSink'
 
 /** `logs/main.ndjson`: 10 MB, plus five rotated files. */
@@ -27,7 +27,8 @@ export interface LoggingOptions {
   readonly identity?: Identity
 }
 
-const thisMachine = (): Identity => {
+/** This machine's home folder and account name, which the log leaves out. */
+export const thisMachine = (): Identity => {
   let username = ''
   try {
     username = userInfo().username
@@ -44,8 +45,8 @@ const thisMachine = (): Identity => {
  * the runtime is disposed are flushed on the way out. Debug lines (the
  * connection timeline) are kept. If the log folder cannot be created, Docs
  * keeps running and logs to the terminal only. Every cause (message and stack)
- * is written without the home folder, the account name, or anything that
- * looks like a credential.
+ * is written without the home folder, the account name, emails, or anything
+ * that looks like a credential; in the file, cut to 2 KB after that.
  */
 export const layer = (options: LoggingOptions) => {
   const redact = makeRedactor(options.identity ?? thisMachine())
@@ -60,7 +61,8 @@ export const layer = (options: LoggingOptions) => {
             ...MAIN_LOG,
             filePath: path.join(options.directory, MAIN_LOG.name),
           })
-          const file = yield* Logger.batched(Logger.formatJson, {
+          // Every string and key in the line is redacted and every string cut; `redacting` below does the cause first.
+          const file = yield* Logger.batched(Logger.map(Logger.formatJson, redactJsonLine(redact)), {
             window: BATCH_WINDOW,
             flush: (lines) =>
               sink.write(lines.map((line) => `${line}\n`).join('')).pipe(
@@ -75,7 +77,7 @@ export const layer = (options: LoggingOptions) => {
                 Effect.ignore,
               ),
           })
-          return redacting(file, redact)
+          return redacting(file, redactThenCap(redact))
         }).pipe(
           // No log folder: log to the terminal instead, unless the terminal logger below already does.
           Effect.catch(() => Effect.succeed(options.console ? Logger.make(() => {}) : terminal())),

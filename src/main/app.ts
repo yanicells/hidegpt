@@ -3,9 +3,8 @@ import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron'
 import { join } from 'node:path'
 
 import * as NodeServices from '@effect/platform-node/NodeServices'
-import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
-import * as Fiber from 'effect/Fiber'
+import * as Exit from 'effect/Exit'
 import * as Layer from 'effect/Layer'
 import * as ManagedRuntime from 'effect/ManagedRuntime'
 
@@ -18,12 +17,15 @@ import {
   type SaveImageResult,
 } from '../shared/contracts'
 import type { ProviderId } from '../shared/model'
-import { describeFailure, logDefects } from '../provider/DefectReport'
-import { forkObserved } from '../provider/observed'
+import { windowTitle } from '../shared/labels'
+import { describeFailure } from '../provider/DefectReport'
+import { forkObserved, makeRunObserved } from '../provider/observed'
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
 import * as Demo from './demo'
 import { makeIpc, type SenderGuard } from './ipc'
+import { makeLifecycle, makeSyncLog } from './lifecycle'
 import * as Logging from './logging/Logger'
+import { makeRedactor } from './logging/redact'
 import * as ProviderEventLog from './logging/ProviderEventLog'
 import { hydratePath, killLoginShellProbe } from './loginShellPath'
 import { makeMenu } from './menu'
@@ -31,7 +33,15 @@ import * as ProviderRegistry from './ProviderRegistry'
 import { ProviderSessionManager, layer as managerLayer } from './ProviderSessionManager'
 import { captureScreenshots } from './screenshots'
 import { makeSnapshotPublisher, reportingThrows } from './SnapshotPublisher'
-import { createWindow, documentHasImage, getWindow, openExternal, registerDocsProtocol, saveImage } from './window'
+import {
+  createWindow,
+  documentHasImage,
+  getWindow,
+  openExternal,
+  registerDocsProtocol,
+  saveImage,
+  type WindowWarn,
+} from './window'
 
 // A closed terminal must not crash main through console writes (EPIPE), as in T3 Code's desktop main.
 for (const stream of [process.stdout, process.stderr]) {
@@ -48,15 +58,24 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 // GUI apps on macOS start with a bare PATH; find the provider CLIs the way a terminal
-// would. The login-shell lookup runs while the window paints; providers wait for it.
-const pathReady = process.platform === 'darwin' ? hydratePath(process.env, app.isPackaged) : Promise.resolve()
+// would. The login-shell lookup runs while the window paints; providers wait for it,
+// or only for its cached answer from the last launch.
+// A failed cache write goes to main's log; by then (after the shell answers) the runtime exists.
+const pathReady =
+  process.platform === 'darwin'
+    ? hydratePath(process.env, app.isPackaged, app.getPath('userData'), {
+        warn: (message) => void runOnMain(Effect.logWarning(message)),
+      })
+    : Promise.resolve()
 app.on('will-quit', killLoginShellProbe)
 
 const demo = process.env.HIDEGPT_FAKE === '1'
 /** Where a quit is: `waiting` while scopes close and providers stop, then `allowed` for the real quit. */
 let quitPhase: 'running' | 'waiting' | 'allowed' = 'running'
-/** The code Docs exits with once shutdown ends; a failed screenshot walk sets 1. */
+/** The code Docs exits with once shutdown ends; a failed start or screenshot walk sets 1. */
 let exitCode = 0
+/** The provider process groups still running; the supervisor's list once the program has it. */
+let livePids: () => ReadonlyArray<number> = () => []
 
 // One app per profile: a second one would share the process ledger. The lock is taken before
 // the runtime exists, so a second instance builds nothing, forks no program and just quits
@@ -84,12 +103,54 @@ const MainLayer = managerLayer({
   openExternal: (url) => Effect.sync(() => openExternal(url)),
 }).pipe(
   Layer.provideMerge(demo ? Demo.layer : ProviderRegistry.layerAfter(pathReady)),
-  Layer.provideMerge(ProcessSupervisor.layer(demo ? null : join(app.getPath('userData'), 'provider-processes.json'))),
+  Layer.provideMerge(
+    ProcessSupervisor.layer(
+      demo ? null : join(app.getPath('userData'), 'provider-processes.json'),
+      ProcessSupervisor.DEFAULT_TIMING,
+      // Provider CLIs start from clones named `Docs Helper` kept here (src/provider/helperBinary.ts).
+      demo ? null : join(app.getPath('userData'), 'helpers'),
+    ),
+  ),
   Layer.provideMerge(ProviderEventLog.layer(join(logsDirectory, 'providers'))),
   Layer.provideMerge(Logging.layer({ directory: logsDirectory, console: !app.isPackaged })),
   Layer.provideMerge(NodeServices.layer),
 )
 const runtime = ManagedRuntime.make(MainLayer)
+
+/**
+ * Runs `effect` on main's runtime from outside any fiber, for the lifecycle's log lines,
+ * which outlive the program's scope. Resolves whether it succeeded; never rejects.
+ */
+const runOnMain = (effect: Effect.Effect<void>) =>
+  new Promise<boolean>((resolve) => {
+    try {
+      // oxlint-disable-next-line hidegpt/no-unobserved-effect -- its exit is awaited; a failure falls back to the sync log
+      runtime.runFork(effect).addObserver((exit) => resolve(Exit.isSuccess(exit)))
+    } catch {
+      // A disposed runtime: the caller writes straight to the file.
+      resolve(false)
+    }
+  })
+
+// A failed start says so and quits; a throw outside any fiber is reported, not shown in
+// Electron's dialog; a quit that runs out of time kills what is left by pid.
+const lifecycle = makeLifecycle({
+  run: runOnMain,
+  logSync: makeSyncLog(logsDirectory, makeRedactor(Logging.thisMachine())),
+  // A screenshot run must end, not wait on a box nobody will click.
+  showErrorBox: process.env.HIDEGPT_SCREENSHOT ? null : (title, content) => dialog.showErrorBox(title, content),
+  setExitCode: (code) => {
+    exitCode = code
+  },
+  quit: () => app.quit(),
+  exit: () => {
+    // app.exit skips will-quit, so stop the PATH probe here too.
+    killLoginShellProbe()
+    app.exit(exitCode)
+  },
+  livePids: () => livePids(),
+})
+lifecycle.listen(process)
 
 /** The app: IPC, the window, the menu, and the first library's connection. Runs until quit. */
 const program = Effect.gen(function* () {
@@ -105,9 +166,13 @@ const program = Effect.gen(function* () {
     return
   }
   const supervisor = yield* ProcessSupervisor.ProcessSupervisor
+  livePids = supervisor.livePidsSync
   const reaped = yield* supervisor.reapOrphans
   if (reaped > 0) yield* Effect.logWarning(`Stopped ${reaped} provider process(es) left by the last run.`)
   const manager = yield* ProviderSessionManager
+  // Electron callbacks run outside any fiber; work they start runs on the program's services
+  // and is interrupted when the program ends.
+  const runObserved = yield* makeRunObserved()
 
   const sendMenu = (action: MenuAction) => getWindow()?.webContents.send(IpcEvents.onMenu.channel, action)
 
@@ -141,10 +206,9 @@ const program = Effect.gen(function* () {
 
   // Menu commands have no caller to show an error to, so a failure lands on the banner.
   const dispatchFromMenu = (command: Command) =>
-    runtime.runFork(
-      logDefects(
-        run(command).pipe(Effect.flatMap((result) => (result.ok ? Effect.void : manager.notify(result.error)))),
-      ),
+    void runObserved(
+      run(command).pipe(Effect.flatMap((result) => (result.ok ? Effect.void : manager.notify(result.error)))),
+      { name: 'menu.dispatch' },
     )
   const updateMenu = makeMenu({
     dispatch: dispatchFromMenu,
@@ -180,12 +244,13 @@ const program = Effect.gen(function* () {
   })
 
   /** Runs `part` from a callback outside any fiber; a throw is reported under its name and goes no further. */
-  const guarded = (part: string, run: () => void) => reportingThrows((report) => runtime.runFork(report), part, run)
+  const guarded = (part: string, run: () => void) =>
+    reportingThrows((report) => runObserved(report, { name: 'main.guarded' }), part, run)
 
   const publisher = makeSnapshotPublisher(manager.snapshots, (patch, snapshot) => {
     const win = getWindow()
     // The title and the menu are extras: a bug in either costs only that part, never the page.
-    guarded('title', () => win?.setTitle(snapshot.route.kind === 'home' ? 'Docs' : snapshot.title || 'Docs'))
+    guarded('title', () => win?.setTitle(windowTitle(snapshot.route, snapshot.title)))
     win?.webContents.send(IpcEvents.onSnapshot.channel, patch)
     guarded('menu', () => updateMenu(snapshot))
   })
@@ -199,7 +264,9 @@ const program = Effect.gen(function* () {
 
   // Runs in an Electron event, outside any fiber. On a throw the publisher has already
   // forgotten what the window has, so its next patch is whole.
-  const open = () => createWindow({ onDidFinishLoad: () => guarded('resync', publisher.resync) })
+  const warn: WindowWarn = (message, fields) =>
+    void runObserved(Effect.logWarning(message).pipe(Effect.annotateLogs(fields)), { name: 'window.log' })
+  const open = () => createWindow({ onDidFinishLoad: () => guarded('resync', publisher.resync), warn })
   const win = open()
   // While a quit waits on shutdown, activation opens nothing (T3 Code's DesktopLifecycle).
   app.on('activate', () => {
@@ -240,13 +307,10 @@ const fromAppWindow: SenderGuard = (event) => {
 
 // A second instance quits here, before ready: no runtime, no program, nothing to shut down.
 if (!primary) app.quit()
+// oxlint-disable-next-line hidegpt/no-unobserved-effect -- main's entry point; its exit is observed on the next line
 const main = primary ? runtime.runFork(program) : null
-// The app cannot run without its program; whenever it fails, say why, in the log too.
-main?.addObserver((exit) => {
-  if (exit._tag === 'Success' || Cause.hasInterruptsOnly(exit.cause)) return
-  console.error(exit.cause)
-  runtime.runFork(Effect.logFatal('Docs stopped', exit.cause))
-})
+// The app cannot run without its program: a failure is logged, shown in a plain box, and quits.
+main?.addObserver(lifecycle.programExited)
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
@@ -254,9 +318,6 @@ app.on('window-all-closed', () => {
 
 // Adapted from T3 Code (apps/desktop/src/app/DesktopLifecycle.ts) at commit 8a14762c.
 // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
-/** A shutdown that takes longer than this exits anyway; the ledger reaps leftovers next start. */
-const SHUTDOWN_DEADLINE_MS = 5_000
-
 // Quitting closes every scope first, so provider processes get SIGTERM (then SIGKILL)
 // before Electron exits: the first before-quit is cancelled, shutdown runs, then the
 // app quits for real. (Cancelling will-quit instead leaves macOS unable to quit again.)
@@ -265,23 +326,26 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   if (quitPhase === 'waiting') return
   quitPhase = 'waiting'
-  const stalled = setTimeout(() => {
-    console.error('Docs did not shut down in time; exiting without it.')
-    // app.exit skips will-quit, so stop the PATH probe here too.
-    killLoginShellProbe()
-    app.exit(exitCode)
-  }, SHUTDOWN_DEADLINE_MS)
-  void runtime
-    .runPromise(Fiber.interrupt(main))
-    .then(() => runtime.dispose())
-    .catch((error: unknown) => console.error(error))
-    .finally(() => {
-      clearTimeout(stalled)
+  // No candidate shell may start during the shutdown below.
+  killLoginShellProbe()
+  // Past the deadline, lifecycle kills every provider group still listed and exits; the
+  // ledger reaps anything else on the next start.
+  lifecycle.shutDown(
+    {
+      stop: () =>
+        new Promise<void>((resolve) => {
+          main.addObserver(() => resolve())
+          main.interruptUnsafe()
+        }),
+      dispose: () => runtime.dispose(),
+    },
+    () => {
       quitPhase = 'allowed'
       // Electron ignores process.exitCode, so a failed run exits explicitly; a normal
       // quit goes through app.quit so windows still close the usual way.
       if (exitCode === 0) return void app.quit()
       killLoginShellProbe()
       app.exit(exitCode)
-    })
+    },
+  )
 })

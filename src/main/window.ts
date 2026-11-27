@@ -37,13 +37,22 @@ function initialBounds(): { width: number; height: number; x?: number; y?: numbe
   return screen.getPrimaryDisplay().workArea
 }
 
-export function createWindow(opts: { onDidFinishLoad: () => void }): BrowserWindow {
+/** A warning for main's log: a message and fields only, never an error's text. */
+export type WindowWarn = (message: string, fields: Record<string, unknown>) => void
+
+/** An error's name and code (Electron's `ERR_ABORTED`, say), for a log line. */
+const errorFields = (error: unknown) => ({
+  error: error instanceof Error ? error.name : typeof error,
+  code: typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : undefined,
+})
+
+export function createWindow(opts: { onDidFinishLoad: () => void; warn: WindowWarn }): BrowserWindow {
   const isMac = process.platform === 'darwin'
   const win = new BrowserWindow({
     ...initialBounds(),
     minWidth: 720,
     minHeight: 560,
-    title: 'Docs',
+    title: 'Google Docs',
     backgroundColor: '#ffffff',
     show: false,
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
@@ -56,19 +65,20 @@ export function createWindow(opts: { onDidFinishLoad: () => void }): BrowserWind
     },
   })
   window = win
-  win.on('ready-to-show', () => win.show())
+  // A hidden fidelity capture never shows its window (src/main/fidelity/boot.ts).
+  if (process.env.HIDEGPT_HIDDEN !== '1') win.on('ready-to-show', () => win.show())
   win.on('closed', () => {
     if (window === win) window = null
   })
   const appUrl = process.env.ELECTRON_RENDERER_URL ?? APP_URL
-  wireNavigation(win, appUrl, opts.onDidFinishLoad)
-  win.webContents.on('did-fail-load', (_event, code, desc) => {
-    console.error('load failed', code, desc)
+  wireNavigation(win, appUrl, opts.onDidFinishLoad, opts.warn)
+  win.webContents.on('did-fail-load', (_event, code, description) => {
+    opts.warn('Window load failed', { code, description })
   })
   denyPermissions(win.webContents.session)
-  recoverRenderer(win, appUrl)
+  recoverRenderer(win, appUrl, opts.warn)
 
-  loadApp(win, appUrl)
+  loadApp(win, appUrl, opts.warn)
   return win
 }
 
@@ -83,7 +93,7 @@ const isCrashPage = (url: string) => url.startsWith('data:')
  * startup recovery window does (apps/desktop/src/app/DesktopStartupRecovery.ts),
  * and only the app's own loads resync the snapshot.
  */
-export function wireNavigation(win: BrowserWindow, appUrl: string, onAppLoad: () => void): void {
+export function wireNavigation(win: BrowserWindow, appUrl: string, onAppLoad: () => void, warn: WindowWarn): void {
   const { webContents } = win
   webContents.setWindowOpenHandler(({ url }) => {
     openExternal(url)
@@ -92,7 +102,7 @@ export function wireNavigation(win: BrowserWindow, appUrl: string, onAppLoad: ()
   webContents.on('will-navigate', (event, url) => {
     if (isCrashPage(webContents.getURL())) {
       event.preventDefault()
-      if (isAppNavigation(appUrl, url)) loadApp(win, appUrl)
+      if (isAppNavigation(appUrl, url)) loadApp(win, appUrl, warn)
       return
     }
     if (isAppNavigation(appUrl, url)) return
@@ -105,8 +115,8 @@ export function wireNavigation(win: BrowserWindow, appUrl: string, onAppLoad: ()
 }
 
 /** Loads `url` unless the window is gone; a failed load is logged, as in T3's DesktopWindow. */
-function loadApp(win: BrowserWindow, url: string): void {
-  if (!win.isDestroyed()) win.loadURL(url).catch((error: unknown) => console.warn('window reload failed', error))
+function loadApp(win: BrowserWindow, url: string, warn: WindowWarn): void {
+  if (!win.isDestroyed()) win.loadURL(url).catch((error: unknown) => warn('Window reload failed', errorFields(error)))
 }
 const EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 
@@ -157,7 +167,12 @@ const UNRESPONSIVE_KILL_MS = 15_000
  * that stays unresponsive is killed and comes back the same way. The reload's
  * did-finish-load resyncs the snapshot, so the page returns as it was.
  */
-export function recoverRenderer(win: BrowserWindow, appUrl: string, now: () => number = Date.now): void {
+export function recoverRenderer(
+  win: BrowserWindow,
+  appUrl: string,
+  warn: WindowWarn,
+  now: () => number = Date.now,
+): void {
   let reloads: number[] = []
   let hung: ReturnType<typeof setTimeout> | undefined
   const settle = () => {
@@ -171,12 +186,12 @@ export function recoverRenderer(win: BrowserWindow, appUrl: string, now: () => n
     reloads = reloads.filter((time) => at - time < RECOVERY_WINDOW_MS)
     const recoverable = RECOVERABLE_REASONS.has(details.reason) && !win.isDestroyed()
     const recovering = recoverable && reloads.length < RECOVERY_MAX_RELOADS
-    console.warn('window renderer gone', { reason: details.reason, exitCode: details.exitCode, recovering })
+    warn('Window renderer gone', { reason: details.reason, exitCode: details.exitCode, recovering })
     if (!recoverable) return
     // Out of reloads: a static page with a link back, not a white window with no way out.
     if (recovering) reloads.push(at)
     const url = recovering ? appUrl : crashPage(appUrl)
-    setTimeout(() => loadApp(win, url), RECOVERY_RELOAD_DELAY_MS)
+    setTimeout(() => loadApp(win, url, warn), RECOVERY_RELOAD_DELAY_MS)
   })
   win.on('unresponsive', () => {
     // In development a paused debugger also reads as unresponsive; only kill in a packaged app.

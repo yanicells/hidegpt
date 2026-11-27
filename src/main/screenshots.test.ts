@@ -15,7 +15,7 @@ import { emptySnapshot } from '../shared/model'
 import type { ProviderSessionManager } from './ProviderSessionManager'
 import { captureScreenshots } from './screenshots'
 
-const dir = mkdtempSync(join(tmpdir(), 'hidegpt-shots-'))
+const dir = mkdtempSync(join(tmpdir(), 'docs-shots-'))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
 /** A window whose page never answers; every other call does nothing. */

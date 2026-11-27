@@ -1,10 +1,15 @@
 // Adapted from T3 Code (packages/shared/src/shell.ts `readEnvironmentFromLoginShell`,
 // `listLoginShellCandidates`, `mergePathEntries`; apps/server/src/os-jank.ts;
-// apps/desktop/src/shell/DesktopShellEnvironment.ts) at commit 5c6f2f12.
+// apps/desktop/src/shell/DesktopShellEnvironment.ts, including its cache file,
+// background refresh and `fromUserShell`) at commit 5c6f2f12.
 // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { userInfo } from 'node:os'
-import { basename } from 'node:path'
+import { basename, dirname, join } from 'node:path'
+
+import * as Option from 'effect/Option'
+import * as Schema from 'effect/Schema'
 
 /**
  * An app opened from Finder starts with launchd's bare PATH, so CLIs installed
@@ -25,6 +30,8 @@ const LOOKUP_BUDGET_MS = 4_000
 
 /** The probe still running, so a quit can kill it (and its process group). */
 let live: ChildProcess | undefined
+/** Set at quit, so a lookup still trying shells starts no other. */
+let quitting = false
 
 function killGroup(child: ChildProcess): void {
   if (!child.pid) return
@@ -35,8 +42,9 @@ function killGroup(child: ChildProcess): void {
   }
 }
 
-/** Kills a lookup still running; main calls this on `will-quit`. */
+/** Kills a lookup still running, and keeps it from trying the next shell; main calls this on `will-quit`. */
 export function killLoginShellProbe(): void {
+  quitting = true
   if (live) killGroup(live)
 }
 
@@ -94,6 +102,10 @@ export function readLoginShellPath(
   spawnShell: Spawn = spawn,
 ): Promise<string | undefined> {
   return new Promise((resolve) => {
+    if (quitting) {
+      resolve(undefined)
+      return
+    }
     let child: ChildProcess
     try {
       // Interactive, so profiles that set PATH only for interactive shells run; detached,
@@ -149,43 +161,162 @@ function readAccountShell(): string | undefined {
   }
 }
 
+/** A login shell's PATH, and which candidate shell gave it. */
+interface ShellAnswer {
+  readonly path: string
+  readonly shell: string
+}
+
 /** The first PATH a candidate shell gives, trying them in order within one time budget. */
 export async function firstLoginShellPath(
   shells: ReadonlyArray<string>,
   read: (shell: string, timeoutMs: number) => Promise<string | undefined> = readLoginShellPath,
   budgetMs = LOOKUP_BUDGET_MS,
   now: () => number = Date.now,
-): Promise<string | undefined> {
+): Promise<ShellAnswer | undefined> {
   const deadline = now() + budgetMs
   for (const shell of shells) {
     const left = deadline - now()
     if (left <= 0) break
     const path = await read(shell, left)
-    if (path) return path
+    if (path) return { path, shell }
   }
   return undefined
 }
 
 /**
+ * The login shell's PATH, and whether the person's own shell (`$SHELL` or the account
+ * shell) gave it. Only /bin/zsh, the last resort, is not theirs; its PATH can miss
+ * folders their profile adds (T3 Code's `fromUserShell`).
+ */
+export function askLoginShell(
+  env: NodeJS.ProcessEnv,
+  accountShell: string | undefined = readAccountShell(),
+  first: (shells: ReadonlyArray<string>) => Promise<ShellAnswer | undefined> = firstLoginShellPath,
+): Promise<LoginShellPath | undefined> {
+  const own = [env.SHELL?.trim(), accountShell?.trim()]
+  return first(loginShellCandidates(env, accountShell)).then(
+    (answer) => answer && { path: answer.path, fromUserShell: own.includes(answer.shell) },
+  )
+}
+
+/**
+ * The cache file in `userData`: the login shell's PATH, and the `$SHELL` and `ZDOTDIR`
+ * it was read under (what T3 Code keys its cache on, less what `userData` already fixes).
+ */
+const CACHE_FILE = 'login-shell-path.json'
+const CachedPath = Schema.fromJsonString(
+  Schema.Struct({ version: Schema.Literal(1), shell: Schema.String, zdotdir: Schema.String, path: Schema.String }),
+)
+const decodeCache = Schema.decodeUnknownOption(CachedPath)
+const encodeCache = Schema.encodeSync(CachedPath)
+
+/** The file calls the cache makes; tests pass an in-memory stand-in. */
+export interface CacheFiles {
+  readonly read: (file: string) => Promise<string>
+  /** Writes `text` to `file` whole or not at all. */
+  readonly write: (file: string, text: string) => Promise<void>
+}
+
+/** A temp file then a rename (as T3 Code), so a crash mid-write never leaves half a file. */
+const nodeFiles: CacheFiles = {
+  read: (file) => readFile(file, 'utf8'),
+  write: async (file, text) => {
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(`${file}.tmp`, text, { mode: 0o600 })
+    await rename(`${file}.tmp`, file)
+  },
+}
+
+/** The lookup running behind a cache hit; settled when there is none. */
+let refreshing: Promise<void> = Promise.resolve()
+
+/**
+ * Settles once the login-shell lookup that runs behind a cache hit has finished and
+ * any new PATH is in place (at once if none is running); saving the file runs after,
+ * apart. Never rejects. A provider whose CLI is missing on the cached PATH waits for
+ * this once before giving up.
+ */
+export const pathRefreshed = (): Promise<void> => refreshing
+
+/** What the login shell answered; see `askLoginShell`. */
+export interface LoginShellPath {
+  readonly path: string
+  readonly fromUserShell: boolean
+}
+
+export interface HydrateOptions {
+  /** Asks the login shell for its PATH. */
+  readonly findShellPath?: () => Promise<LoginShellPath | undefined>
+  readonly files?: CacheFiles
+  /** Where a failed cache write is reported; the message never holds PATH. */
+  readonly warn?: (message: string) => void
+}
+
+/**
  * Sets main's PATH on macOS. Right away: the usual Homebrew, bun and local folders
- * ahead of what the app got. For a packaged app it also starts the login-shell
- * lookup, and the returned promise settles once that PATH is merged in front; a dev
- * run already has the terminal's PATH and never spawns a shell. Never rejects.
+ * ahead of what the app got. For a packaged app it then puts the login shell's PATH
+ * in front, and the returned promise settles once it has. A dev run already has the
+ * terminal's PATH and never spawns a shell. Never rejects.
+ *
+ * The shell takes over a second, so its answer is cached in `cacheDirectory` with the
+ * `$SHELL` and `ZDOTDIR` it came from. With a cached answer for the same pair the
+ * promise settles at once and the shell runs behind it (`pathRefreshed`). If the
+ * person's own shell answers differently, its PATH replaces the cached one, in PATH
+ * and in the file; if only the /bin/zsh fallback answers, its PATH goes in front of
+ * the cached one and the file stays, so one failed probe can't shrink a good cache.
+ * Without a cached answer (or if the file is unreadable) it waits for the shell, then
+ * saves the answer.
  */
 export function hydratePath(
   env: NodeJS.ProcessEnv,
   packaged: boolean,
-  findShellPath: () => Promise<string | undefined> = () =>
-    firstLoginShellPath(loginShellCandidates(env, readAccountShell())),
+  cacheDirectory: string,
+  { findShellPath = () => askLoginShell(env), files = nodeFiles, warn = console.warn }: HydrateOptions = {},
 ): Promise<void> {
   const home = env.HOME ?? ''
   const fallback = ['/opt/homebrew/bin', '/usr/local/bin', home && `${home}/.bun/bin`, home && `${home}/.local/bin`]
   env.PATH = mergePaths(fallback.filter(Boolean).join(':'), env.PATH)
+  refreshing = Promise.resolve()
   if (!packaged) return Promise.resolve()
-  return findShellPath().then(
-    (shellPath) => {
-      if (shellPath) env.PATH = mergePaths(shellPath, env.PATH)
-    },
-    () => undefined,
-  )
+
+  // Every answer goes in front of this, so an entry the shell drops doesn't linger.
+  const base = env.PATH
+  const key = { shell: env.SHELL?.trim() ?? '', zdotdir: env.ZDOTDIR ?? '' }
+  const file = join(cacheDirectory, CACHE_FILE)
+  const lookup = () => findShellPath().catch(() => undefined)
+  // Not awaited: nothing that waits for PATH pays for the write.
+  const save = (path: string) =>
+    void files
+      .write(file, encodeCache({ version: 1, ...key, path }))
+      .catch(() => warn('Could not cache the login shell PATH'))
+
+  return files
+    .read(file)
+    .then(
+      (text) => {
+        const cached = Option.getOrUndefined(decodeCache(text))
+        return cached?.shell === key.shell && cached.zdotdir === key.zdotdir && cached.path ? cached.path : undefined
+      },
+      () => undefined,
+    )
+    .then(async (cached) => {
+      if (cached === undefined) {
+        const fresh = await lookup()
+        if (!fresh) return
+        env.PATH = mergePaths(fresh.path, base)
+        save(fresh.path)
+        return
+      }
+      env.PATH = mergePaths(cached, base)
+      refreshing = lookup().then((fresh) => {
+        if (!fresh || fresh.path === cached) return
+        if (!fresh.fromUserShell) {
+          env.PATH = mergePaths(fresh.path, cached, base)
+          return
+        }
+        env.PATH = mergePaths(fresh.path, base)
+        save(fresh.path)
+      })
+    })
 }

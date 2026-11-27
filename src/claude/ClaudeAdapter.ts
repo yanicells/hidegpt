@@ -208,12 +208,19 @@ export function make(
       const runPromise = yield* FiberSet.makeRuntimePromise()
       const spawn = supervisor ? yield* supervisor.callbackSpawner : null
       /**
-       * Starts Claude Code under the supervisor. The SDK's env is passed through untouched;
-       * only its stderr is read, for the last line of a failed start.
+       * Starts Claude Code under the supervisor, with `DISABLE_AUTOUPDATER=1`
+       * added to the environment the SDK built: a copy Docs starts never
+       * updates itself in the background (https://code.claude.com/docs/en/env-vars).
+       * It goes here, not in the query's `env`, which would replace the
+       * inherited environment and be recorded with the query's options. Only
+       * stderr is read, for the last line of a failed start.
        */
       const spawnOptions = (onStderr: (text: string) => void) =>
         spawn
-          ? { spawnClaudeCodeProcess: (options: ClaudeSpawnOptions) => spawn({ ...options, onStderr }) }
+          ? {
+              spawnClaudeCodeProcess: (options: ClaudeSpawnOptions) =>
+                spawn({ ...options, env: { ...options.env, DISABLE_AUTOUPDATER: '1' }, onStderr }),
+            }
           : { stderr: onStderr }
 
       const threads = new Map<string, ThreadInfo>()
