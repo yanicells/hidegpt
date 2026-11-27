@@ -62,6 +62,11 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # The bundle-size budgets need a build but no app window, so they run here; the
+      # rest of the perf budgets run locally (pnpm bench:check, docs/performance.md).
+      - name: Bundle-size budgets
+        run: node scripts/bench/run.mjs check --static
+
   # Process groups, signals and login shells behave differently on Linux, so the tests
   # run where the app does.
   test:
