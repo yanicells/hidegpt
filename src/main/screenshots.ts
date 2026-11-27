@@ -298,14 +298,14 @@ export const captureScreenshots = (
       yield* dismiss()
     }
 
-    win.setSize(760, 700)
+    win.setContentSize(760, 700)
     yield* shot('document-narrow')
     yield* click('toolbar-more')
     yield* shot('toolbar-more-narrow')
     yield* dismiss()
     yield* manager.dispatch({ op: 'goHome' })
     yield* shot('home-narrow')
-    win.setSize(SCREENSHOT_SIZE.width, SCREENSHOT_SIZE.height)
+    win.setContentSize(SCREENSHOT_SIZE.width, SCREENSHOT_SIZE.height)
 
     // Switching "accounts" swaps the document library.
     yield* click('menu-account')
