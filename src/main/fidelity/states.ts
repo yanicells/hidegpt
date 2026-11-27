@@ -106,8 +106,7 @@ export const states = (d: Driver, nav: Nav, manager: ProviderSessionManager['Ser
     yield* d.step(
       'home-sort',
       Effect.gen(function* () {
-        // UI-13's sort menu carries the test id; until it lands, today's sort button.
-        yield* d.clickSel('[data-testid="home-sort"], [aria-label="Sort by title"]')
+        yield* d.clickSel('[data-testid="home-sort"]')
         yield* d.shot('home-sort')
         yield* d.dismiss()
         yield* d.escape()
