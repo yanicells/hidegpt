@@ -7,7 +7,9 @@
  * docs/replay-fixtures.md.
  *
  *   pnpm record:claude library            # no prompt, no login; any agent may run it
- *   HIDEGPT_RECORD_TURNS=1 pnpm record:claude turn   # a person only: sends 2 prompts
+ *   HIDEGPT_RECORD_TURNS=1 pnpm record:claude turn|stop|approval   # a person only: sends prompts
+ *
+ * The scenarios themselves live in src/claude/replayScenarios.ts, shared with the replay tests.
  *
  * The no-prompt run points Claude Code at an empty home and config folder with
  * every auth variable removed, so neither this script nor Claude Code can find
@@ -22,7 +24,8 @@ import * as Stream from 'effect/Stream'
 
 import * as ClaudeAdapter from '../src/claude/ClaudeAdapter.ts'
 import { recordingSdk } from '../src/claude/replay.ts'
-import type { AdapterEvent, ProviderSession, TurnSettings } from '../src/provider/ProviderAdapter.ts'
+import { SCENARIOS } from '../src/claude/replayScenarios.ts'
+import type { AdapterEvent } from '../src/provider/ProviderAdapter.ts'
 import {
   encodeTranscript,
   leaks,
@@ -34,11 +37,6 @@ import {
   turnsAllowed,
 } from '../src/provider/replayFixture.ts'
 
-const SETTINGS: TurnSettings = { model: null, effort: null, serviceTier: null, mode: null }
-/** Fixed and harmless; the fixture's metadata keeps them so the replay test sends the same ones. */
-const TURN_PROMPTS = ['Reply with one short sentence about tea.', 'Now say it again in five words or fewer.']
-/** No such session exists; opening it records Claude's "not found" path. */
-const MISSING_SESSION = '00000000-0000-4000-8000-000000000001'
 /** Variables that would hand Claude Code a login without its config folder. */
 const AUTH_VARIABLES = [
   'ANTHROPIC_API_KEY',
@@ -47,65 +45,6 @@ const AUTH_VARIABLES = [
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
 ]
-
-type Scenario = {
-  readonly description: string
-  readonly sendsTurns: boolean
-  readonly run: (
-    session: ProviderSession,
-    events: ReadonlyArray<AdapterEvent>,
-    workspace: string,
-    entries: ReadonlyArray<ReplayEntry>,
-  ) => Effect.Effect<void, unknown>
-}
-
-const SCENARIOS: Record<string, Scenario> = {
-  library: {
-    description:
-      'Catalog probe with no login (Docs shows the sign-in hint), an empty document list, and a document that does not exist. No prompt.',
-    sendsTurns: false,
-    run: (session, _events, _workspace, entries) =>
-      Effect.gen(function* () {
-        yield* Effect.exit(session.loadCatalog)
-        // Judged on Claude Code's own answer, not Docs' reading of it: any login source at all
-        // means it found credentials after all, so stop before anything personal is written.
-        const source = tokenSource(entries)
-        if (source !== 'none')
-          return yield* Effect.die(
-            new Error(`Claude Code reported token source "${source}" in the empty home; nothing was written.`),
-          )
-        yield* Stream.runHead(session.listDocs(''))
-        yield* Effect.exit(session.openThread(MISSING_SESSION))
-      }),
-  },
-  turn: {
-    description: 'A new document, two short turns, then the document opened again to read its history.',
-    sendsTurns: true,
-    run: (session, events, workspace) =>
-      Effect.gen(function* () {
-        const created = yield* session.createThread({
-          cwd: workspace,
-          projectId: null,
-          title: null,
-          settings: SETTINGS,
-        })
-        for (const [index, text] of TURN_PROMPTS.entries()) {
-          const ended = () => events.filter((event) => event.type === 'turnEnded').length
-          const before = ended()
-          yield* session.send(
-            created.threadId,
-            { text, images: [], skill: null, clientId: `local-replay-${index + 1}` },
-            SETTINGS,
-          )
-          yield* Effect.sleep('200 millis').pipe(
-            Effect.repeat({ until: () => ended() > before }),
-            Effect.timeout('3 minutes'),
-          )
-        }
-        yield* session.openThread(created.threadId)
-      }),
-  },
-}
 
 /** `account.tokenSource` from the recorded probe answer, or "missing" when there is none. */
 function tokenSource(entries: ReadonlyArray<ReplayEntry>): string {
@@ -147,8 +86,9 @@ async function main() {
   const name = process.argv[2] ?? 'library'
   const scenario = SCENARIOS[name]
   if (!scenario) throw new Error(`Unknown scenario "${name}". Choose one of: ${Object.keys(SCENARIOS).join(', ')}.`)
+  const sendsTurns = scenario.prompts.length > 0
   const allowTurns = turnsAllowed()
-  if (scenario.sendsTurns && !allowTurns) throw new TurnRefusedError(`record the "${name}" scenario`)
+  if (sendsTurns && !allowTurns) throw new TurnRefusedError(`record the "${name}" scenario`)
 
   const workspace = realpathSync(mkdtempSync(join(tmpdir(), 'hidegpt-replay-workspace-')))
   const emptyHome = realpathSync(mkdtempSync(join(tmpdir(), 'hidegpt-replay-claude-')))
@@ -157,7 +97,7 @@ async function main() {
     // The replay maps its own home folder to the same placeholder.
     [emptyHome, REPLAY_HOME],
   ])
-  if (!scenario.sendsTurns) {
+  if (!sendsTurns) {
     // Set before the SDK loads: it and the Claude Code it starts read these, and the
     // SDK's session list reads the home folder in this process.
     mkdirSync(join(emptyHome, '.claude'))
@@ -180,7 +120,22 @@ async function main() {
         yield* Stream.runForEach(session.events, (event) => Effect.sync(() => events.push(event))).pipe(
           Effect.forkScoped,
         )
-        yield* scenario.run(session, events, workspace, entries)
+        yield* scenario.run({
+          session,
+          events,
+          workspace,
+          wait: '3 minutes',
+          // Judged on Claude Code's own answer, not Docs' reading of it: any login source at all in the
+          // empty home means it found credentials after all, so stop before anything personal is written.
+          afterCatalog: Effect.suspend(() => {
+            const source = tokenSource(entries)
+            return sendsTurns || source === 'none'
+              ? Effect.void
+              : Effect.die(
+                  new Error(`Claude Code reported token source "${source}" in the empty home; nothing was written.`),
+                )
+          }),
+        })
       }).pipe(Effect.scoped),
     )
   } finally {
@@ -196,7 +151,7 @@ async function main() {
     metadata: {
       source: 'scripts/record-claude-replay.ts',
       description: scenario.description,
-      ...(scenario.sendsTurns ? { prompts: TURN_PROMPTS } : {}),
+      ...(sendsTurns ? { prompts: scenario.prompts } : {}),
     },
     entries: [
       ...entries.map((entry) => scrub(withoutPersonalLists(entry), machine) as ReplayEntry),

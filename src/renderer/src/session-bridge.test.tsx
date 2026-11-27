@@ -38,6 +38,8 @@ function bridge(start: Snapshot) {
     listeners,
     send,
     deliver,
+    /** Loses the oldest patch still on its way, as if IPC dropped it. */
+    drop: () => void inFlight.shift(),
     emit: (diff: SnapshotDiff) => {
       send(diff)
       deliver()
@@ -110,6 +112,27 @@ describe('session bridge', () => {
     expect(text).toBe('Hello')
 
     send({ fields: {}, blocks: { length: 1, append: [[0, ', world']] } })
+    deliver()
+    expect(text).toBe('Hello, world')
+  })
+
+  it('reads main again when a patch number is skipped', () => {
+    const { send, drop, deliver } = bridge({
+      ...emptySnapshot(),
+      route: { kind: 'doc', threadId: 't' },
+      blocks: [{ kind: 'agent', id: 'a', text: 'Hel' }],
+    })
+    let text = ''
+    function Blocks() {
+      const block = useBlocks()[0]
+      text = block?.kind === 'agent' ? block.text : ''
+      return null
+    }
+    render(<Blocks />)
+    send({ fields: {}, blocks: { length: 1, append: [[0, 'lo']] } })
+    send({ fields: {}, blocks: { length: 1, append: [[0, ', world']] } })
+    // Patch 1 never arrives; patch 2 shows the gap, and the reread includes both.
+    drop()
     deliver()
     expect(text).toBe('Hello, world')
   })

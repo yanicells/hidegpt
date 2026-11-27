@@ -10,24 +10,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { emptySnapshot, type Snapshot } from '../shared/model'
 
-const { handleMock, netFetchMock } = vi.hoisted(() => ({ handleMock: vi.fn(), netFetchMock: vi.fn() }))
+const { appMock, handleMock, netFetchMock, openExternalMock } = vi.hoisted(() => ({
+  appMock: { getPath: () => '/data', isPackaged: true },
+  handleMock: vi.fn(),
+  netFetchMock: vi.fn(),
+  openExternalMock: vi.fn(async () => undefined),
+}))
 
 vi.mock('electron', () => ({
-  app: { getPath: () => '/data', isPackaged: true },
+  app: appMock,
   net: { fetch: netFetchMock },
   protocol: { handle: handleMock },
   screen: {},
-  shell: { openExternal: vi.fn() },
+  shell: { openExternal: openExternalMock },
   BrowserWindow: vi.fn(),
 }))
 
 import {
   CONTENT_SECURITY_POLICY,
+  crashPage,
   denyPermissions,
   documentHasImage,
   isAppNavigation,
   recoverRenderer,
   registerDocsProtocol,
+  wireNavigation,
   safeExternalUrl,
 } from './window'
 
@@ -139,7 +146,7 @@ describe('recoverRenderer', () => {
     const win = Object.assign(new EventEmitter(), {
       destroyed: false,
       isDestroyed: () => win.destroyed,
-      loadURL: vi.fn(async () => undefined),
+      loadURL: vi.fn(async (_url: string) => undefined),
       webContents: Object.assign(new EventEmitter(), { forcefullyCrashRenderer: vi.fn() }),
     })
     recoverRenderer(win as unknown as BrowserWindow, 'docs://app/index.html', () => Date.now())
@@ -147,20 +154,37 @@ describe('recoverRenderer', () => {
     return { win, gone }
   }
 
-  it('reloads a crashed renderer at most three times a minute', () => {
+  it('reloads a crashed renderer three times a minute, then shows a page with a way back', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const { win, gone } = fakeWindow()
-    for (let i = 0; i < 5; i++) {
+    const loaded = () => win.loadURL.mock.calls.map(([url]) => url)
+    for (let i = 0; i < 4; i++) {
       gone(i % 2 ? 'oom' : 'crashed')
       vi.advanceTimersByTime(1_000)
     }
-    expect(win.loadURL).toHaveBeenCalledTimes(3)
-    expect(win.loadURL).toHaveBeenCalledWith('docs://app/index.html')
+    expect(loaded().slice(0, 3)).toEqual(Array(3).fill('docs://app/index.html'))
+    const page = loaded()[3] ?? ''
+    expect(page.startsWith('data:text/html')).toBe(true)
+    const html = decodeURIComponent(page.slice(page.indexOf(',') + 1))
+    expect(html).toContain('<a href="docs://app/index.html">Try again</a>')
+    expect(html).toContain("default-src 'none'")
+    expect(html).not.toContain('<script')
+    expect(html).toContain('-webkit-app-region:drag')
+    expect(isAppNavigation('docs://app/index.html', 'docs://app/index.html')).toBe(true)
 
     vi.advanceTimersByTime(60_000)
     gone('crashed')
     vi.advanceTimersByTime(1_000)
-    expect(win.loadURL).toHaveBeenCalledTimes(4)
+    expect(loaded()[4]).toBe('docs://app/index.html')
+  })
+
+  it('logs a reload that fails instead of leaving it unhandled', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { win, gone } = fakeWindow()
+    win.loadURL.mockRejectedValueOnce(new Error('ERR_ABORTED'))
+    gone('crashed')
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(warn).toHaveBeenCalledWith('window reload failed', expect.any(Error))
   })
 
   it('leaves a clean exit or a closed window alone', () => {
@@ -174,6 +198,29 @@ describe('recoverRenderer', () => {
     expect(win.loadURL).not.toHaveBeenCalled()
   })
 
+  it('drops a pending hang kill when the renderer crashes, so the reloaded one survives', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { win, gone } = fakeWindow()
+    win.emit('unresponsive')
+    vi.advanceTimersByTime(5_000)
+    gone('crashed')
+    vi.advanceTimersByTime(20_000)
+    expect(win.loadURL).toHaveBeenCalledTimes(1)
+    expect(win.webContents.forcefullyCrashRenderer).not.toHaveBeenCalled()
+  })
+
+  it('never kills a hung renderer in development, where a paused debugger looks the same', () => {
+    appMock.isPackaged = false
+    try {
+      const { win } = fakeWindow()
+      win.emit('unresponsive')
+      vi.advanceTimersByTime(60_000)
+      expect(win.webContents.forcefullyCrashRenderer).not.toHaveBeenCalled()
+    } finally {
+      appMock.isPackaged = true
+    }
+  })
+
   it('kills a renderer that stays unresponsive, but not one that recovers', () => {
     const { win } = fakeWindow()
     win.emit('unresponsive')
@@ -185,5 +232,59 @@ describe('recoverRenderer', () => {
     win.emit('unresponsive')
     vi.advanceTimersByTime(15_000)
     expect(win.webContents.forcefullyCrashRenderer).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('wireNavigation', () => {
+  const appUrl = 'docs://app/index.html'
+
+  function fakeWindow(currentUrl: string) {
+    const onAppLoad = vi.fn()
+    const win = {
+      isDestroyed: () => false,
+      loadURL: vi.fn(async (_url: string) => undefined),
+      webContents: Object.assign(new EventEmitter(), {
+        getURL: () => currentUrl,
+        setWindowOpenHandler: vi.fn(),
+      }),
+    }
+    wireNavigation(win as unknown as BrowserWindow, appUrl, onAppLoad)
+    const navigate = (url: string) => {
+      const event = { preventDefault: vi.fn() }
+      win.webContents.emit('will-navigate', event, url)
+      return event.preventDefault
+    }
+    return { win, onAppLoad, navigate }
+  }
+
+  beforeEach(() => openExternalMock.mockClear())
+
+  it('turns the crash page’s Try again into a load of the app from main', () => {
+    const { win, navigate } = fakeWindow(crashPage(appUrl))
+    expect(navigate(appUrl)).toHaveBeenCalled()
+    expect(win.loadURL).toHaveBeenCalledWith(appUrl)
+
+    win.loadURL.mockClear()
+    expect(navigate('https://example.com/')).toHaveBeenCalled()
+    expect(win.loadURL).not.toHaveBeenCalled()
+    expect(openExternalMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps app navigations in the window and sends other links out', () => {
+    const { win, navigate } = fakeWindow(appUrl)
+    expect(navigate(`${appUrl}#top`)).not.toHaveBeenCalled()
+    expect(navigate('https://example.com/')).toHaveBeenCalled()
+    expect(openExternalMock).toHaveBeenCalledWith('https://example.com/')
+    expect(win.loadURL).not.toHaveBeenCalled()
+  })
+
+  it('resyncs after an app load but not after the crash page loads', () => {
+    const crashed = fakeWindow(crashPage(appUrl))
+    crashed.win.webContents.emit('did-finish-load')
+    expect(crashed.onAppLoad).not.toHaveBeenCalled()
+
+    const healthy = fakeWindow(appUrl)
+    healthy.win.webContents.emit('did-finish-load')
+    expect(healthy.onAppLoad).toHaveBeenCalledTimes(1)
   })
 })

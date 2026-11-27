@@ -2,6 +2,7 @@ import * as Schema from 'effect/Schema'
 import * as Struct from 'effect/Struct'
 
 import { EVENT_CHANNELS, INVOKE_CHANNELS, SNAPSHOT_NOW_CHANNEL } from './channels'
+import { IMAGE_MIME_TYPES } from './model'
 
 /**
  * The provider-neutral contracts, as `effect/Schema` values (the T3 Code
@@ -287,8 +288,14 @@ export type CommandResult = typeof CommandResult.Type
 export const MenuAction = Schema.Literals(['rename', 'grid', 'list', 'newDocument', 'goHome', 'focusSearch'])
 export type MenuAction = typeof MenuAction.Type
 
-/** The bytes of a pasted image and its MIME type, to store on disk. */
-export const SaveImageRequest = Schema.Struct({ bytes: Schema.Uint8Array, mime: Schema.String })
+/** The largest pasted image main stores (20 MB); a bigger one is answered as unreadable. */
+export const MAX_IMAGE_BYTES = 20 * 1024 * 1024
+
+/** The bytes of a pasted image and its MIME type (one Docs can store), to store on disk. */
+export const SaveImageRequest = Schema.Struct({
+  bytes: Schema.Uint8Array.check(Schema.isMaxLength(MAX_IMAGE_BYTES)),
+  mime: Schema.Literals(IMAGE_MIME_TYPES),
+})
 export type SaveImageRequest = typeof SaveImageRequest.Type
 
 /** The stored image's path, or a sentence saying why it could not be stored. */
@@ -330,7 +337,8 @@ type ChannelRows<Channels extends Record<string, string>> = {
  * decodes `payload` before the handler runs and answers `invalid` when it does
  * not decode; the handler must answer with `result`. `HideGptApi` and the
  * preload are derived from this table, so adding a channel is: a row here, a
- * name in `INVOKE_CHANNELS`, a `handle` call in main, and a preload member.
+ * name in `INVOKE_CHANNELS`, a handler in main's `handleAll` map (typecheck
+ * fails without one), and a preload member.
  */
 export const IpcInvoke = {
   dispatch: invokeSpec({
@@ -360,4 +368,9 @@ export const IpcEvents = {
 } satisfies ChannelRows<typeof EVENT_CHANNELS> & Record<keyof typeof EVENT_CHANNELS, { value: Schema.Top }>
 
 /** The synchronous read: what main last published and its `seq`, or null before anything was. */
-export const IpcSnapshotNow = { channel: SNAPSHOT_NOW_CHANNEL, result: Schema.NullOr(SequencedSnapshot) }
+export const IpcSnapshotNow = {
+  channel: SNAPSHOT_NOW_CHANNEL,
+  result: Schema.NullOr(SequencedSnapshot),
+  /** The answer to a sender main does not trust. */
+  invalid: null,
+}

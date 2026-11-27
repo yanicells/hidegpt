@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import * as NodeServices from '@effect/platform-node/NodeServices'
 import { describe, expect, it } from '@effect/vitest'
+import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
 import * as Layer from 'effect/Layer'
 import * as TestConsole from 'effect/testing/TestConsole'
@@ -83,6 +84,29 @@ describe('Logger.layer', () => {
       )
       const printed = [...(yield* TestConsole.logLines), ...(yield* TestConsole.errorLines)].map(String)
       expect(printed.filter((line) => line.includes('Connection lost'))).toHaveLength(1)
+    }),
+  )
+
+  it.effect('writes causes without the home folder, the account name, or credentials', () =>
+    Effect.gen(function* () {
+      const dir = tempDir()
+      const identity = { home: '/Users/alice-k', username: 'alice-k' }
+      const error = new Error(
+        "ENOENT: open '/Users/alice-k/Library/Application Support/Docs/x.png' as alice-k, " +
+          'GET https://api.example/v1?access_token=tok-9f2e&page=2 Authorization: Bearer abc.def-123 key sk-proj-0123456789abcdefghij',
+      )
+      yield* Effect.logError('Unhandled defect', Cause.die(error)).pipe(
+        Effect.provide(
+          Logging.layer({ directory: dir, console: false, identity }).pipe(Layer.provide(NodeServices.layer)),
+        ),
+      )
+      const log = readFileSync(join(dir, 'main.ndjson'), 'utf8')
+      expect(JSON.parse(log).cause).toMatch(/^Error: ENOENT: open/)
+      expect(log).toContain("open '~/Library/Application Support/Docs/x.png' as <user>")
+      expect(log).toContain('access_token=<redacted>&page=2')
+      expect(log).toContain('Bearer <redacted>')
+      for (const secret of ['alice-k', 'tok-9f2e', 'abc.def-123', 'sk-proj-0123456789abcdefghij'])
+        expect(log).not.toContain(secret)
     }),
   )
 })
