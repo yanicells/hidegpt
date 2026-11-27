@@ -98,7 +98,7 @@ describe('reportDefect', () => {
     }),
   )
 
-  it.effect('logs one defect once, however often it is reported, and returns the same id', () =>
+  it.effect('reports one defect once, however often it is reported, and returns the same id', () =>
     Effect.gen(function* () {
       const bug = new Error('bad frame')
       const { result, logged } = yield* capturing(
@@ -107,12 +107,14 @@ describe('reportDefect', () => {
           reportDefect(Cause.die(bug)),
           // A cause with a defect not seen before is a new report.
           reportDefect(Cause.combine(Cause.die(bug), Cause.die(new Error('another')))),
-        ]),
+        ]).pipe(Effect.provideService(References.MinimumLogLevel, 'Debug')),
       )
       const [first, again, mixed] = result._tag === 'Success' ? result.value : []
       expect(again).toBe(first)
       expect(mixed).not.toBe(first)
-      expect(logged).toHaveLength(2)
+      // The repeat is a Debug line under the first id, not a second report.
+      expect(logged.map(({ level }) => level)).toEqual(['Error', 'Debug', 'Error'])
+      expect(logged[1]!.text).toContain(`"reportId":"${first}"`)
     }),
   )
 })
