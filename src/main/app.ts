@@ -47,8 +47,15 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 // GUI apps on macOS start with a bare PATH; find the provider CLIs the way a terminal
-// would. The login-shell lookup runs while the window paints; providers wait for it.
-const pathReady = process.platform === 'darwin' ? hydratePath(process.env, app.isPackaged) : Promise.resolve()
+// would. The login-shell lookup runs while the window paints; providers wait for it,
+// or only for its cached answer from the last launch.
+// A failed cache write goes to main's log; by then (after the shell answers) the runtime exists.
+const pathReady =
+  process.platform === 'darwin'
+    ? hydratePath(process.env, app.isPackaged, app.getPath('userData'), {
+        warn: (message) => void runtime.runPromise(Effect.logWarning(message)),
+      })
+    : Promise.resolve()
 app.on('will-quit', killLoginShellProbe)
 
 const demo = process.env.HIDEGPT_FAKE === '1'
@@ -271,6 +278,8 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   if (quitPhase === 'waiting') return
   quitPhase = 'waiting'
+  // No candidate shell may start during the shutdown below.
+  killLoginShellProbe()
   const stalled = setTimeout(() => {
     console.error('Docs did not shut down in time; exiting without it.')
     // app.exit skips will-quit, so stop the PATH probe here too.
