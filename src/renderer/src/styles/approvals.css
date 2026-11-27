@@ -28,8 +28,8 @@
  * (workspace.css' 5px gap).
  */
 .workspace.has-cards {
-  /* The canvas's right edge, inside the scrollbar: 100cqw includes it. */
-  --canvas-right: calc(100cqw - var(--scrollbar-w));
+  /* The canvas's right edge, inside the scrollbar: 100cqw includes it. UI-07 names the scrollbar --scrollbar-size. */
+  --canvas-right: calc(100cqw - var(--scrollbar-size, var(--scrollbar-w)));
   /* The vertical ruler zooms with the page (ruler.css), so the page sits this far right of --page-left. */
   --ruler-shift: calc(16px * (var(--page-zoom, 1) - 1));
   --page-left: max(
