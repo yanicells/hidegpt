@@ -1,20 +1,10 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 
 import { platform } from '../../session-bridge'
-import { matchesShortcut, SHORTCUTS, shortcutLabel, type Shortcut } from '../../shortcuts'
-import { Dialog, DialogClose, DialogPopup, DialogTitle } from '../ui/dialog'
-import { MIcon } from '../ui/MaterialIcon'
+import { matchesShortcut, SHORTCUTS } from '../../shortcuts'
 
-/** The shortcuts that work in this window, under Docs' names. */
-const LISTED: ReadonlyArray<readonly [string, Shortcut]> = [
-  ['Copy', { key: 'c', mod: true }],
-  ['Paste', { key: 'v', mod: true }],
-  ['Undo', { key: 'z', mod: true }],
-  ['Redo', { key: 'z', mod: true, shift: true }],
-  ['Find', SHORTCUTS.find],
-  ['Print', SHORTCUTS.print],
-  ['Show common keyboard shortcuts', SHORTCUTS.help],
-]
+// The list loads on the first Cmd+/, keeping it out of the entry chunk.
+const ShortcutsDialog = lazy(() => import('./ShortcutsDialog').then((module) => ({ default: module.ShortcutsDialog })))
 
 /**
  * The document's own keys: Cmd+P prints the page (print.css drops the chrome)
@@ -22,7 +12,8 @@ const LISTED: ReadonlyArray<readonly [string, Shortcut]> = [
  * menu instead (FindBar). Mount once per document.
  */
 export function DocShortcuts() {
-  const [helpOpen, setHelpOpen] = useState(false)
+  // null until the first Cmd+/, so the list is not loaded before anyone asks for it.
+  const [helpOpen, setHelpOpen] = useState<boolean | null>(null)
   const os = platform()
 
   useEffect(() => {
@@ -40,25 +31,10 @@ export function DocShortcuts() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [os])
 
+  if (helpOpen === null) return null
   return (
-    <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
-      <DialogPopup className="shortcuts-dialog" data-testid="shortcuts-dialog">
-        <div className="shortcuts-head">
-          <DialogTitle render={<h2 />}>Keyboard shortcuts</DialogTitle>
-          <DialogClose className="shortcuts-close" aria-label="Close">
-            <MIcon name="close" size={24} />
-          </DialogClose>
-        </div>
-        <h3 className="shortcuts-section">Common actions</h3>
-        <dl className="shortcuts-list">
-          {LISTED.map(([name, shortcut]) => (
-            <div className="shortcuts-row" key={name}>
-              <dt>{name}</dt>
-              <dd>{shortcutLabel(shortcut, os)}</dd>
-            </div>
-          ))}
-        </dl>
-      </DialogPopup>
-    </Dialog>
+    <Suspense fallback={null}>
+      <ShortcutsDialog open={helpOpen} onOpenChange={setHelpOpen} />
+    </Suspense>
   )
 }

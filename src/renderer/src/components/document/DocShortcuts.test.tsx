@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { HideGptApi } from '../../../../shared/api'
 import { DocShortcuts } from './DocShortcuts'
+// Loaded up front, so the dialog's lazy import resolves at once.
+import './ShortcutsDialog'
 
 import '@testing-library/jest-dom/vitest'
 
