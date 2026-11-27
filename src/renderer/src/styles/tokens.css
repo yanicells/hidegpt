@@ -68,3 +68,9 @@
   --rail-width: 56px;
   --scrollbar-w: 14px;
 }
+
+/* UI-05 (toolbar): Docs' pressed Bold/Italic/Underline pill and its glyph. */
+:root {
+  --toolbar-pressed: #d3e3fd;
+  --toolbar-pressed-ink: #041e49;
+}
