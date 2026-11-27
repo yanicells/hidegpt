@@ -80,6 +80,8 @@
   --rail-divider: #e7eaf0;
   /* UI-11: the side rail's "+" ink. Docs draws it #000; --page-ink has other roles. */
   --rail-add-ink: #000;
+  /* UI-03: the Share pill's label, lock and caret. */
+  --share-ink: #004a77;
 }
 
 /* UI-14 (menus): Docs' menu shadow, one soft neutral layer measured from its 2x menu captures. */

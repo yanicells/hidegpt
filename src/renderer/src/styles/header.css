@@ -5,13 +5,18 @@
   background: var(--canvas);
 }
 
-/* Logo | title + menubar | header actions. Chrome is ~113px tall with the toolbar. */
+/*
+ * Logo | title + menubar | header actions. Chrome is ~113px tall with the toolbar.
+ * The 12px left padding puts the logo artwork (8px inside its 40px button) at
+ * x=20; the 2px gap puts the title box at x=54 and the menubar's "File" ink
+ * at x=63, as in Docs at 1470.
+ */
 .doc-top {
   @apply grid items-center;
   grid-template-columns: auto minmax(0, 1fr) auto;
   height: 64px;
-  padding: 0 16px 0 8px;
-  column-gap: 6px;
+  padding: 0 15px 0 12px;
+  column-gap: 2px;
 }
 
 .doc-home {
@@ -33,13 +38,17 @@
 .doc-title-row {
   @apply flex items-center min-w-0;
   height: 26px;
-  gap: 2px;
+  gap: 4px;
 }
 
-/* Title: Google Sans 18px/22px, padding 1px 6px, radius 4, outline on hover. */
+/*
+ * Title: Google Sans 18px/22px, padding 1px 6px, radius 4, outline on hover.
+ * The box hugs the title so the star sits 20px after its last letter.
+ */
 .doc-title {
   field-sizing: content;
-  min-width: 96px;
+  min-width: 24px;
+  margin-right: 3px;
   max-width: calc(100% - 200px);
   border: 1px solid transparent;
   border-radius: 4px;
@@ -66,6 +75,7 @@
   color: var(--text-2);
 }
 
+/* With the row's 4px gap and this padding, star, move and cloud sit 32px apart. */
 .save-state {
   @apply inline-flex items-center gap-1.5;
   padding: 0 4px;
@@ -85,7 +95,7 @@
 .doc-menus {
   @apply flex items-center;
   height: 28px;
-  margin: -5px 0 0 -1px;
+  margin-top: -5px;
 }
 
 .menu-label {
@@ -108,13 +118,32 @@
   gap: 4px;
 }
 
+/* Docs centres the right cluster at y=30, 2px above the bar's middle. */
+.doc-top .header-end {
+  align-self: start;
+  margin-top: 9px;
+}
+
+.doc-top .avatar {
+  width: 42px;
+  height: 42px;
+}
+
+.doc-top .avatar > span {
+  width: 38px;
+  height: 38px;
+}
+
 /* ---------- Header actions: history, comments, Meet, Share, spark ---------- */
 
-/* History, comments and Meet sit ~50px apart, as in Docs. */
+/* Docs spaces these unevenly; each margin is the gap measured at 1470. */
 .doc-actions {
   @apply flex items-center;
-  gap: 8px;
-  margin-right: 8px;
+  margin-right: 3px;
+}
+
+.header-action.comments {
+  margin-left: 9.5px;
 }
 
 .header-action {
@@ -125,9 +154,14 @@
 }
 
 .header-action.meet {
+  margin-left: 14.5px;
   padding: 0 4px 0 8px;
   border-radius: 20px;
   min-width: 56px;
+}
+
+.header-action.meet > svg + svg {
+  margin-left: 2px;
 }
 
 button.header-action:hover:not(:disabled) {
@@ -139,10 +173,13 @@ button.header-action:disabled {
   cursor: default;
 }
 
-/* Share: ~132x40 #c2e7ff split pill with a lock. */
+/*
+ * Share: a 123.5x40 #c2e7ff split pill with a lock, 89.5 + 1 + 33 wide. The
+ * label ends 8.5px before the divider.
+ */
 .share {
   @apply flex items-center;
-  margin-left: 8px;
+  margin-left: 13px;
 }
 
 .share-button,
@@ -150,20 +187,20 @@ button.header-action:disabled {
   @apply flex items-center;
   height: 40px;
   background: var(--blue-soft);
-  color: #001d35;
+  color: var(--share-ink);
   font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.1px;
 }
 
 .share-button {
-  gap: 8px;
-  padding: 0 14px 0 16px;
+  gap: 6.5px;
+  padding: 0 8px 0 16px;
   border-radius: 20px 0 0 20px;
 }
 
 .share-caret {
-  padding: 0 8px 0 6px;
+  padding: 0 7px 0 6px;
   margin-left: 1px;
   border-radius: 0 20px 20px 0;
 }
@@ -175,5 +212,5 @@ button.header-action:disabled {
 }
 
 .spark {
-  margin-left: 4px;
+  margin-left: 8px;
 }
