@@ -152,6 +152,8 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     `fixtures/` and `packages/provider-testing/src/replayGate.ts`; its traps
     come from `docs/orchestration-v2/testing-strategy.md` and
     `docs/internals/adding-a-provider.md` (commit 5c6f2f12).
+  - `src/provider/contract.checks.ts`: the suite's stream checker and known-gap
+    guard, split out of `contract.testkit.ts` (same sources, commit 5c6f2f12).
 - License: MIT
 
 ```

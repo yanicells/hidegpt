@@ -1,15 +1,17 @@
 import { expect, it } from '@effect/vitest'
 import * as Deferred from 'effect/Deferred'
 import * as Effect from 'effect/Effect'
+import * as Exit from 'effect/Exit'
 import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
 
+import { expectGap, failureMessage } from '../provider/contract.checks'
 import {
   contractSuite,
-  failureMessage,
   RESETS_AT,
   runScenario,
   type ContractDriver,
+  type KnownGaps,
   type Hold,
   type PassthroughSource,
   type Received,
@@ -300,7 +302,7 @@ const driver: ContractDriver = {
 }
 
 /** What the legacy-wrapped adapter fails today. ARCH-4a deletes each entry as it fixes it. */
-contractSuite('Codex', driver, {
+const GAPS = {
   usage_limit: {
     why: '`account/rateLimits/updated` says when the window resets (`primary.resetsAt`); the failure carries no `resetAt`.',
     fails: 'when the limit resets: expected null to be 1900000000000',
@@ -340,31 +342,48 @@ contractSuite('Codex', driver, {
     ],
   },
   passthrough_crash: {
-    why: "The process's stderr goes in the crash banner.",
-    leaks: ['banner: Codex stopped unexpectedly (exit 1): ZZPROV stderr. Docs is reconnecting.'],
+    why: "The process's stderr goes in the crash banner, and the banner names Codex (`providerLabel` in `ProcessExitedError.message`). Owner: ARCH-4a / STL-1.",
+    leaks: [
+      'banner: Codex stopped unexpectedly (exit 1): ZZPROV stderr. Docs is reconnecting.',
+      'banned codex: banner: Codex stopped unexpectedly (exit 1): ZZPROV stderr. Docs is reconnecting.',
+    ],
   },
   title_stealth: {
     why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',
     fails: 'no title names a vendor or model',
   },
-})
+} satisfies KnownGaps
+
+contractSuite('Codex', driver, GAPS)
+
+/** The driver, with every `turn.ended` sent twice: a stream that breaks the contract. */
+const doubled: ContractDriver = {
+  ...driver,
+  open: Effect.map(driver.open, (opened) => ({
+    ...opened,
+    session: {
+      ...opened.session,
+      events: Stream.flatMap(opened.session.events, (event) =>
+        Stream.fromIterable<AdapterEvent>(event.type === 'turn.ended' ? [event, event] : [event]),
+      ),
+    },
+  })),
+}
 
 // The runner, not any one gap, holds every scenario to the stream contract.
 it.effect('the contract runner rejects a stream that breaks the contract', () =>
   Effect.gen(function* () {
-    const doubled: ContractDriver = {
-      ...driver,
-      open: Effect.map(driver.open, (opened) => ({
-        ...opened,
-        session: {
-          ...opened.session,
-          events: Stream.flatMap(opened.session.events, (event) =>
-            Stream.fromIterable<AdapterEvent>(event.type === 'turn.ended' ? [event, event] : [event]),
-          ),
-        },
-      })),
-    }
     const exit = yield* Effect.exit(runScenario(doubled, 'simple'))
     expect(failureMessage(exit)).toContain('turn-1 ended twice')
+  }),
+)
+
+// A gap that lists a scenario's leaks still fails when the stream also breaks the contract.
+it.effect('a known leak never hides a broken stream', () =>
+  Effect.gen(function* () {
+    const exit = yield* Effect.exit(runScenario(doubled, 'passthrough_tools'))
+    expect(failureMessage(exit)).toContain('ended twice')
+    const guarded = yield* Effect.exit(expectGap(GAPS.passthrough_tools)(exit))
+    expect(Exit.isFailure(guarded), 'the gap rejects the broken stream').toBe(true)
   }),
 )

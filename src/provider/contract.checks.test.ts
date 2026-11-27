@@ -2,7 +2,7 @@ import * as Effect from 'effect/Effect'
 import * as Exit from 'effect/Exit'
 import { describe, expect, it } from 'vitest'
 
-import { contractViolations, expectGap, Leaked } from './contract.testkit'
+import { contractViolations, expectGap, Leaked } from './contract.checks'
 import type { ThreadEvent } from './events'
 import type { OpenedThread } from './ProviderAdapter'
 
