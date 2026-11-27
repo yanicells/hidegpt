@@ -172,7 +172,7 @@ const program = Effect.gen(function* () {
     Effect.tryPromise(() => saveImage(bytes, mime)).pipe(
       Effect.map((path): SaveImageResult => ({ ok: true, path })),
       Effect.catchCause((cause) =>
-        Effect.map(describeFailure(cause), (error): SaveImageResult => ({ ok: false, error })),
+        Effect.map(describeFailure(cause), (error): SaveImageResult => ({ ok: false, error: neutralizeError(error) })),
       ),
     ),
   )
