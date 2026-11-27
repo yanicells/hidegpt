@@ -51,8 +51,11 @@ export type FakeOpenCodeOptions = {
   readonly heartbeatMs?: number
   /** Ignores the `messageID` a prompt supplies, like older servers. */
   readonly ignoreMessageIds?: boolean
-  /** Runs before each request is answered, e.g. to hold one until a test releases it. */
-  readonly hold?: (method: string, path: string) => Promise<void> | void
+  /**
+   * Runs before each request is answered, e.g. to hold one until a test releases it. A response
+   * it returns answers the request instead (a refusal).
+   */
+  readonly hold?: (method: string, path: string) => Promise<Response | void> | Response | void
 }
 
 export interface FakeOpenCode {
@@ -334,7 +337,8 @@ export function makeFakeOpenCode(options: FakeOpenCodeOptions = {}): FakeOpenCod
     const body: unknown = text ? JSON.parse(text) : undefined
     requests.push({ method: request.method, path: url.pathname, query: url.searchParams, body })
     if (!alive) throw new TypeError('fetch failed')
-    await options.hold?.(request.method, url.pathname)
+    const refused = await options.hold?.(request.method, url.pathname)
+    if (refused) return refused
     const q = url.searchParams
     const segments = url.pathname.split('/').filter(Boolean)
     const exact = `${request.method} ${url.pathname}`

@@ -64,7 +64,14 @@ export type FakeQuery = {
     tool: string,
     input: Record<string, unknown>,
     toolUseID: string,
-    prompt?: { title?: string; displayName?: string; description?: string; decisionReason?: string },
+    prompt?: {
+      title?: string
+      displayName?: string
+      description?: string
+      decisionReason?: string
+      /** Set when a subagent asks: the subagent's id. */
+      agentID?: string
+    },
   ) => { result: ReturnType<CanUseTool>; abort: () => void }
 }
 

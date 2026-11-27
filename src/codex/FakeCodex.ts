@@ -56,8 +56,11 @@ export type FakeCodexOptions = {
   readonly deltaDelayMs?: number
   /** Replaces or adds request handlers (failures, timeouts). */
   readonly handlers?: Handlers
-  /** Runs before every request's handler, e.g. to hold one request until a test releases it. */
-  readonly before?: (method: string, params: unknown) => Effect.Effect<void>
+  /**
+   * Runs before every request's handler, e.g. to hold one request until a test releases it.
+   * A failure answers the request with that error instead of running the handler.
+   */
+  readonly before?: (method: string, params: unknown) => Effect.Effect<void, RpcFailure>
 }
 
 export interface FakeCodex {
