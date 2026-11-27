@@ -135,9 +135,11 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
               icon="logout"
               label="Sign out"
               run={() => {
-                void dispatch({ op: 'logout' })
-                clearProfilePhoto()
                 setOpen(false)
+                // The picture goes only once the sign-out has gone through.
+                void dispatch({ op: 'logout' }).then((result) => {
+                  if (result.ok) clearProfilePhoto()
+                })
               }}
             />
           ) : null}

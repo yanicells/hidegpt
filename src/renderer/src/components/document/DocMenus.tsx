@@ -32,7 +32,8 @@ export function DocMenus({
   onGrid?: () => void
   onList?: () => void
 }) {
-  const inDoc = snap.route.kind === 'doc'
+  // While a document opens the page is empty, so rows that act on it wait.
+  const inDoc = snap.route.kind === 'doc' && snap.openingThreadId === null
   const addOns = snap.capabilities.connectTools ? toolsNeedingConnect(snap.mcpServers) : []
 
   const items: Record<DocMenu, Item[]> = {
@@ -71,7 +72,7 @@ export function DocMenus({
             id: 'load-earlier',
             label: 'See version history',
             run: () => dispatch({ op: 'loadOlderTurns' }),
-            disabled: !snap.hasOlder || snap.loadingOlder,
+            disabled: !inDoc || !snap.hasOlder || snap.loadingOlder,
           },
           row('Name current version'),
         ],
@@ -137,7 +138,7 @@ export function DocMenus({
         icon: 'add_link',
         shortcut: '@',
         run: startSmartChip,
-        disabled: snap.skills.length === 0,
+        disabled: !inDoc || snap.skills.length === 0,
       },
       row('Link', { icon: 'link', shortcut: '⌘K' }),
       row('Drawing', { icon: 'draw', submenu: [row('New'), row('From Drive')] }),

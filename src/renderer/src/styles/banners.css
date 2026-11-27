@@ -32,9 +32,20 @@
   pointer-events: none;
 }
 
-/* In the editor the composer is the page's last line, about 30px off the window's foot; stay clear of it. */
+/* In the editor, sit higher: in a one-page document the composer line can end 10px off the window's foot (1402×877). */
 .route-doc .snackbar-lane {
   bottom: 72px;
+}
+
+/*
+ * The lane covers the text column's left edge on narrow windows (and when
+ * zoomed out with the tabs panel closed). While a snackbar shows, keep what
+ * focus and typing scroll to at least 136px off the window's foot: the lane's
+ * 72px, one 48px snackbar and 16px of air. Chromium applies scroll-padding to
+ * the caret following typing; scroll-margin on the composer is ignored.
+ */
+.route-doc:has(.snackbar-lane .snackbar) .workspace {
+  scroll-padding-bottom: 136px;
 }
 
 .snackbar-lane .snackbar {

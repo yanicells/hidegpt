@@ -41,17 +41,42 @@ export function clearProfilePhoto(): void {
   write(null)
 }
 
+/** Larger pictures are refused before decoding: a small file can still unpack to gigabytes of pixels. */
+export const MAX_PHOTO_PIXELS = 50_000_000
+
+/** The picture's size from its header; nothing draws it, so its pixels are never decoded. */
+async function imageSize(file: Blob): Promise<{ width: number; height: number }> {
+  const url = URL.createObjectURL(file)
+  try {
+    const image = new Image()
+    const loaded = new Promise<unknown>((resolve, reject) => {
+      image.onload = resolve
+      image.onerror = reject
+    })
+    image.src = url
+    await loaded
+    return { width: image.naturalWidth, height: image.naturalHeight }
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 /** Crops the image's centre square, scales it to 160px and keeps it. Rejects a file that is too big or not an image. */
 export async function setProfilePhoto(file: Blob): Promise<void> {
   if (file.size > MAX_PHOTO_BYTES) throw new RangeError('Picture too large')
-  const image = await createImageBitmap(file)
-  const side = Math.min(image.width, image.height)
+  const { width, height } = await imageSize(file)
+  if (width * height > MAX_PHOTO_PIXELS) throw new RangeError('Picture too large')
+  const side = Math.min(width, height)
+  // Decoded straight to the 160px square, so no full-size bitmap is kept.
+  const image = await createImageBitmap(file, (width - side) / 2, (height - side) / 2, side, side, {
+    resizeWidth: SIZE,
+    resizeHeight: SIZE,
+    resizeQuality: 'high',
+  })
   const canvas = document.createElement('canvas')
   canvas.width = SIZE
   canvas.height = SIZE
-  canvas
-    .getContext('2d')
-    ?.drawImage(image, (image.width - side) / 2, (image.height - side) / 2, side, side, 0, 0, SIZE, SIZE)
+  canvas.getContext('2d')?.drawImage(image, 0, 0)
   image.close()
   write(canvas.toDataURL('image/jpeg', 0.9))
 }

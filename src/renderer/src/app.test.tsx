@@ -247,37 +247,64 @@ describe('document page', () => {
   it('sets an optional profile picture from the account menu and removes it', async () => {
     const user = userEvent.setup()
     const photo = 'data:image/jpeg;base64,AAAA'
-    vi.stubGlobal('createImageBitmap', async () => ({ width: 300, height: 200, close: () => {} }))
-    const draw = vi.fn()
+    // The picture's size comes from its header before anything decodes it.
+    let size = { naturalWidth: 300, naturalHeight: 200 }
+    class HeaderOnlyImage {
+      naturalWidth = size.naturalWidth
+      naturalHeight = size.naturalHeight
+      onload: (() => void) | null = null
+      set src(_url: string) {
+        queueMicrotask(() => this.onload?.())
+      }
+    }
+    vi.stubGlobal('Image', HeaderOnlyImage)
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:me', revokeObjectURL: () => {} }))
+    const decode = vi.fn(async () => ({ width: 160, height: 160, close: () => {} }))
+    vi.stubGlobal('createImageBitmap', decode)
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
-      drawImage: draw,
+      drawImage: () => {},
     } as unknown as CanvasRenderingContext2D)
     vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(photo)
     try {
-      mount()
+      let failLogout = false
+      mount({}, (command) => (command.op === 'logout' && failLogout ? 'Sign-out failed' : null))
       const avatar = screen.getByTestId('menu-account')
       expect(avatar).toHaveTextContent('Y')
       await user.click(avatar)
       const file = new File([new Uint8Array([1])], 'me.png', { type: 'image/png' })
       await user.upload(await screen.findByTestId('photo-file'), file)
       await waitFor(() => expect(avatar.querySelector('img')).toHaveAttribute('src', photo))
-      // The centre square of a 300x200 picture.
-      expect(draw).toHaveBeenCalledWith(expect.anything(), 50, 0, 200, 200, 0, 0, 160, 160)
+      // The centre square of a 300x200 picture, decoded straight to 160px.
+      expect(decode).toHaveBeenCalledWith(file, 50, 0, 200, 200, {
+        resizeWidth: 160,
+        resizeHeight: 160,
+        resizeQuality: 'high',
+      })
       await user.click(screen.getByTestId('remove-photo'))
       expect(avatar.querySelector('img')).toBeNull()
       expect(avatar).toHaveTextContent('Y')
-      // A picture over 20 MB is refused before it is decoded.
+      // A picture over 20 MB, or one that would unpack to too many pixels, is refused before decoding.
+      decode.mockClear()
       const huge = new File([new Uint8Array([1])], 'huge.png', { type: 'image/png' })
       Object.defineProperty(huge, 'size', { value: 21 * 1024 * 1024 })
-      draw.mockClear()
       await user.upload(screen.getByTestId('photo-file'), huge)
       expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t use that picture. Try another one.')
-      expect(draw).not.toHaveBeenCalled()
-      // Signing out takes the picture with it.
+      size = { naturalWidth: 20_000, naturalHeight: 20_000 }
+      await user.upload(screen.getByTestId('photo-file'), file)
+      size = { naturalWidth: 300, naturalHeight: 200 }
       await user.upload(screen.getByTestId('photo-file'), file)
       await waitFor(() => expect(avatar.querySelector('img')).toHaveAttribute('src', photo))
+      // Only the last picture was decoded.
+      expect(decode).toHaveBeenCalledTimes(1)
+      // A sign-out that fails keeps the picture; one that goes through takes it.
+      failLogout = true
       await user.click(screen.getByTestId('action-logout'))
-      expect(avatar.querySelector('img')).toBeNull()
+      await waitFor(() => expect(screen.getByTestId('error-banner')).toBeInTheDocument())
+      expect(avatar.querySelector('img')).toHaveAttribute('src', photo)
+      failLogout = false
+      await user.click(avatar)
+      await user.click(await screen.findByTestId('action-logout'))
+      await waitFor(() => expect(avatar.querySelector('img')).toBeNull())
     } finally {
       vi.unstubAllGlobals()
       vi.restoreAllMocks()
@@ -589,8 +616,12 @@ describe('project navigation and creation', () => {
     expect(title).toHaveValue('Photosynthesis')
     expect(title).toHaveAttribute('readonly')
     expect(screen.getByRole('status', { name: 'Opening…' })).toHaveTextContent('Opening…')
-    expect(screen.getByTestId('menu-file')).toBeInTheDocument()
     expect(within(screen.getByTestId('opening-document')).getByTestId('outline')).toBeInTheDocument()
+    // Rows that act on the open document wait for it.
+    await user.click(screen.getByTestId('menu-file'))
+    expect(await screen.findByTestId('action-rename')).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByTestId('action-new')).not.toHaveAttribute('aria-disabled')
+    await user.keyboard('{Escape}')
     // A title focused while opening keeps no draft, so blurring it renames nothing.
     act(() => title.focus())
     // The header the click mounted is the one the open document keeps.
