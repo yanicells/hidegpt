@@ -49,7 +49,9 @@ import * as S from './state'
  *   leaves the turn to the deadline instead of putting it back to running.
  *   Only for a stop actually sent: a stop pressed before the start is held
  *   until the start lands (no clock of its own), never timed out unsent, and
- *   the thread's next send waits until that held stop has gone out.
+ *   the thread's next send waits until that held stop has gone out and the
+ *   previous send was answered. A stop on a send still waiting there ends
+ *   that turn as interrupted, unsent.
  * - End the turn with `turn.ended` for that turn id. A terminal within
  *   `REFUSED_STOP_GRACE` of a refusal cancels the refusal's banner.
  * - Keep no stop timer of its own (ARCH-4b deletes Claude's

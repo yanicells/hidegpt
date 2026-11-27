@@ -946,6 +946,94 @@ describe('ProviderSessionManager: turns', () => {
       }),
   )
 
+  it.effect('a Stop on a send still waiting for the held Stop keeps it from being sent, and the next send works', () =>
+    Effect.gen(function* () {
+      const { peer, manager } = yield* setup({
+        reply: null,
+        handlers: {
+          'turn/start': () =>
+            countCalls(peer, 'turn/start') === 1
+              ? Effect.sleep('15 seconds').pipe(
+                  Effect.as({ turn: { id: 'turn_slow', items: [], status: 'inProgress' as const } }),
+                )
+              : Effect.succeed({ turn: { id: 'turn_next', items: [], status: 'inProgress' as const } }),
+        },
+      })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* Effect.forkScoped(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' }))
+      yield* until(manager, (snapshot) => snapshot.streaming)
+      yield* Effect.forkScoped(manager.dispatch({ op: 'interrupt', ...doc('thr_1') }))
+      yield* until(manager, (snapshot) => snapshot.stopping)
+      yield* settle
+      yield* TestClock.adjust('10 seconds')
+      yield* settle
+      // The person asks again, then thinks better of it while that waits for the first Stop.
+      yield* TestClock.adjust('1 second')
+      const again = yield* Effect.forkChild(
+        Effect.exit(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'A shorter one' })),
+      )
+      yield* until(manager, (snapshot) => snapshot.streaming)
+      yield* TestClock.adjust('1 second')
+      const stop = yield* Effect.forkChild(Effect.exit(manager.dispatch({ op: 'interrupt', ...doc('thr_1') })))
+      yield* settle
+      // The first start lands: its stop goes out, and the second message is never sent.
+      yield* TestClock.adjust('3 seconds')
+      yield* settle
+      expect(Exit.isSuccess(yield* Fiber.join(again))).toBe(true)
+      expect(Exit.isSuccess(yield* Fiber.join(stop))).toBe(true)
+      expect(countCalls(peer, 'turn/start')).toBe(1)
+      expect(interrupts(peer)).toEqual([expect.objectContaining({ threadId: 'thr_1', turnId: 'turn_slow' })])
+      expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false })
+      yield* manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'One line, then' })
+      yield* settle
+      expect(countCalls(peer, 'turn/start')).toBe(2)
+      expect(yield* manager.snapshot).toMatchObject({ streaming: true, stopping: false })
+    }),
+  )
+
+  it.effect("a send waits for the previous send's answer, so Stop names the newer turn", () =>
+    Effect.gen(function* () {
+      // The first start is slow, and its notification comes a second before its answer.
+      const { peer, manager } = yield* setup({
+        reply: null,
+        handlers: {
+          'turn/start': () =>
+            countCalls(peer, 'turn/start') === 1
+              ? Effect.gen(function* () {
+                  const turn = { id: 'turn_slow', items: [], status: 'inProgress' as const }
+                  yield* Effect.sleep('15 seconds')
+                  yield* peer.notify('turn/started', { threadId: 'thr_1', turn })
+                  yield* Effect.sleep('1 second')
+                  return { turn }
+                })
+              : Effect.succeed({ turn: { id: 'turn_next', items: [], status: 'inProgress' as const } }),
+        },
+      })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* Effect.forkScoped(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' }))
+      yield* until(manager, (snapshot) => snapshot.streaming)
+      yield* Effect.forkScoped(manager.dispatch({ op: 'interrupt', ...doc('thr_1') }))
+      yield* until(manager, (snapshot) => snapshot.stopping)
+      yield* settle
+      yield* TestClock.adjust('10 seconds')
+      yield* settle
+      yield* TestClock.adjust('1 second')
+      const again = yield* Effect.forkChild(
+        Effect.exit(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'A shorter one' })),
+      )
+      yield* settle
+      // The notification lets the held stop out; the slow answer lands a second later.
+      yield* TestClock.adjust('4 seconds')
+      yield* settle
+      yield* TestClock.adjust('1 second')
+      yield* settle
+      expect(Exit.isSuccess(yield* Fiber.join(again))).toBe(true)
+      yield* manager.dispatch({ op: 'interrupt', ...doc('thr_1') })
+      yield* settle
+      expect(interrupts(peer).map((request) => request.turnId)).toEqual(['turn_slow', 'turn_next'])
+    }),
+  )
+
   it.effect('a question whose start never comes stays on the page after the deadline settled it', () =>
     Effect.gen(function* () {
       const { manager } = yield* setup({ reply: null, handlers: { 'turn/start': () => Effect.never } })
@@ -983,7 +1071,8 @@ describe('ProviderSessionManager: turns', () => {
       yield* settle
       yield* peer.exit(1, 'boom')
       yield* settle
-      // No clock moved: the crash itself (the tracker's failAll) ended the wait.
+      // No clock moved: the crash failed the pending start, and the send, abandoning its turn,
+      // ended the wait.
       const done = stop.pollUnsafe()
       expect(done && Exit.isSuccess(done)).toBe(true)
       expect(interrupts(peer)).toEqual([])
