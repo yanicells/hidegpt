@@ -7,15 +7,13 @@ import * as Option from 'effect/Option'
 import * as Stream from 'effect/Stream'
 
 import type { Block, SnapshotDiff } from '../shared/contracts'
+import { answered } from './pageDeadline'
 import type { ProviderSessionManager } from './ProviderSessionManager'
 
 type Point = { x: number; y: number }
 
 /** The window size the shots are taken at, whatever the display's work area. */
 export const SCREENSHOT_SIZE = { width: 1280, height: 840 } as const
-
-/** How long the walk waits on the page for one step; past it the step fails and the run quits. */
-const PAGE_TIMEOUT = '15 seconds'
 
 /** A plain 24 px blue square, pasted into the composer by the walk. */
 const PASTED_PNG =
@@ -45,13 +43,6 @@ export const captureScreenshots = (
     }
     mkdirSync(dir, { recursive: true })
     // A page that never answers (a hung or gone renderer) must fail the step, not hang the run.
-    const answered = <A>(what: string, ask: () => Promise<A>) =>
-      Effect.promise(ask).pipe(
-        Effect.timeoutOrElse({
-          duration: PAGE_TIMEOUT,
-          orElse: () => Effect.die(new Error(`The page did not answer in time: ${what}`)),
-        }),
-      )
     const js = <A = unknown>(script: string) =>
       answered(
         script.replace(/\s+/g, ' ').trim().slice(0, 80),
