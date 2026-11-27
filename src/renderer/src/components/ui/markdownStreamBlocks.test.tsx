@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { describe, expect, it } from 'vitest'
 
-import { splitMarkdownBlocks } from './markdownStreamBlocks'
+import { scanMarkdownBlocks, splitMarkdownBlocks, type MarkdownBlocks } from './markdownStreamBlocks'
 
 // Whitespace between top-level blocks collapses on the page.
 const html = (source: string) =>
@@ -13,19 +13,21 @@ const html = (source: string) =>
     .replace(/>\s+</g, '><')
     .trim()
 
+const streamed = [
+  '# Title\n\nFirst paragraph with `code` and **bold**.\n\nSecond [link](https://example.com).',
+  '- one\n- two\n\n- loose three\n\n  continued\n\nAfter the list.',
+  '1. first\n\n2. second\n\nText\n\n3) restarted',
+  '```ts\nconst a = 1;\n\n\nconst b = 2;\n```\n\nafter\n\n~~~\nx\n\n~~~~\n\ny\n~~~\n\nend',
+  '> quote\n\n> another quote',
+  '| a | b |\n| - | - |\n| 1 | 2 |\n\nAfter the table.',
+  'para\n\n    indented code\n\nnext',
+  'Setext\n===\n\nnext\n---\n\n- [ ] task\n- [x] done',
+  '- a\n\n  ```\n  x\n\n```\n\nb',
+  'HTML:\n\n```html\n<div class="note">\n\n</div>\n```\n\nA regex:\n\n```\n[^a-z]+\n[ref]: not a definition\n```\n\nend',
+]
+
 describe('splitMarkdownBlocks', () => {
-  it.each([
-    '# Title\n\nFirst paragraph with `code` and **bold**.\n\nSecond [link](https://example.com).',
-    '- one\n- two\n\n- loose three\n\n  continued\n\nAfter the list.',
-    '1. first\n\n2. second\n\nText\n\n3) restarted',
-    '```ts\nconst a = 1;\n\n\nconst b = 2;\n```\n\nafter\n\n~~~\nx\n\n~~~~\n\ny\n~~~\n\nend',
-    '> quote\n\n> another quote',
-    '| a | b |\n| - | - |\n| 1 | 2 |\n\nAfter the table.',
-    'para\n\n    indented code\n\nnext',
-    'Setext\n===\n\nnext\n---\n\n- [ ] task\n- [x] done',
-    '- a\n\n  ```\n  x\n\n```\n\nb',
-    'HTML:\n\n```html\n<div class="note">\n\n</div>\n```\n\nA regex:\n\n```\n[^a-z]+\n[ref]: not a definition\n```\n\nend',
-  ])('renders each block as the whole text renders it, at every streamed prefix: %j', (text) => {
+  it.each(streamed)('renders each block as the whole text renders it, at every streamed prefix: %j', (text) => {
     for (let end = 0; end <= text.length; end++) {
       const source = text.slice(0, end)
       const blocks = splitMarkdownBlocks(source)
@@ -73,7 +75,58 @@ describe('splitMarkdownBlocks', () => {
     'a\r\n\r\nb',
     '```\n<div>\n```\n\na[^x]\n\n[^x]: note',
     '- a\n\n  ```\n  x\nb[^x]\n\n[^x]: note',
+    'a\n\n\uFEFFb',
   ])('keeps text with document-wide syntax whole: %j', (text) => {
     expect(splitMarkdownBlocks(text)).toBeNull()
+  })
+})
+
+describe('scanMarkdownBlocks', () => {
+  it.each([
+    ...streamed,
+    '1. a\n\n2. b\n\n3) c',
+    'a\n\n```ts\nb\n\n  c\n```\n\n- d\n\n  ```\n  e\nf',
+    '[ref]\n\n[ref]: /x\n\nmore',
+  ])('cuts a text streamed onto its previous cut as a full scan does: %j', (text) => {
+    let previous: MarkdownBlocks | null = null
+    for (let end = 0; end <= text.length; end++) {
+      const source = text.slice(0, end)
+      const result: MarkdownBlocks | null = scanMarkdownBlocks(source, previous)
+      expect(result).toEqual(scanMarkdownBlocks(source))
+      previous = result
+    }
+  })
+
+  it('keeps the earlier blocks it was given instead of scanning them again', () => {
+    // A stand-in first block of the same length: only a resumed scan can return it.
+    const previous: MarkdownBlocks = {
+      text: 'a\n\nb\n\nc\n\nd',
+      blocks: ['X\n\n', 'b\n\n', 'c\n\n', 'd'],
+      openCode: null,
+    }
+    expect(scanMarkdownBlocks('a\n\nb\n\nc\n\nd e', previous)?.blocks).toEqual(['X\n\n', 'b\n\n', 'c\n\n', 'd e'])
+  })
+
+  it.each([
+    ['a\n\n```\nb\n\nc', 'a\n\n```\nb'],
+    ['a\n\n```\nb\n\nc', 'x\n\n```\nb\n\nc\n```\n\nd'],
+    ['a\n\nb\n\nc', '```\na\n\nb\n\nc'],
+  ])('scans in full when the text shrinks or changes earlier: %j to %j', (before, after) => {
+    expect(scanMarkdownBlocks(after, scanMarkdownBlocks(before))).toEqual(scanMarkdownBlocks(after))
+  })
+
+  it.each([
+    ['a\n\n~~~~ py  x\nq\n\n', { code: 'q\n', lang: 'py' }],
+    ['  ```\n  a\n    b\n c', null],
+    ['```', { code: '', lang: null }],
+    ['para\n```\nx', null],
+    ['- a\n\n  ```\n  x', null],
+    ['```\nx\n```', null],
+    ['```c\\+\\+\nx', null],
+    ['```a&amp;b\nx', null],
+    ['~~~a\u0000b\nx\u0000', { code: 'x\uFFFD', lang: 'a\uFFFDb' }],
+    ['~~~a\u0000b', { code: '', lang: 'a\uFFFDb' }],
+  ])('reports a fence open at the end only where it opens its block: %j', (text, openCode) => {
+    expect(scanMarkdownBlocks(text)?.openCode).toEqual(openCode)
   })
 })

@@ -52,7 +52,7 @@ export function createWindow(opts: { onDidFinishLoad: () => void; warn: WindowWa
     ...initialBounds(),
     minWidth: 720,
     minHeight: 560,
-    title: 'Docs',
+    title: 'Google Docs',
     backgroundColor: '#ffffff',
     show: false,
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
@@ -65,7 +65,8 @@ export function createWindow(opts: { onDidFinishLoad: () => void; warn: WindowWa
     },
   })
   window = win
-  win.on('ready-to-show', () => win.show())
+  // A hidden fidelity capture never shows its window (src/main/fidelity/boot.ts).
+  if (process.env.HIDEGPT_HIDDEN !== '1') win.on('ready-to-show', () => win.show())
   win.on('closed', () => {
     if (window === win) window = null
   })

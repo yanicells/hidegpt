@@ -30,6 +30,10 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     `apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.testkit.ts`;
     and the scrubbing in `src/provider/replayFixture.ts`, from
     `apps/server/scripts/codexReplayRecordingRecords.ts`.
+  - `src/codex/client.ts`: naming the client in `initialize` and setting
+    `CODEX_INTERNAL_ORIGINATOR_OVERRIDE` at spawn, from
+    `codexAppServerEnvironment` and `buildCodexInitializeParams` in
+    `apps/server/src/provider/CodexProvider.ts` (commit 5c6f2f12).
   - `src/provider/randomUuid.ts`: v4 UUIDs drawn from Effect's `Random`, from
     `packages/provider-core/src/server/randomUuid.ts` (commit 5c6f2f12).
   - `src/codex/mapping.ts`: turning Codex errors into Docs sentences and the
@@ -122,6 +126,9 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     `markdownStreamBlocks.ts`, with their tests: the cached Markdown renderer and
     the streaming block splitter, from `apps/web/src/components/chat/` (commit
     8a14762c).
+  - `markdownStreamBlocks.ts` (commit 5c6f2f12): resuming a streamed text from its
+    previous result, and falling back on CR and BOM, from
+    `apps/web/src/markdown-incremental.ts`.
   - `src/renderer/src/components/document/useFollowBottom.ts`: letting go of the
     bottom on upward input (wheel, up keys, a scrollbar press) unless a nested
     box scrolls, and on any other upward scroll (the upward-scroll detector),
@@ -166,7 +173,9 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     (`src/main/logging/redact.ts`), from `redactCauseCredentials` in
     `packages/shared/src/observability.ts` and its use in
     `apps/server/src/serverLogger.ts`, extended to the home folder, the
-    account name, and more credential shapes.
+    account name, emails, a 2 KB cap, and more credential shapes, whose
+    patterns live in `src/shared/redact.ts` and are shared with the replay
+    scrubbing.
   - `scripts/dist.ts`, `scripts/builder-config.ts` and
     `scripts/verify-preload-bundle.ts`: the electron-builder config built in
     code, signing only when asked and dropping empty signing variables, and the
@@ -178,6 +187,14 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     PATH, and not blocking launch on it, from `packages/shared/src/shell.ts`,
     `apps/server/src/os-jank.ts` and
     `apps/desktop/src/shell/DesktopShellEnvironment.ts` (commit 5c6f2f12).
+    Caching that PATH in `userData` keyed by `$SHELL` and `ZDOTDIR`, written
+    through a temp file and a rename, refreshing it in the background, and
+    replacing the cache only on an answer from the person's own shell
+    (`fromUserShell`), from the same `DesktopShellEnvironment.ts` (commit 5c6f2f12).
+  - `src/provider/helperBinary.ts`: finding a command on PATH (an explicit path
+    taken as is, entries unquoted and de-duplicated, a regular file with the
+    execute bit), from `packages/shared/src/shell.ts`
+    `resolveCommandPathForPlatform` and `canExecuteFile` (commit 5c6f2f12).
 - License: MIT
 
 ```

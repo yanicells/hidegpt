@@ -17,6 +17,7 @@ import {
   type SaveImageResult,
 } from '../shared/contracts'
 import type { ProviderId } from '../shared/model'
+import { windowTitle } from '../shared/labels'
 import { describeFailure } from '../provider/DefectReport'
 import { forkObserved, makeRunObserved } from '../provider/observed'
 import * as ProcessSupervisor from '../provider/ProcessSupervisor'
@@ -57,8 +58,15 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 // GUI apps on macOS start with a bare PATH; find the provider CLIs the way a terminal
-// would. The login-shell lookup runs while the window paints; providers wait for it.
-const pathReady = process.platform === 'darwin' ? hydratePath(process.env, app.isPackaged) : Promise.resolve()
+// would. The login-shell lookup runs while the window paints; providers wait for it,
+// or only for its cached answer from the last launch.
+// A failed cache write goes to main's log; by then (after the shell answers) the runtime exists.
+const pathReady =
+  process.platform === 'darwin'
+    ? hydratePath(process.env, app.isPackaged, app.getPath('userData'), {
+        warn: (message) => void runOnMain(Effect.logWarning(message)),
+      })
+    : Promise.resolve()
 app.on('will-quit', killLoginShellProbe)
 
 const demo = process.env.HIDEGPT_FAKE === '1'
@@ -95,7 +103,14 @@ const MainLayer = managerLayer({
   openExternal: (url) => Effect.sync(() => openExternal(url)),
 }).pipe(
   Layer.provideMerge(demo ? Demo.layer : ProviderRegistry.layerAfter(pathReady)),
-  Layer.provideMerge(ProcessSupervisor.layer(demo ? null : join(app.getPath('userData'), 'provider-processes.json'))),
+  Layer.provideMerge(
+    ProcessSupervisor.layer(
+      demo ? null : join(app.getPath('userData'), 'provider-processes.json'),
+      ProcessSupervisor.DEFAULT_TIMING,
+      // Provider CLIs start from clones named `Docs Helper` kept here (src/provider/helperBinary.ts).
+      demo ? null : join(app.getPath('userData'), 'helpers'),
+    ),
+  ),
   Layer.provideMerge(ProviderEventLog.layer(join(logsDirectory, 'providers'))),
   Layer.provideMerge(Logging.layer({ directory: logsDirectory, console: !app.isPackaged })),
   Layer.provideMerge(NodeServices.layer),
@@ -235,7 +250,7 @@ const program = Effect.gen(function* () {
   const publisher = makeSnapshotPublisher(manager.snapshots, (patch, snapshot) => {
     const win = getWindow()
     // The title and the menu are extras: a bug in either costs only that part, never the page.
-    guarded('title', () => win?.setTitle(snapshot.route.kind === 'home' ? 'Docs' : snapshot.title || 'Docs'))
+    guarded('title', () => win?.setTitle(windowTitle(snapshot.route, snapshot.title)))
     win?.webContents.send(IpcEvents.onSnapshot.channel, patch)
     guarded('menu', () => updateMenu(snapshot))
   })
@@ -311,6 +326,8 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   if (quitPhase === 'waiting') return
   quitPhase = 'waiting'
+  // No candidate shell may start during the shutdown below.
+  killLoginShellProbe()
   // Past the deadline, lifecycle kills every provider group still listed and exits; the
   // ledger reaps anything else on the next start.
   lifecycle.shutDown(
