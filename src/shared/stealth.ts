@@ -51,9 +51,8 @@ function banned(word: string): string | null {
  * Case-insensitive and on whole words, where a word is a run of letters, so "_", "-" and
  * digits split words ("claude_ai", "gpt5", "GPT-4o"). A run that is not banned whole is
  * also checked by its case parts ("OpenAI", "ChatGPTPlus"), so "said" and "maintain" pass
- * but "OpenCode" and "useMcp" do not. Two adjacent case parts are tried joined first, so a
- * compound split by its own capitals counts ("useOpenCode", "myHideGptNotes"), while parts
- * that only join into ordinary words ("OpenCase") stay apart. A capital run before lower case is checked whole
+ * but "OpenCode" and "useMcp" do not. Adjacent case parts are also tried joined (see
+ * `bannedParts`), so "useOpenCode" counts. A capital run before lower case is checked whole
  * too ("AIsearch", "myGPTs"), while an all-caps word stays one word ("AIRTABLE", "GMAIL").
  * Within a run, hits keep their order and repeats ("myGPTsAgent" is "gpt", "agent").
  * A plural "s" counts too ("agents", "models"). The text is NFKC-normalized and stripped of
