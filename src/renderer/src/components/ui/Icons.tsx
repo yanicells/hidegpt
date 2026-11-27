@@ -16,14 +16,27 @@ const DOCS_BODY =
 
 /**
  * The Docs logo: a blue page with a pink wash from the bottom left, a light
- * folded corner and two text lines. `size` is the height; the width defaults
- * to the logo's 3:4. The editor header draws 24x32 (`size={32}`), Home 27x37
- * (`size={37} width={27}`).
+ * folded corner and two text lines.
+ *
+ * `size` keeps its old meaning, a square box: the logo is 0.8 of its height,
+ * centred across and 0.075 of it from the top, where the old artwork's ink sat
+ * (24x32 at 8, 3 in a 40 box). Pass `height` for the artwork alone, with no box;
+ * the width defaults to the logo's 3:4. The editor header's mark is 24x32
+ * (`height={32}`), Home's 27x37 (`height={37} width={27}`).
  */
-export function DocsIcon({ size = 32, width = size * 0.75 }: { size?: number; width?: number }) {
+export function DocsIcon({ size = 40, height, width }: { size?: number; height?: number; width?: number }) {
+  const box =
+    height === undefined
+      ? { width: size, height: size, viewBox: '-8 -3 40 40' }
+      : {
+          width: width ?? height * 0.75,
+          height,
+          viewBox: '0 0 24 32',
+          preserveAspectRatio: 'none',
+        }
   const id = useId()
   return (
-    <svg width={width} height={size} viewBox="0 0 24 32" preserveAspectRatio="none" aria-hidden="true">
+    <svg {...box} aria-hidden="true">
       <defs>
         <radialGradient
           id={`${id}-wash`}
