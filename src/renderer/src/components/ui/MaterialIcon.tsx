@@ -30,7 +30,8 @@ export function MIcon({
       focusable="false"
       {...props}
     >
-      <path d={cuts[opticalSize(size)]} />
+      {/* A missing cut draws the other one rather than nothing; MaterialIcon.test.ts keeps both lists exact. */}
+      <path d={cuts[opticalSize(size)] ?? cuts[20] ?? cuts[24]} />
     </svg>
   )
 }
