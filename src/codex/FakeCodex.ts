@@ -356,8 +356,6 @@ export const makeFakeCodex = (options: FakeCodexOptions = {}): FakeCodex => {
         })
         return {}
       }),
-    'thread/increment_elicitation': () => Effect.succeed({ count: 1, paused: true }),
-    'thread/decrement_elicitation': () => Effect.succeed({ count: 0, paused: false }),
     'account/logout': () => Effect.succeed({}),
     'account/login/start': () =>
       Effect.succeed({ type: 'chatgpt' as const, loginId: 'login', authUrl: 'https://example.test/login' }),

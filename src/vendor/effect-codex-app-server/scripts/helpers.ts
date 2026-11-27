@@ -140,3 +140,53 @@ export function versionMismatch(committed: string | null, installed: string): st
   if (committed === installed) return null;
   return `Codex protocol schemas are for ${committed ?? "an unknown codex-cli"}, installed ${installed}. Run \`pnpm protocol\`.`;
 }
+
+/**
+ * HideGPT: the entries the allowlist names, in the CLI's order. Throws when the allowlist names
+ * a method this CLI does not publish, so an upgrade that renames one fails `pnpm protocol`.
+ */
+export function selectAllowed(
+  kind: string,
+  entries: ReadonlyArray<MethodEntry>,
+  allowed: ReadonlyArray<string>,
+): ReadonlyArray<MethodEntry> {
+  const published = new Set(entries.map((entry) => entry.method));
+  const missing = allowed.filter((method) => !published.has(method));
+  if (missing.length > 0) {
+    throw new Error(`Allowlisted ${kind} this codex-cli does not publish: ${missing.join(", ")}`);
+  }
+  const keep = new Set(allowed);
+  return entries.filter((entry) => keep.has(entry.method));
+}
+
+const SCHEMA_REF = "#/components/schemas/";
+
+/** HideGPT: `roots` and every schema they reach through `#/components/schemas/` refs. */
+export function reachableSchemas(
+  roots: Iterable<string>,
+  schemas: Readonly<Record<string, unknown>>,
+): Set<string> {
+  const reached = new Set<string>();
+  const pending = [...roots];
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child);
+    } else if (value !== null && typeof value === "object") {
+      for (const [key, child] of Object.entries(value)) {
+        if (key === "$ref" && typeof child === "string" && child.startsWith(SCHEMA_REF)) {
+          pending.push(child.slice(SCHEMA_REF.length));
+        } else {
+          visit(child);
+        }
+      }
+    }
+  };
+  for (let name = pending.pop(); name !== undefined; name = pending.pop()) {
+    if (reached.has(name)) continue;
+    if (!Object.hasOwn(schemas, name)) throw new Error(`Unable to resolve schema: ${name}`);
+    reached.add(name);
+    visit(schemas[name]);
+  }
+  return reached;
+}
+
