@@ -156,6 +156,33 @@ describe('session state', () => {
     expect(runtime(state, 'codex', 'thr_1')?.error).toBeNull()
   })
 
+  it('keeps a turn the stop deadline settled off the page, until the next turn starts', () => {
+    // `turn-1` was settled by the stop deadline: no turn open, the provider may still run it.
+    const settled = S.updateRuntime(twoLibraries(), S.keyOf('codex', 'thr_1'), (item) => ({
+      ...item,
+      settledTurnId: 'turn-1',
+    }))
+    const apply = (state: S.State, event: Parameters<typeof S.applyThreadEvent>[2]) =>
+      S.applyThreadEvent(state, 'codex', event, 5)
+    const late = [
+      { type: 'turn.started', threadId: 'thr_1', turnId: 'turn-1' },
+      { type: 'item.upserted', threadId: 'thr_1', turnId: 'turn-1', item: assistant('a2', 'Late.') },
+      { type: 'item.delta', threadId: 'thr_1', itemId: 'a2', delta: 'Late.', create: assistant('a2', '') },
+    ] as const
+    for (const event of late) expect(apply(settled, event)).toBe(settled)
+
+    // The next turn clears it; its output lands as usual.
+    const next = apply(settled, { type: 'turn.started', threadId: 'thr_1', turnId: 'turn-2' })
+    expect(runtime(next, 'codex', 'thr_1')).toMatchObject({ turn: { id: 'turn-2' }, settledTurnId: undefined })
+    const shown = apply(next, {
+      type: 'item.upserted',
+      threadId: 'thr_1',
+      turnId: 'turn-2',
+      item: assistant('a3', 'Fresh.'),
+    })
+    expect(runtime(shown, 'codex', 'thr_1')?.items.map((item) => item.id)).toEqual(['a1', 'a3'])
+  })
+
   it('ignores a terminal for any turn but the open one', () => {
     const state = running('turn-2')
     const late = S.applyThreadEvent(
@@ -188,9 +215,6 @@ describe('session state', () => {
       2,
     )
     expect(S.toSnapshot(state)).toMatchObject({ streaming: true, stopping: true })
-    // The settle timer of an older turn never ends this one.
-    expect(S.settleStop(runtime(state, 'codex', 'thr_1')!, 'turn-0').turn).not.toBeNull()
-    expect(S.settleStop(runtime(state, 'codex', 'thr_1')!, 'turn-1').turn).toBeNull()
   })
 
   it('shows a document opened mid-answer as streaming', () => {

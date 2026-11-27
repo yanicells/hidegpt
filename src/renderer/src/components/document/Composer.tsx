@@ -10,7 +10,7 @@ import {
 } from 'react'
 
 import { IMAGE_MIME_TYPES, isImageMime, type Skill } from '../../../../shared/model'
-import { dispatch, showRequestError } from '../../session-bridge'
+import { dispatchToDocument, showRequestError } from '../../session-bridge'
 import { takePendingDraft } from '../../templates'
 import { imageSrc } from '../ui/imageSrc'
 import { SkillChip, SkillMenu } from './SmartChips'
@@ -129,7 +129,7 @@ export const Composer = memo(function Composer({
   const submit = async () => {
     if (streaming || sending || (!draft.trim() && !images.length && !skill)) return
     setSending(true)
-    const result = await dispatch({
+    const result = await dispatchToDocument({
       op: 'send',
       text: draft,
       ...(skill ? { skill } : {}),

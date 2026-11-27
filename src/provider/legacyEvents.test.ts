@@ -9,18 +9,19 @@ import * as Stream from 'effect/Stream'
 import { CAPABILITIES } from '../shared/model'
 import { ProviderRequestError, type ProviderError } from './errors'
 import type { ThreadEvent } from './events'
-import { fromLegacy, type LegacyAdapterEvent, type LegacyProviderSession } from './legacyEvents'
+import { fromLegacy, type LegacyAdapterEvent, type LegacyOptions, type LegacyProviderSession } from './legacyEvents'
 import type { AdapterEvent } from './ProviderAdapter'
 
 const SETTINGS = { model: null, effort: null, serviceTier: null, mode: null }
 const INPUT = { text: 'Hi', images: [], skill: null, clientId: 'local-1' }
 const unused = Effect.die(new Error('not used in this test'))
+const flush = Effect.yieldNow.pipe(Effect.repeat({ times: 10 }))
 
 /**
  * A legacy session whose events the test pushes. `send` replaces the one that accepts at
- * once; failing `backendExit` is the backend dying.
+ * once; `tracker` wraps the turn tracker; failing `backendExit` is the backend dying.
  */
-const setup = (send: LegacyProviderSession['send'] = () => Effect.void) =>
+const setup = (send: LegacyProviderSession['send'] = () => Effect.void, tracker?: LegacyOptions['tracker']) =>
   Effect.gen(function* () {
     const legacyEvents = yield* Queue.unbounded<LegacyAdapterEvent>()
     const backendExit = yield* Deferred.make<never, ProviderError>()
@@ -41,11 +42,10 @@ const setup = (send: LegacyProviderSession['send'] = () => Effect.void) =>
       rename: () => unused,
       releaseThread: () => Effect.void,
     } satisfies LegacyProviderSession
-    const session = yield* fromLegacy({
-      id: 'codex',
-      capabilities: CAPABILITIES.codex,
-      openSession: Effect.succeed(legacy),
-    }).openSession
+    const session = yield* fromLegacy(
+      { id: 'codex', capabilities: CAPABILITIES.codex, openSession: Effect.succeed(legacy) },
+      tracker ? { tracker } : {},
+    ).openSession
     const seen: AdapterEvent[] = []
     yield* session.events.pipe(
       Stream.runForEach((event) => Effect.sync(() => void seen.push(event))),
@@ -122,6 +122,98 @@ describe('fromLegacy', () => {
       // The provider reports a normal end; the person stopped it, so it was interrupted.
       yield* push({ type: 'turnEnded', threadId: 't' })
       expect(turnEvents().at(-1)).toMatchObject({ type: 'turn.ended', status: 'interrupted', failure: null })
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect('a Stop on a send waiting behind others ends that turn at once and keeps it unsent', () =>
+    Effect.gen(function* () {
+      const sent: string[] = []
+      const gates = new Map([
+        ['one', Deferred.makeUnsafe<void>()],
+        ['two', Deferred.makeUnsafe<void>()],
+      ])
+      const { session, interrupts, turnEvents, push } = yield* setup((_threadId, input) =>
+        Effect.suspend(() => {
+          sent.push(input.text)
+          const gate = gates.get(input.text)
+          return gate ? Deferred.await(gate) : Effect.void
+        }),
+      )
+      const ended = (turnId: string) =>
+        turnEvents().filter((event) => event.type === 'turn.ended' && event.turnId === turnId)
+      yield* Effect.forkChild(session.send('t', 'turn-1', { ...INPUT, text: 'one' }, SETTINGS))
+      yield* flush
+      yield* Effect.forkChild(session.interrupt('t', 'turn-1'))
+      yield* flush
+      // Two more sends wait behind the held stop; the first start then lands and the second goes out.
+      const second = yield* Effect.forkChild(session.send('t', 'turn-2', { ...INPUT, text: 'two' }, SETTINGS))
+      const third = yield* Effect.forkChild(session.send('t', 'turn-3', { ...INPUT, text: 'three' }, SETTINGS))
+      yield* flush
+      yield* Deferred.succeed(gates.get('one')!, undefined)
+      yield* flush
+      expect(sent).toEqual(['one', 'two'])
+
+      yield* session.interrupt('t', 'turn-3')
+      yield* flush
+      // Settled at the click, before anything ahead of it finished.
+      expect(ended('turn-3')).toEqual([
+        { type: 'turn.ended', threadId: 't', turnId: 'turn-3', status: 'interrupted', failure: null },
+      ])
+      yield* Deferred.succeed(gates.get('two')!, undefined)
+      yield* Fiber.join(second)
+      yield* push({ type: 'turnEnded', threadId: 't' })
+      yield* Fiber.join(third)
+      expect(sent).toEqual(['one', 'two'])
+      expect(interrupts).toEqual(['t'])
+      expect(ended('turn-3')).toHaveLength(1)
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect('a Stop that lands while a waiting send begins its turn waits for it, then stops it', () =>
+    Effect.gen(function* () {
+      const gate = yield* Deferred.make<void>()
+      const beginning = yield* Deferred.make<void>()
+      const held = yield* Deferred.make<void>()
+      const sent: string[] = []
+      // The second turn's `begin` is held open, as if the tracker were busy.
+      const { session, interrupts, turnEvents, push } = yield* setup(
+        (_threadId, input) =>
+          Effect.suspend(() => {
+            sent.push(input.text)
+            return input.text === 'one' ? Deferred.await(gate) : Effect.void
+          }),
+        (tracker) => ({
+          ...tracker,
+          begin: (threadId, turnId) =>
+            turnId === 'turn-2'
+              ? Deferred.succeed(beginning, undefined).pipe(
+                  Effect.andThen(Deferred.await(held)),
+                  Effect.andThen(tracker.begin(threadId, turnId)),
+                )
+              : tracker.begin(threadId, turnId),
+        }),
+      )
+      yield* Effect.forkChild(session.send('t', 'turn-1', { ...INPUT, text: 'one' }, SETTINGS))
+      yield* flush
+      yield* Effect.forkChild(session.interrupt('t', 'turn-1'))
+      yield* flush
+      const second = yield* Effect.forkChild(session.send('t', 'turn-2', { ...INPUT, text: 'two' }, SETTINGS))
+      yield* flush
+      yield* Deferred.succeed(gate, undefined)
+      yield* Deferred.await(beginning)
+
+      const stopping = yield* Effect.forkChild(session.interrupt('t', 'turn-2'))
+      yield* flush
+      expect(interrupts).toEqual(['t'])
+      yield* Deferred.succeed(held, undefined)
+      yield* Fiber.join(second)
+      yield* Fiber.join(stopping)
+      expect(sent).toEqual(['one', 'two'])
+      expect(interrupts).toEqual(['t', 't'])
+      yield* push({ type: 'turnEnded', threadId: 't' })
+      expect(turnEvents().filter((event) => event.type === 'turn.ended' && event.turnId === 'turn-2')).toEqual([
+        { type: 'turn.ended', threadId: 't', turnId: 'turn-2', status: 'interrupted', failure: null },
+      ])
     }).pipe(Effect.scoped),
   )
 

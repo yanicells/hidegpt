@@ -15,13 +15,18 @@ import type { Snapshot } from '../shared/model'
 import { layerAdapters } from './ProviderRegistry'
 import * as Manager from './ProviderSessionManager'
 
-// The stop timer's update is the only caller of `settleStop`; make it a Docs bug.
-vi.mock('./session/state', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./session/state')>()),
-  settleStop: () => {
-    throw new Error('settle bug')
-  },
-}))
+// In this test only the stop deadline ends a turn as interrupted (Codex never ends it); make that a Docs bug.
+vi.mock('./session/state', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./session/state')>()
+  return {
+    ...actual,
+    applyThreadEvent: (...args: Parameters<typeof actual.applyThreadEvent>) => {
+      const event = args[2]
+      if (event.type === 'turn.ended' && event.status === 'interrupted') throw new Error('settle bug')
+      return actual.applyThreadEvent(...args)
+    },
+  }
+})
 
 describe('ProviderSessionManager stop timer', () => {
   it.effect('logs a defect in the timer that frees a stopped document, which nobody waits on', () => {
@@ -41,12 +46,12 @@ describe('ProviderSessionManager stop timer', () => {
       yield* manager.start('codex')
       yield* until((snapshot) => snapshot.status === 'ready')
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
-      yield* manager.dispatch({ op: 'send', text: 'Write a long essay' })
+      yield* manager.dispatch({ op: 'send', provider: 'codex', threadId: 'thr_1', text: 'Write a long essay' })
       // Codex's echo of the sent text: the turn is running on its side.
       yield* until((snapshot) =>
         snapshot.blocks.some((block) => block.kind === 'user' && !block.id.startsWith('local-')),
       )
-      yield* manager.dispatch({ op: 'interrupt' })
+      yield* manager.dispatch({ op: 'interrupt', provider: 'codex', threadId: 'thr_1' })
       yield* until((snapshot) => snapshot.stopping)
       expect(logged).toEqual([])
 
@@ -55,7 +60,7 @@ describe('ProviderSessionManager stop timer', () => {
       expect(logged).toEqual([
         {
           cause: expect.stringContaining('settle bug'),
-          annotations: { reportId: expect.stringMatching(/^[0-9a-f]{8}$/) },
+          annotations: { where: 'turns.settleStop', reportId: expect.stringMatching(/^[0-9a-f]{8}$/) },
         },
       ])
     }).pipe(Effect.provide(Logger.layer([capture])))

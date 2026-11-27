@@ -2,7 +2,7 @@ import { memo, useState } from 'react'
 
 import { accountLabel, avatarLetter } from '../../../../shared/labels'
 import type { ApprovalBlock, Snapshot, SuggestionKind } from '../../../../shared/model'
-import { dispatch, useSnapshotSelector } from '../../session-bridge'
+import { dispatchToDocument, useSnapshotSelector } from '../../session-bridge'
 import { MIcon } from '../ui/MaterialIcon'
 import { personName } from '../ui/text'
 import { Tip } from '../ui/tooltip'
@@ -73,7 +73,7 @@ export const SuggestionCard = memo(function SuggestionCard({ block }: { block: A
   const reply = async (accept: boolean) => {
     if (busy) return
     setSending(true)
-    await dispatch({ op: 'resolveApproval', blockId: block.id, accept, answers })
+    await dispatchToDocument({ op: 'resolveApproval', blockId: block.id, accept, answers })
     setSending(false)
   }
 

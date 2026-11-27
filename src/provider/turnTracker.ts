@@ -59,6 +59,12 @@ export interface TurnTracker {
    * whatever the provider called it. True when it ended the open turn.
    */
   readonly end: (threadId: string, outcome: TurnOutcome) => Effect.Effect<boolean>
+  /**
+   * Ends a turn that Stop caught before it began (still waiting to be sent): it emits that turn's
+   * only terminal, `interrupted`, and the turn is never sent. A no-op for the open turn, which
+   * ends through `end` instead.
+   */
+  readonly endUnbegun: (threadId: string, turnId: TurnId) => Effect.Effect<void>
   /** The native send failed: forget the turn without a terminal (the manager rolls back its echo). */
   readonly abandon: (threadId: string, turnId: TurnId) => Effect.Effect<void>
   /** The open turn's id, to stamp items with. */
@@ -267,6 +273,14 @@ export const makeTurnTracker = (options: TurnTrackerOptions): Effect.Effect<Turn
           }),
         ),
       end,
+      endUnbegun: (threadId, turnId) =>
+        lock.withPermit(
+          Effect.suspend(() =>
+            open.get(threadId)?.turnId === turnId
+              ? Effect.void
+              : emit({ type: 'turn.ended', threadId, turnId, status: 'interrupted', failure: null }),
+          ),
+        ),
       abandon: (threadId, turnId) =>
         lock.withPermit(
           Effect.suspend(() => {

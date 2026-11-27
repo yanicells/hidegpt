@@ -31,6 +31,8 @@ export function DocumentChrome({
 }) {
   const [draft, setDraft] = useState<string | null>(null)
   const cancelRef = useRef(false)
+  /** The document whose title is being edited, so a navigation before the blur cannot rename another one. */
+  const editingRef = useRef<{ provider: Snapshot['provider']; threadId: string; title: string } | null>(null)
   const thread = snap.threads.find((item) => snap.route.kind === 'doc' && item.id === snap.route.threadId)
   const project = snap.projects.find((item) => thread && item.id === threadProjectId(snap, thread))
   const saved = useSavedFlash(snap.streaming)
@@ -41,11 +43,16 @@ export function DocumentChrome({
   const commit = () => {
     if (cancelRef.current) {
       cancelRef.current = false
+      editingRef.current = null
       setDraft(null)
       return
     }
-    const next = (draft ?? snap.title).trim() || 'Untitled document'
-    if (next !== snap.title) void dispatch({ op: 'setDocumentName', name: next })
+    const editing = editingRef.current
+    editingRef.current = null
+    const next = (draft ?? editing?.title ?? '').trim() || 'Untitled document'
+    if (editing && next !== editing.title) {
+      void dispatch({ op: 'setDocumentName', provider: editing.provider, threadId: editing.threadId, name: next })
+    }
     setDraft(null)
   }
 
@@ -71,6 +78,10 @@ export function DocumentChrome({
                   // No draft while opening, so blur has nothing to commit to the previous document.
                   if (opening) return
                   cancelRef.current = false
+                  editingRef.current =
+                    snap.route.kind === 'doc'
+                      ? { provider: snap.provider, threadId: snap.route.threadId, title: snap.title }
+                      : null
                   setDraft(snap.title)
                 }}
                 onChange={(event) => setDraft(event.target.value)}
