@@ -1,10 +1,14 @@
 // Upward-input release and the upward-scroll detector adapted from T3 Code
-// (apps/web/src/components/chat/timelineViewport.ts and timelineScrollTarget.ts) at commit 8a14762c.
+// (apps/web/src/components/chat/timelineViewport.ts and timelineScrollTarget.ts) at commit 8a14762c;
+// following through the end band and the reduced-motion scroll from timelineViewport.ts and
+// useTimelineFollow.ts at commit 5c6f2f12.
 // Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 import { useCallback, useLayoutEffect, useRef, type RefObject } from 'react'
 
 // How close to the end still counts as "at the bottom".
 const NEAR_END = '0px 0px 120px 0px'
+// One line of the page's text, should its line height not be in pixels.
+const FALLBACK_LINE = 20
 const UP_KEYS = new Set(['PageUp', 'Home', 'ArrowUp'])
 
 const isEditable = (target: EventTarget | null) =>
@@ -48,14 +52,32 @@ function upwardScrollDetector(root: HTMLElement): () => boolean {
 }
 
 /**
- * Keeps the page at the bottom while an answer streams, if you are there,
- * without reading layout on every delta. A ResizeObserver on `content` (which
- * has no minimum height, so a short document grows it too) and on the scroller
- * (a shorter window) scrolls once the browser has laid out, and an
+ * Scrolls `root` down just far enough that `end`, plus one line of margin, is
+ * in view, as Docs does when the text being typed reaches the bottom. Never
+ * scrolls up, so the blank rest of the page below a short text stays put.
+ * Smooth unless reduced motion is asked for.
+ */
+function keepEndInView(root: HTMLElement, end: HTMLElement, reduced: MediaQueryList | undefined) {
+  const line = Number.parseFloat(getComputedStyle(end).lineHeight) || FALLBACK_LINE
+  const below = end.getBoundingClientRect().bottom + line - (root.getBoundingClientRect().top + root.clientHeight)
+  if (below < 1) return
+  root.scrollTo({ top: root.scrollTop + below, behavior: reduced?.matches ? 'instant' : 'smooth' })
+}
+
+/**
+ * Keeps the end of the text in view while an answer streams, if you are
+ * there, without reading layout on every delta. A ResizeObserver on `content`
+ * (which has no minimum height, so a short document grows it too) and on the
+ * scroller (a shorter window) scrolls once the browser has laid out, and an
  * IntersectionObserver on `end` tracks whether you are near the bottom. A
  * document opens at the top and follows only once you scroll to its end or ask
- * a question, so a resize or a late image never pulls it down.
+ * a question, so a resize or a late image never pulls it down. Asking scrolls
+ * only once the text would pass the bottom of the window, so the line you
+ * typed stays where it is as it becomes the heading.
  *
+ * While following, the end may leave the band below the window for a moment
+ * when a long block arrives, before the scroll catches up; as in T3, that does
+ * not let go, only you moving up does.
  * Moving up lets go at once, before that frame's resize could pull the page
  * back: wheel, keys and a press on the scrollbar as they happen, and any other
  * upward scroll (dragging a selection, focus moving to a link above) from the
@@ -104,16 +126,17 @@ export function useFollowBottom({
       typeof IntersectionObserver === 'undefined'
     )
       return
-    // Layout is fresh inside the callback, so reading scrollHeight costs nothing extra.
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+    // Layout is fresh inside the callback, so reading boxes costs nothing extra.
     const grew = new ResizeObserver(() => {
-      if (follow.current) root.scrollTop = root.scrollHeight
+      if (follow.current) keepEndInView(root, end, reduced)
     })
     const near = new IntersectionObserver(
       (entries) => {
         const entry = entries[entries.length - 1]
         if (!entry) return
         nearEnd.current = entry.isIntersecting
-        if (engaged.current) follow.current = entry.isIntersecting
+        if (engaged.current && entry.isIntersecting) follow.current = true
       },
       { root, rootMargin: NEAR_END },
     )
