@@ -23,14 +23,22 @@ import type { ClaudeSdk } from './ClaudeAdapter'
  */
 
 type CallFrame = { readonly call: string; readonly query?: number; readonly args?: ReadonlyArray<unknown> }
-/** The `canUseTool` arguments a recording keeps; the signal is the replay's own. */
+type CanUseToolOptions = Parameters<CanUseTool>[2]
+/** What a recording keeps of a `canUseTool` call, as T3 does; the signal is the replay's own. */
+const PERMISSION_FIELDS = [
+  'suggestions',
+  'blockedPath',
+  'decisionReason',
+  'title',
+  'displayName',
+  'description',
+  'agentID',
+] as const
 type PermissionRequest = {
   readonly tool: string
   readonly input: Record<string, unknown>
   readonly toolUseID: string
-  readonly suggestions?: Parameters<CanUseTool>[2]['suggestions']
-  readonly title?: string
-}
+} & Partial<Pick<CanUseToolOptions, (typeof PERMISSION_FIELDS)[number]>>
 type InboundFrame =
   | { readonly call: string; readonly query?: number; readonly result?: unknown; readonly error?: string }
   | { readonly query: number; readonly message: SDKMessage }
@@ -49,6 +57,99 @@ const json = (value: unknown): unknown =>
       )
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
+
+// ---- personal configuration -------------------------------------------------------
+
+type Json = Record<string, unknown>
+const isJson = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value)
+const pick = (value: Json, keys: ReadonlyArray<string>): Json =>
+  Object.fromEntries(keys.flatMap((key) => (value[key] === undefined ? [] : [[key, value[key]]])))
+
+/**
+ * The `system/init` fields a fixture keeps (T3's list); the lists in it become
+ * empty. `output_style` can be the name of a custom style; T3 keeps it too.
+ */
+const INIT_FIELDS = [
+  'type',
+  'subtype',
+  'apiKeySource',
+  'betas',
+  'claude_code_version',
+  'cwd',
+  'model',
+  'permissionMode',
+  'output_style',
+  'fast_mode_state',
+  'uuid',
+  'session_id',
+]
+const INIT_LISTS = ['agents', 'tools', 'mcp_servers', 'slash_commands', 'skills', 'plugins']
+/** All that is kept of any other system message: Docs reads none of them. */
+const SYSTEM_FIELDS = ['type', 'subtype', 'uuid', 'session_id']
+
+/**
+ * A streamed message without the person's configuration: an allow-list, so a
+ * new field Claude Code adds stays out until someone decides it is safe.
+ * Adapted from T3's `sanitizeSdkMessageForReplay`. Paths, emails and names left
+ * anywhere (`result.errors`, say) are the recorder's `scrub` to replace.
+ */
+function withoutPersonalMessage(message: Json): Json {
+  if (message.type === 'system') {
+    if (message.subtype === 'init') {
+      return {
+        ...pick(message, INIT_FIELDS),
+        ...Object.fromEntries(INIT_LISTS.flatMap((key) => (key in message ? [[key, []]] : []))),
+      }
+    }
+    // Every command and skill, with descriptions that can name the person's accounts.
+    if (message.subtype === 'commands_changed') return { ...pick(message, SYSTEM_FIELDS), commands: [] }
+    return pick(message, SYSTEM_FIELDS)
+  }
+  // Usage, overage and seat tier: only whether a limit was hit stays.
+  if (message.type === 'rate_limit_event') {
+    const info = isJson(message.rate_limit_info) ? message.rate_limit_info : {}
+    return { ...message, rate_limit_info: pick(info, ['status']) }
+  }
+  return message
+}
+
+/** Commands a probe answer lists: Claude Code's own stay, the person's skills and plugins go. */
+const builtinOnly = (commands: unknown): unknown =>
+  Array.isArray(commands) ? commands.filter((command) => isJson(command) && command.builtin === true) : commands
+
+/** What sign-in needs from `account` (`isSignedIn`); the email, plan and organization go. */
+const ACCOUNT_FIELDS = ['tokenSource', 'apiProvider', 'apiKeySource']
+
+/**
+ * `initializationResult` rebuilt from what Docs reads: built-in commands, the
+ * models, and enough of the account to tell whether Claude Code is signed in.
+ * Agents, output styles and their folder, and anything new are left out.
+ */
+const probeAnswer = (result: unknown): unknown => {
+  if (!isJson(result)) return result
+  return {
+    ...(result.commands === undefined ? {} : { commands: builtinOnly(result.commands) }),
+    ...(result.models === undefined ? {} : { models: result.models }),
+    ...(isJson(result.account) ? { account: pick(result.account, ACCOUNT_FIELDS) } : {}),
+  }
+}
+
+/**
+ * An entry without the person's Claude configuration, before the recorder
+ * scrubs it: streamed messages go through `withoutPersonalMessage`,
+ * `initializationResult` through `probeAnswer`, and `supportedCommands` keeps
+ * built-in commands only.
+ */
+export function withoutPersonalDetails(entry: ReplayEntry): ReplayEntry {
+  if (entry.type !== 'emit_inbound' || !isJson(entry.frame)) return entry
+  const frame = entry.frame
+  if (isJson(frame.message)) return { ...entry, frame: { ...frame, message: withoutPersonalMessage(frame.message) } }
+  if (frame.call === 'initializationResult' && 'result' in frame)
+    return { ...entry, frame: { ...frame, result: probeAnswer(frame.result) } }
+  if (frame.call === 'supportedCommands' && 'result' in frame)
+    return { ...entry, frame: { ...frame, result: builtinOnly(frame.result) } }
+  return entry
+}
 
 /** Wraps the real SDK so every call, answer, prompt and message lands in `entries`. */
 export function recordingSdk(sdk: ClaudeSdk, entries: ReplayEntry[], allowTurns: boolean): ClaudeSdk {
@@ -92,13 +193,10 @@ export function recordingSdk(sdk: ClaudeSdk, entries: ReplayEntry[], allowTurns:
       const recordedCanUseTool: CanUseTool | undefined =
         canUseTool &&
         (async (tool, input, asked) => {
-          const permission: PermissionRequest = {
-            tool,
-            input,
-            toolUseID: asked.toolUseID,
-            ...(asked.suggestions === undefined ? {} : { suggestions: asked.suggestions }),
-            ...(asked.title === undefined ? {} : { title: asked.title }),
-          }
+          const kept = PERMISSION_FIELDS.flatMap((field) =>
+            asked[field] === undefined ? [] : [[field, asked[field]] as const],
+          )
+          const permission: PermissionRequest = { tool, input, toolUseID: asked.toolUseID, ...Object.fromEntries(kept) }
           inbound('permission', { query, permission })
           const permissionResult = await canUseTool(tool, input, asked)
           outbound('permissionResult', { query, permissionResult })
@@ -159,8 +257,6 @@ export function recordingSdk(sdk: ClaudeSdk, entries: ReplayEntry[], allowTurns:
 // ---- replay -------------------------------------------------------------------------
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /**
  * Recorded UUIDs and the ones the replayed adapter used instead. The adapter
@@ -200,7 +296,7 @@ function same(expected: unknown, actual: unknown, bindings: Bindings): boolean {
       expected.every((entry, i) => same(entry, actual[i], bindings))
     )
   }
-  if (isRecord(expected) && isRecord(actual)) {
+  if (isJson(expected) && isJson(actual)) {
     const keys = new Set([...Object.keys(expected), ...Object.keys(actual)])
     return [...keys].every((key) => same(expected[key], actual[key], bindings))
   }
@@ -212,7 +308,7 @@ function toPlaceholders(value: unknown, paths: ReadonlyArray<readonly [string, s
   if (typeof value === 'string')
     return paths.reduce((text, [path, placeholder]) => text.replaceAll(path, placeholder), value)
   if (Array.isArray(value)) return value.map((entry) => toPlaceholders(entry, paths))
-  if (!isRecord(value)) return value
+  if (!isJson(value)) return value
   return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, toPlaceholders(entry, paths)]))
 }
 
@@ -224,7 +320,7 @@ function rebind(value: unknown, ids: ReadonlyMap<string, string>): unknown {
     return text
   }
   if (Array.isArray(value)) return value.map((entry) => rebind(entry, ids))
-  if (!isRecord(value)) return value
+  if (!isJson(value)) return value
   return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, rebind(entry, ids)]))
 }
 

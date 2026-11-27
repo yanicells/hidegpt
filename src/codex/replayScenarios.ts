@@ -9,12 +9,12 @@ import {
   APPROVAL_DECISIONS,
   APPROVAL_PROMPTS,
   approvalScenario,
+  type ApprovalResult,
   type ReplayScenario,
   SETTINGS,
   STOP_PROMPT,
   stopScenario,
   TURN_PROMPTS,
-  type TurnResult,
   turnScenario,
 } from '../provider/replayScenario'
 import type { DocSummary } from '../shared/contracts'
@@ -53,7 +53,7 @@ export const library: CodexScenario<LibraryResult> = {
 
 export const turn = turnScenario(TURN_PROMPTS)
 export const stop = stopScenario(STOP_PROMPT)
-export const approval: CodexScenario<TurnResult> = {
+export const approval: CodexScenario<ApprovalResult> = {
   ...approvalScenario(APPROVAL_PROMPTS, APPROVAL_DECISIONS),
   // Whatever the person's own config says, ask before writing anything.
   config: ['approval_policy="on-request"', 'sandbox_mode="read-only"'],

@@ -25,7 +25,7 @@ import * as Stream from 'effect/Stream'
 import { ChildProcess, ChildProcessSpawner } from 'effect/process'
 
 import * as CodexAdapter from '../src/codex/CodexAdapter.ts'
-import { recordingOptions, withoutPersonalLists } from '../src/codex/replay.ts'
+import { recordingOptions, withoutPersonalDetails } from '../src/codex/replay.ts'
 import { SCENARIOS } from '../src/codex/replayScenarios.ts'
 import type { AdapterEvent } from '../src/provider/ProviderAdapter.ts'
 import {
@@ -88,8 +88,8 @@ async function main() {
   const allowTurns = turnsAllowed()
   if (sendsTurns && !allowTurns) throw new TurnRefusedError(`record the "${name}" scenario`)
 
-  const workspace = realpathSync(mkdtempSync(join(tmpdir(), 'hidegpt-replay-workspace-')))
-  const codexHome = realpathSync(mkdtempSync(join(tmpdir(), 'hidegpt-replay-codex-')))
+  const workspace = realpathSync(mkdtempSync(join(tmpdir(), 'docs-replay-workspace-')))
+  const codexHome = realpathSync(mkdtempSync(join(tmpdir(), 'docs-replay-codex-')))
   const { OPENAI_API_KEY: _openai, CODEX_API_KEY: _codex, ...inherited } = process.env
   // No-prompt runs get an empty Codex home: signed out, with none of the person's documents.
   // Turn runs keep the person's own Codex login, which Codex reads itself.
@@ -150,7 +150,7 @@ async function main() {
       ...(scenario.config ? { config: scenario.config } : {}),
     },
     entries: [
-      ...entries.map((entry) => scrub(withoutPersonalLists(entry), machine) as ReplayEntry),
+      ...entries.map((entry) => scrub(withoutPersonalDetails(entry), machine) as ReplayEntry),
       { type: 'runtime_exit', status: 'success' },
     ],
   })

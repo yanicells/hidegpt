@@ -29,7 +29,7 @@ const CAPABILITY_METHODS: ReadonlyArray<readonly [keyof Capabilities, keyof Prov
 ]
 
 /** Each flag/method pair that disagrees, e.g. `login: true but logout is missing`; empty when they agree. */
-function capabilityMismatches(capabilities: Capabilities, session: ProviderSession): string[] {
+function capabilityMismatches(capabilities: Capabilities, session: Partial<ProviderSession>): string[] {
   return CAPABILITY_METHODS.flatMap(([flag, method]) => {
     const present = session[method] !== undefined
     return present === capabilities[flag]
@@ -37,8 +37,6 @@ function capabilityMismatches(capabilities: Capabilities, session: ProviderSessi
       : [`${flag}: ${capabilities[flag]} but ${method} is ${present ? 'present' : 'missing'}`]
   })
 }
-
-const session = (overrides: Partial<ProviderSession>) => overrides as ProviderSession
 
 describe('capabilities', () => {
   it('covers every provider', () => {
@@ -58,9 +56,11 @@ describe('capabilities', () => {
   it('names each flag that disagrees with a method', () => {
     const flags = { login: true, connectTools: false, createProjects: false, gitProjects: false }
     const login = Effect.succeed('https://example.test/login')
-    expect(capabilityMismatches(flags, session({ login }))).toEqual(['login: true but logout is missing'])
-    expect(capabilityMismatches({ ...flags, login: false }, session({ connectTool: () => login }))).toEqual([
-      'connectTools: false but connectTool is present',
+    expect(capabilityMismatches(flags, { login } satisfies Partial<ProviderSession>)).toEqual([
+      'login: true but logout is missing',
     ])
+    expect(
+      capabilityMismatches({ ...flags, login: false }, { connectTool: () => login } satisfies Partial<ProviderSession>),
+    ).toEqual(['connectTools: false but connectTool is present'])
   })
 })

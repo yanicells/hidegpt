@@ -265,7 +265,6 @@ export const makeFakeCodex = (options: FakeCodexOptions = {}): FakeCodex => {
           name: params.name,
           roots: params.roots,
           metadata: {},
-          position: projects.length,
           createdAt: NOW,
           updatedAt: NOW,
         }

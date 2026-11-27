@@ -62,28 +62,44 @@ export function recordingOptions(entries: ReplayEntry[], allowTurns: boolean): C
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
-/** Empties every `disabledPluginIds`, at any depth. */
-const withoutPluginIds = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(withoutPluginIds)
+/** Empties every `disabledPluginIds` and sets every `planType` to "unknown" (as T3 does), at any depth. */
+const withoutPluginsOrPlan = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(withoutPluginsOrPlan)
   if (!isRecord(value)) return value
   return Object.fromEntries(
     Object.entries(value).map(([key, entry]) => [
       key,
-      key === 'disabledPluginIds' && Array.isArray(entry) ? [] : withoutPluginIds(entry),
+      key === 'disabledPluginIds' && Array.isArray(entry)
+        ? []
+        : key === 'planType' && typeof entry === 'string'
+          ? 'unknown'
+          : withoutPluginsOrPlan(entry),
     ]),
   )
 }
 
 /**
- * A recording made with the person's own Codex home names their MCP servers
- * (with startup errors that can hold paths or URLs) and the plugins they turned
- * off. Docs reads neither, so the fixture keeps the shape and drops the names,
- * as the Claude recorder does for Claude's start-up lists.
+ * Methods that describe the person's setup rather than a document: MCP servers,
+ * skills, plugins and apps. Their answers and notifications keep only their
+ * plain fields; every list in them is emptied, which still decodes on replay.
+ * Requests Docs sends stay as they are, so the replay still matches them.
  */
-export function withoutPersonalLists(entry: ReplayEntry): ReplayEntry {
+const SETUP_METHOD = /^(?:mcpServerStatus\/list|skills\/|plugin\/|app\/)/
+const listsEmptied = (value: Record<string, unknown>) =>
+  Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, Array.isArray(entry) ? [] : entry]))
+
+/**
+ * A recording made with the person's own Codex home names their MCP servers
+ * (with startup errors that can hold paths or URLs), skills, plugins and apps,
+ * the plugins they turned off, and their ChatGPT plan. The fixture keeps the
+ * shape and drops the details, as `withoutPersonalDetails` in
+ * src/claude/replay.ts does for Claude.
+ */
+export function withoutPersonalDetails(entry: ReplayEntry): ReplayEntry {
   if (entry.type === 'runtime_exit') return entry
-  const frame = withoutPluginIds(entry.frame)
-  if (isRecord(frame) && frame.method === 'mcpServer/startupStatus/updated' && isRecord(frame.params)) {
+  const frame = withoutPluginsOrPlan(entry.frame)
+  if (entry.type !== 'emit_inbound' || !isRecord(frame)) return { ...entry, frame }
+  if (frame.method === 'mcpServer/startupStatus/updated' && isRecord(frame.params)) {
     const { error, ...params } = frame.params
     return {
       ...entry,
@@ -96,6 +112,13 @@ export function withoutPersonalLists(entry: ReplayEntry): ReplayEntry {
         },
       },
     }
+  }
+  // A notification names its method; an answer carries its request's as the label.
+  if (typeof frame.method === 'string' && SETUP_METHOD.test(frame.method) && isRecord(frame.params)) {
+    return { ...entry, frame: { ...frame, params: listsEmptied(frame.params) } }
+  }
+  if (frame.method === undefined && SETUP_METHOD.test(entry.label ?? '') && isRecord(frame.result)) {
+    return { ...entry, frame: { ...frame, result: listsEmptied(frame.result) } }
   }
   return { ...entry, frame }
 }

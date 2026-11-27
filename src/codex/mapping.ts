@@ -41,23 +41,91 @@ export type RateLimits = CodexRpc.ServerNotificationParamsByMethod['account/rate
 
 // ---- Docs wording -------------------------------------------------------------
 // Text that reaches the page or a banner must read like Docs: no product or AI words, no links.
-// These helpers are the only way provider text gets there; ARCH-5 moves them into `present.ts`.
+// `docsSafe` is the only way provider-written status, error, tool-name, approval and question
+// text gets there. Thread titles, commands, command output and the reply itself are the
+// document's content and are shown as written. ARCH-5 moves this into `present.ts`.
 
-const PROVIDER_WORDS =
-  /\b(ai|assistants?|agents?|models?|prompts?|llms?|tokens?|claude|codex|opencode|chatgpt|anthropic|openai|gpt|copilot|bots?)\b/i
-/** Splits identifiers into words, so `chatgpt_search` and `codexHelper` are caught too. */
-const words = (text: string) => text.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ')
+/** Product names, also caught at the start of a run-together word (`OpenAIAPI`, `ChatGPTPlus`). */
+const PRODUCT_NAMES = [
+  'hidegpt',
+  'chatgpt',
+  'claude',
+  'codex',
+  'opencode',
+  'anthropic',
+  'openai',
+  'copilot',
+  'gpt',
+] as const
+/** The house list: none of these, in any case or plural, may reach the page. */
+export const BANNED_WORDS = [
+  ...PRODUCT_NAMES,
+  'ai',
+  'assistant',
+  'agent',
+  'subagent',
+  'model',
+  'prompt',
+  'llm',
+  'token',
+  'bot',
+  'mcp',
+  'sdk',
+  'cli',
+  'provider',
+] as const
+
+/** Any listed word on its own, singular or plural ("codexes", "LLMs"). */
+const BANNED = new RegExp(`\\b(?:${BANNED_WORDS.join('|')})(?:e?s)?\\b`, 'i')
+/** "A.I.", which the word list can't see. */
+const DOTTED_AI = /(?<![a-z])a\.i(?![a-z])/i
+const PRODUCT_NAME = new RegExp(`^(?:${PRODUCT_NAMES.join('|')})`, 'i')
+/**
+ * A product name at the start of a word, ending it or followed by a capital or digit: catches
+ * `OpenAIAPI`, `ChatGPTPlus` and `gpt5`, not "Claudette". Plurals ("Claudes") are whole words
+ * and `BANNED` catches them.
+ */
+const startsWithProduct = (word: string) => {
+  const name = PRODUCT_NAME.exec(word)?.[0]
+  return name !== undefined && !/^[a-z]/.test(word.slice(name.length))
+}
+/**
+ * Splits identifiers into words, counting an upper-case run before a capitalized word as its own
+ * word: `get_AIResponse` reads "get AI Response", `model2` reads "model 2".
+ */
+const words = (text: string) =>
+  text
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([a-z])(\d)/gi, '$1 $2')
+    .replace(/_/g, ' ')
 const LINK = /\b(?:https?:\/\/|www\.)\S+/gi
 
 /** Provider text with links removed, or null when what is left would give the provider away. */
 export function docsSafe(text: string | null | undefined): string | null {
+  // NFKC folds look-alike letters (full-width, ligatures); format characters (zero-width joiners)
+  // could otherwise split a word so the list misses it.
   const cleaned = (text ?? '')
+    .normalize('NFKC')
+    .replace(/\p{Cf}/gu, '')
     .replace(LINK, '')
     .replace(/\(\s*\)/g, '')
     .replace(/\s{2,}/g, ' ')
     .trim()
-  return cleaned && !PROVIDER_WORDS.test(words(cleaned)) ? cleaned : null
+  const split = words(cleaned)
+  // The raw text is checked too, because the acronym split turns "LLMs" into "LL Ms"; product
+  // names are checked in the split words too, for one run into an all-caps word (`xOPENAIAPI`).
+  const banned =
+    BANNED.test(cleaned) ||
+    BANNED.test(split) ||
+    DOTTED_AI.test(cleaned) ||
+    [...cleaned.split(/[^A-Za-z0-9]+/), ...split.split(/[^A-Za-z0-9]+/)].some(startsWithProduct)
+  return cleaned && !banned ? cleaned : null
 }
+
+/** The label Docs shows for a choice the provider named in its own words. */
+const choiceLabel = (label: string | null | undefined, value: string, index: number) =>
+  docsSafe(label) ?? docsSafe(value) ?? `Option ${index + 1}`
 
 /** Codex's request error text, reworded where Docs can say what to do. */
 export function formatCodexError(message: string): string {
@@ -107,11 +175,19 @@ const clockTime = (epochMs: number) => {
   return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
 }
 
+/** Spend caps on an API key, project or organization (codex-cli 0.172.0); they never reset on their own. */
+const SPEND_LIMITS = new Set([
+  'apiKeySpendLimitExceeded',
+  'projectSpendLimitExceeded',
+  'organizationSpendLimitExceeded',
+])
+
 /** A failed turn as one Docs sentence: a known cause gets its own, anything else a neutral one. */
 export function docsFailure(error: TurnError, resetAt: number | null): string {
+  const code = errorCode(error.codexErrorInfo)
+  if (code && SPEND_LIMITS.has(code)) return 'Spending limit reached. Raise it to continue.'
   if (isUsageLimit(error))
     return resetAt ? `Limit reached. Try again at ${clockTime(resetAt)}.` : 'Limit reached. Try again later.'
-  const code = errorCode(error.codexErrorInfo)
   if (code === 'contextWindowExceeded') return 'This document is too long to continue. Start a new document.'
   if (code === 'unauthorized') return 'Sign in again to continue.'
   if (code === 'serverOverloaded' || code?.startsWith('http') || code?.startsWith('responseStream')) {
@@ -216,17 +292,27 @@ function callout(id: string, title: string, body: string): Block {
   return { kind: 'callout', id, title, body }
 }
 
+/** What a reply Codex moderated away shows instead of its text. */
+export const HIDDEN_REPLY = 'This reply is not available.'
+
+/**
+ * Since codex-cli 0.172.0 a moderated reply says how to present it; "hide" and "block" mean
+ * its text must not be shown.
+ */
+export function isHiddenReply(item: ThreadItem): boolean {
+  if (item.type !== 'agentMessage') return false
+  const mode = item.moderation?.display?.mode
+  return mode === 'hide' || mode === 'block'
+}
+
 export function itemToBlock(item: ThreadItem): Block | null {
   switch (item.type) {
     case 'userMessage':
       return userBlock(item.id, item.content)
-    case 'agentMessage':
-      return {
-        kind: 'agent',
-        id: item.id,
-        text: item.text,
-        ...(item.phase === 'commentary' ? { commentary: true } : {}),
-      }
+    case 'agentMessage': {
+      const text = isHiddenReply(item) ? HIDDEN_REPLY : item.text
+      return { kind: 'agent', id: item.id, text, ...(item.phase === 'commentary' ? { commentary: true } : {}) }
+    }
     case 'reasoning':
     case 'plan':
     case 'hookPrompt':
@@ -250,7 +336,8 @@ export function itemToBlock(item: ThreadItem): Block | null {
         item.changes.map((change) => change.path).join('\n'),
       )
     case 'mcpToolCall':
-      return callout(item.id, mcpToolTitle(item), (item.error && docsSafe(item.error.message)) ?? STATUS[item.status])
+      // Tool error text never reaches the page (T3 does not show it either); the status says enough.
+      return callout(item.id, mcpToolTitle(item), STATUS[item.status])
     case 'dynamicToolCall': {
       const tool = docsSafe(item.tool) ?? 'Action'
       const namespace = docsSafe(item.namespace)
@@ -267,7 +354,7 @@ export function itemToBlock(item: ThreadItem): Block | null {
     case 'exitedReviewMode':
       return callout(item.id, 'Left review', item.review)
     case 'functionCallOutput':
-      return callout(item.id, item.name, item.namespace ?? '')
+      return callout(item.id, docsSafe(item.name) ?? 'Action', docsSafe(item.namespace) ?? '')
     default: {
       // Unreachable while the ThreadItem union is closed: a newer item type fails to decode, and
       // the client logs and drops that notification. Kept so a widened union still renders.
@@ -340,8 +427,9 @@ type Json = typeof Schema.Json.Type
 // Adapted from T3 Code (https://github.com/pingdotgg/t3code),
 // apps/server/src/provider/CodexMcpElicitation.ts (`describeMcpElicitation`,
 // `toMcpElicitationResponse`) at commit 5c6f2f12. Copyright (c) 2026 T3 Tools Inc.
-// MIT License; see THIRD_PARTY_NOTICES.md. HideGPT drops the persistence options
-// (Docs asks once) and fills fields from what the person typed.
+// MIT License; see THIRD_PARTY_NOTICES.md. HideGPT keeps only the one-time "accept"
+// (Docs asks every time), so persistence options are never chosen, and fills the
+// remaining fields from what the person typed.
 
 const NullableString = Schema.optionalKey(Schema.NullOr(Schema.String))
 const ElicitationMetadata = Schema.Struct({
@@ -356,7 +444,13 @@ const ElicitationMetadata = Schema.Struct({
 const ElicitationField = Schema.Struct({
   type: NullableString,
   title: NullableString,
+  description: NullableString,
   default: Schema.optionalKey(Schema.Json),
+  enum: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.String))),
+  enumNames: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.String))),
+  oneOf: Schema.optionalKey(
+    Schema.NullOr(Schema.Array(Schema.Struct({ const: Schema.String, title: NullableString }))),
+  ),
 })
 type ElicitationField = typeof ElicitationField.Type
 const ElicitationForm = Schema.Struct({
@@ -397,25 +491,71 @@ function formFields(params: ElicitationParams): {
   const form = Option.getOrUndefined(decodeForm(params.requestedSchema))
   if (!form) return null
   const fields = Object.entries(form.properties ?? {}).flatMap(([id, raw]) =>
-    raw !== null && typeof raw === 'object' && !Array.isArray(raw)
-      ? Option.match(decodeField(raw), { onNone: () => [], onSome: (field) => [[id, field] as const] })
-      : [],
+    Option.match(decodeField(raw), { onNone: () => [], onSome: (field) => [[id, field] as const] }),
   )
   return { fields, required: form.required ?? [] }
 }
 
+/** A field's choices, from `oneOf` or `enum` + `enumNames`. */
+function fieldOptions(
+  field: ElicitationField,
+): ReadonlyArray<{ readonly value: string; readonly label: string | null }> {
+  if (field.oneOf) return field.oneOf.map((option) => ({ value: option.const, label: option.title ?? null }))
+  return (field.enum ?? []).map((value, index) => ({ value, label: field.enumNames?.[index] ?? null }))
+}
+
+/** Words that make an answer outlast this one request ("for this session", "always"). */
+const PERSISTS = /session|always|permanent|forever|persistent/i
+const ONE_TIME_ACCEPT = /^(?:once|accept|approve|allow)(?:[_\s-]*(?:once(?:[_\s-]*only)?|this[_\s-]*time))?$/i
+
+/**
+ * The value Docs fills in for the person, which they never see: the one-time "allow"
+ * choice of an approval field, and `false` for a "remember this" checkbox.
+ */
+function implicitAnswer(id: string, field: ElicitationField): Json | undefined {
+  const accept = fieldOptions(field).find(
+    (option) => ONE_TIME_ACCEPT.test(option.value.trim()) && !PERSISTS.test(option.value),
+  )
+  if (accept) return accept.value
+  const persistence =
+    id.toLowerCase() === 'persist' ||
+    [id, field.title ?? '', field.description ?? ''].some((text) => PERSISTS.test(text))
+  return field.type === 'boolean' && persistence ? false : undefined
+}
+
+/**
+ * A field's name, followed by its choices when it has them: "Size (Small, Large)". A choice
+ * named in provider words shows as "Option 2", which the person can still type.
+ */
+function fieldLabel(id: string, field: ElicitationField): string {
+  const name = docsSafe(field.title) ?? docsSafe(id) ?? 'Answer'
+  const choices = fieldOptions(field).map((option, index) => choiceLabel(option.label, option.value, index))
+  return choices.length ? `${name} (${choices.join(', ')})` : name
+}
+
+/** The fields the person fills in; approval choices and persistence flags are answered for them. */
 export function elicitationFields(params: ElicitationParams) {
-  return (formFields(params)?.fields ?? []).map(([id, field]) => ({
+  const visible = (formFields(params)?.fields ?? []).filter(([id, field]) => implicitAnswer(id, field) === undefined)
+  return visible.map(([id, field]) => ({
     id,
-    label: docsSafe(field.title) ?? docsSafe(id) ?? 'Answer',
+    label: fieldLabel(id, field),
     ...(field.default != null && typeof field.default !== 'object' ? { initial: String(field.default) } : {}),
   }))
 }
 
-/** What the person typed, as the field's JSON type; undefined when it is empty or doesn't fit. */
+/** What the person typed, as the field's JSON type or one of its choices; undefined when it is empty or doesn't fit. */
 function typedAnswer(field: ElicitationField, text: string | undefined): Json | undefined {
   const value = text?.trim()
   if (!value) return field.default ?? undefined
+  const options = fieldOptions(field)
+  if (options.length) {
+    const lower = value.toLowerCase()
+    const matches = (option: (typeof options)[number], index: number) =>
+      [option.value, option.label, choiceLabel(option.label, option.value, index)].some(
+        (name) => name?.toLowerCase() === lower,
+      )
+    return options.find(matches)?.value ?? field.default ?? undefined
+  }
   if (field.type === 'boolean')
     return /^(true|yes|on|1)$/i.test(value) ? true : /^(false|no|off|0)$/i.test(value) ? false : undefined
   if (field.type === 'number' || field.type === 'integer') {
@@ -432,7 +572,7 @@ export function elicitationResponse(params: ElicitationParams, reply: ApprovalRe
   if (!form) return { action: 'accept', content: null, _meta: null }
   const content: Record<string, Json> = {}
   for (const [id, field] of form.fields) {
-    const value = typedAnswer(field, reply.answers[id])
+    const value = implicitAnswer(id, field) ?? typedAnswer(field, reply.answers[id])
     if (value !== undefined) content[id] = value
   }
   if (form.required.some((id) => !Object.hasOwn(content, id))) return { action: 'decline', content: null, _meta: null }
@@ -450,28 +590,29 @@ function elicitationBlock(id: string, params: ElicitationParams): ApprovalBlock 
 export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {
   'item/commandExecution/requestApproval': {
     threadId: (params) => params.threadId,
-    block: (id, params) => block(id, 'add', 'Run command?', params.command ?? params.reason ?? 'Command'),
+    block: (id, params) => block(id, 'add', 'Run command?', params.command ?? docsSafe(params.reason) ?? 'Command'),
     response: (_params, reply) => ({ decision: reply.accept ? 'accept' : 'decline' }),
   },
   execCommandApproval: {
     threadId: (params) => params.conversationId,
-    block: (id, params) => block(id, 'add', 'Run command?', params.command.join(' ') || params.reason || 'Command'),
+    block: (id, params) =>
+      block(id, 'add', 'Run command?', params.command.join(' ') || docsSafe(params.reason) || 'Command'),
     response: (_params, reply) => ({ decision: legacyDecision(reply) }),
   },
   'item/fileChange/requestApproval': {
     threadId: (params) => params.threadId,
-    block: (id, params) => block(id, 'replace', 'Edit files?', params.reason ?? 'Some files will change.'),
+    block: (id, params) => block(id, 'replace', 'Edit files?', docsSafe(params.reason) ?? 'Some files will change.'),
     response: (_params, reply) => ({ decision: reply.accept ? 'accept' : 'decline' }),
   },
   applyPatchApproval: {
     threadId: (params) => params.conversationId,
-    block: (id, params) => block(id, 'replace', 'Edit files?', params.reason ?? 'Some files will change.'),
+    block: (id, params) => block(id, 'replace', 'Edit files?', docsSafe(params.reason) ?? 'Some files will change.'),
     response: (_params, reply) => ({ decision: legacyDecision(reply) }),
   },
   'item/permissions/requestApproval': {
     threadId: (params) => params.threadId,
     block: (id, params) =>
-      block(id, 'format', 'Allow more access?', params.reason ?? 'More access is needed to continue.'),
+      block(id, 'format', 'Allow more access?', docsSafe(params.reason) ?? 'More access is needed to continue.'),
     response: (params, reply) => ({
       permissions: reply.accept
         ? {
@@ -497,14 +638,14 @@ export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {
         'question',
         'Input needed',
         params.questions
-          .map((q) => q.question)
+          .map((q) => docsSafe(q.question))
           .filter(Boolean)
           .join('\n') || 'Continue?',
         {
-          questions: params.questions.map((question) => ({
+          questions: params.questions.map((question, index) => ({
             id: question.id,
-            question: question.question,
-            options: question.options?.map((option) => option.label) ?? [],
+            question: docsSafe(question.question) ?? `Question ${index + 1}`,
+            options: question.options?.map((option, at) => choiceLabel(option.label, option.label, at)) ?? [],
             allowText: Boolean(question.isOther) || !question.options?.length,
           })),
         },
@@ -512,7 +653,10 @@ export const APPROVALS: { readonly [M in ApprovalMethod]: ApprovalSpec<M> } = {
     response: (params, reply) => ({
       answers: Object.fromEntries(
         params.questions.map((question) => {
-          const value = reply.accept ? (reply.answers[question.id] ?? '') : ''
+          const shown = reply.accept ? (reply.answers[question.id] ?? '') : ''
+          // A choice shown as "Option 2" goes back under the label Codex gave it.
+          const chosen = question.options?.find((option, at) => choiceLabel(option.label, option.label, at) === shown)
+          const value = chosen?.label ?? shown
           return [question.id, { answers: value ? [value] : [] }]
         }),
       ),

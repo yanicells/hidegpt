@@ -13,12 +13,11 @@ export function makeDemoCodex(): FakeCodex {
     updatedAt: now - i * 86400,
     recencyAt: now - i * 86400,
   }))
-  const project = (id: string, name: string, position: number, recencyAt: number | null): Project => ({
+  const project = (id: string, name: string, recencyAt: number | null): Project => ({
     id,
     name,
     roots: [{ path: `/tmp/${id}` }],
     metadata: {},
-    position,
     createdAt: now,
     updatedAt: now,
     ...(recencyAt === null ? {} : { recencyAt }),
@@ -26,9 +25,9 @@ export function makeDemoCodex(): FakeCodex {
   return makeFakeCodex({
     threads,
     projects: [
-      project('course', 'Course notes', 0, now),
-      project('workshop', 'Writing workshop', 1, now),
-      project('reading', 'Reading journal', 2, null),
+      project('course', 'Course notes', now),
+      project('workshop', 'Writing workshop', now),
+      project('reading', 'Reading journal', null),
     ],
     deltaDelayMs: DEMO_DELTA_MS,
     turns: [
