@@ -1,8 +1,8 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Command, HideGptApi, MenuAction, SnapshotPatch } from '../../shared/api'
 import { CAPABILITIES, emptySnapshot, type DocSummary, type ModelOption, type Snapshot } from '../../shared/model'
@@ -102,7 +102,13 @@ function mount(partial: Partial<Snapshot> = {}, fail: (command: Command) => stri
   }
   window.hidegpt = api
   render(<App />)
-  return { calls, emitMenu: (action: MenuAction) => menuHandlers.forEach((handler) => handler(action)) }
+  /** Main pushing a new snapshot, as a patch of changed fields. */
+  const push = (fields: Partial<Snapshot>) => {
+    snapshot = { ...snapshot, ...fields }
+    seq += 1
+    act(() => listeners.forEach((listener) => listener({ fields, seq })))
+  }
+  return { calls, push, emitMenu: (action: MenuAction) => menuHandlers.forEach((handler) => handler(action)) }
 }
 
 describe('docs home', () => {
@@ -236,6 +242,73 @@ describe('document page', () => {
       ],
     })
     expect(screen.queryByText(/% used/)).toBeNull()
+  })
+
+  it('sets an optional profile picture from the account menu and removes it', async () => {
+    const user = userEvent.setup()
+    const photo = 'data:image/jpeg;base64,AAAA'
+    // The picture's size comes from its header before anything decodes it.
+    let size = { naturalWidth: 300, naturalHeight: 200 }
+    class HeaderOnlyImage {
+      naturalWidth = size.naturalWidth
+      naturalHeight = size.naturalHeight
+      onload: (() => void) | null = null
+      set src(_url: string) {
+        queueMicrotask(() => this.onload?.())
+      }
+    }
+    vi.stubGlobal('Image', HeaderOnlyImage)
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:me', revokeObjectURL: () => {} }))
+    const decode = vi.fn(async () => ({ width: 160, height: 160, close: () => {} }))
+    vi.stubGlobal('createImageBitmap', decode)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage: () => {},
+    } as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(photo)
+    try {
+      let failLogout = false
+      mount({}, (command) => (command.op === 'logout' && failLogout ? 'Sign-out failed' : null))
+      const avatar = screen.getByTestId('menu-account')
+      expect(avatar).toHaveTextContent('Y')
+      await user.click(avatar)
+      const file = new File([new Uint8Array([1])], 'me.png', { type: 'image/png' })
+      await user.upload(await screen.findByTestId('photo-file'), file)
+      await waitFor(() => expect(avatar.querySelector('img')).toHaveAttribute('src', photo))
+      // The centre square of a 300x200 picture, decoded straight to 160px.
+      expect(decode).toHaveBeenCalledWith(file, 50, 0, 200, 200, {
+        resizeWidth: 160,
+        resizeHeight: 160,
+        resizeQuality: 'high',
+      })
+      await user.click(screen.getByTestId('remove-photo'))
+      expect(avatar.querySelector('img')).toBeNull()
+      expect(avatar).toHaveTextContent('Y')
+      // A picture over 20 MB, or one that would unpack to too many pixels, is refused before decoding.
+      decode.mockClear()
+      const huge = new File([new Uint8Array([1])], 'huge.png', { type: 'image/png' })
+      Object.defineProperty(huge, 'size', { value: 21 * 1024 * 1024 })
+      await user.upload(screen.getByTestId('photo-file'), huge)
+      expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t use that picture. Try another one.')
+      size = { naturalWidth: 20_000, naturalHeight: 20_000 }
+      await user.upload(screen.getByTestId('photo-file'), file)
+      size = { naturalWidth: 300, naturalHeight: 200 }
+      await user.upload(screen.getByTestId('photo-file'), file)
+      await waitFor(() => expect(avatar.querySelector('img')).toHaveAttribute('src', photo))
+      // Only the last picture was decoded.
+      expect(decode).toHaveBeenCalledTimes(1)
+      // A sign-out that fails keeps the picture; one that goes through takes it.
+      failLogout = true
+      await user.click(screen.getByTestId('action-logout'))
+      await waitFor(() => expect(screen.getByTestId('error-banner')).toBeInTheDocument())
+      expect(avatar.querySelector('img')).toHaveAttribute('src', photo)
+      failLogout = false
+      await user.click(avatar)
+      await user.click(await screen.findByTestId('action-logout'))
+      await waitFor(() => expect(avatar.querySelector('img')).toBeNull())
+    } finally {
+      vi.unstubAllGlobals()
+      vi.restoreAllMocks()
+    }
   })
 
   it('switches providers from the account menu', async () => {
@@ -531,16 +604,59 @@ describe('project navigation and creation', () => {
     expect(screen.getByTestId('recent-title')).toHaveTextContent('Course notes')
   })
 
-  it('gives immediate opening feedback and permits cancellation', async () => {
+  it('opens into the editor chrome, says so in the save area, and cancels from the Docs logo', async () => {
     const user = userEvent.setup()
-    const { calls } = mount({ openingThreadId: 'thr_1' })
-    expect(screen.getByTestId('opening-document')).toHaveTextContent('Opening Photosynthesis')
-    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    const { calls, push } = mount()
+    expect(document.documentElement.dataset.route).toBe('home')
+    push({ openingThreadId: 'thr_1' })
+    // The editor's font smoothing from the click on, not Home's.
+    expect(document.documentElement.dataset.route).toBe('doc')
+    expect(screen.queryByTestId('docs-home')).toBeNull()
+    const title = screen.getByLabelText('Document title')
+    expect(title).toHaveValue('Photosynthesis')
+    expect(title).toHaveAttribute('readonly')
+    expect(screen.getByRole('status', { name: 'Opening…' })).toHaveTextContent('Opening…')
+    expect(within(screen.getByTestId('opening-document')).getByTestId('outline')).toBeInTheDocument()
+    // Rows that act on the open document wait for it.
+    await user.click(screen.getByTestId('menu-file'))
+    expect(await screen.findByTestId('action-rename')).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByTestId('action-new')).not.toHaveAttribute('aria-disabled')
+    await user.keyboard('{Escape}')
+    // A title focused while opening keeps no draft, so blurring it renames nothing.
+    act(() => title.focus())
+    // The header the click mounted is the one the open document keeps.
+    push({ openingThreadId: null, route: { kind: 'doc', threadId: 'thr_1' }, title: 'Photosynthesis, week 2' })
+    expect(screen.getByLabelText('Document title')).toBe(title)
+    act(() => title.blur())
+    expect(calls.filter((command) => command.op === 'setDocumentName')).toEqual([])
+    expect(title).toHaveValue('Photosynthesis, week 2')
+    expect(title).not.toHaveAttribute('readonly')
+    push({ openingThreadId: 'thr_2' })
+    await user.click(screen.getByRole('button', { name: 'Docs home' }))
     expect(calls).toContainEqual({ op: 'goHome' })
+  })
+
+  it('shows a fixed sentence when a new folder fails, never the failure text', async () => {
+    const user = userEvent.setup()
+    mount({ projects: [projectFixture] }, (command) =>
+      command.op === 'createProject' ? 'The opencode server refused /tmp/project' : null,
+    )
+    await user.click(screen.getByTestId('open-picker'))
+    await user.click(await screen.findByTestId('new-folder'))
+    await user.click(await screen.findByRole('button', { name: 'Create' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t create that folder. Try again.')
+    expect(screen.queryByText(/refused/)).toBeNull()
   })
 })
 
 describe('library and reading preferences', () => {
+  it('switches libraries from a document that is opening by going Home, which stops the open', async () => {
+    const { calls } = mount({ route: { kind: 'doc', threadId: 'thr_2' }, title: 'Chem lab', openingThreadId: 'thr_1' })
+    await userEvent.click(screen.getByTestId('menu-account'))
+    await userEvent.click(await screen.findByTestId('library-opencode'))
+    expect(calls).toContainEqual({ op: 'setProvider', provider: 'opencode', home: true })
+  })
+
   it('switches libraries from home', async () => {
     const { calls } = mount()
     await userEvent.click(screen.getByTestId('menu-account'))
@@ -631,8 +747,7 @@ describe('composer attachments', () => {
     const gif = new File([new Uint8Array([2])], 'b.gif', { type: 'image/gif' })
     fireEvent.paste(composer, { clipboardData: { files: [png, gif] } })
     expect(await screen.findByTestId('error-banner')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Details' }))
-    expect(screen.getByText('Docs could not save that image. Check your disk space.')).toBeInTheDocument()
+    expect(screen.queryByText(/disk space/)).toBeNull()
     expect(screen.getByTestId('composer-images').querySelectorAll('img')).toHaveLength(1)
   })
 
@@ -656,23 +771,31 @@ describe('failures and replies', () => {
     mount(doc, (command) => (command.op === 'send' ? 'Wait for the current answer to finish.' : null))
     await user.type(screen.getByTestId('composer'), 'Why is it green?{Enter}')
     expect(await screen.findByTestId('error-banner')).toHaveTextContent('Something went wrong. Try again.')
-    await user.click(screen.getByRole('button', { name: 'Details' }))
-    expect(screen.getByText('Wait for the current answer to finish.')).toBeInTheDocument()
+    expect(screen.queryByText(/current answer/)).toBeNull()
     expect(screen.getByTestId('composer')).toHaveValue('Why is it green?')
   })
 
-  it('shows a library error as a banner without hiding the page', async () => {
+  it('shows a library error as a snackbar with Docs wording, never its text', async () => {
     const user = userEvent.setup()
     const { calls } = mount({ status: 'error', error: 'Docs couldn’t reach this library.' })
-    expect(screen.getByTestId('error-banner')).toHaveTextContent('Something went wrong. Try again.')
-    expect(screen.queryByText('Docs couldn’t reach this library.')).toBeNull()
-    await user.click(screen.getByRole('button', { name: 'Details' }))
-    expect(screen.getByText('Docs couldn’t reach this library.')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Something went wrong. Try again.')
+    expect(screen.queryByText(/reach this library/)).toBeNull()
     expect(screen.getByTestId('thread-thr_1')).toBeInTheDocument()
-    await user.click(screen.getByTestId('error-refresh'))
+    await user.click(screen.getByRole('button', { name: 'Reload' }))
     expect(calls).toContainEqual({ op: 'refresh' })
+  })
+
+  it('shows a dismissed library error again when it happens again', async () => {
+    const user = userEvent.setup()
+    const { push } = mount({ status: 'error', error: 'Docs couldn’t reach this library.' })
     await user.click(screen.getByTestId('error-dismiss'))
     expect(screen.queryByTestId('error-banner')).toBeNull()
+    // The same error on the next snapshot is the same occurrence, so it stays dismissed.
+    push({ loadingOlder: false })
+    expect(screen.queryByTestId('error-banner')).toBeNull()
+    push({ status: 'ready', error: null })
+    push({ status: 'error', error: 'Docs couldn’t reach this library.' })
+    expect(screen.getByTestId('error-banner')).toBeInTheDocument()
   })
 
   it('drafts approval answers locally and sends them once', async () => {

@@ -304,21 +304,3 @@
   height: 40px;
   border-radius: 20px;
 }
-
-/* Docs' bottom-left snackbar ("Link copied"). */
-.snackbar {
-  @apply fixed;
-  left: 24px;
-  bottom: 24px;
-  z-index: 160;
-  padding: 14px 16px;
-  border-radius: 4px;
-  background: #303030;
-  color: #f2f2f2;
-  font-family: var(--font-text);
-  font-size: 14px;
-  line-height: 20px;
-  box-shadow:
-    0 2px 6px 2px rgba(0, 0, 0, 0.15),
-    0 1px 2px rgba(0, 0, 0, 0.3);
-}
