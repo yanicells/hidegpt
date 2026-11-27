@@ -47,7 +47,6 @@ export type FakeQuery = {
   readonly push: (message: SDKMessage) => void
   /** Claude Code exits: the frame stream ends, with or without an error. */
   readonly exit: (error?: Error) => void
-  /** Calls the `canUseTool` callback Docs passed, as Claude Code does before a tool runs. */
   /** Calls Docs' canUseTool as Claude Code would; `extra` adds options such as `blockedPath`. */
   readonly askTool: (
     tool: string,

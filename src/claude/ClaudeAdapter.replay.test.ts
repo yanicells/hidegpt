@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -104,10 +104,14 @@ describe('ClaudeAdapter replay', () => {
     }),
   )
 
+  /** Fixtures some test replays; the last test fails on a fixture that none does. */
+  const wired = new Set(['library'])
   /** A fixture a person records with real prompts; its test is skipped until the file exists. */
   const recorded = <A extends TurnResult>(name: string, scenario: ReplayScenario<A>, check: (result: A, events: ReadonlyArray<AdapterEvent>) => void) => {
+    wired.add(name)
+    const present = existsSync(fixture(name))
     const skip = `needs src/claude/fixtures/${name}.ndjson, which a person records with real prompts (docs/replay-fixtures.md)`
-    it.live.skipIf(!existsSync(fixture(name)))(`${name}: ${scenario.description} (${skip})`, () =>
+    it.live.skipIf(!present)(present ? `${name}: ${scenario.description}` : `${name}: ${scenario.description} (${skip})`, () =>
       Effect.gen(function* () {
         const { dir, paths } = yield* workspace
         const replay = replaySdk(readTranscript(fixture(name)), paths)
@@ -329,5 +333,12 @@ describe('ClaudeAdapter replay', () => {
       await replay.sdk.getSessionInfo(MINTED, {})
       await expect(replay.sdk.getSessionInfo(MINTED, {})).rejects.toThrow(/expected/)
     })
+  })
+  // Like T3's ProviderReplayFixtures: a recorded fixture that no test replays would pass unseen.
+  it('replays every fixture in the folder', () => {
+    const names = readdirSync(new URL('./fixtures/', import.meta.url))
+      .filter((file) => file.endsWith('.ndjson'))
+      .map((file) => file.slice(0, -'.ndjson'.length))
+    expect(names.filter((name) => !wired.has(name))).toEqual([])
   })
 })

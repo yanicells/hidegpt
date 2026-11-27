@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 
 import { describe, expect, it } from '@effect/vitest'
 import * as Cause from 'effect/Cause'
@@ -79,10 +79,14 @@ describe('CodexAdapter replay', () => {
     }),
   )
 
+  /** Fixtures some test replays; the last test fails on a fixture that none does. */
+  const wired = new Set(['library'])
   /** A fixture a person records with real prompts; its test is skipped until the file exists. */
   const recorded = <A extends TurnResult>(name: string, scenario: ReplayScenario<A>, check: (result: A, events: ReadonlyArray<AdapterEvent>) => void) => {
+    wired.add(name)
+    const present = existsSync(fixture(name))
     const skip = `needs src/codex/fixtures/${name}.ndjson, which a person records with real prompts (docs/replay-fixtures.md)`
-    it.live.skipIf(!existsSync(fixture(name)))(`${name}: ${scenario.description} (${skip})`, () =>
+    it.live.skipIf(!present)(present ? `${name}: ${scenario.description}` : `${name}: ${scenario.description} (${skip})`, () =>
       Effect.gen(function* () {
         const { result, events, finished } = yield* runScenario(name, scenario)
         check(result, events)
@@ -129,4 +133,12 @@ describe('CodexAdapter replay', () => {
       expect(entries.at(-1)).toMatchObject({ type: 'emit_inbound', label: 'thread/start' })
     }),
   )
+
+  // Like T3's ProviderReplayFixtures: a recorded fixture that no test replays would pass unseen.
+  it('replays every fixture in the folder', () => {
+    const names = readdirSync(new URL('./fixtures/', import.meta.url))
+      .filter((file) => file.endsWith('.ndjson'))
+      .map((file) => file.slice(0, -'.ndjson'.length))
+    expect(names.filter((name) => !wired.has(name))).toEqual([])
+  })
 })
