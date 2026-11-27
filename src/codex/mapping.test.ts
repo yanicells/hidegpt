@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { APPROVALS, BANNED_WORDS, docsFailure, docsSafe, elicitationFields, elicitationResponse, itemToBlock } from './mapping.ts'
+import { APPROVALS, BANNED_WORDS, docsFailure, docsSafe, elicitationFields, elicitationResponse, HIDDEN_REPLY, itemToBlock } from './mapping.ts'
 
 type Params = Parameters<typeof elicitationFields>[0]
 
@@ -195,6 +195,20 @@ describe('provider text on the page', () => {
       error: { message: 'Notion returned 500: page missing' },
     }
     expect(itemToBlock(item)).toMatchObject({ body: 'Did not finish' })
+  })
+
+  it('a reply Codex moderated to hide or block never shows its text', () => {
+    const reply = { type: 'agentMessage' as const, id: 'a1', text: 'Original text' }
+    const display = (mode: 'show' | 'hide' | 'block') =>
+      mode === 'show'
+        ? { mode, trustedContacts: 'skip' as const, version: 1 as const }
+        : mode === 'hide'
+          ? { mode, replacement: { kind: 'wellbeingPromptHelpline' as const }, version: 1 as const }
+          : { mode, reason: { kind: 'cyber' as const }, version: 1 as const }
+    const blocks = (['show', 'hide', 'block'] as const).map((mode) =>
+      itemToBlock({ ...reply, moderation: { moderated: true, display: display(mode) } }),
+    )
+    expect(blocks).toMatchObject([{ text: 'Original text' }, { text: HIDDEN_REPLY }, { text: HIDDEN_REPLY }])
   })
 
   it('approval reasons in provider words fall back to Docs wording', () => {
