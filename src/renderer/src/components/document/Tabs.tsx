@@ -1,9 +1,9 @@
-import { memo, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 
 import { cn } from '../ui/cn'
 import { MIcon } from '../ui/MaterialIcon'
 import { Tip } from '../ui/tooltip'
-import type { OutlineEntry } from './outline'
+import { sameEntry, type OutlineEntry } from './outline'
 
 const NARROW = '(max-width: 960px)'
 
@@ -12,7 +12,8 @@ const NARROW = '(max-width: 960px)'
  * it. Questions are Heading 1 and answer sections nest under them, so the
  * outline jumps through the document. The ← collapses the panel to a round
  * button; narrow windows start collapsed. A streamed delta rebuilds the
- * entries but rarely changes one, so the panel re-renders only when it does.
+ * entries but rarely changes one, so the panel re-renders only when it does,
+ * and then only the entries that changed.
  */
 type TabsProps = {
   entries: ReadonlyArray<OutlineEntry>
@@ -30,6 +31,13 @@ export const Tabs = memo(function Tabs({ entries, onNew, onJump }: TabsProps) {
     query.addEventListener('change', onChange)
     return () => query.removeEventListener('change', onChange)
   }, [])
+  const pick = useCallback(
+    (entry: OutlineEntry) => {
+      setActive(entry.key)
+      onJump(entry)
+    },
+    [onJump],
+  )
   const active =
     activeId && entries.some((entry) => entry.key === activeId)
       ? activeId
@@ -76,29 +84,52 @@ export const Tabs = memo(function Tabs({ entries, onNew, onJump }: TabsProps) {
       ) : (
         <ol className="doc-outline">
           {entries.map((entry) => (
-            <li key={entry.key}>
-              {/* A clipped heading shows in full on hover. */}
-              <Tip label={truncate(entry.text) === entry.text ? undefined : entry.text} side="right">
-                <button
-                  type="button"
-                  className={cn('outline-item', entry.level === 2 && 'sub', active === entry.key && 'active')}
-                  data-testid={`outline-${entry.key}`}
-                  aria-current={active === entry.key ? 'location' : undefined}
-                  onClick={() => {
-                    setActive(entry.key)
-                    onJump(entry)
-                  }}
-                >
-                  {truncate(entry.text)}
-                </button>
-              </Tip>
-            </li>
+            <OutlineItem key={entry.key} entry={entry} active={active === entry.key} onPick={pick} />
           ))}
         </ol>
       )}
     </aside>
   )
 }, sameTabs)
+// The build renames a function expression that shadows its binding (`Tabs2`); name it for DevTools and tests.
+Tabs.displayName = 'Tabs'
+
+type OutlineItemProps = {
+  entry: OutlineEntry
+  active: boolean
+  onPick: (entry: OutlineEntry) => void
+}
+
+/**
+ * One outline entry. It compares entries by content: a block gets a new object
+ * when text streams into it or when earlier text is loaded above it, and its
+ * headings usually stay the same. So a new heading, or a page of earlier
+ * turns, renders only the entries that are new or changed.
+ */
+const OutlineItem = memo(function OutlineItem({ entry, active, onPick }: OutlineItemProps) {
+  return (
+    <li>
+      {/* A clipped heading shows in full on hover. */}
+      <Tip label={truncate(entry.text) === entry.text ? undefined : entry.text} side="right">
+        <button
+          type="button"
+          className={cn('outline-item', entry.level === 2 && 'sub', active && 'active')}
+          data-testid={`outline-${entry.key}`}
+          aria-current={active ? 'location' : undefined}
+          onClick={() => onPick(entry)}
+        >
+          {truncate(entry.text)}
+        </button>
+      </Tip>
+    </li>
+  )
+}, sameItem)
+// The build renames a function expression that shadows its binding (`OutlineItem2`); name it for DevTools and tests.
+OutlineItem.displayName = 'OutlineItem'
+
+function sameItem(a: OutlineItemProps, b: OutlineItemProps): boolean {
+  return a.active === b.active && a.onPick === b.onPick && sameEntry(a.entry, b.entry)
+}
 
 function sameTabs(a: TabsProps, b: TabsProps): boolean {
   return (

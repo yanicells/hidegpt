@@ -1,5 +1,8 @@
 /** @vitest-environment jsdom */
 
+// First, so its hook is in place when react-dom loads.
+import { startCounting, stopCounting } from '../../test/renderCounter'
+
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -11,9 +14,13 @@ import { Document } from './Document'
 
 import '@testing-library/jest-dom/vitest'
 
+// The ids of the blocks rendered, in order.
+const rendered = vi.hoisted((): string[] => [])
+
 // A block whose text is "boom" fails to render, the way bad Markdown might.
 vi.mock('./BlockView', () => ({
   BlockView: ({ block }: { block: Block }) => {
+    rendered.push(block.id)
     if (block.kind === 'agent' && block.text === 'boom') throw new Error('bad block')
     return <p>{block.kind === 'agent' || block.kind === 'user' ? block.text : block.id}</p>
   },
@@ -24,9 +31,9 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function mount(blocks: Block[]) {
+function mount(blocks: Block[], fields: Partial<Snapshot> = {}) {
   const listeners = new Set<(patch: SnapshotPatch) => void>()
-  const snap: Snapshot = { ...emptySnapshot(), route: { kind: 'doc', threadId: 'thr_1' }, blocks }
+  const snap: Snapshot = { ...emptySnapshot(), route: { kind: 'doc', threadId: 'thr_1' }, ...fields, blocks }
   const api: Partial<HideGptApi> = {
     getSnapshot: () => ({ snapshot: snap, seq: 0 }),
     onSnapshot: (listener) => {
@@ -45,7 +52,8 @@ function mount(blocks: Block[]) {
     act(() => {
       seq += 1
       const patch = { ...diffSnapshot(snap, { ...snap, blocks: next }), seq }
-      listeners.forEach((listener) => listener(patch))
+      // IPC hands the page a copy, so a block sent again arrives as a new object.
+      listeners.forEach((listener) => listener(structuredClone(patch)))
     })
 }
 
@@ -73,5 +81,47 @@ describe('Document', () => {
     update([question, { ...broken, text: 'Light scatters.' }, after])
     expect(screen.queryByTestId('block-error')).not.toBeInTheDocument()
     expect(row('a1')).toHaveTextContent('Light scatters.')
+  })
+
+  it('renders only the row being written when text streams in', () => {
+    const question: Block = { kind: 'user', id: 'u1', text: 'Why is the sky blue?' }
+    const answer: Block = { kind: 'agent', id: 'a1', text: '## Blue light\nRayleigh scattering.' }
+    const followUp: Block = { kind: 'user', id: 'u2', text: 'And sunsets?' }
+    const streaming: Block = { kind: 'agent', id: 'a2', text: 'Longer paths' }
+    const update = mount([question, answer, followUp, streaming], { streaming: true })
+
+    rendered.length = 0
+    startCounting()
+    update([question, answer, followUp, { ...streaming, text: 'Longer paths scatter the blue' }])
+    const delta = stopCounting()
+    expect(delta).toEqual({ commits: 1, components: { BlockRow: 1, RenderErrorBoundary: 1, BlockView: 1 } })
+    expect(rendered).toEqual(['a2'])
+    expect(row('a2')).toHaveTextContent('Longer paths scatter the blue')
+
+    // A new heading renders the outline panel and its new entry, and still not the document.
+    startCounting()
+    update([question, answer, followUp, { ...streaming, text: 'Longer paths\n## Red light' }])
+    const heading = stopCounting()
+    expect(heading.components.Tabs).toBeGreaterThan(0)
+    expect(heading.components.OutlineItem).toBe(1)
+    // The panel's own three buttons and the new entry; the entries already there stay put.
+    expect(heading.components.Tip).toBe(4)
+    expect(heading.components.Document).toBeUndefined()
+    expect(screen.getByTestId('outline-a2-0')).toHaveTextContent('Red light')
+  })
+
+  it('renders only the new outline entries when earlier turns load above', () => {
+    const question: Block = { kind: 'user', id: 'u2', text: 'Why is the sky blue?' }
+    const answer: Block = { kind: 'agent', id: 'a2', text: '## Blue light\n## Red light' }
+    const update = mount([question, answer])
+
+    // Loading earlier text shifts every block, and each one is sent again.
+    startCounting()
+    update([{ kind: 'user', id: 'u1', text: 'What is light?' }, question, answer])
+    const loaded = stopCounting()
+    expect(loaded.components.OutlineItem).toBe(1)
+    // The panel's own three buttons and the new entry.
+    expect(loaded.components.Tip).toBe(4)
+    expect(screen.getByTestId('outline-u1')).toHaveTextContent('What is light?')
   })
 })

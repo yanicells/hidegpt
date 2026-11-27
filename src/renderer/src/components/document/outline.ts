@@ -1,4 +1,5 @@
-import type { Block } from '../../../../shared/model'
+import type { Block, Snapshot } from '../../../../shared/model'
+import { useSnapshotSelector } from '../../session-bridge'
 
 /**
  * One row of the "Document tabs" outline. Questions are Heading 1; answer
@@ -28,6 +29,32 @@ export function outlineEntries(blocks: ReadonlyArray<Block>): OutlineEntry[] {
     }
     return entries
   })
+}
+
+/** Whether a block shows in the output-only view, which hides notes and progress between tool calls. */
+export function inOutputView(block: { kind: Block['kind']; commentary?: boolean }): boolean {
+  return block.kind !== 'callout' && !(block.kind === 'agent' && block.commentary)
+}
+
+const wholeOutline = (snap: Snapshot) => outlineEntries(snap.blocks)
+const outputOutline = (snap: Snapshot) => outlineEntries(snap.blocks.filter(inOutputView))
+
+/** Same heading at the same place, though the block around it may be a new object. */
+export function sameEntry(a: OutlineEntry, b: OutlineEntry): boolean {
+  return (
+    a.key === b.key && a.blockId === b.blockId && a.text === b.text && a.level === b.level && a.heading === b.heading
+  )
+}
+
+const sameOutline = (a: ReadonlyArray<OutlineEntry>, b: ReadonlyArray<OutlineEntry>) =>
+  a.length === b.length && a.every((entry, index) => sameEntry(entry, b[index]))
+
+/**
+ * The open document's outline. It keeps the previous array while the entries
+ * read the same, so a streamed delta that adds no heading re-renders nothing.
+ */
+export function useOutline(outputOnly: boolean): ReadonlyArray<OutlineEntry> {
+  return useSnapshotSelector(outputOnly ? outputOutline : wholeOutline, sameOutline)
 }
 
 function blockEntries(block: Block): OutlineEntry[] {

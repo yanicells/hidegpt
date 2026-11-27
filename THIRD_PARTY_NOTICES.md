@@ -112,6 +112,12 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
   - `src/renderer/src/session-bridge.ts`: selector subscriptions that skip
     streamed text, after `packages/client-runtime/src/state/threadDetail.ts`
     (commit 8a14762c).
+  - `src/renderer/src/session-bridge.ts`: the row list that holds while text
+    streams and a subscription per block (`useBlockRows`, `useBlock`), after the
+    timeline items and per-message text atoms in
+    `packages/client-runtime/src/state/threadDetail.ts`; and
+    `src/renderer/src/test/renderCounter.ts`, from `apps/web/test/renderCounter.ts`
+    (commit 5c6f2f12).
   - `src/shared/channels.ts`, the IPC tables in `src/shared/contracts.ts`,
     `src/main/ipc.ts` (with its test), the sender guard in `src/main/app.ts`
     and `src/preload/index.ts`: channel names, typed invoke and sync channels

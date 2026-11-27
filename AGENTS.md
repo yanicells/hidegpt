@@ -146,8 +146,9 @@ Entry files stay thin — they compose, never hold UI:
     Flex for chrome, Roboto for text, and latin-400 faces of Docs' font list
     for the font menu), never a CDN.
 - Streaming must cost the same at 300 turns as at 3 (rules in
-  `docs/architecture.md` §7). Read blocks with `useBlocks()` and everything
-  else with `useShellSnapshot()`. Never read layout (`scrollHeight`,
+  `docs/architecture.md` §7). Read the row list with `useBlockRows()`, a
+  row's block with `useBlock(id)` and everything else with
+  `useShellSnapshot()`. Never read layout (`scrollHeight`,
   `getBoundingClientRect`) on every delta. Keep `.doc-block` rows memoized and
   `content-visibility: auto`.
 - `src/renderer/src/styles/` — one CSS file per area (`base`, `home`,
