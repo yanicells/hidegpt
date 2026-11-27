@@ -116,8 +116,7 @@
         "src/codex/CodexAdapter.ts", // ARCH-4a (Codex adapter)
         "src/claude/ClaudeAdapter.ts", // ARCH-4b (Claude adapter)
         "src/opencode/OpenCodeAdapter.ts", // ARCH-4c (OpenCode adapter)
-        "src/main/logging/ProviderEventLog.ts", // ARCH-8 (event log)
-        "src/main/app.ts" // RT-2 (app lifecycle: menu dispatch, callback runs, program start and quit)
+        "src/main/logging/ProviderEventLog.ts" // ARCH-8 (event log)
       ],
       "rules": { "hidegpt/no-unobserved-effect": "off" }
     }

@@ -68,6 +68,11 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     `before-quit`, close every scope, then quit; exit if shutdown stalls; open
     no window on activation meanwhile), from
     `apps/desktop/src/app/DesktopLifecycle.ts` (commit 8a14762c).
+  - `src/main/lifecycle.ts`: the fatal path (log, one error box, then quit),
+    from `handleFatalStartupError` in `apps/desktop/src/app/DesktopApp.ts`, and
+    logging a stalled shutdown before exiting without it, from
+    `exitIfShutdownStalled` in `apps/desktop/src/app/DesktopLifecycle.ts`
+    (commit 5c6f2f12).
   - `src/provider/ProcessSupervisor.ts` and `src/provider/ProcessLedger.ts`:
     Claude Code spawned in its own process group with stderr drained
     (`spawnClaudeProcessGroup`) and pid plus start time from `ps`

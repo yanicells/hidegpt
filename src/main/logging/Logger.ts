@@ -27,7 +27,8 @@ export interface LoggingOptions {
   readonly identity?: Identity
 }
 
-const thisMachine = (): Identity => {
+/** This machine's home folder and account name, which the log leaves out. */
+export const thisMachine = (): Identity => {
   let username = ''
   try {
     username = userInfo().username
