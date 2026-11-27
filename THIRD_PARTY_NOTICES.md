@@ -53,6 +53,9 @@ projects below. Each copied or adapted file carries a header naming its source.
     box scrolls, and on any other upward scroll (the upward-scroll detector),
     from `apps/web/src/components/chat/timelineViewport.ts` and
     `timelineScrollTarget.ts`.
+  - `scripts/bench/probe.cjs`: counting React commits and component renders
+    through a stand-in DevTools hook (`installReactCounter`), from
+    `apps/web/test/renderCounter.ts` at commit 5c6f2f12.
   - `src/renderer/src/components/ui/`: these Base UI wrappers, adapted from
     `apps/web/src/components/ui/` (each keeps a header pointing to its source):
 

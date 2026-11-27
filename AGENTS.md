@@ -186,11 +186,13 @@ pnpm test         # vitest: session/protocol + renderer UI tests
 pnpm typecheck    # tsc --noEmit
 pnpm protocol     # regenerate the vendored Codex schemas from the installed CLI
 pnpm screenshot   # PNGs of home + document with a fake session
+pnpm bench        # perf bench against a fake provider; see scripts/bench/README.md
 ```
 
 `HIDEGPT_FAKE=1` runs every library's real adapter against its in-process
-fake (`src/main/demo.ts`, fictional documents only) — use it for UI work,
-screenshots and the bench.
+fake (`src/main/demo.ts`, fictional documents only) — use it for UI work and
+screenshots. The perf bench (`pnpm bench`) instead runs the real Codex adapter
+against a fake `codex app-server` process, so it measures the real transport.
 
 ## Working agreements
 
