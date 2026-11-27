@@ -1,4 +1,4 @@
-import { lazy, Suspense, useSyncExternalStore } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 
 import { MIcon, type MaterialIconName } from '../ui/MaterialIcon'
 import { Menu, MenuPopup, MenuTrigger } from '../ui/menu'
@@ -12,11 +12,34 @@ import type { ListKind } from './ToolMenuPanels'
  * change nothing in the document. Geometry is in tool-menus.css.
  */
 
-/** The menus' insides load on first hover or focus of a tool (see ToolMenuPanels.tsx). */
-const loadPanels = () => import('./ToolMenuPanels')
+type Panels = typeof import('./ToolMenuPanels')
+
+/*
+ * The menus' insides (align palette, list grids) load on first hover or focus
+ * of a tool; see ToolMenuPanels.tsx. Once loaded, the module is kept here so
+ * every later open renders it at once.
+ */
+let panels: Panels | undefined
+const loadPanels = () =>
+  import('./ToolMenuPanels').then((module) => {
+    panels = module
+    return module
+  })
 const preload = () => void loadPanels()
-const AlignPalette = lazy(() => loadPanels().then((panels) => ({ default: panels.AlignPalette })))
-const ListGrid = lazy(() => loadPanels().then((panels) => ({ default: panels.ListGrid })))
+
+/**
+ * Open state for a menu drawn from the panels. An open that beats the load
+ * waits for it, so the popup never shows empty and Base UI still finds the
+ * items, which lets a keyboard open focus the first one.
+ */
+function usePanelMenu() {
+  const [open, setOpen] = useState(false)
+  const onOpenChange = (next: boolean) => {
+    if (!next || panels) setOpen(next)
+    else void loadPanels().then(() => setOpen(true))
+  }
+  return { open, onOpenChange }
+}
 
 type Align = 'left' | 'center' | 'right' | 'justify'
 type Spacing = 'single' | '1.15' | '1.5' | 'double'
@@ -65,8 +88,9 @@ function pickAlign(value: string) {
 export function AlignMenu() {
   const { align } = useParagraph()
   const current = ALIGNS.find((option) => option.value === align) ?? ALIGNS[0]
+  const menu = usePanelMenu()
   return (
-    <Menu modal={false} orientation="horizontal">
+    <Menu modal={false} orientation="horizontal" {...menu}>
       <Tip label="Align & indent">
         <MenuTrigger
           className="toolbar-icon tb-menu with-caret fold-align"
@@ -80,9 +104,7 @@ export function AlignMenu() {
         </MenuTrigger>
       </Tip>
       <MenuPopup className="tool-menu align-menu" sideOffset={0}>
-        <Suspense fallback={null}>
-          <AlignPalette options={ALIGNS} value={align} onPick={pickAlign} />
-        </Suspense>
+        {panels ? <panels.AlignPalette options={ALIGNS} value={align} onPick={pickAlign} /> : null}
       </MenuPopup>
     </Menu>
   )
@@ -159,12 +181,13 @@ const LIST_TOOLS: Record<ListKind, { icon: MaterialIconName; name: string; keys:
  */
 export function ListTool({ kind }: { kind: ListKind }) {
   const tool = LIST_TOOLS[kind]
+  const menu = usePanelMenu()
   return (
     <span className={`toolbar-icon tb-split with-caret fold-${kind}`}>
       <Tip label={`${tool.name} (${tool.keys})`}>
         <MIcon name={tool.icon} className="tb-split-icon" />
       </Tip>
-      <Menu modal={false}>
+      <Menu modal={false} {...menu}>
         <Tip label={tool.menu}>
           <MenuTrigger
             className="tb-caret"
@@ -177,9 +200,7 @@ export function ListTool({ kind }: { kind: ListKind }) {
           </MenuTrigger>
         </Tip>
         <MenuPopup className={`tool-menu ${kind}-menu`} sideOffset={0} alignOffset={-30}>
-          <Suspense fallback={null}>
-            <ListGrid kind={kind} />
-          </Suspense>
+          {panels ? <panels.ListGrid kind={kind} /> : null}
         </MenuPopup>
       </Menu>
     </span>
