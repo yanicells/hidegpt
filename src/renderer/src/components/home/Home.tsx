@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import { threadTitle } from '../../../../shared/labels'
+import { ownerLabel, threadTitle } from '../../../../shared/labels'
 import type { Snapshot } from '../../../../shared/model'
 import { TEMPLATES, type Template } from '../../templates'
 import { MIcon } from '../ui/MaterialIcon'
@@ -13,6 +13,7 @@ import { OwnerMenu, SortMenu, SORTS, type Owner, type Sort } from './OwnerMenu'
 import { projectFolders, threadProjectId } from './projects'
 import { TemplateCard } from './TemplateCard'
 import type { HomeView } from './useHomeView'
+import { useMountWindow } from './useMountWindow'
 
 /**
  * Docs home: template band plus recent documents. Projects are Drive folders:
@@ -37,21 +38,36 @@ export function Home({
   const [sort, setSort] = useState<Sort>('opened')
   const [picker, setPicker] = useState(false)
   const [owner, setOwner] = useState<Owner>('anyone')
-  const folders = projectFolders(snap)
+  // Memoized on their inputs: a snapshot patch that leaves the threads and
+  // projects alone keeps both references, so Home's lists are not rebuilt.
+  const { projects, threads: all } = snap
+  const folders = useMemo(() => projectFolders({ projects, threads: all }), [projects, all])
   const folder = folders.find((item) => item.id === projectId)
   const query = snap.search.trim().toLowerCase()
-  const threads = snap.threads
-    .filter(
-      (thread) =>
-        owner !== 'others' &&
-        (projectId === 'all' || threadProjectId(snap, thread) === projectId) &&
-        (!query || `${thread.name ?? ''} ${thread.preview}`.toLowerCase().includes(query)),
-    )
-    // By title sorts on the title the card and list row show.
-    .sort((a, b) => (sort === 'title' ? threadTitle(a).localeCompare(threadTitle(b)) : b.updatedAt - a.updatedAt))
-  const sections = view === 'list' && sort !== 'title' ? groupByRecency(threads) : [{ key: 'docs', title: '', threads }]
+  const threads = useMemo(
+    () =>
+      all
+        .filter(
+          (thread) =>
+            owner !== 'others' &&
+            (projectId === 'all' || threadProjectId({ projects }, thread) === projectId) &&
+            (!query || `${thread.name ?? ''} ${thread.preview}`.toLowerCase().includes(query)),
+        )
+        // By title sorts on the title the card and list row show.
+        .sort((a, b) => (sort === 'title' ? threadTitle(a).localeCompare(threadTitle(b)) : b.updatedAt - a.updatedAt)),
+    [all, projects, owner, projectId, query, sort],
+  )
+  // Mounts the first cards or rows, and more as the end of the list nears.
+  const { count, sentinelRef } = useMountWindow(`${owner}|${projectId}|${query}|${sort}|${view}`)
+  const mounted = useMemo(() => threads.slice(0, count), [threads, count])
+  const sections = useMemo(
+    () =>
+      view === 'list' && sort !== 'title' ? groupByRecency(mounted) : [{ key: 'docs', title: '', threads: mounted }],
+    [mounted, view, sort],
+  )
   // Like Docs' list view, the first recency group titles the whole section.
   const groupedTitle = view === 'list' && !query && !folder
+  const ownerName = ownerLabel(snap.account)
   const loading = snap.status === 'connecting' && !snap.threads.length
   return (
     <div className="home">
@@ -133,7 +149,7 @@ export function Home({
                   <h2 className="recency-label">{section.title}</h2>
                 ) : null}
                 {view === 'list' ? (
-                  <ListView snap={snap} threads={section.threads} />
+                  <ListView owner={ownerName} threads={section.threads} />
                 ) : (
                   <div className="doc-grid">
                     {section.threads.map((thread) => (
@@ -144,6 +160,7 @@ export function Home({
               </section>
             ))
           )}
+          {threads.length > count ? <div key={count} ref={sentinelRef} aria-hidden="true" /> : null}
         </div>
       </main>
       {picker ? (

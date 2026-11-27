@@ -221,8 +221,9 @@ HideGPT's architecture and the source of reused code. The Effect client for
 T3 Code, and the provider adapters, session manager, process supervision, and
 replay tests follow its patterns, as do smaller pieces of the OpenCode and Claude
 adapters (each marked in place). In the window, the cached Markdown renderer and
-streaming block splitter come from T3 Code's web app, and the store's selectors
-follow its thread-detail state. The tooling follows T3 Code too: the oxlint rules,
+streaming block splitter come from T3 Code's web app, the store's selectors
+follow its thread-detail state, and Home mounts its documents in batches as T3
+Code's search results do. The tooling follows T3 Code too: the oxlint rules,
 Effect diagnostics, knip config, CI workflow, pre-commit checks, and VS Code setup are adapted
 from its setup.
 T3 Code is MIT licensed, Copyright (c) 2026

@@ -1,7 +1,7 @@
 import type { Snapshot } from '../../../../shared/model'
 
 /** The project a document belongs to: explicit id first, else the deepest matching folder root. */
-export function threadProjectId(snap: Snapshot, thread: Snapshot['threads'][number]): string | null {
+export function threadProjectId(snap: Pick<Snapshot, 'projects'>, thread: Snapshot['threads'][number]): string | null {
   if (thread.projectId) return thread.projectId
   const cwd = thread.cwd.replace(/\/+$/, '')
   let match: { id: string; length: number } | undefined
@@ -20,7 +20,7 @@ export function threadProjectId(snap: Snapshot, thread: Snapshot['threads'][numb
 export type Folder = ReturnType<typeof projectFolders>[number]
 
 /** Projects as Drive folders; a folder was last modified when its newest loaded document was. */
-export function projectFolders(snap: Snapshot) {
+export function projectFolders(snap: Pick<Snapshot, 'projects' | 'threads'>) {
   const folders = new Map(
     snap.projects.map((project) => [
       project.id,

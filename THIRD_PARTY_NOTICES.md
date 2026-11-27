@@ -147,6 +147,11 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     `timelineScrollTarget.ts` (commit 8a14762c); following on while a chunk
     carries the end out of view, and the reduced-motion scroll, from
     `timelineViewport.ts` and `useTimelineFollow.ts` (commit 5c6f2f12).
+  - `src/renderer/src/components/home/useMountWindow.ts`: mounting Home's
+    documents in batches as a sentinel after the last one nears, from the
+    load-more sentinel in `apps/web/src/components/search/ProjectContentSearchDialog.tsx`,
+    observed against the scroller as in `apps/web/src/components/Sidebar.logic.ts`
+    (commit 5c6f2f12).
   - `scripts/bench/probe.cjs`: counting React commits and component renders
     through a stand-in DevTools hook (`installReactCounter`), from
     `apps/web/test/renderCounter.ts` at commit 5c6f2f12.
