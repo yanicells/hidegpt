@@ -66,7 +66,7 @@ export class TurnRefusedError extends Error {
 export type RecordingMachine = {
   /** The person's home folder. Skipped when empty or the root. */
   readonly home: string
-  /** Names that identify the person: the account name and the parts of their git name. */
+  /** Names that identify the person: the account name, the parts of their git name, and `HIDEGPT_RECORD_NAMES`. */
   readonly people: ReadonlyArray<string>
   /** Names that identify the machine: hostname, short hostname, computer name. */
   readonly hosts: ReadonlyArray<string>
@@ -167,8 +167,22 @@ export function leaks(text: string, machine: RecordingMachine): ReadonlyArray<st
   return found
 }
 
+/**
+ * Extra names to scrub, comma-separated in `HIDEGPT_RECORD_NAMES`: a person
+ * recording by hand adds what the recorder can't know (a full name, a company,
+ * a project). They count as people, so `scrub` replaces them and `leaks` finds them.
+ */
+export const recordNames = (env: NodeJS.ProcessEnv = process.env): ReadonlyArray<string> =>
+  (env.HIDEGPT_RECORD_NAMES ?? '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean)
+
 /** The machine this process runs on, for recorders. */
-export function thisMachine(scratch: RecordingMachine['scratch'] = []): RecordingMachine {
+export function thisMachine(
+  scratch: RecordingMachine['scratch'] = [],
+  env: NodeJS.ProcessEnv = process.env,
+): RecordingMachine {
   const run = (command: string, args: ReadonlyArray<string>) => {
     try {
       return execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
@@ -179,7 +193,7 @@ export function thisMachine(scratch: RecordingMachine['scratch'] = []): Recordin
   const host = hostname()
   return {
     home: homedir(),
-    people: [userInfo().username, ...run('git', ['config', 'user.name']).split(/\s+/)],
+    people: [userInfo().username, ...run('git', ['config', 'user.name']).split(/\s+/), ...recordNames(env)],
     hosts: [
       host,
       host.split('.')[0] ?? '',

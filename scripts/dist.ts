@@ -19,8 +19,8 @@ import { assertNoClaude, packagedArchives } from './shared-build-guard.ts'
 import { verifyPreloadBundle } from './verify-preload-bundle.ts'
 
 /**
- * `pnpm dist`: builds the app, checks the preload, packages a macOS `.dmg` and
- * `.zip`, and checks the shipped archive. With no env vars it makes an unsigned,
+ * `pnpm dist`: builds the app, checks the preload, packages a macOS `.dmg`, and
+ * checks the shipped archive. With no env vars it makes an unsigned,
  * Claude-free build in `dist/`. `HIDEGPT_PERSONAL=1` keeps Claude and writes
  * `dist/personal/*-personal.dmg`; `CSC_LINK`/`CSC_NAME` sign it; the `APPLE_*`
  * notary vars notarize a signed build (see README, "Packaging").

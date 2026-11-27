@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import * as NodeServices from '@effect/platform-node/NodeServices'
 import { afterAll, describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
+import * as Layer from 'effect/Layer'
 import * as Option from 'effect/Option'
 import * as TestClock from 'effect/testing/TestClock'
 
@@ -13,6 +14,7 @@ import {
   layer,
   parseProcessTable,
   ProcessLedger,
+  run,
   startOf,
   type LedgerEntry,
   type LedgerOptions,
@@ -32,8 +34,7 @@ const withLedger = <A, E>(
   use: (ledger: ProcessLedger['Service']) => Effect.Effect<A, E>,
 ) =>
   Effect.flatMap(Effect.service(ProcessLedger), use).pipe(
-    Effect.provide(layer(path, options)),
-    Effect.provide(NodeServices.layer),
+    Effect.provide(layer(path, options).pipe(Layer.provideMerge(NodeServices.layer))),
   )
 const reap = (path: string, options: LedgerOptions = {}) => withLedger(path, options, (ledger) => ledger.reap)
 
@@ -83,6 +84,8 @@ const processTableNow = () =>
 const GONE = { owner: 2, ownerStarted: Date.UTC(2001, 0, 1) }
 /** Above every OS's pid range, so `ps` knows nothing about it. */
 const NO_SUCH_PID = 2 ** 30
+// A second pid above the system's maximum. A small literal like 5001 can be a live process on CI.
+const GONE_PID = NO_SUCH_PID + 1
 /** A daemon that leaves its parent's group and session, as `setsid` does; a group kill misses it. */
 const DAEMON = `/usr/bin/perl -MPOSIX -e 'POSIX::setsid(); sleep 30'`
 /** A stand-in process table the test changes between reads. */
@@ -97,7 +100,8 @@ const entry = (fields: Partial<LedgerEntry> & Pick<LedgerEntry, 'command' | 'sta
   ...fields,
 })
 
-describe('ProcessLedger', () => {
+/** Every case runs `ps` and real processes; a loaded machine (a full suite, other jobs) needs room. */
+describe('ProcessLedger', { timeout: 30_000 }, () => {
   it('reads pid, parent, group, a UTC start time and a command with spaces from ps', () => {
     expect(
       parseProcessTable(
@@ -118,6 +122,31 @@ describe('ProcessLedger', () => {
     expect(parseProcessTable('  123     1    45 Thu Nov  5 14:39:47 2026\n')).toEqual([
       { pid: 123, ppid: 1, pgid: 45, started: Date.UTC(2026, 10, 5, 14, 39, 47), command: '' },
     ])
+  })
+
+  it.live('gives up on a command that ignores SIGTERM and holds its output open, and kills it', () => {
+    const files = mkdtempSync(join(dir, 'case-'))
+    const shell = join(files, 'shell')
+    const held = join(files, 'held')
+    // The shell ignores SIGTERM and waits on a background sleep that shares its stdout.
+    const script = `sleep 30 & echo $! > ${held}; echo $$ > ${shell}; trap '' TERM; wait`
+    // The sleep goes last: while it runs, only a kill can end the shell.
+    const killHolder = Effect.sync(() => {
+      try {
+        process.kill(Number(readFileSync(held, 'utf8')), 'SIGKILL')
+      } catch {
+        // already gone, or never started
+      }
+    })
+    return Effect.gen(function* () {
+      const at = Date.now()
+      const out = yield* run('/bin/sh', ['-c', script], 500)
+      expect(Option.isNone(out)).toBe(true)
+      expect(Date.now() - at).toBeLessThan(1_500)
+      const pid = Number(readFileSync(shell, 'utf8'))
+      for (let i = 0; i < 50 && alive(pid); i += 1) yield* Effect.sleep('20 millis')
+      expect(alive(pid)).toBe(false)
+    }).pipe(Effect.ensuring(killHolder))
   })
 
   it.effect('records start times as epoch ms, the same in every timezone', () =>
@@ -337,7 +366,8 @@ describe('ProcessLedger', () => {
   it.effect('still reaps the members of an entry whose own start time is unknown', () =>
     Effect.gen(function* () {
       const path = freshPath()
-      const member = sleeper()
+      const child = launch('/bin/sleep', ['30'])
+      const member = child.pid ?? 0
       const at = yield* startOf(member)
       writeFileSync(
         path,
@@ -347,7 +377,8 @@ describe('ProcessLedger', () => {
       )
       // An unknown start time says nothing about the boot, so the entry is not dropped for it.
       expect(yield* reap(path, { bootTime: at - 1_000 })).toBe(1)
-      for (let i = 0; i < 50 && alive(member); i += 1) yield* Effect.sleep('20 millis')
+      // Wait on the exit itself: this test runs on the TestClock, where a polling sleep never ends.
+      yield* exited(child)
       expect(alive(member)).toBe(false)
     }),
   )
@@ -357,7 +388,7 @@ describe('ProcessLedger', () => {
       const path = freshPath()
       const contents = JSON.stringify({ 4242: entry({ command: 'codex', arg: 'app-server', started: Date.now() }) })
       writeFileSync(path, contents)
-      expect(yield* reap(path, { processTable: Effect.succeed(Option.none()) })).toBe(0)
+      expect(yield* reap(path, { processTable: Effect.succeedNone })).toBe(0)
       expect(readFileSync(path, 'utf8')).toBe(contents)
     }),
   )
@@ -366,10 +397,17 @@ describe('ProcessLedger', () => {
     Effect.gen(function* () {
       const path = freshPath()
       const server = sleeper()
-      yield* withLedger(path, { owner: NO_SUCH_PID }, (ledger) => ledger.record(5001, 'codex', 'app-server'))
+      yield* withLedger(path, { owner: NO_SUCH_PID }, (ledger) => ledger.record(GONE_PID, 'codex', 'app-server'))
       yield* withLedger(path, {}, (ledger) => ledger.record(server, '/bin/sleep', '30'))
       expect(onDisk(path)).toEqual({
-        5001: { command: 'codex', arg: 'app-server', started: 0, owner: NO_SUCH_PID, ownerStarted: 0, members: [] },
+        [GONE_PID]: {
+          command: 'codex',
+          arg: 'app-server',
+          started: 0,
+          owner: NO_SUCH_PID,
+          ownerStarted: 0,
+          members: [],
+        },
         [server]: {
           command: '/bin/sleep',
           arg: '30',
