@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 
+import { woff2Only } from './scripts/woff2-only.ts'
+
 // `HIDEGPT_PERSONAL` decides whether the Claude library is compiled in. Runs from
 // source keep it; `pnpm dist` passes 0 unless the builder sets HIDEGPT_PERSONAL=1,
 // so a build shared with others carries no Claude code (see scripts/dist.ts).
@@ -38,7 +40,7 @@ export default defineConfig({
   renderer: {
     root: resolve('src/renderer'),
     define,
-    plugins: [react(), tailwindcss()],
+    plugins: [woff2Only(), react(), tailwindcss()],
     server: {
       fs: {
         allow: [resolve('.')],
