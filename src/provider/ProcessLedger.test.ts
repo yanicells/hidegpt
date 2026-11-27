@@ -249,7 +249,8 @@ describe('ProcessLedger', () => {
           // The member that leads a group of its own. Not members[0]: Linux's sh can list more than one.
           const table = processTableNow()
           const members = onDisk(path)[cliPid]?.members ?? []
-          const daemon = members.find((member) => table.find((proc) => proc.pid === member.pid)?.pgid === member.pid)?.pid ?? 0
+          const daemon =
+            members.find((member) => table.find((proc) => proc.pid === member.pid)?.pgid === member.pid)?.pid ?? 0
           expect(daemon).not.toBe(0)
           // The CLI exits on its own and its group goes; the daemon is in a group of its own.
           cli.stdin?.end()
@@ -374,7 +375,14 @@ describe('ProcessLedger', () => {
       yield* withLedger(path, { owner: NO_SUCH_PID }, (ledger) => ledger.record(GONE_PID, 'codex', 'app-server'))
       yield* withLedger(path, {}, (ledger) => ledger.record(server, '/bin/sleep', '30'))
       expect(onDisk(path)).toEqual({
-        [GONE_PID]: { command: 'codex', arg: 'app-server', started: 0, owner: NO_SUCH_PID, ownerStarted: 0, members: [] },
+        [GONE_PID]: {
+          command: 'codex',
+          arg: 'app-server',
+          started: 0,
+          owner: NO_SUCH_PID,
+          ownerStarted: 0,
+          members: [],
+        },
         [server]: {
           command: '/bin/sleep',
           arg: '30',
