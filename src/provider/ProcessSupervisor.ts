@@ -1,5 +1,6 @@
 import { spawn as spawnChild, type ChildProcessWithoutNullStreams } from 'node:child_process'
 
+import * as Cause from 'effect/Cause'
 import * as Context from 'effect/Context'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
@@ -159,18 +160,26 @@ const make = (
             }),
           )
           .pipe(Effect.map((handle) => ({ handle, command })))
-      // Started as `Docs Helper` where it can be (helperBinary.ts). A clone that won't start (gone
-      // since, refused by a security tool) is dropped, and the original starts as it always did.
+      // Started as `Docs Helper` where it can be (helperBinary.ts). Node reports a clone that won't
+      // start (gone since, refused by a security tool, not a program) as an error (ENOENT, EACCES) or
+      // throws it from `spawn` (EPERM, ENOEXEC), which arrives here as a defect. Either way the
+      // original starts as it always did, with the caller's env.
       const helper = yield* Effect.sync(() => resolveHelper(options.command, options.env, helpersDirectory))
-      const { handle, command } = yield* start(helper.command, helper.env).pipe(
-        Effect.catch((error) =>
-          helper.command === options.command
-            ? Effect.fail(error)
-            : Effect.logDebug('helper did not start; starting the original', { reason: error.reason._tag }).pipe(
-                Effect.andThen(Effect.sync(() => discardHelper(helper.command, helpersDirectory))),
-                Effect.andThen(start(options.command, options.env)),
+      const started =
+        helper.command === options.command
+          ? start(options.command, options.env)
+          : start(helper.command, helper.env).pipe(
+              Effect.catchCauseIf(
+                (cause) => !Cause.hasInterrupts(cause),
+                () =>
+                  Effect.logDebug('helper did not start; starting the original').pipe(
+                    Effect.andThen(start(options.command, options.env)),
+                    // Dropped only once the original runs: a missing cwd fails both, and the clone is fine.
+                    Effect.tap(() => Effect.sync(() => discardHelper(helper.command, helpersDirectory))),
+                  ),
               ),
-        ),
+            )
+      const { handle, command } = yield* started.pipe(
         // Only a missing command means "not installed"; anything else (no permission, a bad cwd) says what failed.
         Effect.mapError((error) =>
           isNotFound(error)
@@ -297,15 +306,27 @@ const make = (
           child.on('error', () => {})
           return child
         }
-        // As in `spawn`: from a `Docs Helper` clone where it can be, else the original.
+        // As in `spawn`: from a `Docs Helper` clone where it can be, else the original. A clone that
+        // won't start has no pid (ENOENT, EACCES) or throws from `spawn` (EPERM, ENOEXEC).
         const helper = resolveHelper(options.command, options.env, helpersDirectory)
+        const fromHelper = (): ChildProcessWithoutNullStreams | null => {
+          if (helper.command === options.command) return null
+          try {
+            const child = start(helper.command, helper.env)
+            return child.pid === undefined ? null : child
+          } catch {
+            return null
+          }
+        }
         let command = helper.command
-        let child = start(command, helper.env)
-        if (child.pid === undefined && command !== options.command) {
-          runFork(Effect.logDebug('helper did not start; starting the original'))
-          discardHelper(command, helpersDirectory)
+        let child = fromHelper()
+        if (child === null) {
+          if (command !== options.command) runFork(Effect.logDebug('helper did not start; starting the original'))
           command = options.command
           child = start(command, options.env)
+          // Dropped only once the original runs: a missing cwd fails both, and the clone is fine.
+          if (child.pid !== undefined && helper.command !== options.command)
+            discardHelper(helper.command, helpersDirectory)
         }
         const pid = child.pid
         // A spawn that fails has no pid and emits only "error", which the SDK reports.

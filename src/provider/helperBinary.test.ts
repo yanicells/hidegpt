@@ -19,7 +19,7 @@ import { basename, dirname, join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 
 import { HELPER_NAME, MIRROR_LIMIT, STAMP, resolveHelper } from './helperBinary'
-import { FIRST_LAUNCH_MS, nodeAt, processName } from './helperBinary.testing'
+import { FIRST_LAUNCH_MS, codexInstall, executable, nodeAt, processName } from './helperBinary.testing'
 
 /** Real clones of a real binary (Node). Nothing here starts a provider. */
 // Real path: macOS's temp folder sits behind a symlink, and clones are keyed by real paths.
@@ -32,12 +32,6 @@ let count = 0
 const helpersDir = () => join(root, `helpers-${(count += 1)}`)
 /** The clone's own folder, `<directory>/<hash>`. */
 const folderOf = (clone: string) => dirname(dirname(clone))
-const executable = (path: string, text: string) => {
-  mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, text)
-  chmodSync(path, 0o755)
-  return path
-}
 
 describe.runIf(process.platform === 'darwin')('resolveHelper', () => {
   it(
@@ -175,17 +169,6 @@ describe.runIf(process.platform === 'darwin')('resolveHelper', () => {
   })
 
   describe('the Codex npm package', () => {
-    const triple = process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'
-    /** The npm layout: `bin/codex.js` and the platform package's native binary under `vendor/`. */
-    const install = (prefix: string) => {
-      const pkg = join(prefix, 'node_modules', '@openai', 'codex')
-      const platformPkg = join(pkg, 'node_modules', '@openai', `codex-darwin-${process.arch}`)
-      executable(join(pkg, 'bin', 'codex.js'), '#!/usr/bin/env node\n')
-      nodeAt(join(platformPkg, 'vendor', triple, 'bin', 'codex'))
-      writeFileSync(join(platformPkg, 'package.json'), '{"name":"platform"}')
-      mkdirSync(join(platformPkg, 'vendor', triple, 'codex-path'))
-      return { pkg, codexPath: join(platformPkg, 'vendor', triple, 'codex-path') }
-    }
     const managers = (by: string) => ({
       CODEX_MANAGED_BY_NPM: by === 'NPM' ? '1' : undefined,
       CODEX_MANAGED_BY_BUN: by === 'BUN' ? '1' : undefined,
@@ -194,7 +177,7 @@ describe.runIf(process.platform === 'darwin')('resolveHelper', () => {
     })
 
     it('starts the native binary behind an npm link, with the variables the launcher sets', () => {
-      const { pkg, codexPath } = install(join(root, 'npm', 'lib'))
+      const { pkg, codexPath } = codexInstall(join(root, 'npm', 'lib'))
       const bin = join(root, 'npm', 'bin')
       mkdirSync(bin)
       symlinkSync(join(pkg, 'bin', 'codex.js'), join(bin, 'codex'))
@@ -207,7 +190,7 @@ describe.runIf(process.platform === 'darwin')('resolveHelper', () => {
     })
 
     it('follows a pnpm global shim to the same binary', () => {
-      const { pkg } = install(join(root, 'Library', 'pnpm', 'global', '5'))
+      const { pkg } = codexInstall(join(root, 'Library', 'pnpm', 'global', '5'))
       const bin = join(root, 'Library', 'pnpm')
       executable(
         join(bin, 'codex'),
