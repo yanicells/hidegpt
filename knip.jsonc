@@ -17,6 +17,8 @@
     // The tsconfig plugin name; @effect/tsgo bundles it.
     "@effect/language-service",
   ],
+  // macOS tools the packaging scripts run, not packages.
+  "ignoreBinaries": ["plutil"],
   "ignoreIssues": {
     // Vendored from T3 Code and kept whole, so it stays easy to re-sync.
     "src/vendor/**": ["files", "exports"],

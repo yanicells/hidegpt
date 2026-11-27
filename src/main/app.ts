@@ -86,6 +86,7 @@ const MainLayer = managerLayer({
   Layer.provideMerge(
     ProcessSupervisor.layer(
       demo ? null : join(app.getPath('userData'), 'provider-processes.json'),
+      ProcessSupervisor.DEFAULT_TIMING,
       // Provider CLIs start from clones named `Docs Helper` kept here (src/provider/helperBinary.ts).
       demo ? null : join(app.getPath('userData'), 'helpers'),
     ),
