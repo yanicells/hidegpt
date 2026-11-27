@@ -1,22 +1,23 @@
 import { memo, useCallback, useEffect, useRef } from 'react'
 
-import type { Block, Snapshot } from '../../../../shared/model'
-import { dispatch, useBlocks } from '../../session-bridge'
+import type { Snapshot } from '../../../../shared/model'
+import { dispatch, useBlock, useBlockRows } from '../../session-bridge'
 import { BlockFallback, RenderErrorBoundary } from '../layout/RenderErrorBoundary'
 import { SparkIcon } from '../ui/Icons'
 import { BlockView } from './BlockView'
 import { Composer } from './Composer'
-import { outlineEntries, type OutlineEntry } from './outline'
-import { PAGE_HEIGHT, PAGE_PITCH, usePages } from './pages'
+import { inOutputView, useOutline, type OutlineEntry } from './outline'
+import { Paper } from './Paper'
 import { Tabs } from './Tabs'
 import { useFollowBottom } from './useFollowBottom'
 import { useKeepPlace } from './useKeepPlace'
 import { useProgressiveRows } from './useProgressiveRows'
 
 /**
- * The open document. `snap` is the shell's copy, which skips streamed text;
- * the blocks come from their own subscription, so a delta re-renders only the
- * block that changed.
+ * The open document. `snap` is the shell's copy, which skips streamed text.
+ * The document reads only which rows there are; each row, the outline and the
+ * page count have their own subscriptions, so a streamed delta re-renders the
+ * row being written and nothing else.
  */
 export function Document({
   snap,
@@ -28,24 +29,19 @@ export function Document({
   outputOnly?: boolean
 }) {
   const threadId = snap.route.kind === 'doc' ? snap.route.threadId : ''
-  const blocks = useBlocks()
-  const visibleBlocks = outputOnly
-    ? blocks.filter((block) => block.kind !== 'callout' && !(block.kind === 'agent' && block.commentary))
-    : blocks
-  const lastBlock = visibleBlocks[visibleBlocks.length - 1]
-  const streamingAgentId = snap.streaming && lastBlock?.kind === 'agent' ? lastBlock.id : null
+  const blockRows = useBlockRows()
+  const visibleRows = outputOnly ? blockRows.filter(inOutputView) : blockRows
+  const lastRow = visibleRows[visibleRows.length - 1]
+  const streamingAgentId = snap.streaming && lastRow?.kind === 'agent' ? lastRow.id : null
   const waiting = snap.streaming && streamingAgentId === null
-  const outline = outlineEntries(visibleBlocks)
-  const newest = blocks[blocks.length - 1]
-  const rows = useProgressiveRows(visibleBlocks.length)
+  const newest = blockRows[blockRows.length - 1]
+  const rows = useProgressiveRows(visibleRows.length)
   // The composer waits for the last rows, so it never shows mid-document while a long one opens.
-  const allRows = rows >= visibleBlocks.length
+  const allRows = rows >= visibleRows.length
 
   const scrollRef = useRef<HTMLDivElement>(null)
-  const paperRef = useRef<HTMLElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
-  const pages = usePages(paperRef)
   const { release } = useFollowBottom({
     scrollRef,
     contentRef,
@@ -92,16 +88,10 @@ export function Document({
     <div className="workspace" data-testid="document" ref={scrollRef}>
       <div className="doc-layout">
         <VerticalRuler />
-        <Tabs onNew={onNew} entries={outline} onJump={jumpTo} />
+        <Outline outputOnly={outputOnly} onNew={onNew} onJump={jumpTo} />
         <div className="paper-col">
           <Ruler />
-          <article className="paper" ref={paperRef} style={{ minHeight: (pages - 1) * PAGE_PITCH + PAGE_HEIGHT }}>
-            {/* Print layout: the sheets are drawn behind one flow of text that usePages breaks between them. */}
-            <div className="page-sheets" aria-hidden="true">
-              {Array.from({ length: pages }, (_, index) => (
-                <div key={index} className="page-sheet" style={{ top: index * PAGE_PITCH }} />
-              ))}
-            </div>
+          <Paper>
             {snap.hasOlder ? (
               <button
                 type="button"
@@ -115,8 +105,8 @@ export function Document({
             ) : null}
             {/* What follow-bottom watches grow: unlike the paper, it has no minimum height. */}
             <div className="paper-flow" ref={contentRef}>
-              {visibleBlocks.slice(0, rows).map((block) => (
-                <BlockRow key={block.id} block={block} streaming={block.id === streamingAgentId} />
+              {visibleRows.slice(0, rows).map((row) => (
+                <BlockRow key={row.id} id={row.id} streaming={row.id === streamingAgentId} />
               ))}
               {allRows && waiting ? (
                 <p className="doc-body pending" aria-live="polite" aria-label="Working">
@@ -126,7 +116,7 @@ export function Document({
               {allRows ? <Composer threadId={threadId} streaming={snap.streaming} skills={snap.skills} /> : null}
             </div>
             <div className="paper-end" ref={endRef} aria-hidden="true" />
-          </article>
+          </Paper>
         </div>
       </div>
       {/* Docs' floating spark pill; while an answer streams, a click stops it. */}
@@ -156,8 +146,24 @@ export function Document({
 /** How long a jump waits for its smooth scroll to end before giving up on settling. */
 const JUMP_SETTLE_MS = 3000
 
-/** One block on the page. Unchanged blocks keep their identity, so a delta skips every other row. */
-const BlockRow = memo(function BlockRow({ block, streaming }: { block: Block; streaming: boolean }) {
+/** The "Document tabs" panel, subscribed to the outline so a heading re-renders only the panel. */
+function Outline({
+  outputOnly,
+  onNew,
+  onJump,
+}: {
+  outputOnly: boolean
+  onNew: () => void
+  onJump: (entry: OutlineEntry) => void
+}) {
+  return <Tabs onNew={onNew} entries={useOutline(outputOnly)} onJump={onJump} />
+}
+
+/** One block on the page. It reads its own block, so a delta to another block never renders it. */
+const BlockRow = memo(function BlockRow({ id, streaming }: { id: string; streaming: boolean }) {
+  const block = useBlock(id)
+  // Only between a patch removing the block and the document dropping its row.
+  if (!block) return null
   return (
     <div
       className="doc-block"

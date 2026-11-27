@@ -126,7 +126,6 @@ export function useSnapshotSelector<T>(
 }
 
 const whole = (snap: Snapshot) => snap
-const blocksOf = (snap: Snapshot) => snap.blocks
 
 /** Everything on the snapshot apart from the open document's blocks. */
 function sameApartFromBlocks(a: Snapshot, b: Snapshot): boolean {
@@ -143,11 +142,6 @@ function sameApartFromBlocks(a: Snapshot, b: Snapshot): boolean {
  */
 export function useShellSnapshot(): Snapshot {
   return useSnapshotSelector(whole, sameApartFromBlocks)
-}
-
-/** The open document's blocks; unchanged blocks keep their identity across patches. */
-export function useBlocks(): ReadonlyArray<Block> {
-  return useSnapshotSelector(blocksOf)
 }
 
 /** A block's place in the document: what decides which rows show, without its text. */
