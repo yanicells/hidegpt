@@ -21,6 +21,9 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     ends the protocol on a defect in its reader or writer, as on a transport
     error, and answers a request handler's defect with an internal error
     (marked `HideGPT:`; tested in `protocol.defect.test.ts`).
+  - Local change, not in T3: the schema generator emits only the methods in
+    `scripts/allowlist.ts` and the schemas they reach, without `description`
+    annotations (marked `HideGPT:`; tested in `scripts/allowlist.test.ts`).
   - Replay fixtures, from commit 5c6f2f12: `scripts/record-codex-replay.ts`
     and `src/codex/replay.ts` (the recording protocol logger), from
     `apps/server/scripts/record-codex-app-server-replay-fixture.ts`;

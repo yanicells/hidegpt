@@ -54,7 +54,9 @@ that maps its own wire types into the shared model in a pure `mapping.ts`.
   are out of scope (no documented API). The protocol schemas under
   `src/vendor/effect-codex-app-server/_generated/` come from `pnpm protocol`
   (the installed CLI's `codex app-server generate-ts`) — never hand-edit them,
-  never invent protocol methods. `pnpm protocol --check` fails when they no
+  never invent protocol methods. They hold only the methods listed in
+  `src/vendor/effect-codex-app-server/scripts/allowlist.ts`: to use another,
+  add it there and run `pnpm protocol`. `pnpm protocol --check` fails when they no
   longer match the installed CLI. Wire-to-model mapping (items, approvals,
   catalog) lives in `src/codex/mapping.ts`.
 - **OpenCode** (`src/opencode/OpenCodeAdapter.ts`): spawns `opencode serve` on
