@@ -97,6 +97,16 @@ describe('scanMarkdownBlocks', () => {
     }
   })
 
+  it('keeps the earlier blocks it was given instead of scanning them again', () => {
+    // A stand-in first block of the same length: only a resumed scan can return it.
+    const previous: MarkdownBlocks = {
+      text: 'a\n\nb\n\nc\n\nd',
+      blocks: ['X\n\n', 'b\n\n', 'c\n\n', 'd'],
+      openCode: null,
+    }
+    expect(scanMarkdownBlocks('a\n\nb\n\nc\n\nd e', previous)?.blocks).toEqual(['X\n\n', 'b\n\n', 'c\n\n', 'd e'])
+  })
+
   it.each([
     ['a\n\n```\nb\n\nc', 'a\n\n```\nb'],
     ['a\n\n```\nb\n\nc', 'x\n\n```\nb\n\nc\n```\n\nd'],
@@ -114,6 +124,8 @@ describe('scanMarkdownBlocks', () => {
     ['```\nx\n```', null],
     ['```c\\+\\+\nx', null],
     ['```a&amp;b\nx', null],
+    ['~~~a\u0000b\nx\u0000', { code: 'x\uFFFD', lang: 'a\uFFFDb' }],
+    ['~~~a\u0000b', { code: '', lang: 'a\uFFFDb' }],
   ])('reports a fence open at the end only where it opens its block: %j', (text, openCode) => {
     expect(scanMarkdownBlocks(text)?.openCode).toEqual(openCode)
   })

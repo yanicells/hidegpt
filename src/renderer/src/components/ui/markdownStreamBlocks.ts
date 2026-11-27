@@ -116,7 +116,8 @@ function scan(text: string, blockStart: number, blocks: string[]): MarkdownBlock
 function readOpenCode(block: string, fence: string, indent: number): OpenCode | null {
   const openerEnd = block.indexOf('\n')
   const info = (openerEnd === -1 ? block : block.slice(0, openerEnd)).slice(indent + fence.length)
-  const lang = /^[ \t]*([^ \t]*)/.exec(info)?.[1] || null
+  // remark replaces NUL in the language word as in the code, so the class name matches once it closes.
+  const lang = /^[ \t]*([^ \t]*)/.exec(info)?.[1]?.replaceAll('\0', '\uFFFD') || null
   // Escapes and character references in the language are decoded; a tab in an
   // indented fence's content counts as spaces.
   if ((lang && /[\\&]/.test(lang)) || (indent > 0 && block.includes('\t'))) return null
