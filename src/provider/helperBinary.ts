@@ -7,6 +7,7 @@ import {
   accessSync,
   closeSync,
   constants,
+  existsSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -85,13 +86,18 @@ export function resolveHelper(
     // Already renamed: the personal build ships Claude Code under this name.
     if (basename(binary) === HELPER_NAME) return unchanged
     let childEnv = env
+    // The path a launcher script is run by (its `argv[1]`).
+    let entrypoint = found
     if (isScript(binary)) {
       // A pnpm global bin is a shell shim that names its target.
       const target = shimTarget(binary)
-      if (target !== null) binary = realpathSync(target)
+      if (target !== null) {
+        entrypoint = target
+        binary = realpathSync(target)
+      }
     }
     if (isScript(binary)) {
-      const launcher = codexLauncher(binary)
+      const launcher = codexLauncher(binary, entrypoint, { ...host.env, ...env })
       if (launcher === null) return unchanged
       binary = launcher.binary
       childEnv = { ...env, ...launcher.env }
@@ -162,24 +168,34 @@ const isScript = (path: string) => readHead(path).toString('latin1').startsWith(
 /** 64- and 32-bit Mach-O in either byte order, and universal (fat) binaries. */
 const MACH_O = new Set(['cffaedfe', 'cefaedfe', 'feedfacf', 'feedface', 'cafebabe'])
 
-/** The target pnpm's shell shim names in its last line (`# cmd-shim-target=<path>`), or null. */
+/**
+ * The target pnpm's shell shim names in its last line (`# cmd-shim-target=<path>`), or null.
+ * Trailing blank lines and CRLF endings are allowed; a line anywhere else is not the shim's.
+ */
 function shimTarget(script: string): string | null {
   if (statSync(script).size > 16 * 1024) return null
-  const target = /^# cmd-shim-target=(\/.+)$/m.exec(readFileSync(script, 'utf8'))?.[1]
+  const last = readFileSync(script, 'utf8').trimEnd().split('\n').at(-1) ?? ''
+  const target = /^# cmd-shim-target=(\/.+)$/.exec(last)?.[1]
   return target !== undefined && isExecutableFile(target) ? target : null
 }
 
 const CODEX_LAUNCHER = `${sep}@openai${sep}codex${sep}bin${sep}codex.js`
 const CODEX_TRIPLES: Record<string, string> = { arm64: 'aarch64-apple-darwin', x64: 'x86_64-apple-darwin' }
 const CODEX_MANAGERS = ['NPM', 'BUN', 'PNPM', 'VITE_PLUS'] as const
+type CodexManager = (typeof CODEX_MANAGERS)[number]
 
 /**
  * The npm package's `bin/codex.js` finds its platform package's native binary
  * and replaces itself with it, setting the package root and which manager
  * installed it (clearing the others). Spawning that binary directly with the
- * same variables is what the launcher would have run.
+ * same variables is what the launcher would have run. `entrypoint` is the path
+ * the launcher would be run by; `env` is the env it would see.
  */
-function codexLauncher(script: string): { binary: string; env: Record<string, string | undefined> } | null {
+function codexLauncher(
+  script: string,
+  entrypoint: string,
+  env: Record<string, string | undefined>,
+): { binary: string; env: Record<string, string | undefined> } | null {
   if (!script.endsWith(CODEX_LAUNCHER)) return null
   const triple = CODEX_TRIPLES[process.arch]
   if (!triple) return null
@@ -194,16 +210,63 @@ function codexLauncher(script: string): { binary: string; env: Record<string, st
   }
   const binary = join(vendor, triple, 'bin', 'codex')
   if (!isExecutableFile(binary)) return null
-  // The launcher's guess, simplified: started from an app (no `npm_config_user_agent`), it says
-  // npm unless the install sits in bun's or pnpm's global folder (Vite+'s is not checked here).
-  const manager = script.includes(`${sep}.bun${sep}install${sep}global${sep}`)
-    ? 'BUN'
-    : script.includes(`${sep}pnpm${sep}global${sep}`)
-      ? 'PNPM'
-      : 'NPM'
-  const env: Record<string, string | undefined> = { CODEX_MANAGED_PACKAGE_ROOT: packageRoot }
-  for (const each of CODEX_MANAGERS) env[`CODEX_MANAGED_BY_${each}`] = each === manager ? '1' : undefined
-  return { binary, env }
+  const manager = codexManager(packageRoot, dirname(entrypoint), env)
+  const childEnv: Record<string, string | undefined> = { CODEX_MANAGED_PACKAGE_ROOT: packageRoot }
+  for (const each of CODEX_MANAGERS) childEnv[`CODEX_MANAGED_BY_${each}`] = each === manager ? '1' : undefined
+  return { binary, env: childEnv }
+}
+
+/**
+ * `detectPackageManager` from `codex.js` (0.167), step for step. Codex uses the
+ * answer only to say which command updates it; npm is the launcher's default too.
+ */
+function codexManager(
+  packageRoot: string,
+  entrypointDir: string,
+  env: Record<string, string | undefined>,
+): CodexManager {
+  for (const start of new Set([packageRoot, entrypointDir])) {
+    for (let dir = start; ; dir = dirname(dir)) {
+      if (ownedByVitePlus(dir, packageRoot)) return 'VITE_PLUS'
+      if (ownedByPnpm(join(dir, 'node_modules'), packageRoot)) return 'PNPM'
+      if (dirname(dir) === dir) break
+    }
+  }
+  if (/\bbun\//.test(env.npm_config_user_agent ?? '') || (env.npm_execpath ?? '').includes('bun')) return 'BUN'
+  if (packageRoot.includes(`${sep}.bun${sep}install${sep}global`)) return 'BUN'
+  return 'NPM'
+}
+
+const realpathOrNull = (path: string) => {
+  try {
+    return realpathSync(path)
+  } catch {
+    return null
+  }
+}
+
+/** pnpm writes `.modules.yaml` into each `node_modules` it owns. */
+const ownedByPnpm = (nodeModules: string, packageRoot: string) =>
+  existsSync(join(nodeModules, '.modules.yaml')) &&
+  realpathOrNull(join(nodeModules, '@openai', 'codex')) === packageRoot
+
+/** Vite+ records its active global install in `packages/@openai/codex.json`. */
+function ownedByVitePlus(packages: string, packageRoot: string): boolean {
+  if (basename(packages) !== 'packages') return false
+  let metadata: { name?: unknown; installId?: unknown }
+  try {
+    metadata = JSON.parse(readFileSync(join(packages, '@openai', 'codex.json'), 'utf8')) as typeof metadata
+  } catch {
+    return false
+  }
+  if (metadata.name !== '@openai/codex') return false
+  const installId = typeof metadata.installId === 'string' ? metadata.installId : ''
+  const installDir = installId.startsWith('#')
+    ? join(packages, `@openai/codex${installId}`)
+    : join(packages, '@openai/codex', installId)
+  return [join(installDir, 'lib', 'node_modules'), join(installDir, 'node_modules')].some(
+    (nodeModules) => realpathOrNull(join(nodeModules, '@openai', 'codex')) === packageRoot,
+  )
 }
 
 /** clonefile(2) through `cp -c`, which fails rather than copy. (Node's FICLONE_FORCE is ENOSYS on macOS; FICLONE copies.) */

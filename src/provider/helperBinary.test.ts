@@ -189,17 +189,64 @@ describe.runIf(process.platform === 'darwin')('resolveHelper', () => {
       expect(readlinkSync(join(helper.command, '..', '..', 'codex-path'))).toBe(codexPath)
     })
 
+    /** A pnpm global install: `.modules.yaml` marks the `node_modules` pnpm owns. */
+    const pnpmInstall = (name: string) => {
+      const global = join(root, name, 'pnpm', 'global', '5')
+      const { pkg, launcher } = codexInstall(global)
+      writeFileSync(join(global, 'node_modules', '.modules.yaml'), '')
+      return { pkg, launcher, bin: join(root, name, 'pnpm') }
+    }
+
     it('follows a pnpm global shim to the same binary', () => {
-      const { pkg } = codexInstall(join(root, 'Library', 'pnpm', 'global', '5'))
-      const bin = join(root, 'Library', 'pnpm')
+      const { pkg, launcher, bin } = pnpmInstall('pnpm-shim')
       executable(
         join(bin, 'codex'),
-        `#!/bin/sh\nexec node "$basedir/global/5/node_modules/@openai/codex/bin/codex.js" "$@"\n# cmd-shim-target=${join(pkg, 'bin', 'codex.js')}\n`,
+        `#!/bin/sh\nexec node "$basedir/global/5/node_modules/@openai/codex/bin/codex.js" "$@"\n# cmd-shim-target=${launcher}\n`,
       )
 
       const helper = resolveHelper('codex', { PATH: bin }, helpersDir(), mac)
       expect(helper.command.endsWith(`/bin/${HELPER_NAME}`)).toBe(true)
       expect(helper.env).toStrictEqual({ PATH: bin, CODEX_MANAGED_PACKAGE_ROOT: pkg, ...managers('PNPM') })
+    })
+
+    it('reads the shim’s target only from its last line', () => {
+      const { launcher, bin } = pnpmInstall('pnpm-lines')
+      const shim = (text: string) => {
+        executable(join(bin, 'codex'), text)
+        return resolveHelper('codex', { PATH: bin }, helpersDir(), mac).command.endsWith(`/${HELPER_NAME}`)
+      }
+      const line = `# cmd-shim-target=${launcher}`
+      expect(shim(`#!/bin/sh\n${line}`)).toBe(true)
+      expect(shim(`#!/bin/sh\r\n${line}\r\n`)).toBe(true)
+      expect(shim(`#!/bin/sh\n${line}\n\n\n`)).toBe(true)
+      expect(shim(`#!/bin/sh\n${line}\nexec something-else\n`)).toBe(false)
+      expect(shim('#!/bin/sh\n')).toBe(false)
+      expect(shim('#!')).toBe(false)
+    })
+
+    it('names the manager the launcher would: Vite+, bun by folder or by agent', () => {
+      const linked = (prefix: string) => {
+        const { pkg, launcher } = codexInstall(prefix)
+        const bin = join(prefix, 'link-bin')
+        mkdirSync(bin)
+        symlinkSync(launcher, join(bin, 'codex'))
+        return { pkg, bin }
+      }
+      const managed = (bin: string, extra: Record<string, string> = {}) =>
+        Object.entries(resolveHelper('codex', { PATH: bin, ...extra }, helpersDir(), mac).env ?? {})
+          .filter(([name, value]) => name.startsWith('CODEX_MANAGED_BY_') && value === '1')
+          .map(([name]) => name)
+
+      const bun = linked(join(root, 'home', '.bun', 'install', 'global'))
+      expect(managed(bun.bin)).toEqual(['CODEX_MANAGED_BY_BUN'])
+      const npm = linked(join(root, 'agent', 'lib'))
+      expect(managed(npm.bin)).toEqual(['CODEX_MANAGED_BY_NPM'])
+      expect(managed(npm.bin, { npm_config_user_agent: 'bun/1.3.0 npm/? node/v24' })).toEqual(['CODEX_MANAGED_BY_BUN'])
+
+      const packages = join(root, 'vite', 'packages')
+      const vite = linked(join(packages, '@openai', 'codex', 'install-1', 'lib'))
+      writeFileSync(join(packages, '@openai', 'codex.json'), '{"name":"@openai/codex","installId":"install-1"}')
+      expect(managed(vite.bin)).toEqual(['CODEX_MANAGED_BY_VITE_PLUS'])
     })
   })
 })
