@@ -121,6 +121,9 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     `markdownStreamBlocks.ts`, with their tests: the cached Markdown renderer and
     the streaming block splitter, from `apps/web/src/components/chat/` (commit
     8a14762c).
+  - `markdownStreamBlocks.ts` (commit 5c6f2f12): resuming a streamed text from its
+    previous result, and falling back on CR and BOM, from
+    `apps/web/src/markdown-incremental.ts`.
   - `src/renderer/src/components/document/useFollowBottom.ts`: letting go of the
     bottom on upward input (wheel, up keys, a scrollbar press) unless a nested
     box scrolls, and on any other upward scroll (the upward-scroll detector),

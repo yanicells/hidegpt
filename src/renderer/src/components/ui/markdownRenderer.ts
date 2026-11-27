@@ -43,12 +43,25 @@ function remember(key: string, element: ReactElement) {
   }
 }
 
+export interface MarkdownRenderer {
+  /** Renders Markdown. `cache` keeps the element for text that will not change again. */
+  readonly markdown: (text: string, cache: boolean) => ReactElement
+  /**
+   * Renders the element `markdown` gives for a fenced code block holding `code`
+   * (its content lines, as remark reads them) in `lang`, without parsing.
+   */
+  readonly codeBlock: (code: string, lang: string | null) => ReactElement
+}
+
 /**
  * Renders Markdown as react-markdown does, with one frozen processor instead
- * of a new one per render. `cache` keeps the element for text that will not
- * change again.
+ * of a new one per render.
  */
-export function createMarkdownRenderer({ remarkPlugins, components, urlTransform }: MarkdownRendererOptions) {
+export function createMarkdownRenderer({
+  remarkPlugins,
+  components,
+  urlTransform,
+}: MarkdownRendererOptions): MarkdownRenderer {
   const processor = unified()
     .use(remarkParse)
     .use(remarkPlugins)
@@ -79,7 +92,20 @@ export function createMarkdownRenderer({ remarkPlugins, components, urlTransform
     }
   }
 
-  return (text: string, cache: boolean): ReactElement => {
+  const toElement = (tree: Root): ReactElement => {
+    prepare(tree)
+    return toJsxRuntime(tree, {
+      Fragment,
+      components,
+      ignoreInvalidStyle: true,
+      jsx,
+      jsxs,
+      passKeys: true,
+      passNode: true,
+    })
+  }
+
+  const markdown = (text: string, cache: boolean): ReactElement => {
     const key = keyPrefix + text
     const cached = rendered.get(key)
     if (cached !== undefined) {
@@ -89,18 +115,31 @@ export function createMarkdownRenderer({ remarkPlugins, components, urlTransform
       return cached
     }
     const file = new VFile(text)
-    const tree = processor.runSync(processor.parse(file), file) as Root
-    prepare(tree)
-    const element = toJsxRuntime(tree, {
-      Fragment,
-      components,
-      ignoreInvalidStyle: true,
-      jsx,
-      jsxs,
-      passKeys: true,
-      passNode: true,
-    })
+    const element = toElement(processor.runSync(processor.parse(file), file) as Root)
     if (cache) remember(key, element)
     return element
   }
+
+  // The tree mdast-util-to-hast builds for a `code` node, so keys and components match too.
+  const codeBlock = (code: string, lang: string | null): ReactElement =>
+    toElement({
+      type: 'root',
+      children: [
+        {
+          type: 'element',
+          tagName: 'pre',
+          properties: {},
+          children: [
+            {
+              type: 'element',
+              tagName: 'code',
+              properties: lang ? { className: [`language-${lang.split(/\s+/)[0]}`] } : {},
+              children: [{ type: 'text', value: code ? `${code}\n` : '' }],
+            },
+          ],
+        },
+      ],
+    })
+
+  return { markdown, codeBlock }
 }

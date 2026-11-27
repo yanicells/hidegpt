@@ -11,7 +11,11 @@ import { createMarkdownRenderer } from './markdownRenderer'
 const urlTransform = (url: string) => `${url}#seen`
 
 describe('createMarkdownRenderer', () => {
-  const render = createMarkdownRenderer({ remarkPlugins: [remarkGfm], components: {}, urlTransform })
+  const { markdown: render, codeBlock } = createMarkdownRenderer({
+    remarkPlugins: [remarkGfm],
+    components: {},
+    urlTransform,
+  })
 
   it.each([
     '# Title\n\nText with `code`, **bold**, [a link](https://example.com "t") and https://bare.example.com.',
@@ -30,6 +34,16 @@ describe('createMarkdownRenderer', () => {
     const element = render(source, true)
     expect(renderToStaticMarkup(element)).toBe(expected)
     expect(render(source, true)).toBe(element)
+  })
+
+  // The element, keys included, so a block that switches between the two keeps its DOM.
+  it.each([
+    ['```ts title="a.ts"\nconst a = 1;\n```', 'const a = 1;', 'ts'],
+    ['~~~\n\n\n~~~', '\n', null],
+    ['```\n```', '', null],
+    ['```ts\u00a0x\n<b>&amp;</b>\n```', '<b>&amp;</b>', 'ts\u00a0x'],
+  ])('renders a code block as the Markdown for it renders: %j', (source, code, lang) => {
+    expect(codeBlock(code, lang)).toEqual(render(source, false))
   })
 
   it('keeps cached answers when one far larger than the cache is rendered', () => {
