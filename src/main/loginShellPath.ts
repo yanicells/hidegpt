@@ -130,18 +130,22 @@ export function readLoginShellPath(
 }
 
 /** `$SHELL`, then the account's shell, then /bin/zsh, without repeats (T3 Code's `listLoginShellCandidates`). */
-export function loginShellCandidates(env: NodeJS.ProcessEnv, accountShell = readAccountShell()): ReadonlyArray<string> {
+export function loginShellCandidates(
+  env: NodeJS.ProcessEnv,
+  accountShell: string | null = readAccountShell(),
+): ReadonlyArray<string> {
   const candidates = [env.SHELL?.trim(), accountShell?.trim(), '/bin/zsh'].filter((shell): shell is string =>
     Boolean(shell),
   )
   return [...new Set(candidates)]
 }
 
-function readAccountShell(): string | undefined {
+/** The account's shell, or null when it has none or can't be read. */
+function readAccountShell(): string | null {
   try {
-    return userInfo().shell ?? undefined
+    return userInfo().shell ?? null
   } catch {
-    return undefined
+    return null
   }
 }
 

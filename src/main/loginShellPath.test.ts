@@ -76,7 +76,8 @@ describe('login shell candidates', () => {
       '/bin/zsh',
     ])
     expect(loginShellCandidates({ SHELL: '/bin/zsh' }, '/bin/zsh')).toEqual(['/bin/zsh'])
-    expect(loginShellCandidates({}, undefined)).toEqual(['/bin/zsh'])
+    // null: no account shell. `undefined` would read this machine's (bash on Linux CI).
+    expect(loginShellCandidates({}, null)).toEqual(['/bin/zsh'])
   })
 
   it('falls through to the next shell until one gives a PATH', async () => {
