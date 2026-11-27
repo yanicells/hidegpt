@@ -108,7 +108,8 @@ export function resolveHelper(
     const name = basename(binary)
     if (SHIMS.has(name) || !name.startsWith(basename(found))) return unchanged
     if (!MACH_O.has(readHead(binary).toString('hex'))) return unchanged
-    return { command: ensureClone(binary, directory, host.clone ?? cloneFile), env: childEnv }
+    const clone = ensureClone(binary, directory, host.clone ?? cloneFile)
+    return clone === null ? unchanged : { command: clone, env: childEnv }
   } catch {
     return unchanged
   }
@@ -293,16 +294,46 @@ const sameStamp = (a: Stamp | null, b: Stamp) =>
   a !== null && a.source === b.source && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ino === b.ino
 
 /**
- * The clone of `source`, made (or remade, when the source's size, modified
- * time or inode changed: an update) if needed. Main holds the single-instance
- * lock and this runs synchronously, so two builds of one folder never overlap.
+ * Clones that could not be made this session, by folder: a disk that can't clone
+ * (another volume) fails the same way every time, so it is tried once per
+ * source version rather than on every start.
  */
-function ensureClone(source: string, directory: string, clone: (source: string, target: string) => void): string {
+const failedBuilds = new Map<string, Stamp>()
+
+/**
+ * The clone of `source`, made (or remade, when the source's size, modified
+ * time or inode changed: an update) if needed, or null when it already failed
+ * for this version. Main holds the single-instance lock and this runs
+ * synchronously, so two builds of one folder never overlap.
+ */
+function ensureClone(
+  source: string,
+  directory: string,
+  clone: (source: string, target: string) => void,
+): string | null {
   const stamp = stampOf(source)
   const dir = join(directory, createHash('sha256').update(source).digest('hex').slice(0, 16))
   const helper = join(dir, FOLDER, HELPER_NAME)
   if (sameStamp(readStamp(dir), stamp) && isExecutableFile(helper)) return helper
+  if (sameStamp(failedBuilds.get(dir) ?? null, stamp)) return null
+  try {
+    build(source, stamp, dir, helper, clone)
+  } catch (error) {
+    failedBuilds.set(dir, stamp)
+    throw error
+  }
+  pruneStale(directory, dir)
+  return helper
+}
 
+/** Writes `dir` from scratch: the clone, its links, and the stamp last. */
+function build(
+  source: string,
+  stamp: Stamp,
+  dir: string,
+  helper: string,
+  clone: (source: string, target: string) => void,
+): void {
   // A process running from the old clone keeps its open file, but its sibling links are rebuilt
   // under it, and anything that re-runs its own path gets the new clone.
   rmSync(dir, { recursive: true, force: true })
@@ -312,8 +343,6 @@ function ensureClone(source: string, directory: string, clone: (source: string, 
   mirror(dirname(source), join(dir, FOLDER), basename(source))
   mirror(dirname(dirname(source)), dir, FOLDER)
   writeFileSync(join(dir, STAMP), JSON.stringify(stamp))
-  pruneStale(directory, dir)
-  return helper
 }
 
 /** Symlinks each entry of `from` (but `skip`) into `to`. */

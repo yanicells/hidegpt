@@ -128,11 +128,33 @@ describe.runIf(process.platform === 'darwin')('resolveHelper', () => {
     const readonly = helpersDir()
     mkdirSync(readonly)
     chmodSync(readonly, 0o500)
+    const unwritable = nodeAt(join(root, 'failing', 'unwritable', 'tool'))
     try {
-      expect(resolveHelper(source, undefined, readonly, mac).command).toBe(source)
+      expect(resolveHelper(unwritable, undefined, readonly, mac).command).toBe(unwritable)
     } finally {
       chmodSync(readonly, 0o700)
     }
+  })
+
+  it('tries a clone that cannot be made once per source version', () => {
+    const source = nodeAt(join(root, 'once', 'bin', 'tool'))
+    const dir = helpersDir()
+    let attempts = 0
+    const failing = {
+      ...mac,
+      clone: () => {
+        attempts += 1
+        throw new Error('EXDEV: cross-device clone')
+      },
+    }
+    expect(resolveHelper(source, undefined, dir, failing).command).toBe(source)
+    expect(resolveHelper(source, undefined, dir, failing).command).toBe(source)
+    expect(attempts).toBe(1)
+
+    // An update is a new version, so it gets its own try.
+    utimesSync(source, new Date(), new Date(Date.now() + 60_000))
+    expect(resolveHelper(source, undefined, dir, failing).command).toBe(source)
+    expect(attempts).toBe(2)
   })
 
   it('leaves the command alone when off, off macOS, in demo mode, already renamed, a shim, or not a binary', () => {
