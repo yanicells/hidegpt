@@ -28,12 +28,13 @@ function nextStep(step: number, ms: number): number {
  * progressively and a thread change closes the pending step's channel.
  */
 export function useProgressiveRows(count: number): number {
-  const [state, setState] = useState({ limit: FIRST_ROWS, done: false })
+  const [state, setState] = useState(() => ({ limit: FIRST_ROWS, done: count <= FIRST_ROWS }))
   const step = useRef(FIRST_STEP)
   const done = state.done || state.limit >= count
 
   useEffect(() => {
     if (done) {
+      // Only when rows were removed mid-open: the last step latches `done` itself.
       // oxlint-disable-next-line react/set-state-in-effect -- latches `done` once every row is on the page
       if (!state.done) setState((previous) => ({ ...previous, done: true }))
       return
@@ -42,7 +43,12 @@ export function useProgressiveRows(count: number): number {
     channel.port1.onmessage = () => {
       const started = performance.now()
       // Rendered here rather than in a later scheduler task, so the time is the step's own.
-      flushSync(() => setState((previous) => ({ ...previous, limit: previous.limit + step.current })))
+      flushSync(() =>
+        setState((previous) => {
+          const limit = previous.limit + step.current
+          return { limit, done: limit >= count }
+        }),
+      )
       step.current = nextStep(step.current, performance.now() - started)
     }
     channel.port2.postMessage(null)
@@ -52,7 +58,7 @@ export function useProgressiveRows(count: number): number {
       channel.port1.close()
     }
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- each new limit schedules the next step
-  }, [done, state.done, state.limit])
+  }, [count, done, state.done, state.limit])
 
   return done ? count : state.limit
 }

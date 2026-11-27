@@ -25,12 +25,14 @@ class FakeChannel {
 // Fake time: each render of the hook costs `renderMs`.
 let now = 0
 let renderMs = 0
+let renders = 0
 
 beforeEach(() => {
   queued.length = 0
   channels.length = 0
   now = 0
   renderMs = 0
+  renders = 0
   vi.stubGlobal('MessageChannel', FakeChannel)
   vi.spyOn(performance, 'now').mockImplementation(() => now)
 })
@@ -44,6 +46,7 @@ const open = (count: number) =>
   renderHook(
     ({ rows }) => {
       now += renderMs
+      renders++
       return useProgressiveRows(rows)
     },
     { initialProps: { rows: count } },
@@ -66,6 +69,8 @@ describe('useProgressiveRows', () => {
     nextTask(10)
     expect(result.current).toBe(40)
     expect(queued).toHaveLength(0)
+    // The open plus one render per step: the last step needs no extra render to latch.
+    expect(renders).toBe(4)
 
     // "Load earlier" or a new turn after the document is fully open.
     rerender({ rows: 70 })
@@ -77,6 +82,7 @@ describe('useProgressiveRows', () => {
     const { result } = open(5)
     expect(result.current).toBe(5)
     expect(channels).toHaveLength(0)
+    expect(renders).toBe(1)
   })
 
   it('doubles the step while the previous one took under 8 ms', () => {
