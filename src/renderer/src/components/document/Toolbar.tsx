@@ -39,7 +39,7 @@ export function Toolbar({ snap }: { snap: Snapshot }) {
   const stepTier = (step: number) => {
     const order = [null, ...tiers]
     const next = order[Math.max(0, Math.min(order.length - 1, order.indexOf(snap.serviceTier ?? null) + step))]
-    if (next !== (snap.serviceTier ?? null)) dispatch({ op: 'setServiceTier', serviceTier: next })
+    if (next !== (snap.serviceTier ?? null)) void dispatch({ op: 'setServiceTier', serviceTier: next })
   }
 
   return (

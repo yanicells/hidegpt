@@ -14,9 +14,12 @@
     "tailwindcss",
     // Run by .githooks/pre-commit, which knip does not read.
     "lint-staged",
+    // The tsconfig plugin name; @effect/tsgo bundles it.
+    "@effect/language-service",
   ],
-  // The fidelity check and diff tools are Python, run through uv (README, Fidelity checks).
-  "ignoreBinaries": ["uv"],
+  // Binaries the scripts run that aren't packages: plutil (macOS, packaging) and uv
+  // (the fidelity check and diff tools are Python, run through uv; README, Fidelity checks).
+  "ignoreBinaries": ["plutil", "uv"],
   "ignoreIssues": {
     // Vendored from T3 Code and kept whole, so it stays easy to re-sync.
     "src/vendor/**": ["files", "exports"],

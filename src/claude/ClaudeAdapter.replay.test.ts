@@ -2,15 +2,19 @@ import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import type { CanUseTool, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { describe, expect, it } from '@effect/vitest'
+import * as Cause from 'effect/Cause'
 import * as Effect from 'effect/Effect'
 import * as Stream from 'effect/Stream'
 
-import type { AdapterEvent, ProviderSession, TurnSettings } from '../provider/ProviderAdapter'
+import type { AdapterEvent } from '../provider/ProviderAdapter'
 import { readTranscript, type ReplayEntry, type ReplayTranscript, scrub } from '../provider/replayFixture'
+import type { ReplayScenario, TurnResult } from '../provider/replayScenario'
 import * as ClaudeAdapter from './ClaudeAdapter'
-import { makeFakeClaude } from './FakeClaude'
+import { type FakeClaudeOptions, makeFakeClaude } from './FakeClaude'
 import { recordingSdk, replaySdk } from './replay'
+import { approval, library, stop, turn } from './replayScenarios'
 
 /**
  * The real adapter against Agent SDK calls recorded from the real Claude Code
@@ -19,7 +23,6 @@ import { recordingSdk, replaySdk } from './replay'
  */
 
 const fixture = (name: string) => new URL(`./fixtures/${name}.ndjson`, import.meta.url).pathname
-const SETTINGS: TurnSettings = { model: null, effort: null, serviceTier: null, mode: null }
 const WORKSPACE = '/tmp/replay-workspace'
 
 /** A real folder for the scenario, so the adapter keeps it as the cwd, mapped back to the recorder's placeholder. */
@@ -28,132 +31,158 @@ const workspace = Effect.acquireRelease(
   (dir) => Effect.sync(() => rmSync(dir, { recursive: true, force: true })),
 ).pipe(Effect.map((dir) => ({ dir, paths: [[dir, WORKSPACE]] as const })))
 
-const open = (sdk: ClaudeAdapter.ClaudeSdk) =>
-  Effect.gen(function* () {
-    const session = yield* ClaudeAdapter.make(async () => sdk).openSession
-    const events: AdapterEvent[] = []
-    yield* Stream.runForEach(session.events, (event) => Effect.sync(() => events.push(event))).pipe(Effect.forkScoped)
-    return { session, events }
-  })
+/** Runs a scenario against `sdk` in its own scope, as the recorder does. */
+const run = <A>(scenario: ReplayScenario<A>, sdk: ClaudeAdapter.ClaudeSdk, dir: string) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const session = yield* ClaudeAdapter.make(async () => sdk).openSession
+      const events: AdapterEvent[] = []
+      yield* Stream.runForEach(session.events, (event) => Effect.sync(() => events.push(event))).pipe(Effect.forkScoped)
+      const result = yield* scenario.run({
+        session,
+        events,
+        workspace: dir,
+        wait: '5 seconds',
+        afterCatalog: Effect.void,
+      })
+      return { result, events }
+    }),
+  )
 
-/** The recorder's turn scenario: a new document, each prompt to the end of its turn, then its history. */
-const turnScenario = (
-  session: ProviderSession,
-  events: ReadonlyArray<AdapterEvent>,
-  prompts: ReadonlyArray<string>,
-  cwd: string,
-) =>
-  Effect.gen(function* () {
-    const created = yield* session.createThread({ cwd, projectId: null, title: null, settings: SETTINGS })
-    for (const [index, text] of prompts.entries()) {
-      const ended = () => events.filter((event) => event.type === 'turnEnded').length
-      const before = ended()
-      yield* session.send(
-        created.threadId,
-        { text, images: [], skill: null, clientId: `local-replay-${index + 1}` },
-        SETTINGS,
-      )
-      yield* Effect.sleep('5 millis').pipe(
-        Effect.repeat({ until: () => ended() > before }),
-        Effect.timeout('5 seconds'),
-      )
-    }
-    return yield* session.openThread(created.threadId)
-  })
+const userTexts = (result: TurnResult) =>
+  result.opened.blocks.flatMap((block) => (block.kind === 'user' ? [block.text] : []))
 
 describe('ClaudeAdapter replay', () => {
   it.live('library: no login shows the sign-in hint, the list is empty, a missing document fails', () =>
     Effect.gen(function* () {
       const replay = replaySdk(readTranscript(fixture('library')))
-      const { session } = yield* open(replay.sdk)
+      const { result } = yield* run(library, replay.sdk, WORKSPACE)
 
-      const catalog = yield* Effect.flip(session.loadCatalog)
-      expect(catalog._tag).toBe('NotLoggedInError')
-
-      const docs = yield* Stream.runHead(session.listDocs(''))
-      expect(docs._tag === 'Some' && docs.value).toEqual([])
-
-      const missing = yield* Effect.flip(session.openThread('00000000-0000-4000-8000-000000000001'))
-      expect(missing).toMatchObject({ _tag: 'ProviderRequestError', operation: 'getSessionInfo' })
+      expect(result.catalog._tag === 'Failure' && Cause.squash(result.catalog.cause)).toMatchObject({
+        _tag: 'NotLoggedInError',
+      })
+      expect(result.docs._tag === 'Some' && result.docs.value).toEqual([])
+      expect(result.missing._tag === 'Failure' && Cause.squash(result.missing.cause)).toMatchObject({
+        _tag: 'ProviderRequestError',
+        operation: 'getSessionInfo',
+      })
       expect(replay.finished()).toEqual({ failure: null, unused: 0 })
     }),
   )
 
-  const TURN_SKIP =
-    'needs src/claude/fixtures/turn.ndjson, which a person records with real prompts (docs/replay-fixtures.md)'
-  it.live.skipIf(!existsSync(fixture('turn')))(`turn: two real turns, then their history (${TURN_SKIP})`, () =>
-    Effect.gen(function* () {
-      const transcript = readTranscript(fixture('turn'))
-      const prompts = transcript.metadata?.prompts as ReadonlyArray<string>
-      const { dir, paths } = yield* workspace
-      const replay = replaySdk(transcript, paths)
-      const { session, events } = yield* open(replay.sdk)
+  /** Turn fixtures a person records with real prompts; each test is skipped until its file exists. */
+  const recorded: ReadonlyArray<
+    readonly [
+      name: string,
+      scenario: ReplayScenario<TurnResult>,
+      check: (result: TurnResult, events: ReadonlyArray<AdapterEvent>) => void,
+    ]
+  > = [
+    [
+      'turn',
+      turn,
+      (result) => {
+        expect(result.ended.filter((ended) => ended.error)).toEqual([])
+        expect(userTexts(result)).toEqual(turn.prompts)
+        expect(result.opened.blocks.filter((block) => block.kind === 'agent' && block.text)).toHaveLength(
+          turn.prompts.length,
+        )
+      },
+    ],
+    [
+      'stop',
+      stop,
+      (result) => {
+        // A stopped turn ends without an error.
+        expect(result.ended).toEqual([{ type: 'turnEnded', threadId: result.opened.threadId }])
+        expect(userTexts(result)).toEqual(stop.prompts)
+      },
+    ],
+    [
+      'approval',
+      approval,
+      (result, events) => {
+        expect(result.ended).toHaveLength(approval.prompts.length)
+        expect(events.filter((event) => event.type === 'block' && event.block.kind === 'approval')).toHaveLength(
+          approval.prompts.length,
+        )
+      },
+    ],
+  ]
+  for (const [name, scenario, check] of recorded) {
+    const skip = `needs src/claude/fixtures/${name}.ndjson, which a person records with real prompts (docs/replay-fixtures.md)`
+    it.live.skipIf(!existsSync(fixture(name)))(`${name}: ${scenario.description} (${skip})`, () =>
+      Effect.gen(function* () {
+        const { dir, paths } = yield* workspace
+        const replay = replaySdk(readTranscript(fixture(name)), paths)
+        const { result, events } = yield* run(scenario, replay.sdk, dir)
+        check(result, events)
+        expect(replay.finished()).toEqual({ failure: null, unused: 0 })
+      }),
+    )
+  }
 
-      const opened = yield* turnScenario(session, events, prompts, dir)
-      expect(events.filter((event) => event.type === 'turnEnded' && event.error)).toEqual([])
-      expect(opened.blocks.flatMap((block) => (block.kind === 'user' ? [block.text] : []))).toEqual(prompts)
-      expect(opened.blocks.filter((block) => block.kind === 'agent' && block.text)).toHaveLength(prompts.length)
-      expect(replay.finished()).toEqual({ failure: null, unused: 0 })
-    }),
-  )
+  // FakeClaude stands in for Claude Code, so these prove each path end to end before real turns are recorded.
+  const roundTrips: ReadonlyArray<readonly [ReplayScenario<TurnResult>, FakeClaudeOptions]> = [
+    [turn, {}],
+    // Slow enough that the stop lands mid-answer.
+    [stop, { deltaDelayMs: 20 }],
+  ]
+  for (const [scenario, fakeOptions] of roundTrips) {
+    const name = scenario === turn ? 'turn' : 'stop'
+    it.live(`the ${name} scenario recorded through recordingSdk replays to the same document`, () =>
+      Effect.gen(function* () {
+        const entries: ReplayEntry[] = []
+        const recording = yield* workspace
+        const recorded = yield* run(
+          scenario,
+          recordingSdk(makeFakeClaude(fakeOptions).sdk, entries, true),
+          recording.dir,
+        )
 
-  // FakeClaude stands in for Claude Code, so this proves the turn path end to end before real turns are recorded.
-  it.live('a turn recorded through recordingSdk replays to the same document', () =>
-    Effect.gen(function* () {
-      const prompts = ['First question', 'Second question']
-      const entries: ReplayEntry[] = []
-      const recording = yield* workspace
-      const recorded = yield* Effect.scoped(
-        Effect.gen(function* () {
-          const { session, events } = yield* open(recordingSdk(makeFakeClaude().sdk, entries, true))
-          return yield* turnScenario(session, events, prompts, recording.dir)
-        }),
-      )
+        // Scrubbed as the recorder does, then replayed from another folder.
+        const machine = { home: homedir(), people: [], hosts: [], scratch: recording.paths }
+        const scrubbed = entries.map((entry) => scrub(entry, machine) as ReplayEntry)
+        expect(JSON.stringify(scrubbed)).toContain(WORKSPACE)
+        const replaying = yield* workspace
+        const replay = replaySdk(
+          {
+            provider: 'claude',
+            protocol: 'claude-agent-sdk.query',
+            version: 'fake',
+            scenario: name,
+            entries: scrubbed,
+          },
+          replaying.paths,
+        )
+        const replayed = yield* run(scenario, replay.sdk, replaying.dir)
 
-      // Scrubbed as the recorder does, then replayed from another folder.
-      const machine = { home: homedir(), people: [], hosts: [], scratch: recording.paths }
-      const scrubbed = entries.map((entry) => scrub(entry, machine) as ReplayEntry)
-      expect(JSON.stringify(scrubbed)).toContain(WORKSPACE)
-      const replaying = yield* workspace
-      const replay = replaySdk(
-        {
-          provider: 'claude',
-          protocol: 'claude-agent-sdk.query',
-          version: 'fake',
-          scenario: 'turn',
-          entries: scrubbed,
-        },
-        replaying.paths,
-      )
-      const replayed = yield* Effect.scoped(
-        Effect.gen(function* () {
-          const { session, events } = yield* open(replay.sdk)
-          return yield* turnScenario(session, events, prompts, replaying.dir)
-        }),
-      )
-      expect(replayed.blocks.map((block) => block.kind)).toEqual(recorded.blocks.map((block) => block.kind))
-      expect(replayed.blocks.flatMap((block) => (block.kind === 'agent' ? [block.text] : []))).toEqual([
-        'You asked: First question',
-        'You asked: Second question',
-      ])
-      expect(replay.finished()).toEqual({ failure: null, unused: 0 })
-    }),
-  )
+        const shape = (result: TurnResult) =>
+          result.opened.blocks.map((block) => [block.kind, 'text' in block ? block.text : null])
+        expect(shape(replayed.result)).toEqual(shape(recorded.result))
+        expect(replayed.result.ended.map((ended) => ended.error ?? null)).toEqual(
+          recorded.result.ended.map((ended) => ended.error ?? null),
+        )
+        expect(replay.finished()).toEqual({ failure: null, unused: 0 })
+        if (scenario === turn) {
+          expect(
+            replayed.result.opened.blocks.flatMap((block) => (block.kind === 'agent' ? [block.text] : [])),
+          ).toEqual(turn.prompts.map((prompt) => `You asked: ${prompt}`))
+        } else {
+          expect(entries.some((entry) => entry.type === 'expect_outbound' && entry.label === 'query.interrupt')).toBe(
+            true,
+          )
+        }
+      }),
+    )
+  }
 
   it.live('without the turn gate, a prompt never reaches Claude Code', () =>
     Effect.gen(function* () {
       const fake = makeFakeClaude()
-      const { session, events } = yield* open(recordingSdk(fake.sdk, [], false))
-      const created = yield* session.createThread({ cwd: WORKSPACE, projectId: null, title: null, settings: SETTINGS })
-      yield* session.send(created.threadId, { text: 'Hello', images: [], skill: null, clientId: 'local-1' }, SETTINGS)
-      yield* Effect.sleep('5 millis').pipe(
-        Effect.repeat({ until: () => events.some((event) => event.type === 'turnEnded') }),
-        Effect.timeout('5 seconds'),
-      )
-      expect(fake.queries[0]?.prompts).toEqual([])
-      expect(events.find((event) => event.type === 'turnEnded')).toMatchObject({
-        error: expect.stringContaining('HIDEGPT_RECORD_TURNS=1'),
-      })
+      const { result } = yield* run(turn, recordingSdk(fake.sdk, [], false), WORKSPACE)
+      expect(fake.queries.flatMap((query) => query.prompts)).toEqual([])
+      expect(result.ended[0]?.error).toContain('HIDEGPT_RECORD_TURNS=1')
     }),
   )
 
@@ -177,6 +206,83 @@ describe('ClaudeAdapter replay', () => {
 
     const wrong = replaySdk(recorded, [['/somewhere/ws', WORKSPACE]])
     await expect(wrong.sdk.listSessions({ dir: '/somewhere/else' })).rejects.toThrow(/expected/)
+  })
+
+  it('permission requests are recorded and replayed: an accept, a deny, and a wrong answer fails', async () => {
+    const WRITE = { file_path: 'tea.txt', content: 'tea' }
+    const REMOVE = { command: 'rm tea.txt' }
+    const decide =
+      (allowAll: boolean): CanUseTool =>
+      async (tool, input) =>
+        allowAll || tool === 'Write'
+          ? { behavior: 'allow', updatedInput: input }
+          : { behavior: 'deny', message: 'Not this time.' }
+    const silent = (async function* (): AsyncGenerator<SDKUserMessage> {})()
+
+    // Record through the real wrapper: FakeClaude asks twice, as Claude Code would before two tools.
+    const fake = makeFakeClaude()
+    const entries: ReplayEntry[] = []
+    const recordedQuery = recordingSdk(fake.sdk, entries, true).query({
+      prompt: silent,
+      options: { canUseTool: decide(false) },
+    })
+    await fake.queries[0]!.askTool('Write', WRITE, 'toolu_1').result
+    await fake.queries[0]!.askTool('Bash', REMOVE, 'toolu_2').result
+    recordedQuery.close()
+    expect(entries.filter((entry) => entry.type !== 'runtime_exit' && entry.label?.startsWith('permission'))).toEqual([
+      {
+        type: 'emit_inbound',
+        label: 'permission',
+        frame: { query: 1, permission: { tool: 'Write', input: WRITE, toolUseID: 'toolu_1' } },
+      },
+      {
+        type: 'expect_outbound',
+        label: 'permissionResult',
+        frame: { query: 1, permissionResult: { behavior: 'allow', updatedInput: WRITE } },
+      },
+      {
+        type: 'emit_inbound',
+        label: 'permission',
+        frame: { query: 1, permission: { tool: 'Bash', input: REMOVE, toolUseID: 'toolu_2' } },
+      },
+      {
+        type: 'expect_outbound',
+        label: 'permissionResult',
+        frame: { query: 1, permissionResult: { behavior: 'deny', message: 'Not this time.' } },
+      },
+    ])
+
+    const transcript: ReplayTranscript = {
+      provider: 'claude',
+      protocol: 'claude-agent-sdk.query',
+      version: 'fake',
+      scenario: 'permissions',
+      entries,
+    }
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 10))
+
+    // The same decisions replay cleanly: the replay itself calls Docs' canUseTool.
+    const right = replaySdk(transcript)
+    const asked: string[] = []
+    const rightQuery = right.sdk.query({
+      prompt: (async function* (): AsyncGenerator<SDKUserMessage> {})(),
+      options: {
+        canUseTool: (tool, input, options) => (asked.push(options.toolUseID), decide(false)(tool, input, options)),
+      },
+    })
+    await settle()
+    rightQuery.close()
+    expect(asked).toEqual(['toolu_1', 'toolu_2'])
+    expect(right.finished()).toEqual({ failure: null, unused: 0 })
+
+    // Allowing what the recording denied fails the replay.
+    const wrong = replaySdk(transcript)
+    wrong.sdk.query({
+      prompt: (async function* (): AsyncGenerator<SDKUserMessage> {})(),
+      options: { canUseTool: decide(true) },
+    })
+    await settle()
+    expect(wrong.finished().failure).toMatch(/expected .*"deny"/)
   })
 
   describe('document ids', () => {
