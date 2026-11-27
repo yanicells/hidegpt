@@ -144,21 +144,26 @@ describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
     )
   })
 
-  it.live('reports a kill that fails on a server still running, and keeps its record for the next launch', () => {
+  /**
+   * A supervisor whose one server is a real `sleep` (so the ledger can read its start time; the
+   * test stops it) behind a fake handle that is still running and whose kill does `kill`.
+   */
+  const withUnkillable = <A, E>(
+    name: string,
+    kill: Effect.Effect<void, PlatformError.PlatformError>,
+    use: Effect.Effect<A, E, ProcessSupervisor>,
+  ) => {
     const { layer: logs, reported } = captureReports()
-    const ledgerPath = join(dir, 'failed-kill-ledger.json')
-    // A real process, so the ledger can read its start time; this test stops it.
-    const server = spawnChild('/bin/sleep', ['30'])
-    const pid = server.pid ?? 0
+    const ledgerPath = join(dir, `${name}-ledger.json`)
+    const pid = spawnChild('/bin/sleep', ['30']).pid ?? 0
     daemons.push(pid)
-    const denied = PlatformError.systemError({ _tag: 'PermissionDenied', module: 'ChildProcess', method: 'kill' })
     const spawner = ChildProcessSpawner.make(() =>
       Effect.succeed(
         ChildProcessSpawner.makeHandle({
           pid: ChildProcessSpawner.ProcessId(pid),
           exitCode: Effect.never,
           isRunning: Effect.succeed(true),
-          kill: () => Effect.fail(denied),
+          kill: () => kill,
           stdin: Sink.drain,
           stdout: Stream.empty,
           stderr: Stream.empty,
@@ -169,19 +174,45 @@ describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
         }),
       ),
     )
-    return Effect.gen(function* () {
-      const supervisor = yield* ProcessSupervisor
-      yield* Effect.scoped(supervisor.spawn({ provider: 'codex', command: '/bin/sleep', args: ['30'] }))
-      expect(reported().map(({ where }) => where)).toEqual(['supervisor.kill'])
-      expect(JSON.parse(readFileSync(ledgerPath, 'utf8'))[pid]).toMatchObject({ command: '/bin/sleep' })
-    }).pipe(
-      Effect.provide(
-        layer(ledgerPath, UNHURRIED).pipe(
-          Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner)),
-          Layer.provideMerge(NodeServices.layer),
-          Layer.provideMerge(logs),
+    const recordOf = () => JSON.parse(readFileSync(ledgerPath, 'utf8'))[pid]
+    return {
+      reported,
+      recordOf,
+      run: use.pipe(
+        Effect.provide(
+          layer(ledgerPath, UNHURRIED).pipe(
+            Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner)),
+            Layer.provideMerge(NodeServices.layer),
+            Layer.provideMerge(logs),
+          ),
         ),
       ),
+    }
+  }
+  const spawnSleep = Effect.gen(function* () {
+    const supervisor = yield* ProcessSupervisor
+    yield* Effect.scoped(supervisor.spawn({ provider: 'codex', command: '/bin/sleep', args: ['30'] }))
+  })
+
+  it.live('reports a kill that fails on a server still running, and keeps its record for the next launch', () => {
+    const denied = PlatformError.systemError({ _tag: 'PermissionDenied', module: 'ChildProcess', method: 'kill' })
+    const { run, reported, recordOf } = withUnkillable('failed-kill', Effect.fail(denied), spawnSleep)
+    return run.pipe(
+      Effect.map(() => {
+        expect(reported().map(({ where }) => where)).toEqual(['supervisor.kill'])
+        expect(recordOf()).toMatchObject({ command: '/bin/sleep' })
+      }),
+    )
+  })
+
+  it.live('keeps the record of a server whose kill is interrupted, and closes the scope normally', () => {
+    const { run, reported, recordOf } = withUnkillable('interrupted-kill', Effect.interrupt, Effect.exit(spawnSleep))
+    return run.pipe(
+      Effect.map((exit) => {
+        expect(exit._tag).toBe('Success')
+        expect(reported()).toEqual([])
+        expect(recordOf()).toMatchObject({ command: '/bin/sleep' })
+      }),
     )
   })
 

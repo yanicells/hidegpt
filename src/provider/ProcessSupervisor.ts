@@ -1,5 +1,6 @@
 import { spawn as spawnChild, type ChildProcessWithoutNullStreams } from 'node:child_process'
 
+import * as Cause from 'effect/Cause'
 import * as Context from 'effect/Context'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
@@ -178,10 +179,13 @@ const make = (
             ),
           ),
           // A kill that failed or died is reported and its record kept, so the next launch reaps the server.
+          // An interrupted one keeps the record too, without raising the interrupt inside this release.
           Effect.flatMap((exit) =>
             Exit.isSuccess(exit)
               ? ledger.stop(handle.pid)
-              : observed(Effect.failCause(exit.cause), { name: 'supervisor.kill' }),
+              : Cause.hasInterruptsOnly(exit.cause)
+                ? Effect.void
+                : observed(Effect.failCause(exit.cause), { name: 'supervisor.kill' }),
           ),
         ),
       )
