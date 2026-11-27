@@ -407,6 +407,9 @@ export function makeFakeOpenCode(options: FakeOpenCodeOptions = {}): FakeOpenCod
         event('session.updated', { sessionID: id, info: sessions[index]! })
         return json(sessions[index])
       }
+      case 'GET /session/:id/children':
+        if (!sessions.some((item) => item.id === id)) return notFound(`Session not found: ${id}`)
+        return json(sessions.filter((item) => item.parentID === id))
       case 'GET /session/:id/message': {
         const list = messages.get(id) ?? []
         const limit = Number(q.get('limit') ?? list.length)
