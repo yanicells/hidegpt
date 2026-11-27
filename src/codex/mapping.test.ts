@@ -56,10 +56,14 @@ describe('docsFailure', () => {
     expect(docsFailure({ ...error, codexErrorInfo: 'usageLimitExceeded' }, null)).toBe('Limit reached. Try again later.')
   })
 
-  it('names a spend cap, which waiting does not lift', () => {
-    const error = { message: 'Spend limit hit', codexErrorInfo: 'projectSpendLimitExceeded' as const, additionalDetails: null, misalignment: null }
-    expect(docsFailure(error, Date.now() + 60_000)).toBe('Spending limit reached. Raise it to continue.')
-  })
+  // The message also reads as a usage limit, so a spend cap must win over the reset time.
+  it.each(['apiKeySpendLimitExceeded', 'projectSpendLimitExceeded', 'organizationSpendLimitExceeded'] as const)(
+    'names a %s, which waiting does not lift',
+    (codexErrorInfo) => {
+      const error = { message: 'You hit your usage limit', codexErrorInfo, additionalDetails: null, misalignment: null }
+      expect(docsFailure(error, new Date(2026, 0, 1, 9, 30).getTime())).toBe('Spending limit reached. Raise it to continue.')
+    },
+  )
 })
 
 // T3 Code's own fixture (apps/server/src/provider/CodexMcpElicitation.test.ts, commit 5c6f2f12):
