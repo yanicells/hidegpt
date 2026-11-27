@@ -32,6 +32,11 @@
   pointer-events: none;
 }
 
+/* In the editor the composer is the page's last line, about 30px off the window's foot; stay clear of it. */
+.route-doc .snackbar-lane {
+  bottom: 72px;
+}
+
 .snackbar-lane .snackbar {
   @apply static flex items-center;
   gap: 4px;
@@ -67,13 +72,6 @@
 .snackbar-action:hover,
 .snackbar-close:hover {
   background: rgba(242, 242, 242, 0.08);
-}
-
-.error-details {
-  @apply whitespace-nowrap;
-  padding: 0 8px;
-  font-size: 12px;
-  color: #c4c7c5;
 }
 
 /* The whole window couldn't render: a plain Docs-style notice with a reload. */

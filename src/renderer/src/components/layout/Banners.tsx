@@ -11,21 +11,6 @@ import { MIcon } from '../ui/MaterialIcon'
 const bannerKey = (snap: Snapshot, error: string) => `${snap.provider}\u0000${error}`
 
 /**
- * A short, stable code for an error, so two failures can be told apart and
- * named without showing their text (which can name the library): FNV-1a over
- * the message, as eight hex digits. Main sends no report id with the message,
- * so this is a fingerprint of the sentence, not a key into the saved reports.
- */
-export function errorCode(message: string): string {
-  let hash = 0x811c9dc5
-  for (let i = 0; i < message.length; i++) {
-    hash ^= message.charCodeAt(i)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return (hash >>> 0).toString(16).padStart(8, '0')
-}
-
-/**
  * Docs' snackbars in the bottom-left corner: sign-in prompts and errors. They
  * float over the window, so showing or hiding one never moves the page, and
  * Home and the open document stay usable underneath.
@@ -67,11 +52,10 @@ export function Banners({ snap }: { snap: Snapshot }) {
       ) : null}
       {errors.map((error) => (
         <div key={error} className="snackbar" role="alert">
-          {/* Docs' own wording; the message itself never reaches the window. */}
+          {/* Docs' own wording. The message can name the library, so it never reaches the window. */}
           <span className="snackbar-text" data-testid="error-banner">
             Something went wrong. Try again.
           </span>
-          <ErrorDetails code={errorCode(error)} />
           <button
             type="button"
             className="snackbar-action"
@@ -81,7 +65,7 @@ export function Banners({ snap }: { snap: Snapshot }) {
               void dispatch({ op: 'refresh' })
             }}
           >
-            Retry
+            Reload
           </button>
           <button
             type="button"
@@ -95,16 +79,5 @@ export function Banners({ snap }: { snap: Snapshot }) {
         </div>
       ))}
     </div>
-  )
-}
-
-/** "Details" shows only the error's code; the saved reports are under Help → Report a problem…. */
-function ErrorDetails({ code }: { code: string }) {
-  const [open, setOpen] = useState(false)
-  if (open) return <span className="error-details">Error {code}</span>
-  return (
-    <button type="button" className="snackbar-action error-details-toggle" onClick={() => setOpen(true)}>
-      Details
-    </button>
   )
 }

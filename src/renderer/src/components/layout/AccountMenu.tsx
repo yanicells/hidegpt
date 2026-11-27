@@ -31,7 +31,9 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
     if (next === snap.provider || pending) return
     setPending(next)
     setError(null)
-    const result = await request({ op: 'setProvider', provider: next, home: snap.route.kind === 'home' })
+    // An open in progress belongs to the old library, so switching from it lands on Home and stops it.
+    const home = snap.route.kind === 'home' || snap.openingThreadId !== null
+    const result = await request({ op: 'setProvider', provider: next, home })
     setPending(null)
     if (result.ok) setOpen(false)
     else setError('Couldn’t switch accounts. Try again.')
@@ -52,7 +54,7 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
           </PopoverClose>
           <span className="account-photo">
             <AvatarFace className="avatar-lg" letter={letter} />
-            {/* Google's "Change profile picture" badge; the picture stays in this window only. */}
+            {/* Google's "Change profile picture" badge; the picture is kept on this computer. */}
             <Tip label="Change profile picture">
               <button
                 type="button"
@@ -134,6 +136,7 @@ export function AccountMenu({ snap }: { snap: Snapshot }) {
               label="Sign out"
               run={() => {
                 void dispatch({ op: 'logout' })
+                clearProfilePhoto()
                 setOpen(false)
               }}
             />

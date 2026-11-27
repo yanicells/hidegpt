@@ -68,6 +68,8 @@ export function DocumentChrome({
                 aria-label="Document title"
                 spellCheck={false}
                 onFocus={() => {
+                  // No draft while opening, so blur has nothing to commit to the previous document.
+                  if (opening) return
                   cancelRef.current = false
                   setDraft(snap.title)
                 }}

@@ -1,11 +1,14 @@
 import { useSyncExternalStore } from 'react'
 
 /**
- * The optional profile picture set from the account menu. It lives only in
- * this window's storage, as a small square JPEG data URL; without one, the
- * avatars show the account's letter.
+ * The optional profile picture set from the account menu. It is kept in the
+ * app's localStorage on disk, so it survives restarts, as a small square JPEG
+ * data URL; signing out clears it. Without one, the avatars show the
+ * account's letter.
  */
 const KEY = 'hidegpt-profile-photo'
+/** Larger files are refused before decoding, so a huge image can't stall the window. */
+export const MAX_PHOTO_BYTES = 20 * 1024 * 1024
 /** Twice the largest avatar (80px), for sharp edges on a 2x screen. */
 const SIZE = 160
 
@@ -38,8 +41,9 @@ export function clearProfilePhoto(): void {
   write(null)
 }
 
-/** Crops the image's centre square, scales it to 160px and keeps it. Rejects if the file is not an image. */
+/** Crops the image's centre square, scales it to 160px and keeps it. Rejects a file that is too big or not an image. */
 export async function setProfilePhoto(file: Blob): Promise<void> {
+  if (file.size > MAX_PHOTO_BYTES) throw new RangeError('Picture too large')
   const image = await createImageBitmap(file)
   const side = Math.min(image.width, image.height)
   const canvas = document.createElement('canvas')
