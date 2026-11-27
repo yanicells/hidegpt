@@ -175,6 +175,26 @@ describe.runIf(process.platform === 'darwin')('resolveHelper', () => {
     expect(existsSync(clone)).toBe(true)
   })
 
+  it('waits out the retry for a refused clone whose folder could not be deleted', () => {
+    const source = nodeAt(join(root, 'stuck', 'bin', 'tool'))
+    const dir = helpersDir()
+    let now = Date.now()
+    const host = { ...mac, now: () => now }
+    const clone = resolveHelper(source, undefined, dir, host).command
+    // Read-only folders: the delete fails and the clone stays whole.
+    const locked = [dirname(dirname(clone)), dirname(clone)]
+    for (const folder of locked) chmodSync(folder, 0o555)
+    try {
+      discardHelper(clone, dir, now)
+      expect(existsSync(clone)).toBe(true)
+      expect(resolveHelper(source, undefined, dir, host).command).toBe(source)
+      now += RETRY_AFTER_MS
+      expect(resolveHelper(source, undefined, dir, host).command).toBe(clone)
+    } finally {
+      for (const folder of locked) chmodSync(folder, 0o755)
+    }
+  })
+
   it('tries a clone that cannot be made once per source version within the retry wait', () => {
     const source = nodeAt(join(root, 'once', 'bin', 'tool'))
     const dir = helpersDir()

@@ -131,7 +131,7 @@ export function discardHelper(command: string, directory: string | null, now = D
   try {
     rmSync(dir, { recursive: true, force: true })
   } catch {
-    // Left in place, the next start after the wait reuses or rebuilds it.
+    // Left in place: starts wait out `RETRY_AFTER_MS`, then reuse it (and fail again) or rebuild it.
   }
 }
 
@@ -322,9 +322,10 @@ function ensureClone(
   const stamp = stampOf(source)
   const dir = join(directory, createHash('sha256').update(source).digest('hex').slice(0, 16))
   const helper = join(dir, FOLDER, HELPER_NAME)
-  if (sameStamp(readStamp(dir), stamp) && isExecutableFile(helper)) return helper
+  // Checked first: a refused clone whose folder could not be deleted must still wait.
   const failed = failedBuilds.get(dir)
   if (failed !== undefined && sameStamp(failed.stamp, stamp) && now < failed.retryAt) return null
+  if (sameStamp(readStamp(dir), stamp) && isExecutableFile(helper)) return helper
   try {
     build(source, stamp, dir, helper, clone)
   } catch (error) {
