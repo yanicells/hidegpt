@@ -25,12 +25,19 @@
  * Docs' comments margin. While a card is pending (Document.tsx sets
  * has-cards), the page moves left just enough for the rail: a 24px gap, the
  * 256px card and 16px clear of the scrollbar. It stops at the tabs panel
- * (workspace.css' 5px gap). 100cqw is the canvas inside its scrollbar.
+ * (workspace.css' 5px gap).
  */
 .workspace.has-cards {
+  /* The canvas's right edge, inside the scrollbar: 100cqw includes it. */
+  --canvas-right: calc(100cqw - var(--scrollbar-w));
+  /* The vertical ruler zooms with the page (ruler.css), so the page sits this far right of --page-left. */
+  --ruler-shift: calc(16px * (var(--page-zoom, 1) - 1));
   --page-left: max(
     calc(21px + var(--tabs-w)),
-    min(calc((100vw - var(--rail-width) - var(--page-w)) / 2), calc(100cqw - var(--page-w) - 24px - 256px - 16px))
+    min(
+      calc((100vw - var(--rail-width) - var(--page-w)) / 2),
+      calc(var(--canvas-right) - var(--ruler-shift) - var(--page-w) - 24px - 256px - 16px)
+    )
   );
 }
 
@@ -43,7 +50,10 @@
 .comments-rail {
   @apply absolute;
   top: 0;
-  left: min(calc(var(--page-left) + var(--page-w) + 24px), calc(100cqw - 256px - 16px));
+  left: min(
+    calc(var(--page-left) + var(--ruler-shift) + var(--page-w) + 24px),
+    calc(var(--canvas-right) - 16px - 256px)
+  );
   z-index: 1;
   width: 256px;
 }
