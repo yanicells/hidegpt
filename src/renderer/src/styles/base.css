@@ -74,9 +74,6 @@ label,
   @apply grid place-items-center rounded-full shrink-0;
   width: 40px;
   height: 40px;
-  padding: 2px;
-  /* Google account ring around the letter avatar. */
-  background: conic-gradient(#4285f4 0 25%, #ea4335 0 50%, #fbbc04 0 75%, #34a853 0);
 }
 
 .avatar > span,
@@ -89,9 +86,8 @@ label,
 }
 
 .avatar > span {
-  width: 36px;
-  height: 36px;
-  border: 2px solid #fff;
+  width: 32px;
+  height: 32px;
   font-size: 15px;
 }
 
@@ -108,8 +104,15 @@ label,
   font-weight: 400;
 }
 
-.avatar:hover > span {
-  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.3);
+.avatar:hover {
+  background: var(--hover);
+}
+
+/* A profile picture set from the account menu fills the letter's circle. */
+.avatar img,
+.avatar-sm img,
+.avatar-lg img {
+  @apply size-full rounded-full object-cover;
 }
 
 /* ---------- Responsive ---------- */

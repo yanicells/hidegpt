@@ -2,7 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Command, HideGptApi, MenuAction, SnapshotPatch } from '../../shared/api'
 import { CAPABILITIES, emptySnapshot, type DocSummary, type ModelOption, type Snapshot } from '../../shared/model'
@@ -236,6 +236,34 @@ describe('document page', () => {
       ],
     })
     expect(screen.queryByText(/% used/)).toBeNull()
+  })
+
+  it('sets an optional profile picture from the account menu and removes it', async () => {
+    const user = userEvent.setup()
+    const photo = 'data:image/jpeg;base64,AAAA'
+    vi.stubGlobal('createImageBitmap', async () => ({ width: 300, height: 200, close: () => {} }))
+    const draw = vi.fn()
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage: draw,
+    } as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(photo)
+    try {
+      mount()
+      const avatar = screen.getByTestId('menu-account')
+      expect(avatar).toHaveTextContent('Y')
+      await user.click(avatar)
+      const file = new File([new Uint8Array([1])], 'me.png', { type: 'image/png' })
+      await user.upload(await screen.findByTestId('photo-file'), file)
+      await waitFor(() => expect(avatar.querySelector('img')).toHaveAttribute('src', photo))
+      // The centre square of a 300x200 picture.
+      expect(draw).toHaveBeenCalledWith(expect.anything(), 50, 0, 200, 200, 0, 0, 160, 160)
+      await user.click(screen.getByTestId('remove-photo'))
+      expect(avatar.querySelector('img')).toBeNull()
+      expect(avatar).toHaveTextContent('Y')
+    } finally {
+      vi.unstubAllGlobals()
+      vi.restoreAllMocks()
+    }
   })
 
   it('switches providers from the account menu', async () => {
