@@ -27,7 +27,12 @@ describe('ProviderEventLog', () => {
         )
         yield* manager.start('codex')
         yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
-        yield* manager.dispatch({ op: 'send', text: 'Prompt-4b9d why are leaves green?' })
+        yield* manager.dispatch({
+          op: 'send',
+          provider: 'codex',
+          threadId: 'thr_1',
+          text: 'Prompt-4b9d why are leaves green?',
+        })
         yield* manager.snapshots.pipe(
           Stream.filter((snapshot) => !snapshot.streaming && snapshot.blocks.some((block) => block.kind === 'agent')),
           Stream.runHead,

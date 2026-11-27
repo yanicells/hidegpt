@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef } from 'react'
 
 import type { Block, Snapshot } from '../../../../shared/model'
-import { dispatch, useBlocks } from '../../session-bridge'
+import { dispatchToDocument, useBlocks } from '../../session-bridge'
 import { BlockFallback, RenderErrorBoundary } from '../layout/RenderErrorBoundary'
 import { SparkIcon } from '../ui/Icons'
 import { BlockView } from './BlockView'
@@ -108,7 +108,7 @@ export function Document({
                 className="load-older"
                 data-testid="load-older"
                 disabled={snap.loadingOlder || snap.streaming || !allRows}
-                onClick={() => dispatch({ op: 'loadOlderTurns' })}
+                onClick={() => dispatchToDocument({ op: 'loadOlderTurns' })}
               >
                 {snap.loadingOlder ? 'Loading earlier text…' : 'Show earlier text'}
               </button>
@@ -139,7 +139,7 @@ export function Document({
             data-testid="stop-turn"
             aria-label="Stop"
             disabled={snap.stopping}
-            onClick={() => dispatch({ op: 'interrupt' })}
+            onClick={() => dispatchToDocument({ op: 'interrupt' })}
           >
             <SparkIcon size={16} mono />
           </button>

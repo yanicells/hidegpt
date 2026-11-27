@@ -1,4 +1,6 @@
 import type * as Cause from 'effect/Cause'
+import * as Deferred from 'effect/Deferred'
+import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 import * as Exit from 'effect/Exit'
 import * as Queue from 'effect/Queue'
@@ -7,7 +9,7 @@ import * as Stream from 'effect/Stream'
 
 import type { ApprovalBlock, Block, Capabilities, DocSummary, ProviderId, Skill } from '../shared/model'
 import type { ProviderError } from './errors'
-import type { AssistantItem, Item, RequestItem, RequestKind, ToolItem } from './events'
+import type { AssistantItem, Item, RequestItem, RequestKind, ToolItem, TurnId } from './events'
 import { classify } from './failure'
 import type {
   AdapterEvent,
@@ -124,8 +126,21 @@ export interface LegacyProviderAdapter {
   readonly openSession: Effect.Effect<LegacyProviderSession, ProviderError, Scope.Scope>
 }
 
-/** How long Stop waits for the provider to confirm a turn it was just sent. */
-const STOP_WAITS_FOR_START = '10 seconds'
+/**
+ * Stop waits for the provider to confirm a turn it was just sent, with no clock of its own. The
+ * wait is still bounded: a start that never comes fails the send at the `turn/start` deadline (or
+ * as the session dies), and the send abandons its turn, which ends the wait. A timer here would drop the stop before the start
+ * lands, and the turn would run on unstopped (T3 keeps such a stop the same way).
+ */
+const STOP_WAITS_FOR_START = Duration.infinity
+
+/** A send the tracker does not know yet: waiting for the sends and stops ahead, then beginning. */
+type QueuedSend = {
+  readonly threadId: string
+  phase: 'waiting' | 'stopped' | 'beginning'
+  /** Done once `begin` finished (or the send ended without it). */
+  readonly begun: Deferred.Deferred<void>
+}
 
 /** A legacy approval's suggestion verb, as the request kind it stands for. */
 const REQUEST_OF: Record<ApprovalBlock['suggestion'], RequestKind> = {
@@ -181,18 +196,44 @@ function deltaTarget(id: string, target: TextTarget | undefined): AssistantItem 
     : { kind: 'assistant', id, text: '', phase: 'final' }
 }
 
-/** A legacy adapter as a canonical one. Each session gets its own turn tracker. */
-export const fromLegacy = (adapter: LegacyProviderAdapter): ProviderAdapter => ({
+/**
+ * A legacy adapter as a canonical one. Each session gets its own turn tracker. `options` is for
+ * tests only; production passes none.
+ */
+export const fromLegacy = (adapter: LegacyProviderAdapter, options: LegacyOptions = {}): ProviderAdapter => ({
   id: adapter.id,
   capabilities: adapter.capabilities,
-  openSession: Effect.flatMap(adapter.openSession, (legacy) => wrapSession(adapter.id, legacy)),
+  openSession: Effect.flatMap(adapter.openSession, (legacy) => wrapSession(adapter.id, legacy, options)),
 })
 
-const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession) =>
+/** Test-only: `tracker` wraps the session's turn tracker, e.g. to hold a step open. */
+export interface LegacyOptions {
+  readonly tracker?: (tracker: TurnTracker) => TurnTracker
+}
+
+const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession, options: LegacyOptions) =>
   Effect.gen(function* () {
     const queue = yield* Queue.unbounded<AdapterEvent, Cause.Done>()
     const emit = (event: AdapterEvent) => Effect.asVoid(Queue.offer(queue, event))
-    const tracker = yield* makeTurnTracker({ provider, emit })
+    const made = yield* makeTurnTracker({ provider, emit })
+    const tracker = options.tracker ? options.tracker(made) : made
+    /**
+     * Stops still owed to a turn, per thread, done once the stop went out or the turn is gone. The
+     * next send waits for one: the tracker holds one turn per thread, so sending first would close
+     * the stopped turn unsent and leave it running at the provider.
+     */
+    const owedStops = new Map<string, Deferred.Deferred<void>>()
+    /**
+     * Each thread's latest send, done once the provider answered it. The next send waits for it,
+     * so a late `turn/start` response cannot name the active turn after a newer one started.
+     */
+    const sending = new Map<string, Deferred.Deferred<void>>()
+    /**
+     * Sends in progress, by turn id (as T3 pairs a stop with its run). Stop finds one here: a
+     * waiting send it ends at once, unsent; one in `begin` or past it, it waits for `begin`, then
+     * stops through the tracker like any other turn.
+     */
+    const queued = new Map<TurnId, QueuedSend>()
     const openRequests = makeOpenRequests()
 
     const toItems = (threadId: string, blocks: ReadonlyArray<Block>): Item[] =>
@@ -232,27 +273,81 @@ const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession) =>
           cursor: page.cursor,
         })),
       messageId: legacy.messageId,
-      send: (threadId, turnId, input, settings) =>
-        Effect.gen(function* () {
-          yield* tracker.begin(threadId, turnId)
-          const nativeTurnId = yield* legacy
-            .send(threadId, input, settings)
-            .pipe(Effect.onError(() => tracker.abandon(threadId, turnId)))
+      send: (threadId, turnId, input, settings, options) =>
+        Effect.suspend(() => {
+          // Stopped before this call: never registered, never sent. Read in the same step that
+          // registers it below, so a Stop either was seen here or finds the record.
+          if (options?.stopped?.()) return tracker.endUnbegun(threadId, turnId)
+          // Waits for a stop still owed to an earlier turn, and for the previous send's answer.
+          // Bounded: an owed stop ends when its start lands and the stop goes out, or when that
+          // start fails (at its own deadline, or as the session dies), which abandons the turn; a
+          // send ends with its answer or its failure.
+          const ahead = [owedStops.get(threadId), sending.get(threadId)].filter((d) => d !== undefined)
+          const done = Deferred.makeUnsafe<void>()
+          const mine: QueuedSend = { threadId, phase: 'waiting', begun: Deferred.makeUnsafe<void>() }
+          sending.set(threadId, done)
+          queued.set(turnId, mine)
+          return Effect.gen(function* () {
+            yield* Effect.forEach(ahead, Deferred.await, { discard: true })
+            // Stop already ended this turn: it is never sent. The check and the move to `beginning`
+            // run in one step, so a Stop sees one phase or the other.
+            if (mine.phase === 'stopped') return
+            mine.phase = 'beginning'
+            yield* tracker.begin(threadId, turnId).pipe(Effect.ensuring(Deferred.succeed(mine.begun, undefined)))
+            const nativeTurnId = yield* legacy
+              .send(threadId, input, settings)
+              .pipe(Effect.onError(() => tracker.abandon(threadId, turnId)))
 
-          // The provider accepted it, so it knows the turn. Only this turn: it may already have ended.
-          yield* tracker.started(threadId, typeof nativeTurnId === 'string' ? nativeTurnId : null, turnId)
+            // The provider accepted it, so it knows the turn. Only this turn: it may already have ended.
+            yield* tracker.started(threadId, typeof nativeTurnId === 'string' ? nativeTurnId : null, turnId)
+          }).pipe(
+            Effect.ensuring(
+              Effect.suspend(() => {
+                if (queued.get(turnId) === mine) queued.delete(turnId)
+                if (sending.get(threadId) === done) sending.delete(threadId)
+                // `begun` again: a send interrupted after moving to `beginning` but before `begin`'s
+                // `ensuring` was in place would otherwise leave a Stop waiting on it for good. Only
+                // reachable when the scheduler yields between those two steps.
+                return Effect.andThen(Deferred.succeed(mine.begun, undefined), Deferred.succeed(done, undefined))
+              }),
+            ),
+          )
         }),
       // A Stop that crosses the answer's natural end is not an error: the session state may not
-      // have seen the end yet, and there is nothing left to stop. Only a start that never comes fails.
+      // have seen the end yet, and there is nothing left to stop. A Stop before the start is held
+      // until the start lands, then sent; one before the send even began keeps it from being sent.
       interrupt: (threadId, turnId) =>
         Effect.gen(function* () {
+          const queuedSend = queued.get(turnId)
+          if (queuedSend?.threadId === threadId) {
+            if (queuedSend.phase === 'stopped') return
+            // Still waiting: it ends here, as T3 interrupts a run before its provider start. The
+            // send returns without beginning, so this is the turn's only terminal.
+            if (queuedSend.phase === 'waiting') {
+              queuedSend.phase = 'stopped'
+              return yield* tracker.endUnbegun(threadId, turnId)
+            }
+            // Beginning (or sending): the tracker knows the turn once `begin` is done.
+            yield* Deferred.await(queuedSend.begun)
+          }
           if (!(yield* tracker.requestStop(threadId, turnId))) return
-          const started = yield* tracker.awaitStarted(threadId, turnId, STOP_WAITS_FOR_START).pipe(
-            Effect.as(true),
-            // It ended (or was abandoned) while Stop waited for it to start.
-            Effect.catchTag('ProviderRequestError', () => Effect.succeed(false)),
+          const owed = yield* Deferred.make<void>()
+          owedStops.set(threadId, owed)
+          yield* Effect.gen(function* () {
+            const started = yield* tracker.awaitStarted(threadId, turnId, STOP_WAITS_FOR_START).pipe(
+              Effect.as(true),
+              // It ended (or was abandoned) while Stop waited for it to start.
+              Effect.catchTag('ProviderRequestError', () => Effect.succeed(false)),
+            )
+            if (started) yield* legacy.interrupt(threadId)
+          }).pipe(
+            Effect.ensuring(
+              Effect.suspend(() => {
+                if (owedStops.get(threadId) === owed) owedStops.delete(threadId)
+                return Deferred.succeed(owed, undefined)
+              }),
+            ),
           )
-          if (started) yield* legacy.interrupt(threadId)
         }),
       respond: legacy.respond,
       rename: legacy.rename,

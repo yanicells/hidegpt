@@ -147,6 +147,31 @@ export async function dispatch(command: Command): Promise<CommandResult> {
   return result
 }
 
+/** Commands that act on one document. The bridge fills in which one. */
+type DocumentOp = 'send' | 'interrupt' | 'resolveApproval' | 'loadOlderTurns' | 'setDocumentName'
+export type DocumentCommand = Command extends infer C
+  ? C extends { readonly op: DocumentOp }
+    ? Omit<C, 'provider' | 'threadId'>
+    : never
+  : never
+
+/**
+ * Like `dispatch`, for the open document. It names the document from the
+ * snapshot as it is now, when the person acts, so a navigation that lands
+ * before main runs the command cannot send it to another document.
+ */
+export function dispatchToDocument(command: DocumentCommand): Promise<CommandResult> {
+  const { provider, route } = snapshot
+  if (route.kind !== 'doc') return dispatchFailed('Open a document first.')
+  // The spread is the same op with its target added, which the union cannot express.
+  return dispatch({ ...command, provider, threadId: route.threadId } as Command)
+}
+
+function dispatchFailed(error: string): Promise<CommandResult> {
+  setCommandError(error)
+  return Promise.resolve({ ok: false, error })
+}
+
 export function useMenuAction(handler: (action: MenuAction) => void): void {
   useEffect(() => {
     if (!window.hidegpt) return

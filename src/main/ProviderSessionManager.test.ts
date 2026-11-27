@@ -2,6 +2,7 @@ import { describe, expect, it } from '@effect/vitest'
 import * as Cause from 'effect/Cause'
 import * as Deferred from 'effect/Deferred'
 import * as Effect from 'effect/Effect'
+import * as Exit from 'effect/Exit'
 import * as Fiber from 'effect/Fiber'
 import * as Logger from 'effect/Logger'
 import * as Option from 'effect/Option'
@@ -13,10 +14,13 @@ import * as ClaudeAdapter from '../claude/ClaudeAdapter'
 import { makeFakeClaude } from '../claude/FakeClaude'
 import * as CodexAdapter from '../codex/CodexAdapter'
 import { agentItem, makeFakeCodex, rpcFailure, stubTurn, userItem, type FakeCodexOptions } from '../codex/FakeCodex'
+import { describeFailure } from '../provider/DefectReport'
+import { ProviderTimeoutError } from '../provider/errors'
 import { fromLegacy, type LegacyProviderAdapter } from '../provider/legacyEvents'
 import type { Snapshot } from '../shared/model'
 import { layerAdapters, layerLoaders } from './ProviderRegistry'
 import * as Manager from './ProviderSessionManager'
+import { STOP_FAILED } from './session/TurnController'
 
 /**
  * The session manager over the real Codex adapter and the in-process Codex
@@ -59,7 +63,19 @@ const captureErrorLogs = () => {
   return { logged, layer: Logger.layer([capture]) }
 }
 
+/** Warnings (their message and annotations), instead of the console. */
+const captureWarnings = () => {
+  const logged: Array<{ readonly message: unknown; readonly annotations: Record<string, unknown> }> = []
+  const capture = Logger.make(({ message, fiber, logLevel }) => {
+    if (logLevel === 'Warn') logged.push({ message, annotations: fiber.getRef(References.CurrentLogAnnotations) })
+  })
+  return { logged, layer: Logger.layer([capture]) }
+}
+
 const settle = Effect.yieldNow.pipe(Effect.repeat({ times: 30 }))
+
+/** A Codex document's target, for commands that name their document. */
+const doc = (threadId: string) => ({ provider: 'codex', threadId }) as const
 
 /** A copy of `params` whose `key` throws when read: a Docs mapping bug, which the fake's schema-checked frames cannot produce. */
 const throwingOn = <T extends object>(params: T, key: string, message: string): T =>
@@ -94,7 +110,7 @@ describe('ProviderSessionManager', () => {
     Effect.gen(function* () {
       const { peer, manager } = yield* setup({ reply: () => 'Chlorophyll absorbs light.', deltaDelayMs: 100 })
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
-      yield* manager.dispatch({ op: 'send', text: 'Why are leaves green?' })
+      yield* manager.dispatch({ op: 'send', provider: 'codex', threadId: 'thr_1', text: 'Why are leaves green?' })
       yield* manager.dispatch({ op: 'goHome' })
       yield* TestClock.adjust('1 second')
       yield* settle
@@ -131,7 +147,13 @@ describe('ProviderSessionManager', () => {
       const approval = (yield* manager.snapshot).blocks.find((block) => block.kind === 'approval')
       expect(approval).toMatchObject({ title: 'Run command?', body: 'ls', resolved: null })
 
-      yield* manager.dispatch({ op: 'resolveApproval', blockId: approval?.id ?? '', accept: true })
+      yield* manager.dispatch({
+        op: 'resolveApproval',
+        provider: 'codex',
+        threadId: 'thr_1',
+        blockId: approval?.id ?? '',
+        accept: true,
+      })
       expect(yield* Fiber.join(answer)).toEqual({ decision: 'accept' })
       expect((yield* manager.snapshot).blocks.find((block) => block.kind === 'approval')).toMatchObject({
         resolved: 'accepted',
@@ -144,12 +166,12 @@ describe('ProviderSessionManager', () => {
     Effect.gen(function* () {
       const { manager } = yield* setup({ reply: null })
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
-      yield* manager.dispatch({ op: 'send', text: 'Write a long essay' })
+      yield* manager.dispatch({ op: 'send', provider: 'codex', threadId: 'thr_1', text: 'Write a long essay' })
       yield* until(manager, (snapshot) =>
         snapshot.blocks.some((block) => block.kind === 'user' && !block.id.startsWith('local-')),
       )
       const stopping = yield* Effect.forkScoped(until(manager, (snapshot) => snapshot.stopping))
-      yield* manager.dispatch({ op: 'interrupt' })
+      yield* manager.dispatch({ op: 'interrupt', provider: 'codex', threadId: 'thr_1' })
       expect(yield* Fiber.join(stopping)).toMatchObject({ streaming: true, stopping: true })
       const ended = yield* until(manager, (snapshot) => !snapshot.streaming)
       expect(ended.stopping).toBe(false)
@@ -161,21 +183,21 @@ describe('ProviderSessionManager', () => {
       // The stop is never answered, and the crash ends the stopped turn without a turnEnded.
       const { peer, manager } = yield* setup({ reply: null, handlers: { 'turn/interrupt': () => Effect.never } })
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
-      yield* manager.dispatch({ op: 'send', text: 'First' })
+      yield* manager.dispatch({ op: 'send', provider: 'codex', threadId: 'thr_1', text: 'First' })
       yield* until(
         manager,
         (snapshot) =>
           snapshot.streaming &&
           snapshot.blocks.some((block) => block.kind === 'user' && !block.id.startsWith('local-')),
       )
-      yield* Effect.forkScoped(manager.dispatch({ op: 'interrupt' }))
+      yield* Effect.forkScoped(manager.dispatch({ op: 'interrupt', provider: 'codex', threadId: 'thr_1' }))
       yield* until(manager, (snapshot) => snapshot.stopping)
       yield* peer.exit(1, 'boom')
       yield* until(manager, (snapshot) => snapshot.status === 'connecting')
       yield* TestClock.adjust('1 second')
       yield* until(manager, (snapshot) => snapshot.status === 'ready')
       yield* settle
-      yield* manager.dispatch({ op: 'send', text: 'Second' })
+      yield* manager.dispatch({ op: 'send', provider: 'codex', threadId: 'thr_1', text: 'Second' })
       yield* until(manager, (snapshot) => snapshot.streaming && !snapshot.stopping)
       yield* TestClock.adjust('10 seconds')
       yield* settle
@@ -204,13 +226,13 @@ describe('ProviderSessionManager', () => {
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
       const stopTurn = Effect.gen(function* () {
         yield* until(manager, (snapshot) => snapshot.streaming && !snapshot.stopping)
-        yield* Effect.forkScoped(manager.dispatch({ op: 'interrupt' }))
+        yield* Effect.forkScoped(manager.dispatch({ op: 'interrupt', ...doc('thr_1') }))
         yield* until(manager, (snapshot) => snapshot.stopping)
       })
-      yield* manager.dispatch({ op: 'send', text: 'First' })
+      yield* manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'First' })
       yield* stopTurn
       yield* until(manager, (snapshot) => !snapshot.streaming)
-      yield* manager.dispatch({ op: 'send', text: 'Second' })
+      yield* manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Second' })
       yield* stopTurn
       yield* TestClock.adjust('10 seconds')
       yield* settle
@@ -240,7 +262,7 @@ describe('ProviderSessionManager', () => {
       yield* manager.start('codex')
       yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
-      yield* manager.dispatch({ op: 'send', text: 'List the files' })
+      yield* manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'List the files' })
       yield* until(manager, (snapshot) => snapshot.streaming)
       yield* peer
         .request('item/commandExecution/requestApproval', {
@@ -254,10 +276,12 @@ describe('ProviderSessionManager', () => {
       const asked = yield* until(manager, (snapshot) => snapshot.blocks.some((block) => block.kind === 'approval'))
       const blockId = asked.blocks.find((block) => block.kind === 'approval')?.id ?? ''
 
-      const replying = yield* Effect.forkScoped(manager.dispatch({ op: 'resolveApproval', blockId, accept: true }))
+      const replying = yield* Effect.forkScoped(
+        manager.dispatch({ op: 'resolveApproval', ...doc('thr_1'), blockId, accept: true }),
+      )
       yield* until(manager, (snapshot) => snapshot.blocks.some((block) => block.kind === 'approval' && block.pending))
       // The turn ends while the reply is on its way, which expires the request.
-      yield* manager.dispatch({ op: 'interrupt' })
+      yield* manager.dispatch({ op: 'interrupt', ...doc('thr_1') })
       yield* until(manager, (snapshot) => !snapshot.streaming)
       yield* Deferred.succeed(replyGate, undefined)
       yield* Fiber.join(replying)
@@ -286,7 +310,7 @@ describe('ProviderSessionManager', () => {
         ),
       )
       yield* settle
-      yield* manager.dispatch({ op: 'loadOlderTurns' })
+      yield* manager.dispatch({ op: 'loadOlderTurns', provider: 'codex', threadId: 'thr_1' })
       const done = yield* Fiber.join(loaded)
       expect(done.blocks.map((block) => block.id)).toEqual(['u0', 'u1', 'a1'])
       expect(done.hasOlder).toBe(false)
@@ -298,7 +322,7 @@ describe('ProviderSessionManager', () => {
       const { manager } = yield* setup({ handlers: { 'turn/start': () => Effect.fail(rpcFailure('busy')) } })
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
       const before = (yield* manager.snapshot).blocks
-      yield* Effect.flip(manager.dispatch({ op: 'send', text: 'Hi' }))
+      yield* Effect.flip(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Hi' }))
       expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false, blocks: before })
     }),
   )
@@ -307,7 +331,9 @@ describe('ProviderSessionManager', () => {
     Effect.gen(function* () {
       const { manager } = yield* setup()
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
-      const error = yield* Effect.flip(manager.dispatch({ op: 'send', text: '   ' }))
+      const error = yield* Effect.flip(
+        manager.dispatch({ op: 'send', provider: 'codex', threadId: 'thr_1', text: '   ' }),
+      )
       expect(error.message).toBe('There is nothing to send.')
     }),
   )
@@ -562,7 +588,7 @@ describe('ProviderSessionManager', () => {
       yield* manager.start('codex')
       yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
-      yield* manager.dispatch({ op: 'send', text: 'Hi' })
+      yield* manager.dispatch({ op: 'send', provider: 'codex', threadId: 'thr_1', text: 'Hi' })
       const lost = yield* until(manager, (snapshot) => snapshot.error !== null)
       expect(lost).toMatchObject({
         status: 'connecting',
@@ -669,5 +695,486 @@ describe('ProviderSessionManager', () => {
         expect(claudeLoads).toBe(2)
       }).pipe(Effect.provide(layer))
     },
+  )
+})
+
+/**
+ * Turn control (`session/TurnController`). Races ARCH-1 already closed have their tests
+ * there: a late terminal (`state.test.ts`), a doubled terminal (`turnTracker.test.ts`)
+ * and Stop before the provider knew the turn (`legacyEvents.test.ts`).
+ */
+describe('ProviderSessionManager: turns', () => {
+  /** Waits until the document on screen shows its turn as running. */
+  const running = (manager: Service) =>
+    until(
+      manager,
+      (snapshot) =>
+        snapshot.streaming && snapshot.blocks.some((block) => block.kind === 'user' && !block.id.startsWith('local-')),
+    )
+  const interrupts = (peer: ReturnType<typeof makeFakeCodex>) =>
+    peer.calls.filter((call) => call.method === 'turn/interrupt').map((call) => call.params)
+
+  it.effect('two sends in one tick: the second is refused and one question shows', () =>
+    Effect.gen(function* () {
+      const { peer, manager } = yield* setup({ reply: null })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      // Both sends wait for the reconnect, so both check the document before either writes.
+      yield* peer.exit(1, 'boom')
+      yield* until(manager, (snapshot) => snapshot.status === 'connecting')
+      const seen: Snapshot[] = []
+      yield* Effect.forkScoped(
+        Stream.runForEach(manager.snapshots, (snapshot) => Effect.sync(() => seen.push(snapshot))),
+      )
+      const sends = yield* Effect.forkScoped(
+        Effect.all(
+          [
+            Effect.exit(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'First' })),
+            Effect.exit(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Second' })),
+          ],
+          { concurrency: 'unbounded' },
+        ),
+      )
+      yield* settle
+      yield* TestClock.adjust('1 second')
+      const exits = yield* Fiber.join(sends)
+      yield* settle
+      expect(exits.map(Exit.isSuccess)).toEqual([true, false])
+      const shown = yield* manager.snapshot
+      expect(shown.streaming).toBe(true)
+      expect(shown.blocks.filter((block) => block.kind === 'user').map((block) => block.text)).toEqual(['First'])
+      expect(countCalls(peer, 'turn/start')).toBe(1)
+      // Not even for a moment: no snapshot showed the refused question.
+      expect(
+        seen.some((snapshot) => snapshot.blocks.some((block) => block.kind === 'user' && block.text === 'Second')),
+      ).toBe(false)
+    }),
+  )
+
+  it.effect('Stop stops the document it names, even after the window moved to another one', () =>
+    Effect.gen(function* () {
+      const { peer, manager } = yield* setup({ reply: null })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'First' })
+      yield* running(manager)
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_2' })
+      yield* manager.dispatch({ op: 'send', ...doc('thr_2'), text: 'Second' })
+      yield* running(manager)
+
+      // Pressed while thr_1 was on screen; the navigation to thr_2 landed first.
+      yield* manager.dispatch({ op: 'interrupt', ...doc('thr_1') })
+      yield* settle
+      expect(interrupts(peer)).toEqual([expect.objectContaining({ threadId: 'thr_1' })])
+      expect(yield* manager.snapshot).toMatchObject({ route: { threadId: 'thr_2' }, streaming: true, stopping: false })
+    }),
+  )
+
+  it.effect('a command for a document that was released is refused, not run on the one on screen', () =>
+    Effect.gen(function* () {
+      const { peer, manager } = yield* setup({ reply: null })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_2' })
+      const error = yield* Effect.flip(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Hello' }))
+      expect(error.message).toBe('That document is no longer open.')
+      expect(countCalls(peer, 'turn/start')).toBe(0)
+    }),
+  )
+
+  it.effect('a stop the provider never confirms settles after 10 s and reloads the document next time', () =>
+    Effect.gen(function* () {
+      const { peer, manager } = yield* setup({
+        reply: null,
+        // Codex accepts the stop but never ends the turn.
+        handlers: { 'turn/interrupt': () => Effect.succeed({}) },
+      })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' })
+      yield* running(manager)
+      yield* manager.dispatch({ op: 'interrupt', ...doc('thr_1') })
+      expect(yield* manager.snapshot).toMatchObject({ streaming: true, stopping: true })
+
+      yield* TestClock.adjust('9 seconds')
+      yield* settle
+      expect((yield* manager.snapshot).stopping).toBe(true)
+      yield* TestClock.adjust('1 second')
+      yield* settle
+      expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false })
+
+      // The provider may still be working on it, so reopening reads it again.
+      yield* manager.dispatch({ op: 'goHome' })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      expect(countCalls(peer, 'thread/resume')).toBe(2)
+    }),
+  )
+
+  it.effect('a Stop that crosses the end of the answer is not an error', () =>
+    Effect.gen(function* () {
+      let peer: ReturnType<typeof makeFakeCodex> | null = null
+      const setUp = yield* setup({
+        reply: null,
+        handlers: {
+          // The answer ends on its own just before the stop lands, so Codex has nothing left to stop.
+          'turn/interrupt': (params) =>
+            Effect.suspend(() =>
+              peer
+                ? peer.notify('turn/completed', {
+                    threadId: params.threadId,
+                    turn: { id: params.turnId, items: [], status: 'completed' },
+                  })
+                : Effect.void,
+            ).pipe(Effect.andThen(Effect.fail(rpcFailure('no active turn to interrupt')))),
+        },
+      })
+      peer = setUp.peer
+      const { manager } = setUp
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' })
+      yield* running(manager)
+      yield* manager.dispatch({ op: 'interrupt', ...doc('thr_1') })
+      expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false, error: null })
+    }),
+  )
+
+  it.effect("a stop the provider refuses says so in Docs' words and leaves the answer running", () => {
+    const { logged, layer } = captureWarnings()
+    return Effect.gen(function* () {
+      const { manager } = yield* setup({
+        reply: null,
+        handlers: { 'turn/interrupt': () => Effect.fail(rpcFailure('codex: no such turn')) },
+      })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' })
+      yield* running(manager)
+      const stop = yield* Effect.forkChild(Effect.exit(manager.dispatch({ op: 'interrupt', ...doc('thr_1') })))
+      // Refused at once; the command fails once the grace for the turn's own end runs out.
+      yield* settle
+      yield* TestClock.adjust('1 second')
+      const exit = yield* Fiber.join(stop)
+      if (Exit.isSuccess(exit)) return expect.fail('the refused stop succeeded')
+      // What the IPC boundary puts on the banner.
+      const banner = yield* describeFailure(exit.cause)
+      expect(banner).toBe(STOP_FAILED)
+      expect(banner).not.toContain('no such turn')
+      expect(banner.toLowerCase()).not.toContain('codex')
+      yield* TestClock.adjust('10 seconds')
+      yield* settle
+      const shown = yield* manager.snapshot
+      expect(shown).toMatchObject({ streaming: true, stopping: false })
+      expect(JSON.stringify(shown)).not.toContain('no such turn')
+      // The log says why by the error's fields, never its text.
+      const refused = logged.filter((entry) => JSON.stringify(entry.message).includes('Stop refused'))
+      expect(refused).toHaveLength(1)
+      expect(refused[0]?.annotations).toMatchObject({
+        error: 'ProviderRequestError',
+        provider: 'codex',
+        operation: 'turn/interrupt',
+      })
+      expect(JSON.stringify(refused[0]?.annotations)).not.toContain('no such turn')
+    }).pipe(Effect.provide(layer))
+  })
+
+  it.effect(
+    'a Stop pressed during a slow start is held, sent once the start lands, and never shows running again',
+    () =>
+      Effect.gen(function* () {
+        const { peer, manager } = yield* setup({
+          reply: null,
+          handlers: {
+            'turn/start': () =>
+              Effect.sleep('15 seconds').pipe(
+                Effect.as({ turn: { id: 'turn_slow', items: [], status: 'inProgress' as const } }),
+              ),
+          },
+        })
+        yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+        yield* Effect.forkScoped(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' }))
+        yield* until(manager, (snapshot) => snapshot.streaming)
+        const stop = yield* Effect.forkChild(Effect.exit(manager.dispatch({ op: 'interrupt', ...doc('thr_1') })))
+        yield* until(manager, (snapshot) => snapshot.stopping)
+        yield* settle
+        // The deadline ends the turn on the page; the stop is still waiting for the start.
+        yield* TestClock.adjust('10 seconds')
+        yield* settle
+        expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false })
+        const reopened = yield* Effect.forkScoped(until(manager, (snapshot) => snapshot.streaming))
+        yield* TestClock.adjust('5 seconds')
+        yield* settle
+        expect(interrupts(peer)).toHaveLength(1)
+        expect(Exit.isSuccess(yield* Fiber.join(stop))).toBe(true)
+        expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false })
+        // The late start did not flash the settled turn back to running.
+        expect(reopened.pollUnsafe()).toBeUndefined()
+      }),
+  )
+
+  it.effect(
+    'a send after the deadline waits for the held Stop, so the first turn is stopped and the new one runs',
+    () =>
+      Effect.gen(function* () {
+        let starts = 0
+        const { peer, manager } = yield* setup({
+          reply: null,
+          handlers: {
+            // The first start is slow; the next answers at once.
+            'turn/start': () =>
+              (starts += 1) === 1
+                ? Effect.sleep('15 seconds').pipe(
+                    Effect.as({ turn: { id: 'turn_slow', items: [], status: 'inProgress' as const } }),
+                  )
+                : Effect.succeed({ turn: { id: 'turn_next', items: [], status: 'inProgress' as const } }),
+          },
+        })
+        yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+        yield* Effect.forkScoped(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' }))
+        yield* until(manager, (snapshot) => snapshot.streaming)
+        yield* Effect.forkScoped(manager.dispatch({ op: 'interrupt', ...doc('thr_1') }))
+        yield* until(manager, (snapshot) => snapshot.stopping)
+        yield* settle
+        yield* TestClock.adjust('10 seconds')
+        yield* settle
+        expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false })
+        // The page says stopped, so the person asks again.
+        yield* TestClock.adjust('1 second')
+        const again = yield* Effect.forkChild(
+          Effect.exit(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'A shorter one' })),
+        )
+        yield* settle
+        yield* TestClock.adjust('4 seconds')
+        yield* settle
+        expect(Exit.isSuccess(yield* Fiber.join(again))).toBe(true)
+        expect(interrupts(peer)).toEqual([expect.objectContaining({ threadId: 'thr_1', turnId: 'turn_slow' })])
+        expect(countCalls(peer, 'turn/start')).toBe(2)
+        expect(yield* manager.snapshot).toMatchObject({ streaming: true, stopping: false })
+      }),
+  )
+
+  it.effect('a Stop on a send still waiting for the held Stop keeps it from being sent, and the next send works', () =>
+    Effect.gen(function* () {
+      let starts = 0
+      const { peer, manager } = yield* setup({
+        reply: null,
+        handlers: {
+          'turn/start': () =>
+            (starts += 1) === 1
+              ? Effect.sleep('15 seconds').pipe(
+                  Effect.as({ turn: { id: 'turn_slow', items: [], status: 'inProgress' as const } }),
+                )
+              : Effect.succeed({ turn: { id: 'turn_next', items: [], status: 'inProgress' as const } }),
+        },
+      })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* Effect.forkScoped(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' }))
+      yield* until(manager, (snapshot) => snapshot.streaming)
+      yield* Effect.forkScoped(manager.dispatch({ op: 'interrupt', ...doc('thr_1') }))
+      yield* until(manager, (snapshot) => snapshot.stopping)
+      yield* settle
+      yield* TestClock.adjust('10 seconds')
+      yield* settle
+      // The person asks again, then thinks better of it while that waits for the first Stop.
+      yield* TestClock.adjust('1 second')
+      const again = yield* Effect.forkChild(
+        Effect.exit(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'A shorter one' })),
+      )
+      yield* until(manager, (snapshot) => snapshot.streaming)
+      yield* TestClock.adjust('1 second')
+      const stop = yield* Effect.forkChild(Effect.exit(manager.dispatch({ op: 'interrupt', ...doc('thr_1') })))
+      yield* settle
+      // Settled at the click, not 10 s later by the deadline.
+      expect(Exit.isSuccess(yield* Fiber.join(stop))).toBe(true)
+      expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false })
+      // The first start lands: its stop goes out, and the second message is never sent.
+      yield* TestClock.adjust('3 seconds')
+      yield* settle
+      expect(Exit.isSuccess(yield* Fiber.join(again))).toBe(true)
+      expect(countCalls(peer, 'turn/start')).toBe(1)
+      expect(interrupts(peer)).toEqual([expect.objectContaining({ threadId: 'thr_1', turnId: 'turn_slow' })])
+      expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false })
+      yield* manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'One line, then' })
+      yield* settle
+      expect(countCalls(peer, 'turn/start')).toBe(2)
+      expect(yield* manager.snapshot).toMatchObject({ streaming: true, stopping: false })
+    }),
+  )
+
+  it.effect("a send waits for the previous send's answer, so Stop names the newer turn", () =>
+    Effect.gen(function* () {
+      // The first start is slow, and its notification comes a second before its answer.
+      let starts = 0
+      const slow = { id: 'turn_slow', items: [], status: 'inProgress' as const }
+      let notifySlow: Effect.Effect<void> = Effect.void
+      const { peer, manager } = yield* setup({
+        reply: null,
+        handlers: {
+          'turn/start': () =>
+            (starts += 1) === 1
+              ? Effect.gen(function* () {
+                  yield* Effect.sleep('15 seconds')
+                  yield* notifySlow
+                  yield* Effect.sleep('1 second')
+                  return { turn: slow }
+                })
+              : Effect.succeed({ turn: { id: 'turn_next', items: [], status: 'inProgress' as const } }),
+        },
+      })
+      notifySlow = peer.notify('turn/started', { threadId: 'thr_1', turn: slow })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* Effect.forkScoped(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' }))
+      yield* until(manager, (snapshot) => snapshot.streaming)
+      yield* Effect.forkScoped(manager.dispatch({ op: 'interrupt', ...doc('thr_1') }))
+      yield* until(manager, (snapshot) => snapshot.stopping)
+      yield* settle
+      yield* TestClock.adjust('10 seconds')
+      yield* settle
+      yield* TestClock.adjust('1 second')
+      const again = yield* Effect.forkChild(
+        Effect.exit(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'A shorter one' })),
+      )
+      yield* settle
+      // The notification lets the held stop out; the slow answer lands a second later.
+      yield* TestClock.adjust('4 seconds')
+      yield* settle
+      yield* TestClock.adjust('1 second')
+      yield* settle
+      expect(Exit.isSuccess(yield* Fiber.join(again))).toBe(true)
+      yield* manager.dispatch({ op: 'interrupt', ...doc('thr_1') })
+      yield* settle
+      expect(interrupts(peer)).toEqual([
+        expect.objectContaining({ turnId: 'turn_slow' }),
+        expect.objectContaining({ turnId: 'turn_next' }),
+      ])
+    }),
+  )
+
+  it.effect('a question whose start never comes stays on the page after the deadline settled it', () =>
+    Effect.gen(function* () {
+      const { manager } = yield* setup({ reply: null, handlers: { 'turn/start': () => Effect.never } })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      const sent = yield* Effect.forkChild(
+        Effect.exit(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' })),
+      )
+      yield* until(manager, (snapshot) => snapshot.streaming)
+      const stop = yield* Effect.forkChild(Effect.exit(manager.dispatch({ op: 'interrupt', ...doc('thr_1') })))
+      yield* until(manager, (snapshot) => snapshot.stopping)
+      yield* settle
+      yield* TestClock.adjust('10 seconds')
+      yield* settle
+      const asked = (snapshot: Snapshot) =>
+        snapshot.blocks.some((block) => block.kind === 'user' && block.text === 'Write a long essay')
+      expect(asked(yield* manager.snapshot)).toBe(true)
+      // The start's own deadline fails the send; the question it already showed as stopped stays.
+      yield* TestClock.adjust('60 seconds')
+      yield* settle
+      expect(Exit.isFailure(yield* Fiber.join(sent))).toBe(true)
+      expect(Exit.isSuccess(yield* Fiber.join(stop))).toBe(true)
+      expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false })
+      expect(asked(yield* manager.snapshot)).toBe(true)
+    }),
+  )
+
+  it.effect('a crash while Stop waits for the start ends the Stop instead of leaving it waiting', () =>
+    Effect.gen(function* () {
+      const { peer, manager } = yield* setup({ reply: null, handlers: { 'turn/start': () => Effect.never } })
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* Effect.forkScoped(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' }))
+      yield* until(manager, (snapshot) => snapshot.streaming)
+      const stop = yield* Effect.forkChild(Effect.exit(manager.dispatch({ op: 'interrupt', ...doc('thr_1') })))
+      yield* until(manager, (snapshot) => snapshot.stopping)
+      yield* settle
+      yield* peer.exit(1, 'boom')
+      yield* settle
+      // No clock moved: the crash failed the pending start, and the send, abandoning its turn,
+      // ended the wait.
+      const done = stop.pollUnsafe()
+      expect(done && Exit.isSuccess(done)).toBe(true)
+      expect(interrupts(peer)).toEqual([])
+    }),
+  )
+
+  it.effect('a Stop between the page opening the turn and the session taking the send keeps it unsent', () =>
+    Effect.gen(function* () {
+      const peer = makeFakeCodex({ reply: null })
+      const codex = fromLegacy(CodexAdapter.make(peer.connect))
+      const gate = yield* Deferred.make<void>()
+      let held = true
+      const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
+        Effect.provide(
+          layerAdapters({
+            codex: {
+              ...codex,
+              // The first send reaches the session only once the gate opens: the fiber yielded
+              // after the page opened the turn.
+              openSession: Effect.map(codex.openSession, (session) => ({
+                ...session,
+                send: (...args: Parameters<typeof session.send>) =>
+                  held
+                    ? Deferred.await(gate).pipe(
+                        Effect.tap(() => Effect.sync(() => (held = false))),
+                        Effect.andThen(session.send(...args)),
+                      )
+                    : session.send(...args),
+              })),
+            },
+          }),
+        ),
+      )
+      yield* manager.start('codex')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      const sent = yield* Effect.forkChild(
+        Effect.exit(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' })),
+      )
+      yield* until(manager, (snapshot) => snapshot.streaming)
+      yield* manager.dispatch({ op: 'interrupt', ...doc('thr_1') })
+      yield* Deferred.succeed(gate, undefined)
+      yield* settle
+      expect(Exit.isSuccess(yield* Fiber.join(sent))).toBe(true)
+      expect(countCalls(peer, 'turn/start')).toBe(0)
+      expect(countCalls(peer, 'turn/interrupt')).toBe(0)
+      // Settled at once, not by the deadline.
+      expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false })
+      yield* manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'A shorter one' })
+      yield* settle
+      expect(countCalls(peer, 'turn/start')).toBe(1)
+      expect(yield* manager.snapshot).toMatchObject({ streaming: true, stopping: false })
+    }),
+  )
+
+  it.effect('a stop that times out is left to the deadline, not put back to running', () =>
+    Effect.gen(function* () {
+      const peer = makeFakeCodex({ reply: null })
+      const codex = fromLegacy(CodexAdapter.make(peer.connect))
+      const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
+        Effect.provide(
+          layerAdapters({
+            codex: {
+              ...codex,
+              // A stop request that the provider never answers, timing out before the deadline
+              // (an adapter whose own request deadline is shorter than `STOP_SETTLE`).
+              openSession: Effect.map(codex.openSession, (session) => ({
+                ...session,
+                interrupt: () =>
+                  Effect.sleep('9 seconds').pipe(
+                    Effect.andThen(
+                      Effect.fail(new ProviderTimeoutError({ provider: 'codex', operation: 'interrupt', seconds: 9 })),
+                    ),
+                  ),
+              })),
+            },
+          }),
+        ),
+      )
+      yield* manager.start('codex')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' })
+      yield* running(manager)
+      const stop = yield* Effect.forkChild(Effect.exit(manager.dispatch({ op: 'interrupt', ...doc('thr_1') })))
+      yield* settle
+      yield* TestClock.adjust('9 seconds')
+      yield* settle
+      expect(Exit.isSuccess(yield* Fiber.join(stop))).toBe(true)
+      expect(yield* manager.snapshot).toMatchObject({ streaming: true, stopping: true })
+      yield* TestClock.adjust('1 second')
+      yield* settle
+      expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false, error: null })
+    }),
   )
 })

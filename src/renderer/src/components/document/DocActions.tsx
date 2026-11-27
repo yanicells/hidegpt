@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import type { Snapshot } from '../../../../shared/model'
-import { dispatch } from '../../session-bridge'
+import { dispatchToDocument } from '../../session-bridge'
 import { SparkIcon } from '../ui/Icons'
 import { MIcon } from '../ui/MaterialIcon'
 import { Menu, MenuTrigger } from '../ui/menu'
@@ -39,7 +39,7 @@ export function DocActions({ snap }: { snap: Snapshot }) {
           className="header-action"
           aria-label="Last edit was seconds ago"
           disabled={!canLoadEarlier}
-          onClick={() => dispatch({ op: 'loadOlderTurns' })}
+          onClick={() => dispatchToDocument({ op: 'loadOlderTurns' })}
         >
           <MIcon name="history" size={24} />
         </button>

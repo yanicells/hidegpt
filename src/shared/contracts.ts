@@ -239,6 +239,12 @@ export type SequencedSnapshot = typeof SequencedSnapshot.Type
 const op = <const Op extends string, const Fields extends Schema.Struct.Fields = {}>(name: Op, fields?: Fields) =>
   Schema.Struct({ op: Schema.Literal(name), ...(fields ?? ({} as Fields)) })
 
+/**
+ * The document a command acts on. Main runs it there or refuses; it never
+ * falls back to whatever document the window shows by the time it arrives.
+ */
+const target = { provider: ProviderId, threadId: Schema.String }
+
 /** Everything the renderer can ask main to do. Decoded in main before it runs. */
 export const Command = Schema.Union([
   op('newDocument', {
@@ -250,11 +256,12 @@ export const Command = Schema.Union([
   op('openThread', { threadId: Schema.String }),
   op('goHome'),
   op('send', {
+    ...target,
     text: Schema.String,
     skill: Schema.optionalKey(Schema.String),
     images: Schema.optionalKey(Schema.Array(Schema.String)),
   }),
-  op('interrupt'),
+  op('interrupt', target),
   op('login'),
   op('logout'),
   op('connectMcp', { name: Schema.String }),
@@ -265,13 +272,14 @@ export const Command = Schema.Union([
   op('setServiceTier', { serviceTier: Schema.NullOr(Schema.String) }),
   op('setCollaborationMode', { name: Schema.String }),
   op('openFolder'),
-  op('loadOlderTurns'),
+  op('loadOlderTurns', target),
   op('resolveApproval', {
+    ...target,
     blockId: Schema.String,
     accept: Schema.Boolean,
     answers: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
   }),
-  op('setDocumentName', { name: Schema.String }),
+  op('setDocumentName', { ...target, name: Schema.String }),
   op('setProvider', { provider: ProviderId, home: Schema.optionalKey(Schema.Boolean) }),
   op('refresh'),
 ])

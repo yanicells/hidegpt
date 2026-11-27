@@ -166,7 +166,14 @@ describe('docs home', () => {
     expect(card).toHaveTextContent('Yan')
     expect(card).not.toHaveTextContent('Run command')
     await user.click(screen.getByRole('button', { name: 'Accept suggestion' }))
-    expect(calls).toContainEqual({ op: 'resolveApproval', blockId: 'approval-1', accept: true, answers: {} })
+    expect(calls).toContainEqual({
+      op: 'resolveApproval',
+      provider: 'codex',
+      threadId: 'thr_1',
+      blockId: 'approval-1',
+      accept: true,
+      answers: {},
+    })
   })
 
   it('shows a search field on the homepage', () => {
@@ -611,7 +618,13 @@ describe('composer attachments', () => {
     expect(screen.queryByTestId('skill-menu')).not.toBeInTheDocument()
     expect(screen.getByTestId('chip-skill-humanizer')).toBeInTheDocument()
     await user.type(composer, 'fix this{Enter}')
-    expect(calls.at(-1)).toEqual({ op: 'send', text: 'Please fix this', skill: 'humanizer' })
+    expect(calls.at(-1)).toEqual({
+      op: 'send',
+      provider: 'codex',
+      threadId: 'thr_1',
+      text: 'Please fix this',
+      skill: 'humanizer',
+    })
   })
 
   it('attaches pasted images and sends them without text', async () => {
@@ -621,7 +634,13 @@ describe('composer attachments', () => {
     fireEvent.paste(composer, { clipboardData: { files: [file] } })
     expect(await screen.findByTestId('composer-images')).toBeInTheDocument()
     fireEvent.keyDown(composer, { key: 'Enter' })
-    expect(calls.at(-1)).toEqual({ op: 'send', text: '', images: ['/tmp/pasted.png'] })
+    expect(calls.at(-1)).toEqual({
+      op: 'send',
+      provider: 'codex',
+      threadId: 'thr_1',
+      text: '',
+      images: ['/tmp/pasted.png'],
+    })
   })
 
   it('attaches the pictures that saved and puts the first failure on the banner', async () => {
@@ -675,6 +694,19 @@ describe('failures and replies', () => {
     expect(screen.queryByTestId('error-banner')).toBeNull()
   })
 
+  it('renames the document whose title was being edited, even if another one opened before the blur', async () => {
+    const { calls } = mount(doc)
+    const title = screen.getByLabelText('Document title')
+    fireEvent.focus(title)
+    fireEvent.change(title, { target: { value: 'Photosynthesis notes' } })
+    // A navigation from elsewhere (a menu, Home in another window) lands while the field still has focus.
+    await window.hidegpt!.dispatch({ op: 'openThread', threadId: 'thr_2' })
+    fireEvent.blur(title)
+    expect(calls.filter((command) => command.op === 'setDocumentName')).toEqual([
+      { op: 'setDocumentName', provider: 'codex', threadId: 'thr_1', name: 'Photosynthesis notes' },
+    ])
+  })
+
   it('drafts approval answers locally and sends them once', async () => {
     const user = userEvent.setup()
     const { calls } = mount({
@@ -697,7 +729,14 @@ describe('failures and replies', () => {
     expect(calls).toEqual([])
     await user.click(screen.getByTestId('accept-ap1'))
     expect(calls).toEqual([
-      { op: 'resolveApproval', blockId: 'ap1', accept: true, answers: { name: 'Yani', size: 'Large' } },
+      {
+        op: 'resolveApproval',
+        provider: 'codex',
+        threadId: 'thr_1',
+        blockId: 'ap1',
+        accept: true,
+        answers: { name: 'Yani', size: 'Large' },
+      },
     ])
   })
 
