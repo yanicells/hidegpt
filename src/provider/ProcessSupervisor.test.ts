@@ -410,7 +410,7 @@ describe.runIf(process.platform === 'darwin')('ProcessSupervisor under the helpe
             UNHURRIED,
             helpers,
           )
-          // The next start makes a fresh clone.
+          // Dropped, so it is rebuilt once the retry wait (helperBinary.ts) is over.
           expect(existsSync(clone)).toBe(false)
         }),
       FIRST_LAUNCH_MS,

@@ -52,6 +52,7 @@ type Host = {
   readonly platform: NodeJS.Platform
   readonly env: NodeJS.ProcessEnv
   readonly clone?: (source: string, target: string) => void
+  readonly now?: () => number
 }
 
 /** Written last, so a clone without it (a start that crashed midway) is rebuilt. */
@@ -108,7 +109,7 @@ export function resolveHelper(
     const name = basename(binary)
     if (SHIMS.has(name) || !name.startsWith(basename(found))) return unchanged
     if (!MACH_O.has(readHead(binary).toString('hex'))) return unchanged
-    const clone = ensureClone(binary, directory, host.clone ?? cloneFile)
+    const clone = ensureClone(binary, directory, host.clone ?? cloneFile, host.now?.() ?? Date.now())
     return clone === null ? unchanged : { command: clone, env: childEnv }
   } catch {
     return unchanged
@@ -116,17 +117,21 @@ export function resolveHelper(
 }
 
 /**
- * Removes the clone `command` was started from, after it failed to start, so the
- * next start makes a fresh one. Only ever a folder directly inside `directory`.
+ * Removes the clone `command` was started from, after it failed to start. Like a
+ * clone that can't be made, it is not rebuilt for `RETRY_AFTER_MS`, so a clone a
+ * security tool refuses costs one failed start per few minutes, not every start.
+ * Only ever a folder directly inside `directory`.
  */
-export function discardHelper(command: string, directory: string | null): void {
+export function discardHelper(command: string, directory: string | null, now = Date.now()): void {
   if (directory === null || basename(command) !== HELPER_NAME) return
   const dir = dirname(dirname(command))
   if (dirname(dir) !== directory) return
+  const stamp = readStamp(dir)
+  if (stamp !== null) failedBuilds.set(dir, { stamp, retryAt: now + RETRY_AFTER_MS })
   try {
     rmSync(dir, { recursive: true, force: true })
   } catch {
-    // The next start reuses or rebuilds it.
+    // Left in place, the next start after the wait reuses or rebuilds it.
   }
 }
 
@@ -294,32 +299,36 @@ const sameStamp = (a: Stamp | null, b: Stamp) =>
   a !== null && a.source === b.source && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ino === b.ino
 
 /**
- * Clones that could not be made this session, by folder: a disk that can't clone
- * (another volume) fails the same way every time, so it is tried once per
- * source version rather than on every start.
+ * Clones that failed this session, by folder, and when to try again. A disk that
+ * can't clone (another volume) fails the same way on every start, so it is not
+ * retried on each one; a failure that clears (a busy disk timing out, a full
+ * disk) gets another try a few minutes later, or at once for a new version.
  */
-const failedBuilds = new Map<string, Stamp>()
+const failedBuilds = new Map<string, { readonly stamp: Stamp; readonly retryAt: number }>()
+export const RETRY_AFTER_MS = 5 * 60_000
 
 /**
  * The clone of `source`, made (or remade, when the source's size, modified
- * time or inode changed: an update) if needed, or null when it already failed
- * for this version. Main holds the single-instance lock and this runs
+ * time or inode changed: an update) if needed, or null while a failure of this
+ * version waits for its retry. Main holds the single-instance lock and this runs
  * synchronously, so two builds of one folder never overlap.
  */
 function ensureClone(
   source: string,
   directory: string,
   clone: (source: string, target: string) => void,
+  now: number,
 ): string | null {
   const stamp = stampOf(source)
   const dir = join(directory, createHash('sha256').update(source).digest('hex').slice(0, 16))
   const helper = join(dir, FOLDER, HELPER_NAME)
   if (sameStamp(readStamp(dir), stamp) && isExecutableFile(helper)) return helper
-  if (sameStamp(failedBuilds.get(dir) ?? null, stamp)) return null
+  const failed = failedBuilds.get(dir)
+  if (failed !== undefined && sameStamp(failed.stamp, stamp) && now < failed.retryAt) return null
   try {
     build(source, stamp, dir, helper, clone)
   } catch (error) {
-    failedBuilds.set(dir, stamp)
+    failedBuilds.set(dir, { stamp, retryAt: now + RETRY_AFTER_MS })
     throw error
   }
   pruneStale(directory, dir)

@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import {
   chmodSync,
   existsSync,
@@ -19,7 +19,7 @@ import { basename, dirname, join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 
 import { PACKAGED_BINARY_NAME } from '../claude/executable'
-import { HELPER_NAME, MIRROR_LIMIT, STAMP, resolveHelper } from './helperBinary'
+import { HELPER_NAME, MIRROR_LIMIT, RETRY_AFTER_MS, STAMP, discardHelper, resolveHelper } from './helperBinary'
 import { FIRST_LAUNCH_MS, codexInstall, executable, nodeAt, processName } from './helperBinary.testing'
 
 /** Real clones of a real binary (Node). Nothing here starts a provider. */
@@ -136,7 +136,46 @@ describe.runIf(process.platform === 'darwin')('resolveHelper', () => {
     }
   })
 
-  it('tries a clone that cannot be made once per source version', () => {
+  it('tries a clone that failed again a few minutes later', () => {
+    const source = nodeAt(join(root, 'retry', 'bin', 'tool'))
+    const dir = helpersDir()
+    let now = Date.now()
+    let attempts = 0
+    const host = {
+      ...mac,
+      now: () => now,
+      // Fails once (a busy disk timing out), then clones.
+      clone: (from: string, to: string) => {
+        attempts += 1
+        if (attempts === 1) throw new Error('ETIMEDOUT: busy disk')
+        execFileSync('/bin/cp', ['-c', from, to])
+      },
+    }
+    expect(resolveHelper(source, undefined, dir, host).command).toBe(source)
+    expect(resolveHelper(source, undefined, dir, host).command).toBe(source)
+    expect(attempts).toBe(1)
+
+    now += RETRY_AFTER_MS
+    expect(resolveHelper(source, undefined, dir, host).command.endsWith(`/${HELPER_NAME}`)).toBe(true)
+    expect(attempts).toBe(2)
+  })
+
+  it('does not rebuild a clone refused at start until the retry is due', () => {
+    const source = nodeAt(join(root, 'refused', 'bin', 'tool'))
+    const dir = helpersDir()
+    let now = Date.now()
+    const host = { ...mac, now: () => now }
+    const clone = resolveHelper(source, undefined, dir, host).command
+    discardHelper(clone, dir, now)
+    expect(existsSync(clone)).toBe(false)
+    expect(resolveHelper(source, undefined, dir, host).command).toBe(source)
+
+    now += RETRY_AFTER_MS
+    expect(resolveHelper(source, undefined, dir, host).command).toBe(clone)
+    expect(existsSync(clone)).toBe(true)
+  })
+
+  it('tries a clone that cannot be made once per source version within the retry wait', () => {
     const source = nodeAt(join(root, 'once', 'bin', 'tool'))
     const dir = helpersDir()
     let attempts = 0
