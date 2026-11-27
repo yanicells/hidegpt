@@ -15,9 +15,12 @@ import { join } from 'node:path'
 
 import * as NodeServices from '@effect/platform-node/NodeServices'
 import { afterAll, describe, expect, it } from '@effect/vitest'
+import * as Cause from 'effect/Cause'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
+import * as Exit from 'effect/Exit'
 import * as Layer from 'effect/Layer'
+import { ChildProcess, ChildProcessSpawner } from 'effect/process'
 
 import { HELPER_NAME, resolveHelper } from './helperBinary'
 import { FIRST_LAUNCH_MS, codexInstall, nodeAt, processName } from './helperBinary.testing'
@@ -302,6 +305,16 @@ describe.runIf(process.platform === 'darwin')('ProcessSupervisor under the helpe
   const helpersDir = () => join(dir, `helpers-${(count += 1)}`)
   const ledgerEntries = (path: string) =>
     Object.values(JSON.parse(readFileSync(path, 'utf8')) as Record<string, { command: string }>)
+  /** The started child's pid, or undefined when the start threw (a refused clone's failure stands). */
+  const pidOf = (start: () => { readonly pid?: number | undefined }) => {
+    try {
+      return start().pid
+    } catch {
+      return undefined
+    }
+  }
+  /** The ledger's entries, or none when nothing was ever recorded. */
+  const recorded = (path: string) => (existsSync(path) ? ledgerEntries(path) : [])
   /**
    * Ways a clone that is there (its stamp matches) fails to start, as when it is removed between
    * the lookup and the spawn or a security tool refuses it. Node emits the first as an "error"
@@ -430,6 +443,76 @@ describe.runIf(process.platform === 'darwin')('ProcessSupervisor under the helpe
   }
 
   it.live(
+    'leaves an interrupted clone start interrupted, without starting the original',
+    () =>
+      Effect.gen(function* () {
+        const helpers = helpersDir()
+        const clone = resolveHelper(process.execPath, undefined, helpers).command
+        const ledgerPath = join(dir, `helper-interrupt-ledger-${count}.json`)
+        const started: string[] = []
+        // The real spawner, except that the clone's start is interrupted, as by a scope closing at that instant.
+        const interruptingClone = Layer.effect(
+          ChildProcessSpawner.ChildProcessSpawner,
+          Effect.gen(function* () {
+            const real = yield* ChildProcessSpawner.ChildProcessSpawner
+            return ChildProcessSpawner.make((command) => {
+              if (!ChildProcess.isStandardCommand(command)) return real.spawn(command)
+              started.push(command.command)
+              return command.command === clone ? Effect.interrupt : real.spawn(command)
+            })
+          }),
+        ).pipe(Layer.provide(NodeServices.layer))
+
+        const exit = yield* Effect.exit(
+          Effect.scoped(
+            Effect.gen(function* () {
+              const supervisor = yield* ProcessSupervisor
+              return yield* supervisor.spawn({ provider: 'codex', ...sleeper })
+            }),
+          ).pipe(
+            Effect.provide(
+              layer(ledgerPath, UNHURRIED, helpers).pipe(
+                Layer.provide(interruptingClone),
+                Layer.provideMerge(NodeServices.layer),
+              ),
+            ),
+          ),
+        )
+        expect(Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)).toBe(true)
+        expect(started).toEqual([clone])
+        expect(recorded(ledgerPath)).toEqual([])
+        expect(existsSync(clone)).toBe(true)
+      }),
+    FIRST_LAUNCH_MS,
+  )
+
+  for (const { failure, text } of BROKEN) {
+    it.live(
+      `does not start an SDK’s original CLI for an already aborted start (${failure})`,
+      () =>
+        Effect.gen(function* () {
+          const helpers = helpersDir()
+          const clone = brokenClone(helpers, text).command
+          const ledgerPath = join(dir, `helper-aborted-ledger-${count}.json`)
+          yield* withSupervisor(
+            (supervisor) =>
+              Effect.gen(function* () {
+                const spawn = yield* supervisor.callbackSpawner
+                expect(pidOf(() => spawn({ ...sleeper, env: {}, signal: AbortSignal.abort() }))).toBeUndefined()
+              }).pipe(Effect.scoped),
+            ledgerPath,
+            UNHURRIED,
+            helpers,
+          )
+          expect(recorded(ledgerPath)).toEqual([])
+          // Nothing started, so the clone is not judged: the next start tries it again.
+          expect(existsSync(clone)).toBe(true)
+        }),
+      FIRST_LAUNCH_MS,
+    )
+  }
+
+  it.live(
     'keeps a good clone when the original cannot start either (a missing folder)',
     () =>
       Effect.gen(function* () {
@@ -458,41 +541,57 @@ describe.runIf(process.platform === 'darwin')('ProcessSupervisor under the helpe
     FIRST_LAUNCH_MS,
   )
 
-  it.live(
-    'starts the original Codex launcher with the caller’s env, not the variables meant for its clone',
-    () =>
-      Effect.gen(function* () {
-        const out = join(dir, 'launcher-env.json')
-        const { launcher } = codexInstall(
-          join(dir, 'codex-npm', 'lib'),
-          `#!${process.execPath}\nrequire('fs').writeFileSync(process.env.ENV_OUT, JSON.stringify(process.env))\n`,
-        )
-        const bin = join(dir, 'codex-npm', 'bin')
-        mkdirSync(bin)
-        symlinkSync(launcher, join(bin, 'codex'))
-        const env = { PATH: bin, ENV_OUT: out }
-        const helpers = helpersDir()
-        // The clone would have started with the launcher's variables; the caller's env has none.
-        const clone = brokenClone(helpers, 'not a program\n', 'codex', env)
-        expect(clone.env).toMatchObject({ CODEX_MANAGED_BY_NPM: '1' })
+  /** Starts the launcher through one of the two paths and waits for it to exit. */
+  const PATHS = [
+    {
+      path: 'spawn',
+      run: (supervisor: ProcessSupervisor['Service'], env: Record<string, string>) =>
+        Effect.scoped(
+          Effect.flatMap(supervisor.spawn({ provider: 'codex', command: 'codex', args: [], env }), ({ awaitExit }) =>
+            Effect.ignore(awaitExit),
+          ),
+        ),
+    },
+    {
+      path: 'callbackSpawner',
+      run: (supervisor: ProcessSupervisor['Service'], env: Record<string, string>) =>
+        Effect.scoped(
+          Effect.flatMap(supervisor.callbackSpawner, (spawn) =>
+            Effect.callback<void>((resume) => {
+              spawn({ command: 'codex', args: [], env }).once('exit', () => resume(Effect.void))
+            }),
+          ),
+        ),
+    },
+  ]
 
-        yield* withSupervisor(
-          (supervisor) =>
-            Effect.scoped(
-              Effect.gen(function* () {
-                const { awaitExit } = yield* supervisor.spawn({ provider: 'codex', command: 'codex', args: [], env })
-                yield* Effect.ignore(awaitExit)
-              }),
-            ),
-          null,
-          UNHURRIED,
-          helpers,
-        )
-        const seen = JSON.parse(readFileSync(out, 'utf8')) as Record<string, string>
-        expect(seen.ENV_OUT).toBe(out)
-        expect(Object.keys(seen).filter((name) => name.startsWith('CODEX_MANAGED_'))).toEqual([])
-        expect(existsSync(clone.command)).toBe(false)
-      }),
-    FIRST_LAUNCH_MS,
-  )
+  for (const { path, run } of PATHS) {
+    it.live(
+      `starts the original Codex launcher with the caller’s env, not its clone’s variables (${path})`,
+      () =>
+        Effect.gen(function* () {
+          const prefix = join(dir, `codex-npm-${path}`)
+          const out = join(prefix, 'launcher-env.json')
+          const { launcher } = codexInstall(
+            join(prefix, 'lib'),
+            `#!${process.execPath}\nrequire('fs').writeFileSync(process.env.ENV_OUT, JSON.stringify(process.env))\n`,
+          )
+          const bin = join(prefix, 'bin')
+          mkdirSync(bin)
+          symlinkSync(launcher, join(bin, 'codex'))
+          const env = { PATH: bin, ENV_OUT: out }
+          const helpers = helpersDir()
+          // The clone would have started with the launcher's variables; the caller's env has none.
+          const clone = brokenClone(helpers, 'not a program\n', 'codex', env)
+          expect(clone.env).toMatchObject({ CODEX_MANAGED_BY_NPM: '1' })
+
+          yield* withSupervisor((supervisor) => run(supervisor, env), null, UNHURRIED, helpers)
+          const seen = JSON.parse(readFileSync(out, 'utf8')) as Record<string, string>
+          expect(seen.ENV_OUT).toBe(out)
+          expect(Object.keys(seen).filter((name) => name.startsWith('CODEX_MANAGED_'))).toEqual([])
+          expect(existsSync(clone.command)).toBe(false)
+        }),
+      FIRST_LAUNCH_MS,
+    )
+  }
 })

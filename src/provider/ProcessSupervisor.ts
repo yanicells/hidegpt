@@ -71,7 +71,10 @@ export type CallbackSpawnOptions = {
   readonly command: string
   readonly args: ReadonlyArray<string>
   readonly cwd?: string | undefined
-  /** Passed to the child as given (`resolveHelper` reads only PATH, and adds only a known launcher's variables); never logged. */
+  /**
+   * Passed to the child as given, plus a known launcher's variables. `resolveHelper` reads PATH
+   * (and, for the Codex launcher, npm's agent variables). Never logged.
+   */
   readonly env: Record<string, string | undefined>
   readonly signal?: AbortSignal | undefined
   readonly onStderr?: (text: string) => void
@@ -170,6 +173,8 @@ const make = (
           ? start(options.command, options.env)
           : start(helper.command, helper.env).pipe(
               Effect.catchCauseIf(
+                // An interrupted start (a closing scope, a cancelled open) stays interrupted: the
+                // original is not started for a caller that has gone.
                 (cause) => !Cause.hasInterrupts(cause),
                 () =>
                   Effect.logDebug('helper did not start; starting the original').pipe(
@@ -309,24 +314,28 @@ const make = (
         // As in `spawn`: from a `Docs Helper` clone where it can be, else the original. A clone that
         // won't start has no pid (ENOENT, EACCES) or throws from `spawn` (EPERM, ENOEXEC).
         const helper = resolveHelper(options.command, options.env, helpersDirectory)
-        const fromHelper = (): ChildProcessWithoutNullStreams | null => {
-          if (helper.command === options.command) return null
+        const renamed = helper.command !== options.command
+        let command = helper.command
+        let child: ChildProcessWithoutNullStreams | undefined
+        let thrown: unknown
+        if (renamed) {
           try {
-            const child = start(helper.command, helper.env)
-            return child.pid === undefined ? null : child
-          } catch {
-            return null
+            child = start(command, helper.env)
+          } catch (error) {
+            thrown = error
           }
         }
-        let command = helper.command
-        let child = fromHelper()
-        if (child === null) {
-          if (command !== options.command) runFork(Effect.logDebug('helper did not start; starting the original'))
+        if (child?.pid === undefined) {
+          // Already aborted: the original would start only to be stopped, so the clone's failure stands.
+          if (renamed && options.signal?.aborted) {
+            if (child === undefined) throw thrown
+            return child
+          }
+          if (renamed) runFork(Effect.logDebug('helper did not start; starting the original'))
           command = options.command
           child = start(command, options.env)
           // Dropped only once the original runs: a missing cwd fails both, and the clone is fine.
-          if (child.pid !== undefined && helper.command !== options.command)
-            discardHelper(helper.command, helpersDirectory)
+          if (renamed && child.pid !== undefined) discardHelper(helper.command, helpersDirectory)
         }
         const pid = child.pid
         // A spawn that fails has no pid and emits only "error", which the SDK reports.
