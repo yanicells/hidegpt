@@ -16,6 +16,9 @@ export default defineConfig({
     // dependencies: one file loads faster than hundreds of package modules. The Claude
     // SDK stays external because it starts the CLI that ships inside its package.
     plugins: [externalizeDepsPlugin({ exclude: ['effect', '@effect/platform-node', '@opencode-ai/sdk'] })],
+    // Chunks are named by hash, not by module: `CodexAdapter-….js` in the app's
+    // archive would name a vendor (the stealth scan in `pnpm dist` checks).
+    build: { rollupOptions: { output: { chunkFileNames: 'chunk-[hash].js' } } },
   },
   preload: {
     define,

@@ -55,6 +55,9 @@ jobs:
       - name: Test
         run: pnpm test
 
-      # Catches bundle-only breakage (bad imports, Vite config) that tsc misses.
-      - name: Build
-        run: pnpm build
+      # Each scan builds what it scans, so this also catches bundle-only breakage (bad imports, Vite
+      # config) that tsc misses. No banned word in the built renderer or preload, for the shared build
+      # (what `pnpm dist` ships by default) and the personal one (scripts/stealth-allow.json lists the
+      # exceptions).
+      - name: Build and stealth scan
+        run: pnpm stealth:scan:shared && pnpm stealth:scan

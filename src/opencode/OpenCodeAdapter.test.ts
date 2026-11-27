@@ -4,6 +4,7 @@ import * as Effect from 'effect/Effect'
 import * as Exit from 'effect/Exit'
 import * as Fiber from 'effect/Fiber'
 import * as Logger from 'effect/Logger'
+import * as References from 'effect/References'
 import * as Stream from 'effect/Stream'
 import * as TestClock from 'effect/testing/TestClock'
 
@@ -19,7 +20,7 @@ import {
   type FakeOpenCode,
   type FakeOpenCodeOptions,
 } from './FakeOpenCode'
-import { readableProviderError } from './mapping'
+import { providerFailure } from './mapping'
 import * as OpenCodeAdapter from './OpenCodeAdapter'
 
 const SETTINGS = { model: 'fake/model-a', effort: null, serviceTier: null, mode: 'build' }
@@ -176,7 +177,9 @@ describe('OpenCodeAdapter', () => {
       fake.permissions.push(permission('per_1'), permission('per_other', 'ses_elsewhere'))
       const opened = yield* session.openThread(SESSION)
       const approvals = opened.blocks.filter((block) => block.kind === 'approval')
-      expect(approvals).toMatchObject([{ id: 'approval-per_1', title: 'Allow bash: git status?', resolved: null }])
+      expect(approvals).toMatchObject([
+        { id: 'approval-per_1', suggestion: 'add', title: 'Run this command?', body: 'git status', resolved: null },
+      ])
 
       yield* session.respond(SESSION, 'approval-per_1', { accept: true, answers: {} })
       expect(requested(fake, 'POST', '/permission/per_1/reply')[0]?.body).toEqual({ reply: 'once' })
@@ -326,6 +329,30 @@ describe('OpenCodeAdapter', () => {
     }),
   )
 
+  it.effect('puts an error with no session on the banner in Docs words, and logs it under the same report id', () => {
+    const logged: Array<Record<string, unknown>> = []
+    const capture = Logger.make(({ fiber, logLevel, message }) => {
+      if (logLevel === 'Warn' && String(message) === 'Provider error')
+        logged.push({ ...fiber.getRef(References.CurrentLogAnnotations) })
+    })
+    return Effect.gen(function* () {
+      const { fake, events } = yield* open({ reply: null })
+      fake.push({
+        id: 'evt_e',
+        type: 'session.error',
+        properties: { error: { name: 'ProviderAuthError', data: { providerID: 'openai', message: 'Bad key' } } },
+      })
+      yield* until(() => events.some((event) => event.type === 'notice'))
+      const notice = events.find((event) => event.type === 'notice')
+      const reportId =
+        /^This account signs in outside Docs\. Sign in, then use Tools → Refresh\. \(Report ([0-9a-f]{8})\)$/.exec(
+          notice?.type === 'notice' ? notice.message : '',
+        )?.[1]
+      expect(reportId).toBeDefined()
+      expect(logged).toEqual([expect.objectContaining({ reportId, failureClass: 'auth', detail: 'Bad key' })])
+    }).pipe(Effect.provide(Logger.layer([capture])))
+  })
+
   it.effect('ends the turn with the model error, but not when Docs stopped it', () =>
     Effect.gen(function* () {
       const { fake, session, events } = yield* open({ reply: null })
@@ -339,14 +366,16 @@ describe('OpenCodeAdapter', () => {
         },
       })
       yield* until(() => events.some((event) => event.type === 'turnEnded'))
-      expect(events.find((event) => event.type === 'turnEnded')).toMatchObject({ error: 'Rate limited.' })
+      expect(events.find((event) => event.type === 'turnEnded')).toMatchObject({
+        failure: { class: 'provider_error', detail: 'Rate limited.' },
+      })
 
       events.length = 0
       yield* send(session, 'Second')
       yield* session.interrupt(SESSION)
       yield* until(() => events.some((event) => event.type === 'turnEnded'))
       expect(requested(fake, 'POST', `/session/${SESSION}/abort`)).toHaveLength(1)
-      expect(events.find((event) => event.type === 'turnEnded')).not.toHaveProperty('error', expect.any(String))
+      expect(events.find((event) => event.type === 'turnEnded')).toEqual({ type: 'turnEnded', threadId: SESSION })
     }),
   )
 
@@ -473,16 +502,28 @@ describe('OpenCode error sentences', () => {
     expect(cases.map(([cause]) => OpenCodeAdapter.errorDetail(cause))).toEqual(cases.map(([, sentence]) => sentence))
   })
 
-  it("decodes a model provider's error data, ignoring a malformed one", () => {
+  it("classes a model provider's error, and keeps its readable text for the log", () => {
     const html = '<html><title>Bad   Gateway</title></html>'
-    expect(readableProviderError({ name: 'APIError', data: { message: 'Rate limited.' } })).toBe('Rate limited.')
+    const quota = 'Quota exceeded, see https://x.test/billing?token=abc'
+    expect(providerFailure({ name: 'APIError', data: { message: quota, statusCode: 429 } })).toEqual({
+      class: 'usage_limit',
+      detail: 'Quota exceeded, see https://x.test/billing',
+      retryable: false,
+      resetAt: null,
+    })
     expect(
-      readableProviderError({ name: 'APIError', data: { message: '<none>', statusCode: 502, responseBody: html } }),
-    ).toBe('Bad Gateway (HTTP 502).')
-    expect(readableProviderError({ name: 'APIError', data: { statusCode: 503 } })).toBe(
-      'The model provider failed the request (HTTP 503).',
+      providerFailure({ name: 'APIError', data: { message: '<none>', statusCode: 502, responseBody: html } }),
+    ).toMatchObject({ class: 'provider_error', detail: 'Bad Gateway (HTTP 502).' })
+    expect(providerFailure({ name: 'ProviderAuthError', data: { providerID: 'x', message: 'Bad key' } })).toMatchObject(
+      { class: 'auth', detail: 'Bad key' },
     )
-    expect(readableProviderError({ name: 'APIError', data: { message: 7 } })).toBe('APIError')
-    expect(readableProviderError(undefined)).toBe('The assistant ran into an error.')
+    expect(providerFailure({ name: 'APIError', data: { statusCode: 403 } })).toMatchObject({ class: 'auth' })
+    expect(providerFailure({ name: 'APIError', data: { message: 7 } })).toMatchObject({
+      class: 'provider_error',
+      detail: 'APIError',
+    })
+    expect(providerFailure({ name: 'ContextOverflowError', data: {} })).toMatchObject({ class: 'validation_error' })
+    expect(providerFailure({ name: 'UnknownError', data: { message: 'x' } })).toMatchObject({ class: 'unknown' })
+    expect(providerFailure(undefined)).toMatchObject({ class: 'unknown', detail: 'No error was given.' })
   })
 })

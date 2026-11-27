@@ -39,14 +39,18 @@ export const Failure = Schema.Struct({
   retryable: Schema.NullOr(Schema.Boolean),
   /** Epoch ms. Only for `usage_limit`, when the provider says when the limit resets. */
   resetAt: Schema.NullOr(Schema.Number),
+  /** Names the log line that holds `detail`; the page shows it. Set by the session manager. */
+  reportId: Schema.optionalKey(Schema.String),
 })
 export type Failure = typeof Failure.Type
 
 export const ToolKind = Schema.Literals([
   'command',
+  'file_read',
   'file_change',
   'file_search',
   'web_search',
+  'web_fetch',
   'mcp_tool',
   'subagent',
   'compaction',

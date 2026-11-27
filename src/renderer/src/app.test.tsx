@@ -605,7 +605,7 @@ describe('composer attachments', () => {
     const { calls } = mount({ route: { kind: 'doc', threadId: 'thr_1' }, title: 'Photosynthesis', skills })
     const composer = screen.getByTestId('composer')
     await user.type(composer, 'Please @hum')
-    expect(screen.getByTestId('skill-menu')).toHaveTextContent('humanizer')
+    expect(screen.getByTestId('skill-menu')).toHaveTextContent('Humanizer')
     expect(screen.queryByTestId('skill-study-guide')).not.toBeInTheDocument()
     await user.keyboard('{Enter}')
     expect(screen.queryByTestId('skill-menu')).not.toBeInTheDocument()

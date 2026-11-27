@@ -22,7 +22,7 @@ import {
   ProviderDefectError,
   ProviderNotReadyError,
 } from '../provider/errors'
-import { describeFailure, errorLogFields, logDefects, reportDefect } from '../provider/DefectReport'
+import { describeFailure, errorLogFields, logDefects, newReportId, reportDefect } from '../provider/DefectReport'
 import type { RequestStatus, UserItem } from '../provider/events'
 import type { AdapterEvent, CatalogPart, OpenedThread, ProviderSession } from '../provider/ProviderAdapter'
 import { isThreadEvent } from '../provider/ProviderAdapter'
@@ -345,9 +345,14 @@ export const make = (options: ManagerOptions) =>
 
     const onEvent =
       (id: ProviderId) =>
-      (event: AdapterEvent): Effect.Effect<void> =>
+      (received: AdapterEvent): Effect.Effect<void> =>
         Effect.gen(function* () {
-          yield* eventLog.record(id, event)
+          yield* eventLog.record(id, received)
+          // A failed turn gets a report id: the page shows it, and the log line below carries it.
+          const event: AdapterEvent =
+            received.type === 'turn.ended' && received.failure
+              ? { ...received, failure: { ...received.failure, reportId: yield* newReportId } }
+              : received
           if (isThreadEvent(event)) {
             const runtime = (yield* read).runtimes.get(S.keyOf(id, event.threadId))
             const at = yield* now
@@ -359,7 +364,11 @@ export const make = (options: ManagerOptions) =>
             // The page shows a fixed sentence for the class; the provider's own words go to the log.
             if (event.type === 'turn.ended' && event.failure) {
               yield* Effect.logWarning('Turn failed').pipe(
-                Effect.annotateLogs({ failureClass: event.failure.class, detail: event.failure.detail }),
+                Effect.annotateLogs({
+                  reportId: event.failure.reportId,
+                  failureClass: event.failure.class,
+                  detail: event.failure.detail,
+                }),
               )
             }
             // A thread with no runtime (released, never opened here) only moves Home's ordering.
