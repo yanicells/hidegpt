@@ -87,6 +87,10 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     from `apps/desktop/src/electron/ElectronProtocol.ts`; deny-by-default
     permission handlers, from `apps/desktop/src/preview/BrowserSession.ts`; and
     the test shape of `ElectronProtocol.test.ts` and `ElectronShell.test.ts`.
+  - `src/main/menu.ts` and `menu.test.ts` (commit 5c6f2f12): the View menu's
+    hidden zoom items, from `apps/desktop/src/window/DesktopApplicationMenu.ts`;
+    walking the menu template for roles and accelerators, from
+    `apps/desktop/src/window/DesktopApplicationMenu.test.ts`.
   - `src/renderer/src/components/layout/RenderErrorBoundary.tsx` (commit
     5c6f2f12): from `apps/web/src/components/RenderErrorBoundary.tsx`.
   - `src/main/ProviderSessionManager.ts` and `src/opencode/OpenCodeAdapter.ts`:
