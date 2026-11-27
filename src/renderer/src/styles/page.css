@@ -287,10 +287,11 @@
 .doc-block:has(> .callout) {
   contain-intrinsic-size: auto 24px;
 }
-/* The streamed block is always on screen, so skipping never applies, and
-   containment there cost about 10% more raster work per delta in traces.
-   A suggestion's card hangs into the margin, which paint containment would clip. */
-.doc-block[data-streaming],
+/* A suggestion's card hangs into the margin, which paint containment would clip.
+   The streamed block is deliberately not exempt: flipping an on-screen block
+   from visible back to auto when the stream ends makes Chrome log a phantom
+   layout shift (0.040, nothing moves). Line reveal (UI-08) cut the deltas about
+   7x, so the containment raster cost the exemption avoided is now small. */
 .doc-block:has(> .suggestion-row) {
   content-visibility: visible;
 }
