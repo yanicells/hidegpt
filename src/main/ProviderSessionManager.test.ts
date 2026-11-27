@@ -948,11 +948,12 @@ describe('ProviderSessionManager: turns', () => {
 
   it.effect('a Stop on a send still waiting for the held Stop keeps it from being sent, and the next send works', () =>
     Effect.gen(function* () {
+      let starts = 0
       const { peer, manager } = yield* setup({
         reply: null,
         handlers: {
           'turn/start': () =>
-            countCalls(peer, 'turn/start') === 1
+            (starts += 1) === 1
               ? Effect.sleep('15 seconds').pipe(
                   Effect.as({ turn: { id: 'turn_slow', items: [], status: 'inProgress' as const } }),
                 )
@@ -994,21 +995,24 @@ describe('ProviderSessionManager: turns', () => {
   it.effect("a send waits for the previous send's answer, so Stop names the newer turn", () =>
     Effect.gen(function* () {
       // The first start is slow, and its notification comes a second before its answer.
+      let starts = 0
+      const slow = { id: 'turn_slow', items: [], status: 'inProgress' as const }
+      let notifySlow: Effect.Effect<void> = Effect.void
       const { peer, manager } = yield* setup({
         reply: null,
         handlers: {
           'turn/start': () =>
-            countCalls(peer, 'turn/start') === 1
+            (starts += 1) === 1
               ? Effect.gen(function* () {
-                  const turn = { id: 'turn_slow', items: [], status: 'inProgress' as const }
                   yield* Effect.sleep('15 seconds')
-                  yield* peer.notify('turn/started', { threadId: 'thr_1', turn })
+                  yield* notifySlow
                   yield* Effect.sleep('1 second')
-                  return { turn }
+                  return { turn: slow }
                 })
               : Effect.succeed({ turn: { id: 'turn_next', items: [], status: 'inProgress' as const } }),
         },
       })
+      notifySlow = peer.notify('turn/started', { threadId: 'thr_1', turn: slow })
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
       yield* Effect.forkScoped(manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' }))
       yield* until(manager, (snapshot) => snapshot.streaming)
@@ -1030,7 +1034,10 @@ describe('ProviderSessionManager: turns', () => {
       expect(Exit.isSuccess(yield* Fiber.join(again))).toBe(true)
       yield* manager.dispatch({ op: 'interrupt', ...doc('thr_1') })
       yield* settle
-      expect(interrupts(peer).map((request) => request.turnId)).toEqual(['turn_slow', 'turn_next'])
+      expect(interrupts(peer)).toEqual([
+        expect.objectContaining({ turnId: 'turn_slow' }),
+        expect.objectContaining({ turnId: 'turn_next' }),
+      ])
     }),
   )
 
