@@ -7,6 +7,9 @@ import { SparkIcon } from '../ui/Icons'
 import { BlockView } from './BlockView'
 import { CommentsRail, hasPendingSuggestion } from './CommentsRail'
 import { Composer } from './Composer'
+import { DocContextMenu } from './DocContextMenu'
+import { DocShortcuts } from './DocShortcuts'
+import { FindBar } from './FindBar'
 import { outlineEntries, type OutlineEntry } from './outline'
 import { PAGE_HEIGHT, PAGE_PITCH, usePages } from './pages'
 import { Ruler, VerticalRuler } from './Rulers'
@@ -96,6 +99,7 @@ export function Document({
   return (
     // has-cards makes room for the rail (approvals.css) without a :has() over the document.
     <div className={hasCards ? 'workspace has-cards' : 'workspace'} data-testid="document" ref={scrollRef}>
+      <FindBar flowRef={contentRef} scrollRef={scrollRef} release={release} />
       <div className="doc-layout">
         <VerticalRuler />
         <Tabs onNew={onNew} entries={outline} onJump={jumpTo} autoCollapse={hasCards && crowded} />
@@ -156,6 +160,8 @@ export function Document({
           </span>
         )}
       </div>
+      <DocContextMenu pageRef={paperRef} />
+      <DocShortcuts />
     </div>
   )
 }

@@ -1,0 +1,49 @@
+/* ---------- Keyboard shortcuts list (DocShortcuts.tsx, Cmd+/) ---------- */
+.drive-dialog.shortcuts-dialog {
+  width: min(560px, calc(100vw - 40px));
+  padding: 24px;
+  border-radius: 8px;
+}
+
+.shortcuts-head {
+  @apply flex items-center justify-between;
+  gap: 16px;
+}
+
+.shortcuts-head h2 {
+  margin: 0;
+}
+
+.shortcuts-close {
+  @apply grid place-items-center shrink-0 rounded-full;
+  width: 40px;
+  height: 40px;
+  color: var(--text-2);
+}
+
+.shortcuts-close:hover {
+  background: var(--hover);
+}
+
+.shortcuts-section {
+  margin: 16px 0 8px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.shortcuts-list {
+  margin: 0;
+}
+
+.shortcuts-row {
+  @apply flex items-center justify-between;
+  min-height: 40px;
+  border-top: 1px solid var(--hairline);
+  font-size: 14px;
+}
+
+.shortcuts-row dd {
+  margin: 0;
+  color: var(--text-2);
+}

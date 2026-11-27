@@ -22,3 +22,6 @@
 @import './loading.css' layer(components);
 @import './tabs.css' layer(components);
 @import './dialogs.css' layer(components);
+@import './find.css' layer(components);
+@import './context-menu.css' layer(components);
+@import './shortcuts.css' layer(components);
