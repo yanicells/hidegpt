@@ -190,3 +190,28 @@ export function reachableSchemas(
   return reached;
 }
 
+/**
+ * HideGPT: a JSON schema without its `description`s. They only become runtime annotations
+ * nothing reads (the generated types carry no comments) and are a fifth of the emitted code.
+ * Visits schema positions only, so a property named `description` stays.
+ */
+export function withoutDescriptions(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(withoutDescriptions);
+  if (schema === null || typeof schema !== "object") return schema;
+  const result: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(schema)) {
+    if (key === "description") continue;
+    result[key] =
+      (key === "properties" || key === "definitions") && child !== null && typeof child === "object"
+        ? Object.fromEntries(
+            Object.entries(child).map(([name, value]) => [name, withoutDescriptions(value)]),
+          )
+        : SCHEMA_KEYS.has(key)
+          ? withoutDescriptions(child)
+          : child;
+  }
+  return result;
+}
+
+// The positions the CLI's schemas nest schemas in, besides `properties` and `definitions`.
+const SCHEMA_KEYS = new Set(["items", "additionalProperties", "anyOf", "oneOf", "allOf"]);

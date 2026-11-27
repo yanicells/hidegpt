@@ -27,6 +27,7 @@ import {
   UNRESOLVED_RESPONSE,
   UNRESOLVED_RESPONSE_ENTRY,
   versionMismatch,
+  withoutDescriptions,
 } from "./helpers.ts";
 import { EXTRA_SCHEMAS, PROTOCOL_ALLOWLIST } from "./allowlist.ts";
 
@@ -745,7 +746,7 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
     left.localeCompare(right),
   )) {
     if (!emitted.has(name)) continue;
-    emittedSchemas[name] = adaptSchemaForEffect(schema);
+    emittedSchemas[name] = adaptSchemaForEffect(withoutDescriptions(schema) as Schema.Json);
     generator.addSchema(name, emittedSchemas[name] as never);
   }
 

@@ -7,6 +7,7 @@ import {
   selectAllowed,
   UNRESOLVED_RESPONSE,
   versionMismatch,
+  withoutDescriptions,
 } from './helpers.ts'
 
 // Trimmed from codex-cli 0.172.0's `generate-ts` ClientRequest.ts. It publishes
@@ -83,5 +84,24 @@ describe('allowlist filter', () => {
     }
     expect([...reachableSchemas(['Params'], schemas)].toSorted()).toEqual(['Item', 'Leaf', 'Params'])
     expect(() => reachableSchemas(['Missing'], schemas)).toThrow('Unable to resolve schema: Missing')
+  })
+
+  it('drops description annotations but keeps a property named description', () => {
+    const schema = {
+      description: 'A skill.',
+      type: 'object',
+      properties: {
+        description: { description: 'Shown in the menu.', type: 'string' },
+        tags: { items: { description: 'One tag.', type: 'string' }, type: 'array' },
+      },
+      required: ['description'],
+      enum: [{ description: 'a value, not a schema' }],
+    }
+    expect(withoutDescriptions(schema)).toEqual({
+      type: 'object',
+      properties: { description: { type: 'string' }, tags: { items: { type: 'string' }, type: 'array' } },
+      required: ['description'],
+      enum: [{ description: 'a value, not a schema' }],
+    })
   })
 })
