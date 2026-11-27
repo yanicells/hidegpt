@@ -105,7 +105,7 @@
       "viewport": 1470,
       "screen": "home",
       "kind": "ink",
-      "box": [1086, 84, 128, 30],
+      "box": [1066, 84, 120, 24],
       "prop": "mass",
       "ref": "home-grid.png",
       "refBox": [1066, 84, 120, 24]
@@ -116,7 +116,7 @@
       "viewport": 1470,
       "screen": "home",
       "kind": "ink",
-      "box": [738, 402, 128, 24],
+      "box": [892, 398, 128, 24],
       "prop": "mass",
       "ref": "home-grid.png",
       "refBox": [892, 398, 128, 24]
@@ -204,7 +204,7 @@
       "viewport": 1470,
       "screen": "home",
       "kind": "ink",
-      "box": [1086, 84, 128, 30],
+      "box": [1066, 84, 120, 24],
       "prop": "w",
       "ref": "home-grid.png",
       "refBox": [1066, 84, 120, 24]
@@ -327,7 +327,7 @@
       "kind": "box",
       "selector": ".doc-title",
       "prop": "x",
-      "target": 53
+      "target": 54
     },
     {
       "id": "header.title-to-star",
@@ -439,7 +439,8 @@
       "selector": ".header-action.spark",
       "pad": 0,
       "prop": "w",
-      "target": 20.2
+      "target": 20.0,
+      "note": "imaging.ink, the measure this gate uses, reads the spark at 20.0 wide (cx 1386, cy 30) on both editor-tabs.png and comments-1470.png. The report's 20.2 came from a different ink measure."
     },
     {
       "id": "header.avatar.width",
@@ -515,7 +516,8 @@
         "selector": ".chip-zoom .chip-label",
         "prop": "x"
       },
-      "target": 422.5
+      "target": 425.0,
+      "note": "Measured on editor-tabs.png: the pressed Bold pill spans x 608-638 (centre 623), one 32px pitch before italic's 655; the section 3.3 table's 422 does not fit italic's 457 target."
     },
     {
       "id": "toolbar.offset.italic",
@@ -641,7 +643,8 @@
         "selector": ".chip-zoom .chip-label",
         "prop": "x"
       },
-      "target": 798.0
+      "target": 797.0,
+      "note": "Measured on editor-tabs.png: caret ink at x 995, 21px right of the icon at 974, as section 5 (UI-05) states."
     },
     {
       "id": "toolbar.offset.bullets",
@@ -669,7 +672,8 @@
         "selector": ".chip-zoom .chip-label",
         "prop": "x"
       },
-      "target": 842.0
+      "target": 841.0,
+      "note": "Measured on editor-tabs.png: caret ink at x 1039, 21px right of the icon at 1018, as section 5 (UI-05) states."
     },
     {
       "id": "toolbar.offset.numbered",
@@ -697,7 +701,8 @@
         "selector": ".chip-zoom .chip-label",
         "prop": "x"
       },
-      "target": 886.0
+      "target": 885.0,
+      "note": "Measured on editor-tabs.png: caret ink at x 1083, 21px right of the icon at 1062, as section 5 (UI-05) states."
     },
     {
       "id": "toolbar.caret.width",
@@ -782,6 +787,36 @@
       "target": 62,
       "tol": 1,
       "note": "Section 3.3 gives the width as about 62px, so 1px either way."
+    },
+    {
+      "id": "toolbar.fold.1402.last-tool",
+      "section": "3.3",
+      "viewport": 1402,
+      "screen": "document",
+      "kind": "box",
+      "selector": ".toolbar .toolbar-more",
+      "prop": "x",
+      "relativeTo": {
+        "selector": ".toolbar .fold-numbered",
+        "prop": "right"
+      },
+      "target": 2,
+      "note": "Section 3.3: at 1402 Docs shows tools through the numbered list, then ⋮ with no divider. The gap is the two tools' 1px margins; a divider would make it 9, an extra tool 34."
+    },
+    {
+      "id": "toolbar.fold.1280.last-tool",
+      "section": "3.3",
+      "viewport": 1280,
+      "screen": "document",
+      "kind": "box",
+      "selector": ".toolbar .toolbar-more",
+      "prop": "x",
+      "relativeTo": {
+        "selector": ".toolbar .fold-spacing",
+        "prop": "right"
+      },
+      "target": 3,
+      "note": "Fold by fit (section 5, UI-05), not a Docs capture: at 1280 the checklist no longer fits, so line spacing (2px margin) is the last tool before ⋮ (1px margin)."
     },
     {
       "id": "icons.blank-plus.size",
@@ -886,8 +921,9 @@
       "viewport": 1470,
       "screen": "home",
       "kind": "pixel",
-      "at": [1466, 700],
-      "target": "#f0f0f0"
+      "at": [1468.5, 700],
+      "target": "#f0f0f0",
+      "note": "The track gutter right of the 6px thumb (track x 1458-1470, thumb 1461-1467), so the sample never lands on the thumb, whose length depends on the library size. Docs reads #f0f0f0 there too."
     },
     {
       "id": "page.ruler-num.size",
@@ -1093,7 +1129,7 @@
       "kind": "box",
       "selector": ".home-header .avatar",
       "prop": "cx",
-      "target": 1423
+      "target": 1424
     },
     {
       "id": "home.search.x",
@@ -1132,7 +1168,7 @@
       "viewport": 1470,
       "screen": "home",
       "kind": "ink",
-      "box": [1086, 84, 128, 30],
+      "box": [1066, 84, 120, 24],
       "prop": "y",
       "ref": "home-grid.png",
       "refBox": [1066, 84, 120, 24]

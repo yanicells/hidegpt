@@ -380,7 +380,7 @@ function isRowOfPaper(el: HTMLElement): boolean {
 }
 
 /**
- * Whether `content-visibility: auto` can skip this row: mirrors document.css, where the
+ * Whether `content-visibility: auto` can skip this row: mirrors page.css, where the
  * streamed block and a block holding a suggestion stay visible.
  */
 function skippable(row: HTMLElement): boolean {
@@ -448,7 +448,7 @@ function readLines(el: HTMLElement, scale: number, written?: PageBreak<HTMLEleme
  * had, so it outweighs any margin it collapses with. A split is an invisible float whose
  * shape covers only the band between the last line that fits and the next page's top
  * margin (`--split-*`), so the paragraph's own DOM, which React owns, is never touched.
- * See document.css.
+ * See page.css.
  */
 function applyBreak(pageBreak: PageBreak<HTMLElement>) {
   const { el } = pageBreak

@@ -1,21 +1,17 @@
-/* ---------- Approvals: Docs' suggestion card ---------- */
+/* ---------- Approvals: Docs' suggestion and its card ---------- */
 
 /*
- * A suggestion's line: the suggested text in the page, and Docs' 256px card
- * level with it. The card floats outside the flow, as Docs' comments do, so
- * it never moves page text or breaks; only the text line paginates. When the
- * canvas right of the page has room for it (--card-room, document.css), the
- * card sits fully in that margin; otherwise it tucks inside the page's right
- * edge and the text stops short of it. --fits is 1 or 0 (a fraction only in
- * the last pixel), so one rule covers any window width, zoom and tabs panel.
+ * A suggestion's place in the page: the text it adds, as a paragraph of its
+ * own (the answer before it ends without a margin). Its card is in the
+ * comments rail below, so the text keeps the full column.
  */
 .suggestion-row {
-  @apply relative;
-  /* A paragraph of its own: the answer before it ends without a margin. */
   margin: 1lh 0;
-  --fits: clamp(0, var(--card-room), 1);
-  /* Tucked: the card's overlap with the text column, plus a gap. */
-  padding-right: calc((1 - var(--fits)) * (256px - var(--paper-margin) + 16px + 16px));
+}
+
+/* A change that adds no text only anchors its card. */
+.suggestion-row:empty {
+  margin: 0;
 }
 
 /* Docs' suggested insertion: page text in the suggester's colour. */
@@ -25,12 +21,47 @@
   color: var(--green);
 }
 
+/*
+ * Docs' comments margin. While a card is pending (Document.tsx sets
+ * has-cards), the page moves left just enough for the rail: a 24px gap, the
+ * 256px card and 16px clear of the scrollbar. It stops at the tabs panel
+ * (workspace.css' 5px gap).
+ */
+.workspace.has-cards {
+  /* The canvas's right edge, inside the scrollbar: 100cqw includes it. UI-07 names the scrollbar --scrollbar-size. */
+  --canvas-right: calc(100cqw - var(--scrollbar-size, var(--scrollbar-w)));
+  /* The vertical ruler zooms with the page (ruler.css), so the page sits this far right of --page-left. */
+  --ruler-shift: calc(16px * (var(--page-zoom, 1) - 1));
+  --page-left: max(
+    calc(21px + var(--tabs-w)),
+    min(
+      calc((100vw - var(--rail-width) - var(--page-w)) / 2),
+      calc(var(--canvas-right) - var(--ruler-shift) - var(--page-w) - 24px - 256px - 16px)
+    )
+  );
+}
+
+/*
+ * The rail: 24px right of the page and outside its zoom, so cards stay 256px.
+ * When even the moved page leaves too little room, the rail keeps 16px clear
+ * of the scrollbar and overlaps the page's margin instead.
+ * CommentsRail.tsx sets each card's top.
+ */
+.comments-rail {
+  @apply absolute;
+  top: 0;
+  left: min(
+    calc(var(--page-left) + var(--ruler-shift) + var(--page-w) + 24px),
+    calc(var(--canvas-right) - 16px - 256px)
+  );
+  z-index: 1;
+  width: 256px;
+}
+
 .suggestion {
   @apply absolute;
   top: 0;
-  /* Tucked 16px inside the page's right edge, or 24px out past it into the margin. */
-  right: calc(16px - var(--paper-margin) - var(--fits) * (16px + 24px + 256px));
-  z-index: 1;
+  left: 0;
   width: 256px;
   padding: 12px 12px 14px 16px;
   border-radius: 8px;
@@ -39,6 +70,13 @@
     0 1px 3px rgb(60 64 67 / 30%),
     0 4px 8px 3px rgb(60 64 67 / 15%);
   font-family: var(--font-ui);
+}
+
+/* Docs prints the page without its comments. */
+@media print {
+  .comments-rail {
+    display: none;
+  }
 }
 
 .suggestion-head {
@@ -99,7 +137,7 @@
 
 .suggestion input {
   @apply w-full;
-  border: 1px solid #747775;
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
   padding: 8px 12px;
   font-size: 14px;
@@ -119,7 +157,7 @@
 .choice {
   height: 32px;
   padding: 0 12px;
-  border: 1px solid #747775;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   font-size: 14px;
   color: var(--text-2);

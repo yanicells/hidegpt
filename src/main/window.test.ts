@@ -32,6 +32,7 @@ import {
   denyPermissions,
   documentHasImage,
   isAppNavigation,
+  keepMainTitle,
   recoverRenderer,
   registerDocsProtocol,
   wireNavigation,
@@ -112,6 +113,16 @@ describe('documentHasImage', () => {
     expect(documentHasImage(snapshot, '/tmp/a.png')).toBe(true)
     expect(documentHasImage(snapshot, '/tmp/b.png')).toBe(false)
     expect(documentHasImage(null, '/tmp/a.png')).toBe(false)
+  })
+})
+
+describe('keepMainTitle', () => {
+  it("keeps the page's <title> out of the title bar", () => {
+    const win = new EventEmitter()
+    keepMainTitle(win as unknown as BrowserWindow)
+    const event = { preventDefault: vi.fn() }
+    win.emit('page-title-updated', event, 'Docs', true)
+    expect(event.preventDefault).toHaveBeenCalledOnce()
   })
 })
 
@@ -246,7 +257,7 @@ describe('wireNavigation', () => {
       loadURL: vi.fn(async (_url: string) => undefined),
       webContents: Object.assign(new EventEmitter(), {
         getURL: () => currentUrl,
-        setWindowOpenHandler: vi.fn(),
+        setWindowOpenHandler: vi.fn<(handler: (details: { url: string }) => { action: 'allow' | 'deny' }) => void>(),
       }),
     }
     wireNavigation(win as unknown as BrowserWindow, appUrl, onAppLoad, vi.fn())
@@ -277,6 +288,13 @@ describe('wireNavigation', () => {
     expect(navigate('https://example.com/')).toHaveBeenCalled()
     expect(openExternalMock).toHaveBeenCalledWith('https://example.com/')
     expect(win.loadURL).not.toHaveBeenCalled()
+  })
+
+  it('sends target=_blank links (Home’s quick-launch pill) to the browser and opens no window', () => {
+    const { win } = fakeWindow(appUrl)
+    const openWindow = win.webContents.setWindowOpenHandler.mock.calls[0]?.[0]
+    expect(openWindow?.({ url: 'https://docs.google.com/spreadsheets/' })).toEqual({ action: 'deny' })
+    expect(openExternalMock).toHaveBeenCalledWith('https://docs.google.com/spreadsheets/')
   })
 
   it('resyncs after an app load but not after the crash page loads', () => {

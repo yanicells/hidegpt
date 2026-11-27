@@ -1,5 +1,14 @@
 /// <reference types="electron-vite/node" />
-import { BrowserWindow, app, net, protocol, screen, shell, type Session } from 'electron'
+import {
+  BrowserWindow,
+  app,
+  net,
+  protocol,
+  screen,
+  shell,
+  type BrowserWindowConstructorOptions,
+  type Session,
+} from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -32,8 +41,9 @@ export function resolvePreload(): string {
  * excluded), like a maximized Docs tab. Screenshot runs keep a fixed
  * 1280x840 so captures and benchmarks stay comparable across machines.
  */
-function initialBounds(): { width: number; height: number; x?: number; y?: number } {
-  if (process.env.HIDEGPT_SCREENSHOT) return { ...SCREENSHOT_SIZE }
+function initialBounds(): Pick<BrowserWindowConstructorOptions, 'x' | 'y' | 'width' | 'height' | 'useContentSize'> {
+  // The fixed size is the page's, so the title bar doesn't make captures shorter.
+  if (process.env.HIDEGPT_SCREENSHOT) return { ...SCREENSHOT_SIZE, useContentSize: true }
   return screen.getPrimaryDisplay().workArea
 }
 
@@ -47,7 +57,6 @@ const errorFields = (error: unknown) => ({
 })
 
 export function createWindow(opts: { onDidFinishLoad: () => void; warn: WindowWarn }): BrowserWindow {
-  const isMac = process.platform === 'darwin'
   const win = new BrowserWindow({
     ...initialBounds(),
     minWidth: 720,
@@ -55,8 +64,10 @@ export function createWindow(opts: { onDidFinishLoad: () => void; warn: WindowWa
     title: 'Google Docs',
     backgroundColor: '#ffffff',
     show: false,
-    titleBarStyle: isMac ? 'hiddenInset' : 'default',
-    trafficLightPosition: isMac ? { x: 16, y: 22 } : undefined,
+    // An installed Docs app window: the system title bar shows the title and
+    // drags the window, so the page needs no drag region and nothing sits on
+    // top of the Docs logo.
+    titleBarStyle: 'default',
     webPreferences: {
       preload: resolvePreload(),
       sandbox: true,
@@ -70,6 +81,7 @@ export function createWindow(opts: { onDidFinishLoad: () => void; warn: WindowWa
   win.on('closed', () => {
     if (window === win) window = null
   })
+  keepMainTitle(win)
   const appUrl = process.env.ELECTRON_RENDERER_URL ?? APP_URL
   wireNavigation(win, appUrl, opts.onDidFinishLoad, opts.warn)
   win.webContents.on('did-fail-load', (_event, code, description) => {
@@ -80,6 +92,15 @@ export function createWindow(opts: { onDidFinishLoad: () => void; warn: WindowWa
 
   loadApp(win, appUrl, opts.warn)
   return win
+}
+
+/**
+ * The title bar shows only what main sets with `win.setTitle`. Without this,
+ * every load and reload would swap in the page's own `<title>` until the next
+ * snapshot set it back.
+ */
+export function keepMainTitle(win: Pick<BrowserWindow, 'on'>): void {
+  win.on('page-title-updated', (event) => event.preventDefault())
 }
 
 const APP_URL = 'docs://app/index.html'
