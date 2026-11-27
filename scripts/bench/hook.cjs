@@ -7,11 +7,12 @@
 //   - answers the bench's requests over a local control socket.
 const { app, session, contentTracing } = require('electron')
 const childProcess = require('node:child_process')
-const { syncBuiltinESMExports } = require('node:module')
 const net = require('node:net')
 const path = require('node:path')
 const { monitorEventLoopDelay } = require('node:perf_hooks')
 const readline = require('node:readline')
+
+const { installSpawnGuard } = require('./spawn-guard.cjs')
 
 const env = process.env
 const now = () => performance.timeOrigin + performance.now()
@@ -28,20 +29,7 @@ app.commandLine.appendSwitch('remote-debugging-port', env.BENCH_CDP_PORT ?? '0')
 app.commandLine.appendSwitch('js-flags', '--expose-gc')
 
 // ---- no real provider ever starts under the bench ----
-const FAKE = env.BENCH_FAKE_CODEX
-const isCodex = (command) => path.basename(String(command)) === 'codex' || command === FAKE
-const blocked = []
-function guard(name) {
-  const original = childProcess[name]
-  childProcess[name] = function (command, ...rest) {
-    if (isCodex(command)) return original.call(this, FAKE, ...rest)
-    blocked.push(String(command))
-    // A missing binary: the app sees the same ENOENT it would on a machine without the provider.
-    return original.call(this, path.join('/nonexistent', `bench-blocked-${path.basename(String(command))}`), ...rest)
-  }
-}
-for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'fork']) guard(name)
-syncBuiltinESMExports()
+const blocked = installSpawnGuard(childProcess, env.BENCH_FAKE_CODEX)
 
 // ---- window: hidden, fixed size, IPC counted ----
 const ipc = { sends: 0, bytes: 0, byChannel: {}, measureMs: 0 }
