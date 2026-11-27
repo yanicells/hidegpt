@@ -53,9 +53,15 @@ afterEach(() => {
 const rows = () => observers.find((observer) => observer.margin !== undefined)!
 const ending = () => observers.find((observer) => observer.margin === undefined)!
 
-/** Reports these targets as now above (or below) the reading line. */
-function cross(targets: Element[], above: boolean) {
-  const records = targets.map((target) => ({ target, isIntersecting: above, rootBounds: { bottom: LINE } }))
+type Place = 'below' | 'straddling' | 'passed'
+/** Reports where these rows or headings now sit against the reading line. */
+function report(...places: Array<[Element, Place]>) {
+  const records = places.map(([target, place]) => ({
+    target,
+    isIntersecting: place !== 'below',
+    boundingClientRect: { bottom: place === 'passed' ? LINE - 10 : LINE + 50 },
+    rootBounds: { bottom: LINE },
+  }))
   act(() => rows().callback(records as unknown as IntersectionObserverEntry[], {} as IntersectionObserver))
 }
 const row = (id: string) => document.querySelector(`[data-block="${id}"]`)!
@@ -65,6 +71,8 @@ const active = () => screen.getByRole('button', { current: 'location' }).textCon
 const blocks: Block[] = [
   { kind: 'user', id: 'u1', text: 'Question' },
   { kind: 'agent', id: 'a1', text: '## Light\nText\n## Dark' },
+  // A heading-less answer: no outline entries of its own.
+  { kind: 'agent', id: 'c1', text: 'Plain answer' },
   { kind: 'user', id: 'u2', text: 'Next' },
   { kind: 'agent', id: 'a2', text: '## Far' },
 ]
@@ -97,22 +105,23 @@ function mount(rendered = blocks.length) {
 describe('document tabs active item', () => {
   it('follows the section at the reading line as you scroll', () => {
     mount()
-    cross([row('u1'), row('a1'), row('u2'), row('a2')], false)
+    report([row('u1'), 'below'], [row('a1'), 'below'], [row('c1'), 'below'], [row('u2'), 'below'])
     expect(active()).toBe('Question')
     tops = { Light: 60, Dark: 500 }
-    cross([row('u1'), row('a1')], true)
+    report([row('u1'), 'passed'], [row('a1'), 'straddling'])
     expect(active()).toBe('Light')
+    // A heading crossing inside a long answer reports too.
     tops = { Light: -400, Dark: 40 }
-    cross([heading('Dark')], true)
+    report([heading('Dark'), 'straddling'])
     expect(active()).toBe('Dark')
-    cross([row('u2')], true)
+    report([row('a1'), 'passed'], [row('c1'), 'passed'], [row('u2'), 'straddling'])
     expect(active()).toBe('Next')
   })
 
-  it('measures and watches headings only in the row holding the line', () => {
+  it('measures and watches headings only in the row straddling the line', () => {
     mount()
     tops = { Light: 60, Dark: 500 }
-    cross([row('u1'), row('a1')], true)
+    report([row('u1'), 'passed'], [row('a1'), 'straddling'])
     expect(active()).toBe('Light')
     // Off-screen rows (skipped by content-visibility) are never laid out for a box.
     expect(measured.length).toBeGreaterThan(0)
@@ -120,26 +129,41 @@ describe('document tabs active item', () => {
     expect(rows().targets.has(heading('Dark'))).toBe(true)
     expect(rows().targets.has(heading('Far'))).toBe(false)
     // Moving on to the next question stops watching the last row's headings.
-    cross([row('u2')], true)
+    report([row('a1'), 'passed'], [row('c1'), 'passed'], [row('u2'), 'straddling'])
     expect(rows().targets.has(heading('Dark'))).toBe(false)
   })
 
+  it('measures nothing while the line is in a row without headings', () => {
+    mount()
+    report([row('u1'), 'passed'], [row('a1'), 'passed'], [row('c1'), 'straddling'])
+    // Still the section of the answer above; its headings may be skipped, so none are read or watched.
+    expect(active()).toBe('Dark')
+    expect(measured).toEqual([])
+    expect([...rows().targets].some((target) => target.matches('h1, h2, h3'))).toBe(false)
+  })
+
   it('observes rows that land after the panel mounts', async () => {
-    mount(2)
+    mount(3)
     const flow = document.querySelector('.paper-flow')!
     const late = document.createElement('div')
     late.dataset.block = 'u2'
     late.textContent = 'Next'
     flow.append(late)
     await waitFor(() => expect(rows().targets.has(late)).toBe(true))
-    cross([row('u1'), row('a1'), late], true)
+    report([row('u1'), 'passed'], [row('a1'), 'passed'], [row('c1'), 'passed'], [late, 'straddling'])
     expect(active()).toBe('Next')
   })
 
   it('makes a short last section active once the end is on screen', () => {
     mount()
     tops = { Far: 300 }
-    cross([row('u1'), row('a1'), row('u2'), row('a2')], true)
+    report(
+      [row('u1'), 'passed'],
+      [row('a1'), 'passed'],
+      [row('c1'), 'passed'],
+      [row('u2'), 'passed'],
+      [row('a2'), 'straddling'],
+    )
     expect(active()).toBe('Next')
     act(() => ending().callback([{ isIntersecting: true }] as IntersectionObserverEntry[], {} as IntersectionObserver))
     expect(active()).toBe('Far')
@@ -148,9 +172,9 @@ describe('document tabs active item', () => {
   it('keeps a clicked item active until you scroll', () => {
     mount()
     tops = { Light: 60, Dark: 500 }
-    cross([row('u1'), row('a1')], true)
+    report([row('u1'), 'passed'], [row('a1'), 'straddling'])
     fireEvent.click(screen.getByTestId('outline-a1-1'))
-    cross([row('a1')], true)
+    report([row('a1'), 'straddling'])
     expect(active()).toBe('Dark')
     fireEvent.wheel(window)
     expect(active()).toBe('Light')

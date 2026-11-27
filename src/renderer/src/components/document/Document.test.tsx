@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { HideGptApi, SnapshotPatch } from '../../../../shared/api'
@@ -22,6 +22,7 @@ vi.mock('./BlockView', () => ({
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 function mount(blocks: Block[]) {
@@ -73,5 +74,51 @@ describe('Document', () => {
     update([question, { ...broken, text: 'Light scatters.' }, after])
     expect(screen.queryByTestId('block-error')).not.toBeInTheDocument()
     expect(row('a1')).toHaveTextContent('Light scatters.')
+  })
+
+  // The tabs panel finds the canvas, its rows and the end of the flow by Document's markup.
+  it('lets the tabs panel watch the canvas rows and the end of the flow', async () => {
+    type Observer = { callback: IntersectionObserverCallback; root?: Element | Document | null; targets: Set<Element> }
+    const observers: Observer[] = []
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        private readonly self: Observer
+        constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+          this.self = { callback, root: options?.root, targets: new Set() }
+          observers.push(this.self)
+        }
+        observe(target: Element) {
+          this.self.targets.add(target)
+        }
+        unobserve(target: Element) {
+          this.self.targets.delete(target)
+        }
+        disconnect() {}
+      },
+    )
+    mount([
+      { kind: 'user', id: 'u1', text: 'First question' },
+      { kind: 'agent', id: 'a1', text: 'An answer.' },
+      { kind: 'user', id: 'u2', text: 'Second question' },
+    ])
+    const rows = observers.find((observer) => observer.targets.has(row('u1')!))!
+    expect(rows.root).toBe(screen.getByTestId('document'))
+    // The bridge still holds the last test's blocks on the first pass, so u2 lands after the
+    // panel has started watching: rows that render later are observed as they land.
+    await waitFor(() => expect(rows.targets.has(row('u2')!)).toBe(true))
+    expect(rows.targets.has(row('a1')!)).toBe(true)
+    expect(observers.some((observer) => observer.targets.has(document.querySelector('.paper-end')!))).toBe(true)
+
+    // Before any report the latest question is active; the line in the first row moves it there.
+    expect(screen.getByTestId('outline-u2')).toHaveAttribute('aria-current', 'location')
+    const record = {
+      target: row('u1'),
+      isIntersecting: true,
+      boundingClientRect: { bottom: 150 },
+      rootBounds: { bottom: 100 },
+    }
+    act(() => rows.callback([record] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver))
+    expect(screen.getByTestId('outline-u1')).toHaveAttribute('aria-current', 'location')
   })
 })
