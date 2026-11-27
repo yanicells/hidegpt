@@ -1,0 +1,115 @@
+/* ---------- Find in document (FindBar.tsx) ----------
+ * Docs' floating card, measured on the 2x capture at 1402 (gdocs-ref/find-bar.png):
+ * 408x72, 4px below the canvas top and its right edge 44px left of the side
+ * rail, radius 12. The field is 208x40 at 16px in,
+ * radius 4, a 3px #0b57d0 outline while focused; four 40px buttons follow 8px
+ * after it. Text is Google Sans 16px: the query at 15px into the field, the
+ * "1 of 3" count in #444746 12px from its right edge.
+ */
+
+/* A zero-height strip that sticks to the canvas top and spans the visible canvas. */
+.find-anchor {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  width: 100cqw;
+  height: 0;
+}
+
+.find-bar {
+  @apply absolute flex items-center;
+  top: 4px;
+  right: 44px;
+  box-sizing: border-box;
+  width: 408px;
+  height: 72px;
+  padding: 0 16px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-menu-docs);
+  font-family: var(--font-ui);
+}
+
+/* 1px border plus a 2px inset ring while focused: Docs' 3px outline without moving the text. */
+.find-field {
+  @apply relative flex items-center shrink-0;
+  box-sizing: border-box;
+  width: 208px;
+  height: 40px;
+  margin-right: 8px;
+  padding: 0 12px 0 15px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  cursor: text;
+}
+
+.find-field:focus-within {
+  border-color: var(--blue);
+  box-shadow: inset 0 0 0 2px var(--blue);
+}
+
+/* The floating label sits in a notch across the top edge, its caps centred on the 3px outline. */
+.find-label {
+  @apply absolute pointer-events-none whitespace-nowrap;
+  top: -7px;
+  left: 11px;
+  padding: 0 4px;
+  background: var(--surface);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-2);
+}
+
+.find-field:focus-within .find-label {
+  color: var(--blue);
+}
+
+.find-input {
+  @apply flex-1 min-w-0 p-0 border-0 bg-transparent;
+  font: inherit;
+  font-size: 16px;
+  color: var(--text);
+  outline: none;
+}
+
+.find-count {
+  @apply shrink-0;
+  margin-left: 8px;
+  font-size: 16px;
+  color: var(--text-2);
+}
+
+.find-button {
+  @apply grid place-items-center shrink-0 rounded-full;
+  width: 40px;
+  height: 40px;
+  color: var(--text-2);
+}
+
+.find-button:hover:not(:disabled),
+.find-button[data-popup-open] {
+  background: var(--hover);
+}
+
+.find-button:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
+.find-button:disabled {
+  opacity: 0.38;
+}
+
+/*
+ * Matches, painted by the CSS Custom Highlight API (find.ts) without touching
+ * the DOM: light green for every match, a darker green for the current one,
+ * as sampled from the same capture.
+ */
+::highlight(docs-find-match) {
+  background-color: #cdedd2;
+}
+
+::highlight(docs-find-current) {
+  background-color: #88d393;
+}
