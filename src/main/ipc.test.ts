@@ -121,7 +121,7 @@ describe('ipc', () => {
     }),
   )
 
-  it.effect('reports a handler that dies, and still rejects the invoke', () => {
+  it.effect("reports a handler that dies once, under its channel, and answers the row's invalid value", () => {
     const logged: Array<{ readonly cause: string; readonly annotations: Record<string, unknown> }> = []
     const capture = Logger.make(({ cause, fiber, logLevel }) => {
       if (logLevel === 'Error')
@@ -133,15 +133,15 @@ describe('ipc', () => {
       const listener = invoke.get(IpcInvoke.pickDirectory.channel)!
       const result = yield* Effect.promise(() =>
         Promise.resolve(listener({ sender: { id: APP } } as IpcMainInvokeEvent, undefined)).then(
-          () => 'resolved',
+          (answer) => ({ resolved: answer }),
           () => 'rejected',
         ),
       )
-      expect(result).toBe('rejected')
+      expect(result).toEqual({ resolved: IpcInvoke.pickDirectory.invalid })
       expect(logged).toEqual([
         {
           cause: expect.stringContaining('handler bug'),
-          annotations: { reportId: expect.stringMatching(/^[0-9a-f]{8}$/) },
+          annotations: { reportId: expect.stringMatching(/^[0-9a-f]{8}$/), channel: IpcInvoke.pickDirectory.channel },
         },
       ])
     }).pipe(Effect.scoped, Effect.provide(Logger.layer([capture])))
