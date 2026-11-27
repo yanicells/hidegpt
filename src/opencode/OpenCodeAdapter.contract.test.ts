@@ -27,6 +27,8 @@ const CHILD = 'ses_child'
  * error, a retry message) carries the marker, since no provider text may show.
  */
 const BANNED_TOOL = 'opencode_search'
+// A completed tool's name titles its callout, so only the stealth gate can hide this one.
+const BANNED_DONE_TOOL = 'model_lookup'
 const BANNED_PERMISSION = 'opencode-helper'
 
 const driver: ContractDriver = {
@@ -145,6 +147,30 @@ const driver: ContractDriver = {
                 time: 1,
               },
             })
+            fake.push({
+              id: 'evt_tool_banned',
+              type: 'message.part.updated',
+              properties: {
+                sessionID: SESSION,
+                part: {
+                  id: 'prt_banned',
+                  sessionID: SESSION,
+                  messageID: 'msg_tool',
+                  type: 'tool',
+                  callID: 'call_banned',
+                  tool: BANNED_DONE_TOOL,
+                  state: {
+                    status: 'completed',
+                    input: {},
+                    output: '',
+                    title: '',
+                    metadata: {},
+                    time: { start: 1, end: 2 },
+                  },
+                },
+                time: 1,
+              },
+            })
             // A tool name that passes the stealth gate may show.
             fake.push({
               id: 'evt_tool_read',
@@ -170,7 +196,7 @@ const driver: ContractDriver = {
                 time: 1,
               },
             })
-            return { hidden: [BANNED_TOOL], kept: ['Ran read'] }
+            return { hidden: [BANNED_TOOL, BANNED_DONE_TOOL], kept: ['Ran read'] }
           case 'requests':
             yield* ask('per_marker', SESSION, BANNED_PERMISSION)
             return { hidden: [BANNED_PERMISSION] }

@@ -2,7 +2,6 @@
 // provider traps, at commit 5c6f2f12. Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 import { describe, expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
-import * as Exit from 'effect/Exit'
 import * as Fiber from 'effect/Fiber'
 import type * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
@@ -192,6 +191,8 @@ type Run = {
   readonly thread: () => ReadonlyArray<ThreadEvent>
   /** Every string the window showed at any point, as `where: text` (`callout.title: …`, `banner: …`). */
   readonly shown: () => ReadonlyArray<string>
+  /** Provider values a `passthrough` script sent that must not reach the page (its `Passed.hidden`). */
+  readonly hidden: Array<string>
   readonly blocks: () => ReadonlyArray<Block>
   /** Every page and window title the document had, in order. */
   readonly titles: () => ReadonlyArray<string>
@@ -276,6 +277,7 @@ const open = (driver: ContractDriver) =>
       script,
       thread,
       shown: () => [...shown],
+      hidden: [],
       blocks: () => S.toSnapshot(state).blocks,
       titles: () => titles,
       adopt: (reopened) => {
@@ -398,6 +400,8 @@ const passthroughScenario = (source: PassthroughSource) => (run: Run) =>
   Effect.gen(function* () {
     const turnId = yield* begin(run, 'Look it up')
     const { hidden = [], kept = [] } = yield* run.script.passthrough(source, MARKER)
+    // Stored before any check can fail, so the runner judges the page even when this body fails.
+    run.hidden.push(...hidden)
     const draws = DRAWS[source]
     if (draws) yield* until(() => run.blocks().some((block) => block.kind === draws), `a ${draws} is on the page`)
     if (source === 'errors' || source === 'crash') {
@@ -417,19 +421,24 @@ const passthroughScenario = (source: PassthroughSource) => (run: Run) =>
         `a name that passes the stealth gate stays on the ${draws ?? 'page'}: ${name}`,
       ).toBe(true)
     }
-    // Provider text stays in the log; the page, cards, hovers, banner and Details never carry it.
-    const marked = shown.filter((line) => line.includes(MARKER) || hidden.some((value) => line.includes(value)))
-    // A banner built from the provider's own words (its name, its stderr) is checked too, marker or not.
-    const banned =
-      source === 'errors' || source === 'crash'
-        ? shown.flatMap((line) => {
-            const words = line.startsWith('banner: ') ? [...new Set(stealthViolations(line))] : []
-            return words.length > 0 ? [`banned ${words.join(', ')}: ${line}`] : []
-          })
-        : []
-    // Returned, not thrown: the run checks the event stream first, so a leak never hides a broken one.
-    return [...marked, ...banned].sort()
   })
+
+/**
+ * Every line on the page that leaks provider text, sorted. A line leaks when it carries the
+ * marker or a hidden value, or fails the stealth matcher (`banned <words>: <line>`), which is
+ * the one rule for what may show. The runner calls it whether or not the scenario passed, so
+ * a failed check never hides a leak.
+ */
+const pageLeaks = (run: Run): ReadonlyArray<string> =>
+  run
+    .shown()
+    .flatMap((line) => {
+      // Only the text: the path names Docs' own block kinds (`agent.text`).
+      const words = [...new Set(stealthViolations(line.slice(line.indexOf(': ') + 2)))]
+      if (words.length > 0) return [`banned ${words.join(', ')}: ${line}`]
+      return line.includes(MARKER) || run.hidden.some((value) => line.includes(value)) ? [line] : []
+    })
+    .sort()
 
 /** Text a provider writes about itself; it must never read as the document's answer. */
 const NOTICE = 'ZZNOTE retrying in 5 seconds'
@@ -439,8 +448,8 @@ const MARKER = 'ZZPROV'
 
 // ---- the scenarios ----------------------------------------------------------------
 
-/** A scenario body: it fails on a broken promise, and a `passthrough_*` one returns the lines it leaked. */
-type Scenario = (run: Run) => Effect.Effect<void | ReadonlyArray<string>, ProviderError, Scope.Scope>
+/** A scenario body: it fails on a broken promise. */
+type Scenario = (run: Run) => Effect.Effect<void, ProviderError, Scope.Scope>
 
 const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
   simple: (run) =>
@@ -656,7 +665,8 @@ export const runScenario = (driver: ContractDriver, name: ScenarioName) =>
   Effect.gen(function* () {
     const run = yield* open(driver)
     const body = yield* Effect.exit(SCENARIO_BODIES[name](run))
-    const leaked = Exit.isSuccess(body) ? (body.value ?? []) : []
+    // Judged from the page, not the body's result, so a body that failed still reports its leaks.
+    const leaked = name.startsWith('passthrough_') ? pageLeaks(run) : []
     const failed = judge(failureMessage(body), contractViolations(run.thread(), run.opened), leaked)
     if (failed) return yield* Effect.die(failed)
   }).pipe(Effect.scoped)

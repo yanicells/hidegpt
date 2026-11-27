@@ -1,11 +1,12 @@
 import { expect, it } from '@effect/vitest'
+import * as Cause from 'effect/Cause'
 import * as Deferred from 'effect/Deferred'
 import * as Effect from 'effect/Effect'
 import * as Exit from 'effect/Exit'
 import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
 
-import { expectGap, failureMessage } from '../provider/contract.checks'
+import { expectGap, failureMessage, ScenarioFailed } from '../provider/contract.checks'
 import {
   contractSuite,
   RESETS_AT,
@@ -215,7 +216,7 @@ const driver: ContractDriver = {
                   ...turn(),
                   serverName,
                   mode: 'form',
-                  message: serverName === 'files' ? `${marker} asks for details` : 'Pick a folder',
+                  message: serverName === 'files' ? `${marker} asks for details` : `${marker} pick a folder`,
                   requestedSchema: { type: 'object', properties: {} },
                   _meta: null,
                 } as never)
@@ -322,7 +323,7 @@ const GAPS = {
     fails: 'when the limit resets: expected null to be 1900000000000',
   },
   respond_after_expiry: {
-    why: "A request still open when its turn ends stays answerable, and the late reply reaches Codex: nothing expires the turn's requests at the terminal.",
+    why: 'A request still open when its turn ends shows as skipped, but the adapter keeps it answerable, so a late reply still reaches Codex.',
     fails: "a reply to an expired request is refused: expected 'taken'",
   },
   subagent_request: {
@@ -335,11 +336,11 @@ const GAPS = {
   },
   passthrough_tools: {
     why: "A function call's namespace fills its callout body unchecked, so a banned one shows, and a subagent's brief fills the spawn callout. Connector, dynamic and function tool names are gated.",
-    leaks: ['callout.body: ZZPROV brief', 'callout.body: gpt_functions'],
+    leaks: ['banned gpt: callout.body: gpt_functions', 'callout.body: ZZPROV brief'],
   },
   passthrough_requests: {
-    why: "A connector's elicitation message is the card's body. Its name in the title is gated: a stealthy one stays, a banned one is dropped.",
-    leaks: ['approval.body: ZZPROV asks for details'],
+    why: "Each connector's elicitation message is the card's body. Its name in the title is gated: a stealthy one stays, a banned one is dropped.",
+    leaks: ['approval.body: ZZPROV asks for details', 'approval.body: ZZPROV pick a folder'],
   },
   passthrough_notices: {
     why: 'Warning, config warning, guardian warning and retry text go on the banner.',
@@ -352,10 +353,7 @@ const GAPS = {
   },
   passthrough_crash: {
     why: "The process's stderr goes in the crash banner, and the banner names Codex (`providerLabel` in `ProcessExitedError.message`). Owner: ARCH-4a / STL-1.",
-    leaks: [
-      'banner: Codex stopped unexpectedly (exit 1): ZZPROV stderr. Docs is reconnecting.',
-      'banned codex: banner: Codex stopped unexpectedly (exit 1): ZZPROV stderr. Docs is reconnecting.',
-    ],
+    leaks: ['banned codex: banner: Codex stopped unexpectedly (exit 1): ZZPROV stderr. Docs is reconnecting.'],
   },
   title_stealth: {
     why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',
@@ -394,5 +392,37 @@ it.effect('a known leak never hides a broken stream', () =>
     expect(failureMessage(exit)).toContain('ended twice')
     const guarded = yield* Effect.exit(expectGap(GAPS.passthrough_tools)(exit))
     expect(Exit.isFailure(guarded), 'the gap rejects the broken stream').toBe(true)
+  }),
+)
+
+/** The driver, with a kept name that never shows: every `passthrough` body fails its own check. */
+const unkept: ContractDriver = {
+  ...driver,
+  open: Effect.map(driver.open, (opened) => ({
+    ...opened,
+    script: {
+      ...opened.script,
+      passthrough: (source, marker) =>
+        Effect.map(opened.script.passthrough(source, marker), (passed) => ({
+          ...passed,
+          kept: [...(passed.kept ?? []), 'never shown'],
+        })),
+    },
+  })),
+}
+
+// The runner reads the leaks off the page, so a body that failed still reports them, and a gap
+// that lists only how the body fails rejects the run.
+it.effect('a failed scenario still reports what the page leaked', () =>
+  Effect.gen(function* () {
+    const exit = yield* Effect.exit(runScenario(unkept, 'passthrough_tools'))
+    const verdict = Exit.isFailure(exit) ? Cause.squash(exit.cause) : null
+    expect(verdict).toBeInstanceOf(ScenarioFailed)
+    const { broke, leaks } = (verdict as ScenarioFailed).verdict
+    expect(broke).toContain('stays on the callout: never shown')
+    expect(leaks).toEqual(GAPS.passthrough_tools.leaks)
+    const failsOnly = { why: 'only the failed check', fails: 'never shown' }
+    const guarded = yield* Effect.exit(expectGap(failsOnly)(exit))
+    expect(Exit.isFailure(guarded), 'a gap that lists no leaks rejects them').toBe(true)
   }),
 )

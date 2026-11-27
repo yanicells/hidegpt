@@ -39,7 +39,10 @@ const cliNotice = (text: string, error?: string) =>
  */
 const BANNED_TOOL = 'ClaudeTool'
 const BANNED_MCP = 'mcp__claude_server__openai_search'
-const BANNED_DISPLAY = 'Claude Helper'
+// Request names carry a banned word but no vendor name, so only the stealth gate can hide them
+// (the adapter's own vendor check would catch "Claude" first).
+const BANNED_REQUEST_TOOL = 'AgentTool'
+const BANNED_DISPLAY = 'Agent Helper'
 
 const driver: ContractDriver = {
   provider: 'claude',
@@ -171,13 +174,13 @@ const driver: ContractDriver = {
             )
             return { hidden: [BANNED_TOOL, BANNED_MCP, 'claude_server', 'openai_search'], kept: ['Using Lookup'] }
           case 'requests':
-            yield* ask(BANNED_TOOL, { command: 'ls' }, 'toolu_t', {
+            yield* ask(BANNED_REQUEST_TOOL, { command: 'ls' }, 'toolu_t', {
               title: `${marker} title`,
               displayName: BANNED_DISPLAY,
               description: `${marker} description`,
               decisionReason: `${marker} reason`,
             })
-            return { hidden: [BANNED_TOOL, BANNED_DISPLAY] }
+            return { hidden: [BANNED_REQUEST_TOOL, BANNED_DISPLAY] }
           case 'notices':
             yield* push(
               cliNotice(`${marker} notice`),
