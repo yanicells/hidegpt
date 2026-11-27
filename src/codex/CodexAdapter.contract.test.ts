@@ -28,6 +28,9 @@ import { agentItem, makeFakeCodex } from './FakeCodex'
 const THREAD = 'thr_1'
 /** A subagent's thread: Codex spawned it inside the turn, and the adapter never opened it. */
 const CHILD = { threadId: 'thr_child', turnId: 'turn_child' }
+/** Connector names with a banned word: the page must scrub them. */
+const BANNED_SERVER = 'codex_tools'
+const BANNED_TOOL = 'openai-search'
 
 const driver: ContractDriver = {
   provider: 'codex',
@@ -136,15 +139,28 @@ const driver: ContractDriver = {
       Effect.gen(function* () {
         switch (source) {
           case 'tools':
+            // Connector names may show when they pass the stealth gate (as #50 rules); one that
+            // names a vendor must not. Codex runs its own connectors as `codex_apps`.
             yield* completed({
               type: 'mcpToolCall',
               id: 'mcp_1',
-              server: `${marker}_server`,
-              tool: `${marker}_search`,
+              server: 'files',
+              tool: 'lookup',
               status: 'failed',
               arguments: {},
               result: null,
               error: { message: `${marker} tool error` },
+              durationMs: 1,
+            })
+            yield* completed({
+              type: 'mcpToolCall',
+              id: 'mcp_2',
+              server: BANNED_SERVER,
+              tool: BANNED_TOOL,
+              status: 'completed',
+              arguments: {},
+              result: null,
+              error: null,
               durationMs: 1,
             })
             yield* completed({
@@ -173,21 +189,23 @@ const driver: ContractDriver = {
               namespace: `${marker}_functions`,
               output: 'ok',
             })
-            // An enum, so it cannot carry the marker.
-            return ['spawnAgent']
+            // `spawnAgent` is an enum, so it cannot carry the marker.
+            return { hidden: ['spawnAgent', BANNED_SERVER, BANNED_TOOL], kept: ['files · lookup'] }
           case 'requests':
             yield* askCommand({ command: 'ls', reason: `${marker} reason` })
-            yield* peer
-              .request('mcpServer/elicitation/request', {
-                ...turn(),
-                serverName: `${marker}_server`,
-                mode: 'form',
-                message: `${marker} asks for details`,
-                requestedSchema: { type: 'object', properties: {} },
-                _meta: null,
-              } as never)
-              .pipe(Effect.forkIn(scope))
-            return []
+            for (const serverName of ['files', BANNED_SERVER]) {
+              yield* peer
+                .request('mcpServer/elicitation/request', {
+                  ...turn(),
+                  serverName,
+                  mode: 'form',
+                  message: serverName === 'files' ? `${marker} asks for details` : 'Pick a folder',
+                  requestedSchema: { type: 'object', properties: {} },
+                  _meta: null,
+                } as never)
+                .pipe(Effect.forkIn(scope))
+            }
+            return { hidden: [BANNED_SERVER], kept: ['Continue with files?'] }
           case 'notices':
             yield* peer.notify('warning', { message: `${marker} warning` } as never)
             yield* peer.notify('configWarning', {
@@ -196,14 +214,14 @@ const driver: ContractDriver = {
             })
             yield* peer.notify('guardianWarning', { threadId: THREAD, message: `${marker} guardian warning` })
             yield* retrying(`${marker} retrying`)
-            return []
+            return {}
           case 'errors':
             yield* turnError(`${marker} failed`, null)
             yield* complete('failed', { message: `${marker} turn failed` })
-            return []
+            return {}
           case 'crash':
             yield* peer.exit(1, `${marker} stderr`)
-            return []
+            return {}
         }
       })
 
@@ -300,18 +318,17 @@ contractSuite('Codex', driver, {
     fails: 'Stop reaches the busy subagent',
   },
   passthrough_tools: {
-    why: "Dynamic and function tool names and namespaces title or fill callouts, the MCP server and tool names fill its body, and a subagent's brief fills the spawn callout.",
+    why: "Dynamic and function tool names and namespaces title or fill callouts, and a subagent's brief fills the spawn callout. Connector names are gated: a stealthy one stays, a banned one is dropped.",
     leaks: [
       'callout.body: ZZPROV brief',
       'callout.body: ZZPROV_functions',
-      'callout.body: ZZPROV_server · ZZPROV_search',
       'callout.title: ZZPROV_function',
       'callout.title: ZZPROV_space · ZZPROV_dynamic',
     ],
   },
   passthrough_requests: {
-    why: "The MCP server's name titles the elicitation card, and its message is the card's body.",
-    leaks: ['approval.body: ZZPROV asks for details', 'approval.title: Continue with ZZPROV_server?'],
+    why: "A connector's elicitation message is the card's body. Its name in the title is gated: a stealthy one stays, a banned one is dropped.",
+    leaks: ['approval.body: ZZPROV asks for details'],
   },
   passthrough_notices: {
     why: 'Warning, config warning, guardian warning and retry text go on the banner.',

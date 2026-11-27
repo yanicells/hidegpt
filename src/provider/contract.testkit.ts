@@ -77,6 +77,15 @@ export type KnownGap =
   | { readonly why: string; readonly leaks: ReadonlyArray<string> }
 export type KnownGaps = Partial<Record<ScenarioName, KnownGap>>
 
+/**
+ * What a `passthrough` script sent besides the marker.
+ * - `hidden`: provider values that cannot carry it (enum values, names with a banned word); they
+ *   must not reach the page either.
+ * - `kept`: names the page may show because they pass the stealth gate (a connector called
+ *   `files`); each must reach the page unchanged, so a scrubber that drops everything fails.
+ */
+export type Passed = { readonly hidden?: ReadonlyArray<string>; readonly kept?: ReadonlyArray<string> }
+
 /** Where provider strings come from, one `passthrough_*` scenario each, so fixing one source never hides another. */
 export type PassthroughSource = 'tools' | 'requests' | 'notices' | 'errors' | 'crash'
 
@@ -129,10 +138,9 @@ export interface ContractScript {
    * Mid-turn, every provider-controlled string of `source` the fake can send carries `marker`.
    * `tools`: tool, server and namespace names, tool errors. `requests`: request titles, names,
    * reasons and messages. `notices`: warnings, retries, notices. `errors`: the turn's failure
-   * text; it ends the turn failed. `crash`: stderr, then the process dies mid-turn. Returns the
-   * provider values that cannot carry the marker (enum values); they must not reach the page either.
+   * text; it ends the turn failed. `crash`: stderr, then the process dies mid-turn.
    */
-  readonly passthrough: (source: PassthroughSource, marker: string) => Effect.Effect<ReadonlyArray<string>>
+  readonly passthrough: (source: PassthroughSource, marker: string) => Effect.Effect<Passed>
   /**
    * The provider names the document `title`. Returns the document reopened when the provider
    * only reports a title as the document opens, and null when it tells the page live.
@@ -406,7 +414,7 @@ const DRAWS: Partial<Record<PassthroughSource, Block['kind']>> = { tools: 'callo
 const passthroughScenario = (source: PassthroughSource) => (run: Run) =>
   Effect.gen(function* () {
     const turnId = yield* begin(run, 'Look it up')
-    const raw = yield* run.script.passthrough(source, MARKER)
+    const { hidden = [], kept = [] } = yield* run.script.passthrough(source, MARKER)
     const draws = DRAWS[source]
     if (draws) yield* until(() => run.blocks().some((block) => block.kind === draws), `a ${draws} is on the page`)
     if (source === 'errors' || source === 'crash') {
@@ -417,11 +425,15 @@ const passthroughScenario = (source: PassthroughSource) => (run: Run) =>
       yield* awaitEnd(run, turnId)
     }
     yield* settle
+    const shown = run.shown()
+    for (const name of kept) {
+      expect(
+        shown.some((line) => line.includes(name)),
+        `a name that passes the stealth gate stays on the page: ${name}`,
+      ).toBe(true)
+    }
     // Provider text stays in the log; the page, cards, hovers, banner and Details never carry it.
-    const leaked = run
-      .shown()
-      .filter((line) => line.includes(MARKER) || raw.some((value) => line.includes(value)))
-      .sort()
+    const leaked = shown.filter((line) => line.includes(MARKER) || hidden.some((value) => line.includes(value))).sort()
     if (leaked.length > 0) return yield* Effect.die(new Leaked(leaked))
   })
 

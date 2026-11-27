@@ -158,7 +158,7 @@ const driver: ContractDriver = {
                 session_id: '',
               }),
             )
-            return []
+            return {}
           case 'requests':
             yield* ask(`${marker}Tool`, { command: 'ls' }, 'toolu_t', {
               title: `${marker} title`,
@@ -166,7 +166,7 @@ const driver: ContractDriver = {
               description: `${marker} description`,
               decisionReason: `${marker} reason`,
             })
-            return []
+            return {}
           case 'notices':
             yield* push(
               cliNotice(`${marker} notice`),
@@ -183,13 +183,13 @@ const driver: ContractDriver = {
               }),
             )
             // `api_retry.error` is an enum, so it cannot carry the marker.
-            return ['server_error']
+            return { hidden: ['server_error'] }
           case 'errors':
             // Claude Code writes its own error notice, then the failed result: both texts are its own.
             yield* push(cliNotice(`${marker} notice error`, 'server_error'))
             yield* result({ is_error: true, result: `${marker} result`, errors: [`${marker} errors`] })
             // `error` is an enum, so it cannot carry the marker.
-            return ['server_error']
+            return { hidden: ['server_error'] }
           case 'crash':
             // Claude Code writes to stderr, then dies mid-turn: the page explains the stop.
             yield* until(() => live() !== undefined, 'Claude Code started')
@@ -198,7 +198,7 @@ const driver: ContractDriver = {
             stderr(`${marker} stderr`)
             yield* tick
             live()!.exit(new Error(`${marker} exited`))
-            return []
+            return {}
         }
       })
 

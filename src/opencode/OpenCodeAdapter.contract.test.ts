@@ -137,24 +137,24 @@ const driver: ContractDriver = {
                 time: 1,
               },
             })
-            return []
+            return {}
           case 'requests':
             yield* ask('per_marker', SESSION, marker)
-            return []
+            return {}
           case 'notices':
             yield* retrying(`${marker} retrying`)
-            return []
+            return {}
           case 'errors':
             // One error for no session in particular, then the turn's own.
             yield* sessionError(undefined, `${marker} server error`, 500)
             yield* settle
             yield* sessionError(SESSION, `${marker} failed`, 500)
             fake.finish(SESSION)
-            return []
+            return {}
           case 'crash':
             // The server writes nothing the adapter reads, so only the page's own wording can show.
             fake.exit(1)
-            return []
+            return {}
         }
       })
 
