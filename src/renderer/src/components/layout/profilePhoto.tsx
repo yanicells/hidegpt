@@ -10,12 +10,15 @@ const KEY = 'hidegpt-profile-photo'
 const SIZE = 160
 
 const listeners = new Set<() => void>()
+/** Read from storage once; every avatar render after that reads this copy. */
+let photo: string | null | undefined
 
-const read = (): string | null => localStorage.getItem(KEY)
+const read = (): string | null => (photo === undefined ? (photo = localStorage.getItem(KEY)) : photo)
 
 function write(next: string | null): void {
   if (next === null) localStorage.removeItem(KEY)
   else localStorage.setItem(KEY, next)
+  photo = next
   for (const listener of listeners) listener()
 }
 

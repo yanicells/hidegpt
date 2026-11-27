@@ -1,10 +1,11 @@
 import type { Snapshot } from '../../../../shared/model'
 import { SparkIcon } from '../ui/Icons'
+import type { OutlineEntry } from './outline'
 import { PAGE_HEIGHT } from './pages'
 import { Ruler, VerticalRuler } from './Rulers'
 import { Tabs } from './Tabs'
 
-const NO_ENTRIES: never[] = []
+const NO_ENTRIES: ReadonlyArray<OutlineEntry> = []
 const noJump = () => {}
 
 /**
