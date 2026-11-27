@@ -15,7 +15,8 @@
 /*
  * The 42px tool is two hover targets, as in Docs: the 30px glyph and the 12px
  * caret, each shaded on its own; the caret stays shaded while its menu is open.
- * The glyph keeps Docs' 1px drop inside its padding, so its shade sits square.
+ * The glyph keeps Docs' 1px drop inside its padding, so its shade sits square;
+ * the extra class outranks toolbar.css's `.toolbar-icon:not(…) > svg` translate.
  */
 .toolbar-icon.tb-split {
   padding: 0;
@@ -25,7 +26,7 @@
   background: none;
 }
 
-.tb-split > .tb-split-icon {
+.toolbar-icon.tb-split > .tb-split-icon {
   box-sizing: content-box;
   padding: 6px 5px 4px;
   border-radius: 4px;
