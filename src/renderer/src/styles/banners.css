@@ -1,0 +1,88 @@
+/* ---------- Banners ---------- */
+
+.banners {
+  @apply shrink-0;
+}
+
+.banner {
+  @apply flex items-center justify-center gap-4;
+  padding: 8px 24px;
+  font-size: 13px;
+  color: var(--text-2);
+  background: var(--info-soft);
+}
+
+.banner.danger {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.banner button {
+  color: var(--blue);
+  font-size: 13px;
+  @apply font-medium whitespace-nowrap;
+}
+
+.banner button:hover {
+  text-decoration: underline;
+}
+
+.status {
+  @apply flex-1 grid place-items-center p-6;
+  background: var(--canvas);
+  color: var(--text-2);
+  @apply text-sm text-center;
+}
+
+.status p {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.status-reload {
+  height: 36px;
+  padding: 0 24px;
+  border-radius: 18px;
+  background: var(--blue);
+  color: #fff;
+  font-weight: 500;
+}
+
+.status-reload:hover {
+  background: var(--blue-dark);
+}
+
+.status .error-details-toggle,
+.status .error-details {
+  @apply block mx-auto;
+  margin-top: 12px;
+}
+
+.error-details-toggle {
+  color: var(--blue);
+}
+
+.error-details {
+  max-width: 560px;
+  font-size: 12px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+/* The whole window couldn't render: a plain Docs-style notice with a reload. */
+.page-error {
+  @apply flex h-full flex-col items-center justify-center gap-3 text-center;
+}
+.page-error h1 {
+  @apply m-0;
+  font-size: 22px;
+  font-weight: 400;
+}
+.page-error p {
+  @apply m-0;
+  color: var(--text-2);
+}
+.page-error .outlined-button {
+  padding: 0 24px;
+}
