@@ -103,12 +103,17 @@ describe('SnapshotPublisher', () => {
         questions: [],
         resolved: null,
       }
+      const thread = { id: 't', name: 'Claude Code session', preview: '', updatedAt: 0, cwd: '/tmp', projectId: null }
       publisher.stage({
-        fields: { title: 'Claude Code session', error: 'Claude ran into an error.' },
+        fields: { title: 'Claude Code session', error: 'Claude ran into an error.', threads: [thread] },
         blocks: { length: 1, set: [[0, request]] },
       })
       expect(sent[1]).toMatchObject({
-        fields: { title: 'session', error: 'Docs couldn’t finish. Try again.' },
+        fields: {
+          title: 'session',
+          error: 'Docs couldn’t finish. Try again.',
+          threads: [{ id: 't', name: 'session' }],
+        },
         blocks: { length: 1, set: [[0, { title: 'Suggested command', body: 'ls' }]] },
       })
     }),
