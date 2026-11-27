@@ -11,9 +11,9 @@ import '@testing-library/jest-dom/vitest'
 afterEach(cleanup)
 
 describe('HomeHeader', () => {
-  it('quick-launches the four products in a new window, which main opens in the browser', () => {
+  it('quick-launches the four products in a new window', () => {
     render(<HomeHeader snap={emptySnapshot()} />)
-    const pill = screen.getByRole('navigation', { name: 'Google apps' })
+    const pill = screen.getByRole('navigation', { name: 'Quick launch' })
     const links = within(pill).getAllByRole('link')
     expect(links.map((link) => [link.getAttribute('aria-label'), link.getAttribute('href')])).toEqual([
       ['Sheets', 'https://docs.google.com/spreadsheets/'],

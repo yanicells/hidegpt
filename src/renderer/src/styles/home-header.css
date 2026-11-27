@@ -3,13 +3,13 @@
 /*
  * Positions are Docs' at 1470. Docs' page scrollbar runs beside its header, so
  * its right cluster ends 12px further in; ours scrolls only under the header,
- * hence the 27px right padding (15 + that 12px track).
+ * hence the 26px right padding (14 + that 12px track).
  */
 .home-header {
   @apply grid items-center shrink-0;
   grid-template-columns: 235px minmax(120px, 720px) minmax(max-content, 1fr);
   height: 64px;
-  padding: 8px 27px 8px 16px;
+  padding: 8px 26px 8px 16px;
   column-gap: 24px;
   background: var(--surface);
 }
@@ -40,7 +40,7 @@
 
 /* Docs draws no ring around the Home avatar (owner decision S7). */
 .home-header .avatar {
-  margin-left: 7px;
+  margin-left: 8px;
   background: none;
 }
 

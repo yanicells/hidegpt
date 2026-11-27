@@ -68,7 +68,7 @@ export function HomeHeader({ snap }: { snap: Snapshot }) {
         />
       </label>
       <div className="header-end">
-        <nav className="quick-launch" aria-label="Google apps">
+        <nav className="quick-launch" aria-label="Quick launch">
           {PRODUCTS.map(({ product, label, url }) => (
             <Tip key={product} label={label}>
               <a href={url} target="_blank" rel="noreferrer" aria-label={label}>
