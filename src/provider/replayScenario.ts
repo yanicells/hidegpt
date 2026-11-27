@@ -125,44 +125,66 @@ export const stopScenario = (prompt: string): ReplayScenario<TurnResult> => ({
 })
 
 /**
- * One turn per prompt, each asking for one approval: `decisions[i]` answers
- * prompt i's (accept, then deny, by default). Fails if the model ends a turn
- * without asking, since then the recording would not show an approval at all.
+ * One turn per prompt, each asking before it acts. `decisions[i]` answers every
+ * approval in turn i (a model may ask again after a deny or a sandbox error).
+ * Fails if a turn ends without asking, since then the recording would show no
+ * approval at all.
  */
+/** What an approval scenario leaves: a turn result plus how many requests each turn asked. */
+export type ApprovalResult = TurnResult & { readonly asked: ReadonlyArray<number> }
+
 export const approvalScenario = (
   prompts: ReadonlyArray<string>,
   decisions: ReadonlyArray<boolean>,
-): ReplayScenario<TurnResult> => ({
-  description: `A new document and ${prompts.length} turns that each ask before acting: ${decisions.map((accept) => (accept ? 'accepted' : 'denied')).join(', then ')}. Then the document read back.`,
-  prompts,
-  run: (context) =>
-    onNewDocument(context, (threadId) =>
-      Effect.forEach(prompts, (text, index) =>
-        runTurn(context, threadId, text, index, (since) =>
-          Effect.gen(function* () {
-            const fresh = () => context.events.slice(since).filter(ofThread(threadId))
-            const asked = () =>
-              fresh().flatMap((event) =>
-                event.type === 'block' && event.block.kind === 'approval' ? [event.block] : [],
-              )[0]
-            yield* waitFor(
-              context,
-              'an approval request',
-              () => asked() !== undefined || fresh().some((event) => event.type === 'turnEnded'),
-            )
-            const block = asked()
-            if (!block)
-              return yield* Effect.fail(
-                new ReplayError({
-                  message: `Turn ${index + 1} ended without asking for approval; see docs/replay-fixtures.md.`,
-                }),
-              )
-            yield* context.session.respond(threadId, block.id, { accept: decisions[index] ?? false, answers: {} })
-          }),
+): ReplayScenario<ApprovalResult> => {
+  if (decisions.length < prompts.length)
+    throw new Error(`${prompts.length} approval prompts need as many decisions; got ${decisions.length}.`)
+  return {
+    description: `A new document and ${prompts.length} turns that each ask before acting: ${decisions.map((accept) => (accept ? 'accepted' : 'denied')).join(', then ')}. Then the document read back.`,
+    prompts,
+    run: (context) => {
+      const asked: number[] = []
+      return onNewDocument(context, (threadId) =>
+        Effect.forEach(prompts, (text, index) =>
+          runTurn(context, threadId, text, index, (since) =>
+            Effect.gen(function* () {
+              const accept = decisions[index]!
+              const answered = new Set<string>()
+              const fresh = () => context.events.slice(since).filter(ofThread(threadId))
+              const ended = () => fresh().some((event) => event.type === 'turnEnded')
+              const unanswered = () =>
+                fresh().flatMap((event) =>
+                  event.type === 'block' && event.block.kind === 'approval' && !answered.has(event.block.id)
+                    ? [event.block]
+                    : [],
+                )[0]
+              // Answer each request as it comes, until the turn ends.
+              while (true) {
+                yield* waitFor(
+                  context,
+                  'an approval request or the end of the turn',
+                  () => unanswered() !== undefined || ended(),
+                )
+                const block = unanswered()
+                if (!block) break
+                answered.add(block.id)
+                yield* context.session.respond(threadId, block.id, { accept, answers: {} })
+              }
+              if (answered.size === 0) {
+                return yield* Effect.fail(
+                  new ReplayError({
+                    message: `Turn ${index + 1} ended without asking for approval; see docs/replay-fixtures.md.`,
+                  }),
+                )
+              }
+              asked.push(answered.size)
+            }),
+          ),
         ),
-      ),
-    ),
-})
+      ).pipe(Effect.map((result): ApprovalResult => ({ ...result, asked })))
+    },
+  }
+}
 
 // Fixed and harmless; both providers send the same ones.
 export const TURN_PROMPTS = ['Reply with one short sentence about tea.', 'Now say it again in five words or fewer.']
