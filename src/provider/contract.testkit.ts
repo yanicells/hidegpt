@@ -45,12 +45,18 @@ import {
  *   answering…" and "Claude Code stopped…" (a send that crosses a running turn or a closed
  *   process), "Codex sent an unexpected reply to …", and "OpenCode did not take that answer".
  *   Each names the provider. Owner: STL-1;
- * - connecting: `BinaryMissingError` ("Codex is not installed…"), `NotLoggedInError`'s hints
- *   ("Run `claude` in a terminal…", "`opencode auth login`"), and `ProviderNotReadyError`'s
- *   default ("… is not connected yet."). Owner: STL-1;
+ * - OpenCode's lost update stream: `streamLost` puts "OpenCode closed its update stream" (or
+ *   "… updates failed", "… stopped sending updates", "Docs could not subscribe to OpenCode
+ *   updates") inside the crash banner. Owner: ARCH-4c / STL-1;
+ * - connecting: `BinaryMissingError` ("Codex is not installed (Docs could not run “codex”)…"),
+ *   `NotLoggedInError`'s hints ("Run `claude` in a terminal…", "`opencode auth login`", OpenCode's
+ *   "has no model providers set up"), `ProviderNotReadyError`'s default ("… is not connected
+ *   yet."), ProcessSupervisor's "Docs could not start Claude: …" and ProviderRegistry's "Docs
+ *   could not load Codex.". Owner: STL-1;
  * - the session manager's background work, which puts `error.message` on the banner when
  *   reopening a document, listing documents, or loading the catalog fails, or when opening one
- *   does (ProviderSessionManager.ts `setError` and `openThread`). Owner: the errors cleanup.
+ *   does (ProviderSessionManager.ts `setError` and `openThread`), including Claude's "Claude
+ *   could not find that document.". Owner: the errors cleanup.
  *
  * The fakes are hand-written, so this proves the adapters agree with each
  * other and with our reading of each protocol. Only recorded fixtures prove
@@ -709,8 +715,8 @@ const SCENARIO_BODIES: Record<ScenarioName, Scenario> = {
       yield* run.script.answer('Done.')
       yield* settle
       // The page showed the failure and took the message back, so the turn must not run unseen
-      // (a retry would run the work twice). T3 Code interrupts it as soon as the start is
-      // abandoned (RunExecutionService's interruptTurn).
+      // (a retry would run the work twice). T3 Code interrupts it as soon as the run is abandoned
+      // (RunExecutionService's interruptTurn); the turn's later frames must stay off the page too.
       expect(interrupts(run), 'a turn accepted after its send failed is stopped').toContainEqual({
         op: 'interrupt',
         target: run.script.nativeTurn(),

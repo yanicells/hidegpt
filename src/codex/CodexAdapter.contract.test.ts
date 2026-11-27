@@ -376,7 +376,7 @@ const GAPS = {
     leaks: ['banned codex: banner: Codex stopped unexpectedly (exit 1): ZZPROV stderr. Docs is reconnecting.'],
   },
   passthrough_command: {
-    why: "When the start times out, legacyEvents.send only abandons the turn; Codex accepts it late, the tracker adopts it under a fresh id, and it runs while the page shows the failure and has taken the message back, so a retry runs the work twice. T3 Code interrupts it (ProviderTurnStartService's interruptTurn). Owner: turn tracker / legacyEvents.send (ARCH wave 3). The timeout's sentence also names Codex (`providerLabel` in `ProviderTimeoutError.message`). Owner: ARCH-4a / STL-1.",
+    why: "When the start times out, legacyEvents.send only abandons the turn; Codex accepts it late, the tracker adopts it under a fresh id, and it runs while the page shows the failure and has taken the message back, so a retry runs the work twice. T3 Code interrupts it as soon as the run is abandoned (RunExecutionService's interruptTurn). A fix must also drop the native turn's later frames: the fake answers the interrupt with `turn/completed` and then still streams \"Done.\", which must stay off the page. Owner: turn tracker / legacyEvents.send (ARCH wave 3). The timeout's sentence also names Codex (`providerLabel` in `ProviderTimeoutError.message`). Owner: ARCH-4a / STL-1.",
     fails: 'a turn accepted after its send failed is stopped',
     leaks: ['banned codex: banner: Codex did not answer in 60 s. Try again, or use Tools → Refresh.'],
   },

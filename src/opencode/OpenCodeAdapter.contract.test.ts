@@ -56,6 +56,11 @@ const driver: ContractDriver = {
           const { text } = refusal
           refusal = null
           if (text === null) return new Promise<never>(() => {})
+          // The SDK failures `errorDetail` words itself: a missing session, no server, no message.
+          if (text === 'not-found')
+            return Response.json({ name: 'NotFoundError', data: { message: '' } }, { status: 404 })
+          if (text === 'offline') return Promise.reject(new TypeError('fetch failed'))
+          if (text === 'empty-error') return Promise.reject(new Error(''))
           return Response.json({ name: 'BadRequestError', data: { message: text } }, { status: 400 })
         }
         const held = hold
@@ -259,7 +264,8 @@ const driver: ContractDriver = {
             refusal = { text }
             return driver.settings
           }),
-        refusals: [],
+        // Not words OpenCode sends: each makes the request fail the way `errorDetail` rewords.
+        refusals: ['not-found', 'offline', 'empty-error'],
         holdStart: Effect.sync(() => {
           let reached = () => {}
           let release = () => {}
@@ -360,13 +366,19 @@ contractSuite('OpenCode', driver, {
     leaks: ['banned opencode: banner: OpenCode stopped unexpectedly (exit 1). Docs is reconnecting.'],
   },
   passthrough_command: {
-    why: "When the start times out, legacyEvents.send only abandons the turn; OpenCode accepts it late, the tracker adopts it under a fresh id, and it runs while the page shows the failure and has taken the message back, so a retry runs the work twice. T3 Code interrupts it (ProviderTurnStartService's interruptTurn). Owner: turn tracker / legacyEvents.send (ARCH wave 3). The timeout's sentence also names OpenCode (`providerLabel` in `ProviderTimeoutError.message`). Owner: ARCH-4c / STL-1.",
+    why: "When the start times out, legacyEvents.send only abandons the turn; OpenCode accepts it late, the tracker adopts it under a fresh id, and it runs while the page shows the failure and has taken the message back, so a retry runs the work twice. T3 Code interrupts it as soon as the run is abandoned (RunExecutionService's interruptTurn). A fix must also drop the native turn's later frames: the fake answers the abort with an aborted `session.error` and idle, and then still streams \"Done.\", which must stay off the page. Owner: turn tracker / legacyEvents.send (ARCH wave 3). The timeout's sentence also names OpenCode (`providerLabel` in `ProviderTimeoutError.message`). Owner: ARCH-4c / STL-1.",
     fails: 'a turn accepted after its send failed is stopped',
     leaks: ['banned opencode: banner: OpenCode did not answer in 60 s. Try again, or use Tools → Refresh.'],
   },
   passthrough_rejected: {
-    why: "OpenCode's refusal of a prompt is the banner (`errorDetail` reads `body.data.message`), and with no message its fallback names OpenCode. Owner: STL-1 / the errors cleanup.",
-    leaks: ['banned opencode: banner: OpenCode did not accept that request.', 'banner: ZZPROV refused'],
+    why: "OpenCode's refusal of a prompt is the banner (`errorDetail` reads `body.data.message`), and each of `errorDetail`'s own sentences names OpenCode: no message, a 404, no server, and an error with no text. Owner: STL-1 / the errors cleanup.",
+    leaks: [
+      'banned opencode: banner: OpenCode could not do that.',
+      'banned opencode: banner: OpenCode could not find that document.',
+      'banned opencode: banner: OpenCode did not accept that request.',
+      'banned opencode: banner: OpenCode is not responding.',
+      'banner: ZZPROV refused',
+    ],
   },
   title_stealth: {
     why: 'A provider title with a banned word ("Claude Code session") reaches the page and window title. Owner: STL-1 (#59).',
