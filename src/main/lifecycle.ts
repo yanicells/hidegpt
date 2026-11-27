@@ -23,7 +23,13 @@ import { MAIN_LOG } from './logging/Logger'
 export const SHUTDOWN_DEADLINE_MS = 5_000
 /** How long the fatal path waits for its log line before it shows the box and quits. */
 export const FATAL_LOG_WAIT_MS = 1_000
-/** More throws than this within `THROW_WINDOW_MS` mean main is broken, so it quits. */
+/**
+ * More uncaught exceptions than this within `THROW_WINDOW_MS` mean main is broken, so it
+ * quits. Unhandled rejections are reported but not counted: an exception unwinds a callback
+ * halfway and can leave main's state torn, while a rejection is a promise nobody awaited,
+ * and SDKs leave benign ones behind (T3 Code's Cursor guard keeps its server running through
+ * them), which must not close a document mid-session.
+ */
 export const THROW_LIMIT = 3
 export const THROW_WINDOW_MS = 10_000
 
@@ -98,6 +104,9 @@ export const makeLifecycle = (options: LifecycleOptions) => {
   const kill = options.kill ?? ((pid, signal) => process.kill(pid, signal))
   const now = options.now ?? Date.now
   let fatalStarted = false
+  // Set once a quit's shutdown starts, as T3 Code's `state.quitting`: a defect from a closing
+  // scope is still logged, but no box holds up the quit and the exit code stays as it was.
+  let quitting = false
   let throws: number[] = []
 
   /** True if `effect` ran within `ms`; a log line that never lands must not hold a quit. */
@@ -112,7 +121,7 @@ export const makeLifecycle = (options: LifecycleOptions) => {
   /**
    * Logs a fatal line (straight to the file if the runtime cannot), shows the
    * box once, sets exit code 1 and quits, as T3 Code's `handleFatalStartupError`.
-   * Only the first call does anything.
+   * Only the first call does anything; during a quit, only the line.
    */
   const fatal = async (sentence: string, annotations: Record<string, unknown>, cause?: Cause.Cause<unknown>) => {
     if (fatalStarted) return
@@ -121,6 +130,7 @@ export const makeLifecycle = (options: LifecycleOptions) => {
       Effect.annotateLogs(annotations),
     )
     if (!(await runWithin(line, FATAL_LOG_WAIT_MS))) logSync('Fatal', 'Docs stopped', annotations, cause)
+    if (quitting) return
     options.showErrorBox?.('Docs', sentence)
     options.setExitCode(1)
     options.quit()
@@ -134,15 +144,17 @@ export const makeLifecycle = (options: LifecycleOptions) => {
 
   /**
    * A throw outside any fiber: reported once, never rethrown, so Electron
-   * shows no dialog. More than `THROW_LIMIT` in `THROW_WINDOW_MS` is fatal.
+   * shows no dialog. More than `THROW_LIMIT` uncaught exceptions in
+   * `THROW_WINDOW_MS` are fatal; rejections are not counted (see `THROW_LIMIT`).
    */
   const thrown = (where: 'main.uncaughtException' | 'main.unhandledRejection') => (error: unknown) => {
-    const at = now()
-    throws = [...throws.filter((time) => at - time < THROW_WINDOW_MS), at]
     const cause = Cause.die(error)
     void run(reportDefect(cause).pipe(Effect.annotateLogs({ where }), Effect.asVoid)).then((reported) => {
       if (!reported) logSync('Error', 'Unhandled defect', { where }, cause)
     })
+    if (where !== 'main.uncaughtException') return
+    const at = now()
+    throws = [...throws.filter((time) => at - time < THROW_WINDOW_MS), at]
     if (throws.length > THROW_LIMIT) void fatal(STOPPED, { where, throws: throws.length })
   }
 
@@ -159,11 +171,17 @@ export const makeLifecycle = (options: LifecycleOptions) => {
    * and Docs exits without calling `done`.
    */
   const shutDown = (steps: ShutdownSteps, done: () => void) => {
+    quitting = true
     const started = now()
     let stalled = false
     void run(Effect.logDebug('Shutdown started'))
     const deadline = setTimeout(() => {
       stalled = true
+      // Each pid is a group whose leader was not seen to exit (a leader that exited is off the
+      // list, and what its group left is the next launch's reap). One whose kill failed stays
+      // listed and is not re-checked: that would mean an async `ps` past the deadline. A pid
+      // cannot be reused while its group has members, so a wrong kill needs the whole group
+      // gone and its id taken by a new group leader within this quit; that risk is accepted.
       const pids = options.livePids()
       let killed = 0
       for (const pid of pids) {

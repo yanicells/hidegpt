@@ -88,6 +88,56 @@ describe('lifecycle: a program that fails', () => {
     expect(options.quit).not.toHaveBeenCalled()
   })
 
+  it.each([
+    {
+      // Quit interrupts the program; a finalizer that dies adds a Die beside the interrupt.
+      what: 'a defect from a closing scope',
+      where: 'main.program',
+      fail: (lifecycle: ReturnType<typeof makeLifecycle>) =>
+        lifecycle.programExited(
+          Exit.failCause(Cause.combine(Cause.interrupt(1), Cause.die(new Error('finalizer bug')))),
+        ),
+    },
+    {
+      what: 'a storm of uncaught exceptions',
+      where: 'main.uncaughtException',
+      fail: (lifecycle: ReturnType<typeof makeLifecycle>) => {
+        const thrown = lifecycle.thrown('main.uncaughtException')
+        for (let i = 0; i < 5; i++) thrown(new Error('storm'))
+      },
+    },
+  ])(
+    'during a quit, logs $what but shows no box, keeps the exit code and does not quit again',
+    async ({ where, fail }) => {
+      const { options, lines, lifecycle } = harness()
+      lifecycle.shutDown({ stop: () => new Promise(() => {}), dispose: async () => {} }, () => {})
+      fail(lifecycle)
+      await settle()
+      expect(lines.filter((line) => line.level === 'Fatal').map((line) => line.annotations.where)).toEqual([where])
+      expect(options.showErrorBox).not.toHaveBeenCalled()
+      expect(options.setExitCode).not.toHaveBeenCalled()
+      expect(options.quit).not.toHaveBeenCalled()
+    },
+  )
+
+  it('waits at most 1 s for the fatal line, then writes it to the file, shows the box and quits', async () => {
+    vi.useFakeTimers()
+    try {
+      const order: string[] = []
+      const { options, lifecycle } = harness({ run: () => new Promise(() => {}) })
+      options.logSync.mockImplementation(() => void order.push('logSync'))
+      options.showErrorBox.mockImplementation(() => void order.push('box'))
+      options.quit.mockImplementation(() => void order.push('quit'))
+      lifecycle.programExited(Exit.die(new Error('hung logger')))
+      await vi.advanceTimersByTimeAsync(999)
+      expect(order).toEqual([])
+      await vi.advanceTimersByTimeAsync(1)
+      expect(order).toEqual(['logSync', 'box', 'quit'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('writes the line to the file itself when the runtime cannot run it, and shows no box where none may show', async () => {
     const { options, lifecycle } = harness({ run: async () => false, showErrorBox: null })
     lifecycle.programExited(Exit.die(new Error('no runtime')))
@@ -112,7 +162,7 @@ describe('lifecycle: throws outside any fiber', () => {
     expect(options.quit).not.toHaveBeenCalled()
   })
 
-  it('treats a fourth throw within 10 s as fatal, and three spread wider as not', async () => {
+  it('treats a fourth uncaught exception within 10 s as fatal, and not the third or ones spread wider', async () => {
     let now = 0
     const { options, lifecycle } = harness({ now: () => now })
     const thrown = lifecycle.thrown('main.uncaughtException')
@@ -122,14 +172,26 @@ describe('lifecycle: throws outside any fiber', () => {
     }
     await settle()
     expect(options.quit).not.toHaveBeenCalled()
-    for (const at of [19_000, 20_000, 21_000]) {
-      now = at
-      thrown(new Error('in a loop'))
-    }
+    // 12 s and 18 s are still in the window, so this is the third within 10 s.
+    now = 19_000
+    thrown(new Error('in a loop'))
+    await settle()
+    expect(options.quit).not.toHaveBeenCalled()
+    now = 20_000
+    thrown(new Error('in a loop'))
     await settle()
     expect(options.showErrorBox.mock.calls).toEqual([['Docs', STOPPED]])
     expect(options.setExitCode.mock.calls).toEqual([[1]])
     expect(options.quit).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports unhandled rejections without counting them toward the quit', async () => {
+    const { options, lines, lifecycle } = harness()
+    const rejected = lifecycle.thrown('main.unhandledRejection')
+    for (let i = 0; i < 10; i++) rejected(new Error('benign SDK rejection'))
+    await settle()
+    expect(lines.filter((line) => line.message === 'Unhandled defect')).toHaveLength(10)
+    expect(options.quit).not.toHaveBeenCalled()
   })
 
   it('writes a report to the file itself when the runtime cannot', async () => {
@@ -191,6 +253,16 @@ describe('lifecycle: quit', () => {
     expect(order).toEqual(['stop', 'dispose', 'done'])
     expect(options.kill).not.toHaveBeenCalled()
     expect(options.exit).not.toHaveBeenCalled()
+  })
+
+  it('does not hand over after the deadline when a slow shutdown finishes late', async () => {
+    const { options, lifecycle } = harness()
+    const done = vi.fn()
+    const late = () => new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_DEADLINE_MS + 1_000))
+    lifecycle.shutDown({ stop: late, dispose: async () => {} }, done)
+    await vi.advanceTimersByTimeAsync(SHUTDOWN_DEADLINE_MS * 2)
+    expect(options.exit).toHaveBeenCalledTimes(1)
+    expect(done).not.toHaveBeenCalled()
   })
 
   it('keeps the supervisor’s waits on one release inside the deadline', () => {
