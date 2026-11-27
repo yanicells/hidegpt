@@ -14,10 +14,13 @@ import * as ClaudeAdapter from '../claude/ClaudeAdapter'
 import { makeFakeClaude } from '../claude/FakeClaude'
 import * as CodexAdapter from '../codex/CodexAdapter'
 import { agentItem, makeFakeCodex, rpcFailure, stubTurn, userItem, type FakeCodexOptions } from '../codex/FakeCodex'
+import { describeFailure } from '../provider/DefectReport'
+import { ProviderTimeoutError } from '../provider/errors'
 import { fromLegacy, type LegacyProviderAdapter } from '../provider/legacyEvents'
 import type { Snapshot } from '../shared/model'
 import { layerAdapters, layerLoaders } from './ProviderRegistry'
 import * as Manager from './ProviderSessionManager'
+import { STOP_FAILED } from './session/TurnController'
 
 /**
  * The session manager over the real Codex adapter and the in-process Codex
@@ -821,23 +824,72 @@ describe('ProviderSessionManager: turns', () => {
     }),
   )
 
-  it.effect('a stop the provider refuses shows why and leaves the answer running', () =>
+  it.effect("a stop the provider refuses says so in Docs' words and leaves the answer running", () =>
     Effect.gen(function* () {
       const { manager } = yield* setup({
         reply: null,
-        handlers: { 'turn/interrupt': () => Effect.fail(rpcFailure('no such turn')) },
+        handlers: { 'turn/interrupt': () => Effect.fail(rpcFailure('codex: no such turn')) },
       })
       yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
       yield* manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' })
       yield* running(manager)
-      const stop = yield* Effect.forkChild(Effect.flip(manager.dispatch({ op: 'interrupt', ...doc('thr_1') })))
+      const stop = yield* Effect.forkChild(Effect.exit(manager.dispatch({ op: 'interrupt', ...doc('thr_1') })))
       // Refused at once; the command fails once the grace for the turn's own end runs out.
       yield* settle
       yield* TestClock.adjust('1 second')
-      expect((yield* Fiber.join(stop)).message).toBe('no such turn')
+      const exit = yield* Fiber.join(stop)
+      if (Exit.isSuccess(exit)) return expect.fail('the refused stop succeeded')
+      // What the IPC boundary puts on the banner.
+      const banner = yield* describeFailure(exit.cause)
+      expect(banner).toBe(STOP_FAILED)
+      expect(banner).not.toContain('no such turn')
+      expect(banner.toLowerCase()).not.toContain('codex')
       yield* TestClock.adjust('10 seconds')
       yield* settle
-      expect(yield* manager.snapshot).toMatchObject({ streaming: true, stopping: false })
+      const shown = yield* manager.snapshot
+      expect(shown).toMatchObject({ streaming: true, stopping: false })
+      expect(JSON.stringify(shown)).not.toContain('no such turn')
+    }),
+  )
+
+  it.effect('a stop that times out is left to the deadline, not put back to running', () =>
+    Effect.gen(function* () {
+      const peer = makeFakeCodex({ reply: null })
+      const codex = fromLegacy(CodexAdapter.make(peer.connect))
+      const manager = yield* Manager.make({ defaultCwd: () => '/tmp/docs', openExternal: () => Effect.void }).pipe(
+        Effect.provide(
+          layerAdapters({
+            codex: {
+              ...codex,
+              // A stop nobody answers, timing out before the deadline: the wrapper waiting for a
+              // start that never comes, or a stop request past its own deadline.
+              openSession: Effect.map(codex.openSession, (session) => ({
+                ...session,
+                interrupt: () =>
+                  Effect.sleep('9 seconds').pipe(
+                    Effect.andThen(
+                      Effect.fail(new ProviderTimeoutError({ provider: 'codex', operation: 'interrupt', seconds: 9 })),
+                    ),
+                  ),
+              })),
+            },
+          }),
+        ),
+      )
+      yield* manager.start('codex')
+      yield* until(manager, (snapshot) => snapshot.status === 'ready' && snapshot.models.length > 0)
+      yield* manager.dispatch({ op: 'openThread', threadId: 'thr_1' })
+      yield* manager.dispatch({ op: 'send', ...doc('thr_1'), text: 'Write a long essay' })
+      yield* running(manager)
+      const stop = yield* Effect.forkChild(Effect.exit(manager.dispatch({ op: 'interrupt', ...doc('thr_1') })))
+      yield* settle
+      yield* TestClock.adjust('9 seconds')
+      yield* settle
+      expect(Exit.isSuccess(yield* Fiber.join(stop))).toBe(true)
+      expect(yield* manager.snapshot).toMatchObject({ streaming: true, stopping: true })
+      yield* TestClock.adjust('1 second')
+      yield* settle
+      expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false, error: null })
     }),
   )
 })

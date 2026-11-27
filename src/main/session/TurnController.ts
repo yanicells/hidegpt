@@ -12,6 +12,7 @@ import * as SubscriptionRef from 'effect/SubscriptionRef'
 
 import type { Command } from '../../shared/contracts'
 import type { ProviderId } from '../../shared/model'
+import { errorLogFields } from '../../provider/DefectReport'
 import { CommandRejectedError, type ProviderError, ProviderNotReadyError } from '../../provider/errors'
 import type { RequestStatus, TurnId, UserItem } from '../../provider/events'
 import { observed, undoOnFailure } from '../../provider/observed'
@@ -30,11 +31,11 @@ import * as S from './state'
  * - Opening a turn is one state write that checks no turn is open, opens it
  *   and adds the echo, so two sends can never both pass the check.
  * - Stop is answered. A refused stop restores the turn and fails the command
- *   (the banner says why). Otherwise the turn waits `STOP_SETTLE` from the
- *   click for the provider's terminal, even if the stop request never returns;
- *   past that the turn ends here as interrupted and the document re-reads on
- *   its next open, since the provider's work may still be running (T3's
- *   `unresponsive` case).
+ *   with `STOP_FAILED`; the provider's text goes to the log only. Otherwise
+ *   (accepted, unanswered or timed out) the turn waits `STOP_SETTLE` from the
+ *   click for the provider's terminal. Past that it ends here as interrupted
+ *   and the document re-reads on its next open, since the provider's work may
+ *   still be running (T3's `unresponsive` case).
  *
  * What an adapter's `interrupt(threadId, turnId)` owes this controller, for
  * adapters leaving the legacy wrapper (ARCH-4b for Claude first):
@@ -43,7 +44,9 @@ import * as S from './state'
  *   already ended (nothing left to stop). The wrapper does both today; a
  *   native adapter keeps it, along with waiting for the turn's start first.
  * - Fail with a typed error when the provider refuses. Never die for it: a
- *   defect skips the refusal handling and reaches the banner as a bug.
+ *   defect skips the refusal handling and reaches the banner as a bug. A stop
+ *   the provider did not answer in time is a `ProviderTimeoutError`, which
+ *   leaves the turn to the deadline instead of putting it back to running.
  * - End the turn with `turn.ended` for that turn id. A terminal within
  *   `REFUSED_STOP_GRACE` of a refusal cancels the refusal's banner.
  * - Keep no stop timer of its own (ARCH-4b deletes Claude's
@@ -70,6 +73,18 @@ type TurnError = ProviderError | CommandRejectedError
 
 const rejected = (reason: string) => new CommandRejectedError({ reason })
 const GONE = 'That document is no longer open.'
+/** The page's sentence for any stop that failed. The tool's own text only goes to the log. */
+export const STOP_FAILED = 'Docs could not stop this. Try again.'
+
+/**
+ * A stop that failed: logged by its fields (never its sentence, which can be the tool's own
+ * text or name it), then a fixed rejection. A rejection, so the IPC boundary does not log it again.
+ */
+const stopFailed = (error: ProviderError) =>
+  Effect.logWarning('Stop refused').pipe(
+    Effect.annotateLogs(errorLogFields(error)),
+    Effect.andThen(Effect.fail(rejected(STOP_FAILED))),
+  )
 
 /** The named runtime, or the rejection the renderer shows when it is gone. */
 export const runtimeOf = (
@@ -186,9 +201,11 @@ export const make = (options: TurnControllerOptions): Effect.Effect<TurnControll
       Effect.gen(function* () {
         const { provider, threadId } = command
         const key = S.keyOf(provider, threadId)
-        yield* runtimeOf(state, command)
+        // Nothing open, or already stopping: nothing to do, connected or not.
+        const open = (yield* runtimeOf(state, command)).turn
+        if (!open || open.phase === 'stopping') return
         const session = options.live(provider)
-        if (!session) return yield* Effect.fail(new ProviderNotReadyError({ provider, detail: null }))
+        if (!session) return yield* stopFailed(new ProviderNotReadyError({ provider, detail: null }))
         // One write moves the open turn to stopping. Nothing open, or already stopping: nothing to do,
         // so a Stop that crosses the answer's end is not an error.
         const stopping = yield* SubscriptionRef.modify(state, (current): readonly [S.OpenTurn | null, S.State] => {
@@ -213,6 +230,14 @@ export const make = (options: TurnControllerOptions): Effect.Effect<TurnControll
           { onlyIfMissing: true },
         )
         yield* session.interrupt(threadId, stopping.id).pipe(
+          // Unanswered (the start or the stop request timed out) is not a refusal: the provider may
+          // still stop, so the deadline settles it rather than putting the turn back to running.
+          // T3 treats an unresponsive stop the same way.
+          Effect.catchTag('ProviderTimeoutError', (error) =>
+            Effect.logWarning('Stop not answered; the deadline settles it').pipe(
+              Effect.annotateLogs(errorLogFields(error)),
+            ),
+          ),
           // Refused: the turn runs on, if nothing has moved it since. It shows as running even if the
           // click came before the provider confirmed the start; that looks the same, and the start is
           // idempotent on a running turn.
@@ -231,7 +256,7 @@ export const make = (options: TurnControllerOptions): Effect.Effect<TurnControll
           ),
           // The answer ended on its own while the stop was on its way, so the provider had nothing
           // left to stop: not an error. Typed failures only; a defect still travels.
-          Effect.catch((error) => Effect.flatMap(ended, (done) => (done ? Effect.void : Effect.fail(error)))),
+          Effect.catch((error) => Effect.flatMap(ended, (done) => (done ? Effect.void : stopFailed(error)))),
         )
       })
 
