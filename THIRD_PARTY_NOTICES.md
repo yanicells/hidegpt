@@ -125,7 +125,9 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     bottom on upward input (wheel, up keys, a scrollbar press) unless a nested
     box scrolls, and on any other upward scroll (the upward-scroll detector),
     from `apps/web/src/components/chat/timelineViewport.ts` and
-    `timelineScrollTarget.ts` (commit 8a14762c).
+    `timelineScrollTarget.ts` (commit 8a14762c); following on while a chunk
+    carries the end out of view, and the reduced-motion scroll, from
+    `timelineViewport.ts` and `useTimelineFollow.ts` (commit 5c6f2f12).
   - `src/renderer/src/components/ui/`: these Base UI wrappers, adapted from
     `apps/web/src/components/ui/` at commit 8a14762c (each keeps a header
     pointing to its source):
