@@ -557,12 +557,9 @@ describe('CodexAdapter', () => {
     }),
   )
 
-  it.effect('answers the current time and declines tools Docs does not host', () =>
+  it.effect('declines tools Docs does not host', () =>
     Effect.gen(function* () {
       const { peer } = yield* open()
-      yield* TestClock.setTime(1_700_000_000_500)
-      const time = yield* peer.request('currentTime/read', { threadId: 'thr_1' })
-      expect(time).toEqual({ currentTimeAt: 1_700_000_000 })
       const tool = yield* peer.request('item/tool/call', {
         threadId: 'thr_1',
         turnId: 'turn_1',

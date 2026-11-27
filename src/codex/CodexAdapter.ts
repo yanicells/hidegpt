@@ -1,4 +1,3 @@
-import * as Clock from 'effect/Clock'
 import * as Context from 'effect/Context'
 import * as Deferred from 'effect/Deferred'
 import * as Duration from 'effect/Duration'
@@ -160,9 +159,6 @@ export function make(connect: Connect): ProviderAdapter {
       const lineage = makeLineage()
       yield* registerNotifications(client, emit, { loaded, activeTurns, lineage })
 
-      yield* client.handleServerRequest('currentTime/read', () =>
-        Effect.map(Clock.currentTimeMillis, (millis) => ({ currentTimeAt: Math.floor(millis / 1000) })),
-      )
       yield* client.handleServerRequest('item/tool/call', () =>
         Effect.succeed({
           contentItems: [{ type: 'inputText' as const, text: 'This Docs window does not host that tool.' }],
