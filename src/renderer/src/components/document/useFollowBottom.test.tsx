@@ -54,6 +54,7 @@ function Page({ askedId }: { askedId: string | null }) {
         <textarea data-testid="composer" />
       </div>
       <div ref={endRef} data-testid="end" style={{ lineHeight: '20px' }} />
+      <div className="spark-wrap" data-testid="overlay" />
     </div>
   )
 }
@@ -72,14 +73,18 @@ const WINDOW = 600
 
 /**
  * jsdom has no layout: a 600px window over a page whose text ends at `text.end`
- * (in page coordinates, movable), on a sheet 2000px tall. `scrollTo` lands at
- * once and records how it was asked to move.
+ * (in page coordinates, movable), on a sheet 2000px tall. Its floating pill
+ * covers the bottom `overlay.height` px, none unless a test says. `scrollTo`
+ * lands at once and records how it was asked to move.
  */
 function scroller() {
   const root = screen.getByTestId('root')
   const end = screen.getByTestId('end')
   const text = { end: 500 }
+  const overlay = { height: 0 }
   const moves: Array<ScrollBehavior | undefined> = []
+  screen.getByTestId('overlay').getBoundingClientRect = () =>
+    new DOMRect(0, WINDOW - overlay.height, 800, overlay.height)
   Object.defineProperty(root, 'scrollHeight', { value: 2000, writable: true })
   Object.defineProperty(root, 'clientHeight', { value: WINDOW })
   Object.defineProperty(root, 'scrollTop', { value: 0, writable: true })
@@ -89,7 +94,7 @@ function scroller() {
     root.scrollTop = options.top ?? root.scrollTop
     moves.push(options.behavior)
   }) as typeof root.scrollTo
-  return { root, text, moves }
+  return { root, text, overlay, moves }
 }
 
 /** Moves the page as the browser would, sending the scroll event that follows. */
@@ -110,7 +115,7 @@ function following() {
 describe('useFollowBottom', () => {
   it('opens at the top, and after you ask scrolls only as the text passes the bottom, one line clear', () => {
     const { rerender } = render(<Page askedId={null} />)
-    const { root, text, moves } = scroller()
+    const { root, text, overlay, moves } = scroller()
 
     // Opening never scrolls, even when the end is on screen and the text grows.
     endVisible(true)
@@ -129,6 +134,11 @@ describe('useFollowBottom', () => {
     laidOut()
     expect(root.scrollTop).toBe(240)
     expect(moves).toEqual(['smooth'])
+
+    // The floating pill over the bottom counts as covered, so the last line stays clear of it.
+    overlay.height = 40
+    laidOut()
+    expect(root.scrollTop).toBe(280)
   })
 
   it('never scrolls up to the end, so the blank rest of a short page stays put', () => {

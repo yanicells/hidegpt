@@ -9,6 +9,8 @@ import { useCallback, useLayoutEffect, useRef, type RefObject } from 'react'
 const NEAR_END = '0px 0px 120px 0px'
 // One line of the page's text, should its line height not be in pixels.
 const FALLBACK_LINE = 20
+// Docs' floating spark pill (Document.tsx), sticky over the bottom of the scroller.
+const BOTTOM_OVERLAY = '.spark-wrap'
 const UP_KEYS = new Set(['PageUp', 'Home', 'ArrowUp'])
 
 const isEditable = (target: EventTarget | null) =>
@@ -53,13 +55,21 @@ function upwardScrollDetector(root: HTMLElement): () => boolean {
 
 /**
  * Scrolls `root` down just far enough that `end`, plus one line of margin, is
- * in view, as Docs does when the text being typed reaches the bottom. Never
- * scrolls up, so the blank rest of the page below a short text stays put.
- * Smooth unless reduced motion is asked for.
+ * in view above `overlay`, as Docs does when the text being typed reaches the
+ * bottom. Never scrolls up, so the blank rest of the page below a short text
+ * stays put. Smooth unless reduced motion is asked for.
  */
-function keepEndInView(root: HTMLElement, end: HTMLElement, reduced: MediaQueryList | undefined) {
+function keepEndInView(
+  root: HTMLElement,
+  end: HTMLElement,
+  overlay: HTMLElement | null,
+  reduced: MediaQueryList | undefined,
+) {
   const line = Number.parseFloat(getComputedStyle(end).lineHeight) || FALLBACK_LINE
-  const below = end.getBoundingClientRect().bottom + line - (root.getBoundingClientRect().top + root.clientHeight)
+  // As T3 subtracts its composer overlay, so the writing line never parks behind the pill.
+  const covered = overlay?.getBoundingClientRect().height ?? 0
+  const below =
+    end.getBoundingClientRect().bottom + line + covered - (root.getBoundingClientRect().top + root.clientHeight)
   if (below < 1) return
   root.scrollTo({ top: root.scrollTop + below, behavior: reduced?.matches ? 'instant' : 'smooth' })
 }
@@ -129,7 +139,7 @@ export function useFollowBottom({
     const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)')
     // Layout is fresh inside the callback, so reading boxes costs nothing extra.
     const grew = new ResizeObserver(() => {
-      if (follow.current) keepEndInView(root, end, reduced)
+      if (follow.current) keepEndInView(root, end, root.querySelector<HTMLElement>(BOTTOM_OVERLAY), reduced)
     })
     const near = new IntersectionObserver(
       (entries) => {
