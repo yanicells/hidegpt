@@ -10,20 +10,17 @@ import { SYMBOLS } from './symbols'
 const RENDERER = join(import.meta.dirname, '../..')
 
 /**
- * Files whose MIcon takes its name from a prop, and where those names are written:
- * any `icon: '...'` property or `icon="..."` attribute (menu items, AccountMenu's
- * rows) and the `name` of the toolbar's glyph components. A new forwarding site
- * fails the test until it is listed here.
+ * The only non-literal MIcon names, per file: each forwards a prop. The names
+ * behind them are read where they are written: any `icon: '...'` property or
+ * `icon="..."` attribute (menu items, AccountMenu's rows), and the `name` of the
+ * toolbar's glyph components. Any other non-literal name fails until listed here.
  */
-const FORWARDERS = new Set([
-  'components/ui/MenuPanel.tsx',
-  'components/layout/AccountMenu.tsx',
-  'components/document/ToolbarTools.tsx',
-])
+const FORWARDERS: Record<string, string[]> = {
+  'components/ui/MenuPanel.tsx': ['item.icon'],
+  'components/layout/AccountMenu.tsx': ['icon'],
+  'components/document/ToolbarTools.tsx': ['name'],
+}
 const NAME_PROP_COMPONENTS = new Set(['Decor', 'MarkToggle', 'ToolButton'])
-
-/** MIcon sites whose `size` is a variable: DocMenu's `size`, which both callers pass as 24. */
-const VARIABLE_SIZES: Record<string, number[]> = { 'components/home/DocCard.tsx': [24] }
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -34,37 +31,46 @@ function sourceFiles(dir: string): string[] {
 }
 
 /**
- * The icon names an expression can evaluate to, or null when the scan can't tell.
- * Reading another object's `icon` (`mode.icon`) adds nothing: every `icon:`
- * property is collected where it is written.
+ * Splits a name expression into the string literals it can evaluate to and the
+ * other expressions it reads (`a ? 'x' : b` gives ['x'] and [b]).
  */
-function literals(node: ts.Node | undefined, onIconRead?: () => void): string[] | null {
-  if (!node) return null
-  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return [node.text]
-  if (ts.isParenthesizedExpression(node) || ts.isJsxExpression(node)) return literals(node.expression, onIconRead)
-  if (ts.isPropertyAccessExpression(node) && node.name.text === 'icon') {
-    onIconRead?.()
-    return []
+function leaves(node: ts.Node): { names: string[]; reads: ts.Node[] } {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return { names: [node.text], reads: [] }
+  if ((ts.isParenthesizedExpression(node) || ts.isJsxExpression(node)) && node.expression) {
+    return leaves(node.expression)
   }
-  const either = (a: ts.Node, b: ts.Node) => {
-    const [x, y] = [literals(a, onIconRead), literals(b, onIconRead)]
-    return x && y ? [...x, ...y] : null
+  const both = (a: ts.Node, b: ts.Node) => {
+    const [x, y] = [leaves(a), leaves(b)]
+    return { names: [...x.names, ...y.names], reads: [...x.reads, ...y.reads] }
   }
-  if (ts.isConditionalExpression(node)) return either(node.whenTrue, node.whenFalse)
+  if (ts.isConditionalExpression(node)) return both(node.whenTrue, node.whenFalse)
   if (
     ts.isBinaryExpression(node) &&
     (node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
       node.operatorToken.kind === ts.SyntaxKind.BarBarToken)
   ) {
-    return either(node.left, node.right)
+    return both(node.left, node.right)
   }
-  return null
+  return { names: [], reads: [node] }
+}
+
+/** Reading another object's `icon` (`mode.icon`) adds no names: every `icon:` property is collected where it is written. */
+const readsIconField = (node: ts.Node) => ts.isPropertyAccessExpression(node) && node.name.text === 'icon'
+
+/** Where `MIcon` may appear: a JSX tag, its own definition, or an import under its own name. */
+function plainMIconUse(node: ts.Identifier): boolean {
+  const parent = node.parent
+  if (ts.isJsxOpeningElement(parent) || ts.isJsxSelfClosingElement(parent) || ts.isJsxClosingElement(parent)) {
+    return parent.tagName === node
+  }
+  if (ts.isFunctionDeclaration(parent)) return parent.name === node
+  return ts.isImportSpecifier(parent) && !parent.propertyName
 }
 
 /**
  * Every Material Symbol the renderer draws, as `name@opsz`, read from the source:
  * each `<MIcon>`'s name and size, plus the names forwarded through props.
- * `unresolved` lists sites the scan can't evaluate.
+ * `unresolved` lists the sites the scan can't evaluate.
  */
 function drawnIcons() {
   const drawn = new Set<string>()
@@ -78,7 +84,17 @@ function drawnIcons() {
     const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true)
     const where = (node: ts.Node) => `${file}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`
 
+    /** Collects a forwarded name expression: literals, or reads of another `icon` field. */
+    const forward = (node: ts.Node, label: string) => {
+      const { names, reads } = leaves(node)
+      names.forEach((name) => forwarded.add(name))
+      if (!reads.every(readsIconField)) unresolved.push(`${where(node)} ${label}`)
+    }
+
     const visit = (node: ts.Node) => {
+      if (ts.isIdentifier(node) && node.text === 'MIcon' && !plainMIconUse(node)) {
+        unresolved.push(`${where(node)} MIcon used outside a JSX tag`)
+      }
       if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
         const tag = node.tagName.getText(source)
         const attrs = new Map<string, ts.JsxAttribute>()
@@ -88,41 +104,33 @@ function drawnIcons() {
         }
         if (tag === 'MIcon') {
           const size = attrs.get('size')?.initializer
-          const sizeLiteral = size && ts.isJsxExpression(size) ? size.expression : undefined
-          const sizes = !size
-            ? [20]
-            : sizeLiteral && ts.isNumericLiteral(sizeLiteral)
-              ? [Number(sizeLiteral.text)]
-              : VARIABLE_SIZES[file]
-          if (!sizes) unresolved.push(`${where(node)} size`)
-          let readsIcon = false
-          const names = literals(attrs.get('name')?.initializer, () => (readsIcon = true))
-          for (const name of names ?? []) for (const s of sizes ?? []) drawn.add(`${name}@${opticalSize(s)}`)
-          if (!names || readsIcon) {
-            if (FORWARDERS.has(file)) for (const s of sizes ?? []) forwardedSizes.add(opticalSize(s))
+          const sizeValue = size && ts.isJsxExpression(size) ? size.expression : undefined
+          let opsz = 20
+          if (size) {
+            if (sizeValue && ts.isNumericLiteral(sizeValue)) opsz = opticalSize(Number(sizeValue.text))
+            else unresolved.push(`${where(node)} size`)
+          }
+          const name = attrs.get('name')?.initializer
+          const { names, reads } = name ? leaves(name) : { names: [], reads: [node] }
+          for (const icon of names) drawn.add(`${icon}@${opsz}`)
+          for (const read of reads) {
+            if (FORWARDERS[file]?.includes(read.getText(source))) forwardedSizes.add(opsz)
             else unresolved.push(`${where(node)} name`)
           }
         } else {
-          const forwarding = [attrs.get('icon'), NAME_PROP_COMPONENTS.has(tag) ? attrs.get('name') : undefined]
-          for (const attr of forwarding) {
-            if (!attr) continue
-            const names = literals(attr.initializer)
-            const value =
-              attr.initializer && ts.isJsxExpression(attr.initializer) ? attr.initializer.expression : undefined
+          for (const prop of NAME_PROP_COMPONENTS.has(tag) ? ['icon', 'name'] : ['icon']) {
+            const value = attrs.get(prop)?.initializer
+            if (!value) continue
             // An element (`icon={<MIcon ... />}`) is scanned as its own MIcon.
-            if (names) names.forEach((name) => forwarded.add(name))
-            else if (!value || !(ts.isJsxElement(value) || ts.isJsxSelfClosingElement(value))) {
-              unresolved.push(`${where(attr)} ${attr.name.getText(source)}`)
-            }
+            const inner = ts.isJsxExpression(value) ? value.expression : undefined
+            if (inner && (ts.isJsxElement(inner) || ts.isJsxSelfClosingElement(inner))) continue
+            forward(value, prop)
           }
         }
-      } else if (
-        (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) &&
-        node.name.getText(source) === 'icon'
-      ) {
-        const names = ts.isPropertyAssignment(node) ? literals(node.initializer) : null
-        if (names) names.forEach((name) => forwarded.add(name))
-        else unresolved.push(`${where(node)} icon`)
+      } else if (ts.isPropertyAssignment(node) && node.name.getText(source) === 'icon') {
+        forward(node.initializer, 'icon')
+      } else if (ts.isShorthandPropertyAssignment(node) && node.name.text === 'icon') {
+        unresolved.push(`${where(node)} icon`)
       }
       ts.forEachChild(node, visit)
     }
@@ -136,12 +144,12 @@ function drawnIcons() {
 describe('Material Symbols', () => {
   it('ship exactly the icons and optical sizes the renderer draws', () => {
     const { drawn, unresolved } = drawnIcons()
-    // A site the scan can't read: make its names literal, or list it in FORWARDERS / VARIABLE_SIZES.
+    // A site the scan can't read: use a literal name and size, or list the forwarding expression in FORWARDERS.
     expect(unresolved).toEqual([])
     const shipped = Object.entries(SYMBOLS)
       .flatMap(([name, cuts]) => Object.keys(cuts).map((opsz) => `${name}@${opsz}`))
       .sort()
-    // A mismatch: edit the lists in scripts/material-symbols.py and regenerate symbols.ts.
+    // A mismatch: edit OPSZ in scripts/material-symbols.py and regenerate symbols.ts.
     expect(shipped).toEqual(drawn)
   })
 
