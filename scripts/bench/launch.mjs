@@ -294,9 +294,10 @@ export async function launch(repo, options) {
       if (counted) {
         set('commits', counted.commits)
         set('renders', counted.renders)
-        // How many components each commit rendered: steadier than `renders`, which also moves
-        // with how the streamed text happened to be split into commits.
-        if (counted.commits) set('renders_per_commit', counted.renders / counted.commits)
+        // The components the median commit rendered. `renders` moves between runs when a few
+        // heavy commits (the library resent after a turn) land in the phase or not; the median
+        // does not, and one more component rendered per commit moves it by one.
+        set('renders_per_commit_p50', counted.p50)
         metrics[`${prefix}.render_top`] = counted.top
       }
     }
