@@ -14,7 +14,8 @@ import * as Sink from 'effect/Sink'
 import * as Stream from 'effect/Stream'
 
 import { captureReports } from './observed.testkit'
-import { DEFAULT_TIMING, ProcessSupervisor, layer, type SupervisorTiming } from './ProcessSupervisor'
+import * as ProcessLedger from './ProcessLedger'
+import { DEFAULT_TIMING, ProcessSupervisor, layer, layerOverLedger, type SupervisorTiming } from './ProcessSupervisor'
 
 /** Real processes: the supervisor's job is the boundary with the OS, so nothing here is faked. */
 const dir = mkdtempSync(join(tmpdir(), 'hidegpt-supervisor-'))
@@ -167,6 +168,52 @@ describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
     ),
   )
 
+  /** A spawner whose one server is `pid`, still running, whose kill does `kill`. */
+  const fakeSpawner = (pid: number, kill: Effect.Effect<void, PlatformError.PlatformError>) =>
+    Layer.succeed(
+      ChildProcessSpawner.ChildProcessSpawner,
+      ChildProcessSpawner.make(() =>
+        Effect.succeed(
+          ChildProcessSpawner.makeHandle({
+            pid: ChildProcessSpawner.ProcessId(pid),
+            exitCode: Effect.never,
+            isRunning: Effect.succeed(true),
+            kill: () => kill,
+            stdin: Sink.drain,
+            stdout: Stream.empty,
+            stderr: Stream.empty,
+            all: Stream.empty,
+            getInputFd: () => Sink.drain,
+            getOutputFd: () => Stream.empty,
+            unref: Effect.succeed(Effect.void),
+          }),
+        ),
+      ),
+    )
+
+  it.live('stops waiting on a ledger write that never lands after a kill, and drops the pid', () => {
+    const hungLedger = Layer.succeed(
+      ProcessLedger.ProcessLedger,
+      ProcessLedger.ProcessLedger.of({
+        record: () => Effect.void,
+        forget: () => Effect.void,
+        stop: () => Effect.never,
+        track: Effect.void,
+        reap: Effect.succeed(0),
+      }),
+    )
+    // Nothing is signalled: the kill is fake, so the pid needs no real process.
+    const supervisor = layerOverLedger({ ...UNHURRIED, ledgerWriteCap: Duration.millis(50) }).pipe(
+      Layer.provide(Layer.merge(fakeSpawner(999_999, Effect.void), hungLedger)),
+    )
+    return Effect.gen(function* () {
+      const supervisor = yield* ProcessSupervisor
+      yield* Effect.scoped(supervisor.spawn({ provider: 'codex', command: '/bin/sleep', args: ['30'] }))
+      expect(supervisor.livePidsSync()).toEqual([])
+      // An uncapped write hangs the release, which no timeout can interrupt: the test's own timeout fails it.
+    }).pipe(Effect.provide(supervisor))
+  })
+
   /**
    * A supervisor whose one server is a real `sleep` (so the ledger can read its start time; the
    * test stops it) behind a fake handle that is still running and whose kill does `kill`.
@@ -180,23 +227,6 @@ describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
     const ledgerPath = join(dir, `${name}-ledger.json`)
     const pid = spawnChild('/bin/sleep', ['30']).pid ?? 0
     daemons.push(pid)
-    const spawner = ChildProcessSpawner.make(() =>
-      Effect.succeed(
-        ChildProcessSpawner.makeHandle({
-          pid: ChildProcessSpawner.ProcessId(pid),
-          exitCode: Effect.never,
-          isRunning: Effect.succeed(true),
-          kill: () => kill,
-          stdin: Sink.drain,
-          stdout: Stream.empty,
-          stderr: Stream.empty,
-          all: Stream.empty,
-          getInputFd: () => Sink.drain,
-          getOutputFd: () => Stream.empty,
-          unref: Effect.succeed(Effect.void),
-        }),
-      ),
-    )
     const recordOf = () => JSON.parse(readFileSync(ledgerPath, 'utf8'))[pid]
     return {
       reported,
@@ -204,7 +234,7 @@ describe('ProcessSupervisor', { timeout: PROCESS_TEST_TIMEOUT }, () => {
       run: use.pipe(
         Effect.provide(
           layer(ledgerPath, UNHURRIED).pipe(
-            Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner)),
+            Layer.provide(fakeSpawner(pid, kill)),
             Layer.provideMerge(NodeServices.layer),
             Layer.provideMerge(logs),
           ),
@@ -416,6 +446,21 @@ describe('ProcessSupervisor.callbackSpawner', { timeout: PROCESS_TEST_TIMEOUT },
       )
       expect(entries()).toEqual({})
     }),
+  )
+
+  it.live('drops a child from the live list once it exits', () =>
+    withSupervisor((supervisor) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const spawn = yield* supervisor.callbackSpawner
+          const child = spawn({ command: 'sh', args: ['-c', 'exit 0'], env: { PATH: process.env.PATH } })
+          const pid = child.pid ?? 0
+          expect(pid).toBeGreaterThan(0)
+          yield* until(() => child.exitCode !== null)
+          yield* until(() => !supervisor.livePidsSync().includes(pid))
+        }),
+      ),
+    ),
   )
 
   it.live('runs each child in its own group and kills the whole group when the scope closes', () =>

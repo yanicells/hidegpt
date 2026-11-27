@@ -340,12 +340,16 @@ const make = (
   })
 }
 
-/** The supervisor over Effect's Node spawner; `ledgerPath` null disables the ledger (tests). */
-export const layer = (ledgerPath: string | null, timing: SupervisorTiming = DEFAULT_TIMING) =>
+/** The supervisor over the ledger it is given (a test's stand-in ledger). */
+export const layerOverLedger = (timing: SupervisorTiming = DEFAULT_TIMING) =>
   Layer.effect(
     ProcessSupervisor,
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       return make(spawner, yield* ProcessLedger.ProcessLedger, timing)
     }),
-  ).pipe(Layer.provide(ProcessLedger.layer(ledgerPath)))
+  )
+
+/** The supervisor over Effect's Node spawner; `ledgerPath` null disables the ledger (tests). */
+export const layer = (ledgerPath: string | null, timing: SupervisorTiming = DEFAULT_TIMING) =>
+  layerOverLedger(timing).pipe(Layer.provide(ProcessLedger.layer(ledgerPath)))
