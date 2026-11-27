@@ -37,7 +37,7 @@ export const DocCard = memo(function DocCard({ thread }: { thread: Thread }) {
           <DocFileIcon size={20} />
           {/* Docs' cards give the year even for this year ("Opened Nov 4, 2026"), like the list view. */}
           <span className="card-date">Opened {formatListDate(thread.updatedAt)}</span>
-          <DocMenu thread={thread} className="card-more" size={24} />
+          <DocMenu thread={thread} className="card-more" />
         </span>
       </div>
     </div>
@@ -50,7 +50,7 @@ export const DocCard = memo(function DocCard({ thread }: { thread: Thread }) {
  * the document (this window is the only tab); it has no icon until the set
  * gains open_in_new.
  */
-export function DocMenu({ thread, className, size }: { thread: Thread; className: string; size: number }) {
+export function DocMenu({ thread, className }: { thread: Thread; className: string }) {
   const items: Item[] = [
     { id: 'rename', label: 'Rename', icon: 'text_format', disabled: true },
     { id: 'remove', label: 'Remove', icon: 'delete', disabled: true },
@@ -59,7 +59,7 @@ export function DocMenu({ thread, className, size }: { thread: Thread; className
   return (
     <Menu>
       <MenuTrigger className={className} aria-label="More actions" data-testid={`more-${thread.id}`}>
-        <MIcon name="more_vert" size={size} />
+        <MIcon name="more_vert" size={24} />
       </MenuTrigger>
       <MenuPanel items={items} itemPrefix="doc" align="end" />
     </Menu>

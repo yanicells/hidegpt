@@ -29,7 +29,7 @@ export function ListView({ snap, threads }: { snap: Snapshot; threads: Thread[] 
             </span>
             <span className="list-owner">{ownerLabel(snap.account)}</span>
             <span className="list-date">{formatListDate(thread.updatedAt)}</span>
-            <DocMenu thread={thread} className="list-more" size={24} />
+            <DocMenu thread={thread} className="list-more" />
           </div>
         </li>
       ))}
