@@ -101,6 +101,10 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
     failed commands kept as a local error and replies tracked while they are
     on their way, from `apps/web/src/components/chat/usePendingThreadRequests.ts`
     and `ComposerPendingApprovalActions.tsx` (commit 8a14762c).
+  - `src/renderer/src/components/document/Approval.tsx`: suggestion cards
+    worded by a fixed table per request kind rather than the request's own
+    text, from `apps/web/src/components/chat/TimelinePendingApprovalRow.tsx`
+    (commit 5c6f2f12).
   - `src/renderer/src/components/layout/Banners.tsx`: banner dismissal keyed by
     the error text, from `apps/web/src/components/chat/ThreadErrorBanner.tsx`
     (commit 8a14762c).
