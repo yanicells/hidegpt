@@ -4,8 +4,8 @@
 // at commit 5c6f2f12. Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 import { describe, expect, it } from 'vitest'
 
-import type { Block, DocSummary, Snapshot, SnapshotPatch } from './contracts'
-import { emptySnapshot } from './model'
+import { adopt, applyThreadEvent, initialState, showThread, toSnapshot, updateLibrary } from '../main/session/state'
+import type { Block, DocSummary, SnapshotPatch } from './contracts'
 import { diffSnapshot } from './snapshot-patch'
 
 const TURNS = 300
@@ -19,14 +19,17 @@ const FRAME_TEXT = ' and then'.repeat(4)
 /** Bytes of the patch as JSON: what the bench's `ipc_kb` counts for one message. */
 const encodedBytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), 'utf8')
 
-/** A 300-turn document open over a 500-document library, its last answer still streaming. */
-function longDocument(): Snapshot {
+/**
+ * Main's session state with a 300-turn document open over a 500-document library and its
+ * last answer streaming, built through the same functions the session manager calls.
+ */
+function longDocumentState() {
   const blocks: Block[] = []
   for (let turn = 0; turn < TURNS; turn += 1) {
     blocks.push({ kind: 'user', id: `u${turn}`, text: `Question ${turn}: explain the main idea in more detail` })
     blocks.push({ kind: 'agent', id: `a${turn}`, text: `Answer ${turn}. ${'lorem ipsum '.repeat(ANSWER_CHARS / 12)}` })
   }
-  const threads: DocSummary[] = Array.from({ length: DOCS }, (_, index) => ({
+  const docs: DocSummary[] = Array.from({ length: DOCS }, (_, index) => ({
     id: `doc-${index}`,
     name: `Document ${index}`,
     preview: 'The first lines of the document',
@@ -34,37 +37,40 @@ function longDocument(): Snapshot {
     cwd: '/projects/notes',
     projectId: null,
   }))
-  return {
-    ...emptySnapshot('/projects/notes'),
-    status: 'ready',
-    threads,
-    route: { kind: 'doc', threadId: 'doc-0' },
-    title: 'A long document',
-    blocks,
-    streaming: true,
-  }
-}
-
-/** The same document with `text` streamed onto its last answer, as main builds it: a new block, the rest shared. */
-function streamed(snapshot: Snapshot, text: string): Snapshot {
-  const blocks = [...snapshot.blocks]
-  const last = blocks.at(-1)
-  if (last?.kind !== 'agent') throw new Error('the last block is not an answer')
-  blocks[blocks.length - 1] = { ...last, text: last.text + text }
-  return { ...snapshot, blocks }
+  const listed = updateLibrary(
+    initialState('codex', () => '/projects/notes'),
+    'codex',
+    (lib) => ({
+      ...lib,
+      status: 'ready',
+      docs,
+    }),
+  )
+  const opened = adopt(
+    listed,
+    'codex',
+    { threadId: 'doc-0', title: 'A long document', blocks, olderCursor: null, cwd: '/projects/notes', streaming: true },
+    0,
+  )
+  return showThread(opened, 'codex', 'doc-0')
 }
 
 describe('snapshot patch wire budget', () => {
   it('sends one streamed delta of a 300-turn document in under 1 KB', () => {
-    const before = longDocument()
-    const after = streamed(before, FRAME_TEXT)
+    const state = longDocumentState()
+    const before = toSnapshot(state)
+    const streamed = applyThreadEvent(
+      state,
+      'codex',
+      { type: 'text', threadId: 'doc-0', blockId: `a${TURNS - 1}`, delta: FRAME_TEXT },
+      1,
+    )
+    const after = toSnapshot(streamed)
     const patch: SnapshotPatch = { ...diffSnapshot(before, after), seq: 12_345 }
 
-    const deltaBytes = encodedBytes(patch)
-    const documentBytes = encodedBytes(after)
-
-    // The fixture is the long document the budget is about, not a small one.
-    expect(documentBytes).toBeGreaterThan(500 * 1024)
-    expect(deltaBytes).toBeLessThan(MAX_DELTA_JSON_BYTES)
+    // The fixture is the long document the budget is about, and the event reached it.
+    expect(encodedBytes(after)).toBeGreaterThan(500 * 1024)
+    expect(after.blocks.at(-1)).toMatchObject({ kind: 'agent', text: expect.stringMatching(/ and then$/) })
+    expect(encodedBytes(patch)).toBeLessThan(MAX_DELTA_JSON_BYTES)
   })
 })
