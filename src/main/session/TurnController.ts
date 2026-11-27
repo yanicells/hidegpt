@@ -171,7 +171,7 @@ export const make = (options: TurnControllerOptions): Effect.Effect<TurnControll
         })
         if (!opened.ok) return yield* Effect.fail(rejected(opened.reason))
         // Stop may land between the write above and the session taking the send. The session reads
-        // this as it takes it, so that turn is never sent (T3's `hasUnpairedRunInterruptRequest`).
+        // this as it takes it, so that turn is never sent (T3's `shouldStartProviderTurn`).
         const stopped = () => {
           const turn = SubscriptionRef.getUnsafe(state).runtimes.get(key)?.turn
           return turn?.id !== turnId || turn.phase === 'stopping'

@@ -305,8 +305,9 @@ const wrapSession = (provider: ProviderId, legacy: LegacyProviderSession, option
               Effect.suspend(() => {
                 if (queued.get(turnId) === mine) queued.delete(turnId)
                 if (sending.get(threadId) === done) sending.delete(threadId)
-                // `begun` again: a send interrupted after moving to `beginning` but before `begin`
-                // ran would otherwise leave a Stop waiting on it for good.
+                // `begun` again: a send interrupted after moving to `beginning` but before `begin`'s
+                // `ensuring` was in place would otherwise leave a Stop waiting on it for good. Only
+                // reachable when the scheduler yields between those two steps.
                 return Effect.andThen(Deferred.succeed(mine.begun, undefined), Deferred.succeed(done, undefined))
               }),
             ),

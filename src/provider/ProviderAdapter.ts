@@ -38,17 +38,20 @@ export interface ProviderAdapter {
   readonly openSession: Effect.Effect<ProviderSession, ProviderError, Scope.Scope>
 }
 
-/** One live connection. Every operation carries its own timeout. */
 /** How the manager tells a send what happened to its turn before the session took it. */
 export interface SendOptions {
   /**
-   * Read synchronously as the session takes the send. True when Stop was pressed between the
-   * manager opening the turn and this call: the turn then ends as interrupted, unsent (as T3
-   * checks for an unpaired stop right before a provider start).
+   * Read synchronously as the session takes the send. True when the page no longer has this
+   * turn running: Stop was pressed between the manager opening the turn and this call, or the
+   * turn is already gone (settled by the stop deadline, the document released, the connection
+   * lost). The turn then ends as interrupted, unsent, as T3 checks `shouldStartProviderTurn`
+   * right before a provider start (`ProviderTurnStartService.ts:290`, used in
+   * `RunExecutionService.ts`).
    */
   readonly stopped?: () => boolean
 }
 
+/** One live connection. Every operation carries its own timeout. */
 export interface ProviderSession {
   /** Everything the backend reports. Ends when the session's scope closes. */
   readonly events: Stream.Stream<AdapterEvent>
