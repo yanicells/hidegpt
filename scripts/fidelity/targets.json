@@ -851,8 +851,7 @@
       "screen": "document-ref",
       "kind": "pixel",
       "at": [297.5, 400],
-      "target": "#f9fafd",
-      "note": "The canvas as captured: CSS #f8fafd is drawn as #f9fafd."
+      "target": "#f8fafd"
     },
     {
       "id": "page.scrollbar.track",
@@ -879,8 +878,7 @@
       "screen": "document-ref",
       "kind": "pixel",
       "at": [1408, 120],
-      "target": "#f9fafd",
-      "note": "The canvas as captured: CSS #f8fafd is drawn as #f9fafd."
+      "target": "#f8fafd"
     },
     {
       "id": "home.scrollbar.track",
@@ -1018,7 +1016,9 @@
       "kind": "style",
       "selector": ".rail-divider",
       "prop": "background-color",
-      "target": "#e7eaf0"
+      "target": "#e7eaf0",
+      "tol": 6,
+      "note": "Read from the scaled 1402 reference, as the menu separator is (section 3.8), so plus or minus 6."
     },
     {
       "id": "rail.plus.cy",
