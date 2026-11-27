@@ -208,7 +208,10 @@ export const makeTurnTracker = (options: TurnTrackerOptions): Effect.Effect<Turn
             if (turnId !== undefined) {
               if (turn?.turnId !== turnId) {
                 // A late response for a turn that already closed: its native events must not land on the next one.
-                if (nativeTurnId !== null && !hasEnded(threadId, nativeTurnId)) remember(threadId, nativeTurnId)
+                // Unless the open turn already took that id (its start notification came first): remembering
+                // it would drop that turn's own terminal and leave it running.
+                if (nativeTurnId !== null && turn?.nativeTurnId !== nativeTurnId && !hasEnded(threadId, nativeTurnId))
+                  remember(threadId, nativeTurnId)
                 return Effect.void
               }
               if (nativeTurnId !== null) {

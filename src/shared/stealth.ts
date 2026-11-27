@@ -65,12 +65,40 @@ export function stealthViolations(text: string): string[] {
   return Array.from(visible.matchAll(/\p{L}+/gu), ([run]) => {
     const whole = banned(run)
     if (whole) return [whole]
-    return [...run.matchAll(CASE_PARTS), ...run.matchAll(CAPITAL_RUNS)]
-      .map((match) => ({ at: match.index, word: banned(match[0]) }))
-      .filter((hit): hit is { at: number; word: string } => hit.word !== null)
-      .sort((a, b) => a.at - b.at)
-      .map((hit) => hit.word)
+    const parts = bannedParts(Array.from(run.matchAll(CASE_PARTS)))
+    // A capital-run hit inside a part hit is the same word seen twice ("myGPTs": "GPTs" and "GPT").
+    const capitals = Array.from(run.matchAll(CAPITAL_RUNS), hitOf).filter(
+      (hit): hit is Hit => hit !== null && !parts.some((part) => hit.at < part.end && part.at < hit.end),
+    )
+    return [...parts, ...capitals].sort((a, b) => a.at - b.at).map((hit) => hit.word)
   }).flat()
+}
+
+/** A banned word found in a run, with where it starts and ends. */
+type Hit = { readonly at: number; readonly end: number; readonly word: string }
+
+const hitOf = (match: RegExpExecArray): Hit | null => {
+  const word = banned(match[0])
+  return word ? { at: match.index, end: match.index + match[0].length, word } : null
+}
+
+/**
+ * The banned words among a run's case parts. Two adjacent parts are tried joined first, so a
+ * banned compound split by its own capitals counts ("useOpenCode" is "use", "OpenCode"), while
+ * parts that only join into ordinary words ("OpenCase") stay apart.
+ */
+function bannedParts(parts: ReadonlyArray<RegExpExecArray>): Hit[] {
+  const found: Hit[] = []
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index]!
+    const next = parts[index + 1]
+    const joinedWord = next ? banned(part[0] + next[0]) : null
+    const hit =
+      next && joinedWord ? { at: part.index, end: next.index + next[0].length, word: joinedWord } : hitOf(part)
+    if (hit) found.push(hit)
+    if (joinedWord) index += 1
+  }
+  return found
 }
 
 export const isStealthy = (text: string): boolean => stealthViolations(text).length === 0
