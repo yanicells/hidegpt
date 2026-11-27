@@ -977,11 +977,13 @@ describe('ProviderSessionManager: turns', () => {
       yield* TestClock.adjust('1 second')
       const stop = yield* Effect.forkChild(Effect.exit(manager.dispatch({ op: 'interrupt', ...doc('thr_1') })))
       yield* settle
+      // Settled at the click, not 10 s later by the deadline.
+      expect(Exit.isSuccess(yield* Fiber.join(stop))).toBe(true)
+      expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false })
       // The first start lands: its stop goes out, and the second message is never sent.
       yield* TestClock.adjust('3 seconds')
       yield* settle
       expect(Exit.isSuccess(yield* Fiber.join(again))).toBe(true)
-      expect(Exit.isSuccess(yield* Fiber.join(stop))).toBe(true)
       expect(countCalls(peer, 'turn/start')).toBe(1)
       expect(interrupts(peer)).toEqual([expect.objectContaining({ threadId: 'thr_1', turnId: 'turn_slow' })])
       expect(yield* manager.snapshot).toMatchObject({ streaming: false, stopping: false })
