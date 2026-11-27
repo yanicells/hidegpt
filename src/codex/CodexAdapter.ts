@@ -574,6 +574,7 @@ function registerNotifications(
         { type: 'text', threadId: p.threadId, blockId: p.itemId, delta: p.delta, create: { kind: 'agent' } },
       ]),
       onThread('item/commandExecution/outputDelta', (p) => [
+        ...recovered(p.threadId),
         {
           type: 'text',
           threadId: p.threadId,
@@ -585,7 +586,8 @@ function registerNotifications(
       onThread('turn/diff/updated', (p) => [
         { type: 'block', threadId: p.threadId, block: { kind: 'callout', id: `diff-${p.turnId}`, title: 'Changes', body: p.diff } },
       ]),
-      on('item/started', blockEvents),
+      // Any work starting means Codex is answering again, so the retry banner goes.
+      on('item/started', (p) => [...(lineage.isChild(p.threadId) ? [] : recovered(p.threadId)), ...blockEvents(p)]),
       on('item/completed', blockEvents),
       on('turn/started', (p) => {
         activeTurns.set(p.threadId, p.turn.id)

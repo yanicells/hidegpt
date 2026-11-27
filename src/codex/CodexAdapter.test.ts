@@ -363,6 +363,28 @@ describe('CodexAdapter', () => {
     }),
   )
 
+  it.effect('a retry notice also clears when work starts or a command prints', () =>
+    Effect.gen(function* () {
+      const { peer, events } = yield* open()
+      const retry = (message: string) =>
+        peer.notify('error', {
+          error: { message, codexErrorInfo: null, additionalDetails: null, misalignment: null },
+          willRetry: true,
+          threadId: 'thr_1',
+          turnId: 'turn_1',
+        })
+      yield* retry('Reconnecting… 1/5')
+      yield* peer.notify('item/started', { threadId: 'thr_1', turnId: 'turn_1', item: agentItem('a1', ''), startedAtMs: 1 })
+      yield* retry('Reconnecting… 2/5')
+      yield* peer.notify('item/commandExecution/outputDelta', { threadId: 'thr_1', turnId: 'turn_1', itemId: 'cmd_1', delta: 'ok' })
+      yield* settle
+      expect(events.filter((event) => event.type === 'clearNotice')).toEqual([
+        { type: 'clearNotice', message: 'Reconnecting… 1/5' },
+        { type: 'clearNotice', message: 'Reconnecting… 2/5' },
+      ])
+    }),
+  )
+
   it.effect('a subagent\'s request shows in the document that started it, and Stop ends both turns', () =>
     Effect.gen(function* () {
       const opened = yield* open()
