@@ -439,7 +439,8 @@
       "selector": ".header-action.spark",
       "pad": 0,
       "prop": "w",
-      "target": 20.2
+      "target": 20.0,
+      "note": "imaging.ink, the measure this gate uses, reads the spark at 20.0 wide (cx 1386, cy 30) on both editor-tabs.png and comments-1470.png. The report's 20.2 came from a different ink measure."
     },
     {
       "id": "header.avatar.width",
