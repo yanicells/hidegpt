@@ -37,7 +37,7 @@ not change (for example, if appending text copied every block).
 `pnpm bench:check` builds, launches the app once to fill its compile cache, then runs one
 counts run of the bench session and compares it with
 [scripts/bench/budgets.json](../scripts/bench/budgets.json). Each metric there has the
-range it was measured in (`low` to `high`, over three counts runs) and two bounds:
+range it was measured in (`low` to `high`, over three or more counts runs) and two bounds:
 
 - `max`, 10% over `high` (and at least 2 over it for a whole count), rounded up. Over it,
   the check fails: a regression.
@@ -53,9 +53,11 @@ load, and a budget on them would fail at random. Most counts come out exactly th
 a busy machine. A few move between runs of one build: `stream300.renders` read 62,893,
 64,767 and 69,024 in three runs, because a few heavy commits (the library resent after a
 turn) land in the phase or not; `open.commits` reads 12 to 14, the box reads move a few
-percent, and `scroll300.commits` read 128, 197 and 130, depending on how many scroll
-events land in one frame. The range and the 10% cover that, so `scroll300.commits` is a
-loose backstop: it catches a change that doubles the commits per scroll, not a small one.
+percent, and `scroll300.commits` reads about 130 or about 200 (128, 197, 130 and 200 in four runs),
+depending on how many scroll events land in one frame. The range and the 10% cover that.
+`scroll300.commits` sets its own headroom of 25%, as 10% over 200 left a run of the upper
+mode too little room, so it is a loose backstop: it catches a change that doubles the
+commits per scroll, not a small one.
 
 | Metric                                             | What it guards                                                              |
 | -------------------------------------------------- | --------------------------------------------------------------------------- |

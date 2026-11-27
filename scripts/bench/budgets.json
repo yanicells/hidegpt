@@ -2,7 +2,7 @@
   "measured": {
     "commit": "c494bc6",
     "when": "2026-11-27",
-    "runs": 3
+    "runs": 4
   },
   "options": {
     "docs": 500,
@@ -18,9 +18,9 @@
     },
     "stream300.recalcs": {
       "low": 725,
-      "high": 730,
+      "high": 733,
       "min": 652,
-      "max": 803
+      "max": 807
     },
     "stream300.renders": {
       "low": 62893,
@@ -37,9 +37,9 @@
       "slack": 0
     },
     "stream300.box_reads": {
-      "low": 64947,
+      "low": 64920,
       "high": 66212,
-      "min": 58452,
+      "min": 58428,
       "max": 72834
     },
     "type_idle300.recalcs": {
@@ -62,9 +62,10 @@
     },
     "scroll300.commits": {
       "low": 128,
-      "high": 197,
-      "min": 115,
-      "max": 217
+      "high": 200,
+      "min": 96,
+      "max": 250,
+      "headroom": 0.25
     },
     "load_all.renders": {
       "low": 24169,
@@ -79,9 +80,9 @@
       "max": 1218.1
     },
     "reopen.renders": {
-      "low": 8101,
+      "low": 8065,
       "high": 8119,
-      "min": 7290,
+      "min": 7258,
       "max": 8931
     },
     "mem_home.dom_nodes": {
@@ -92,9 +93,9 @@
     },
     "session.ipc_kb": {
       "low": 10018.3,
-      "high": 10152.5,
+      "high": 10206.4,
       "min": 9016.4,
-      "max": 11167.8
+      "max": 11227
     },
     "static.main_js_kb": {
       "low": 2352.9,
