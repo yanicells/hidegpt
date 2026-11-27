@@ -2,8 +2,8 @@ import { memo } from 'react'
 
 import { formatListDate, threadTitle } from '../../../../shared/labels'
 import { dispatch } from '../../session-bridge'
-import { DocFileIcon } from '../ui/Icons'
-import { DocMenu } from './DocCard'
+import { docFileIcon } from '../ui/Icons'
+import { docMenuTrigger } from './DocCard'
 import type { Thread } from './grouping'
 
 /**
@@ -30,7 +30,7 @@ const ListRow = memo(function ListRow({ owner, thread }: { owner: string; thread
     <li>
       <div className="list-row">
         <span className="list-name">
-          <DocFileIcon size={24} />
+          {docFileIcon(24)}
           <button
             type="button"
             className="list-open"
@@ -42,7 +42,7 @@ const ListRow = memo(function ListRow({ owner, thread }: { owner: string; thread
         </span>
         <span className="list-owner">{owner}</span>
         <span className="list-date">{formatListDate(thread.updatedAt)}</span>
-        <DocMenu thread={thread} className="list-more" size={24} />
+        {docMenuTrigger(thread, 'list-more')}
       </div>
     </li>
   )

@@ -14,7 +14,7 @@ import { cn, type Styled } from './cn'
  * with roving focus, typeahead, hover submenus and outside-click dismissal.
  * Looks live in styles/menus.css, keyed by these class names.
  */
-function Menu({ actionsRef, ...props }: MenuPrimitive.Root.Props) {
+function Menu<Payload>({ actionsRef, ...props }: MenuPrimitive.Root.Props<Payload>) {
   const ownRef = useRef<MenuPrimitive.Root.Actions | null>(null)
   const ref = actionsRef ?? ownRef
   return (

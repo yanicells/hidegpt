@@ -15,6 +15,11 @@ export function MIcon({
   size = 20,
   ...props
 }: Omit<SVGProps<SVGSVGElement>, 'name'> & { name: MaterialIconName; size?: number }) {
+  return materialIcon(name, size, props)
+}
+
+/** `MIcon` as a plain element, for Home's cards and rows, which would otherwise mount one component each. */
+export function materialIcon(name: MaterialIconName, size = 20, props?: Omit<SVGProps<SVGSVGElement>, 'name'>) {
   return (
     <svg
       width={size}

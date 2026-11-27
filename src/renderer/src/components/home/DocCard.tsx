@@ -1,11 +1,12 @@
+import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { memo } from 'react'
 
 import { formatListDate, previewLines, threadTitle } from '../../../../shared/labels'
 import { dispatch } from '../../session-bridge'
-import { DocFileIcon } from '../ui/Icons'
-import { MIcon } from '../ui/MaterialIcon'
-import { Menu, MenuTrigger } from '../ui/menu'
-import { MenuPanel, type Item } from '../ui/MenuPanel'
+import { docFileIcon } from '../ui/Icons'
+import { materialIcon } from '../ui/MaterialIcon'
+import { Menu } from '../ui/menu'
+import { MenuPanel } from '../ui/MenuPanel'
 import type { Thread } from './grouping'
 
 const open = (thread: Thread) => dispatch({ op: 'openThread', threadId: thread.id })
@@ -34,34 +35,61 @@ export const DocCard = memo(function DocCard({ thread }: { thread: Thread }) {
           {title}
         </button>
         <span className="card-meta">
-          <DocFileIcon size={20} />
+          {docFileIcon(20)}
           {/* Docs' cards give the year even for this year ("Opened Nov 4, 2026"), like the list view. */}
           <span className="card-date">Opened {formatListDate(thread.updatedAt)}</span>
-          <DocMenu thread={thread} className="card-more" size={24} />
+          {docMenuTrigger(thread, 'card-more')}
         </span>
       </div>
     </div>
   )
 })
 
+/** Home's one ⋮ menu. Every card and list row is a trigger for it and passes its document. */
+const docMenu = MenuPrimitive.createHandle<Thread>()
+
 /**
- * A document's ⋮ menu with Docs' entries. Removing and renaming from Home
- * have no command yet, so those rows show disabled; "Open in new tab" opens
- * the document (this window is the only tab); it has no icon until the set
- * gains open_in_new.
+ * The ⋮ menu with Docs' entries, rendered once on Home; a closed menu per
+ * document cost a dozen components each. Removing and renaming from Home have
+ * no command yet, so those rows show disabled; "Open in new tab" opens the
+ * document (this window is the only tab); it has no icon until the set gains
+ * open_in_new.
  */
-export function DocMenu({ thread, className, size }: { thread: Thread; className: string; size: number }) {
-  const items: Item[] = [
-    { id: 'rename', label: 'Rename', icon: 'text_format', disabled: true },
-    { id: 'remove', label: 'Remove', icon: 'delete', disabled: true },
-    { id: 'open-new-tab', label: 'Open in new tab', run: () => open(thread) },
-  ]
+export function DocMenu() {
   return (
-    <Menu>
-      <MenuTrigger className={className} aria-label="More actions" data-testid={`more-${thread.id}`}>
-        <MIcon name="more_vert" size={size} />
-      </MenuTrigger>
-      <MenuPanel items={items} itemPrefix="doc" align="end" />
+    <Menu handle={docMenu}>
+      {({ payload }) =>
+        payload ? (
+          <MenuPanel
+            items={[
+              { id: 'rename', label: 'Rename', icon: 'text_format', disabled: true },
+              { id: 'remove', label: 'Remove', icon: 'delete', disabled: true },
+              { id: 'open-new-tab', label: 'Open in new tab', run: () => open(payload) },
+            ]}
+            itemPrefix="doc"
+            align="end"
+          />
+        ) : null
+      }
     </Menu>
+  )
+}
+
+/**
+ * A document's ⋮ button, which opens the shared `DocMenu` for that document.
+ * A plain element, not a component, so a card or row mounts only Base UI's trigger.
+ */
+export function docMenuTrigger(thread: Thread, className: string) {
+  return (
+    <MenuPrimitive.Trigger
+      handle={docMenu}
+      payload={thread}
+      className={className}
+      data-slot="menu-trigger"
+      aria-label="More actions"
+      data-testid={`more-${thread.id}`}
+    >
+      {materialIcon('more_vert', 24)}
+    </MenuPrimitive.Trigger>
   )
 }

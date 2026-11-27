@@ -62,6 +62,11 @@ export function DocsIcon({ size = 40, height, width }: { size?: number; height?:
 
 /** The small blue Docs file-type badge used in card footers and list rows. */
 export function DocFileIcon({ size = 20 }: { size?: number }) {
+  return docFileIcon(size)
+}
+
+/** `DocFileIcon` as a plain element, for Home's cards and rows, which would otherwise mount one component each. */
+export function docFileIcon(size: number) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" aria-hidden="true">
       <rect x="2" y="2" width="16" height="16" rx="2.5" fill="#4285F4" />

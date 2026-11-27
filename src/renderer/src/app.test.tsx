@@ -516,6 +516,23 @@ describe('home document menus', () => {
     expect(calls).toContainEqual({ op: 'openThread', threadId: 'thr_1' })
   })
 
+  it('opens the one shared menu for the document whose button was pressed, from the keyboard too', async () => {
+    const user = userEvent.setup()
+    const { calls } = mount()
+    const second = screen.getByTestId('more-thr_2')
+    second.focus()
+    await user.keyboard('{Enter}')
+    expect(await screen.findByTestId('doc-open-new-tab')).toBeInTheDocument()
+    expect(second).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByTestId('more-thr_1')).toHaveAttribute('aria-expanded', 'false')
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(second).toHaveFocus())
+    await user.click(screen.getByTestId('more-thr_2'))
+    await user.click(await screen.findByTestId('doc-open-new-tab'))
+    expect(calls).toContainEqual({ op: 'openThread', threadId: 'thr_2' })
+    expect(calls).not.toContainEqual({ op: 'openThread', threadId: 'thr_1' })
+  })
+
   it("opens a list row's menu without opening the document", async () => {
     const user = userEvent.setup()
     const { calls } = mount()

@@ -5,7 +5,7 @@ import type { Snapshot } from '../../../../shared/model'
 import { TEMPLATES, type Template } from '../../templates'
 import { MIcon } from '../ui/MaterialIcon'
 import { Tip } from '../ui/tooltip'
-import { DocCard } from './DocCard'
+import { DocCard, DocMenu } from './DocCard'
 import { FolderPicker } from './FolderPicker'
 import { groupByRecency } from './grouping'
 import { ListView } from './ListView'
@@ -163,6 +163,8 @@ export function Home({
           {threads.length > count ? <div key={count} ref={sentinelRef} aria-hidden="true" /> : null}
         </div>
       </main>
+      {/* One ⋮ menu for every card and row; each opens it for its own document. */}
+      <DocMenu />
       {picker ? (
         <FolderPicker
           folders={folders}
