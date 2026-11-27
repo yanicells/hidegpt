@@ -67,6 +67,12 @@ interface JsonSchemaFile {
   readonly qualifiedName: string;
 }
 
+// HideGPT: an expected `--check` outcome (another CLI version, stale schemas), printed as one
+// line with exit code 1 instead of a defect's stack.
+class CheckFailed extends Schema.TaggedError<CheckFailed>()("CheckFailed", {
+  detail: Schema.String,
+}) {}
+
 class GeneratorError extends Schema.TaggedError<GeneratorError>()("GeneratorError", {
   detail: Schema.String,
   cause: Schema.optional(Schema.Defect()),
@@ -615,7 +621,7 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
       .readFileString(metaOutputPath)
       .pipe(Effect.orElseSucceed(() => ""));
     const mismatch = versionMismatch(generatedFromVersion(committedMeta), UPSTREAM_REF);
-    if (mismatch) return yield* new GeneratorError({ detail: mismatch });
+    if (mismatch) return yield* new CheckFailed({ detail: mismatch });
   }
   yield* runCodex(["app-server", "generate-json-schema", "--experimental", "--out", jsonRoot]);
   yield* runCodex(["app-server", "generate-ts", "--experimental", "--out", tsRoot]);
@@ -858,7 +864,7 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
       if (current !== expected) drifted.push(path.relative(process.cwd(), filePath));
     }
     if (drifted.length > 0) {
-      return yield* new GeneratorError({
+      return yield* new CheckFailed({
         detail: `Codex protocol schemas are stale for ${UPSTREAM_REF}: ${drifted.join(", ")}. Run \`pnpm protocol\`.`,
       });
     }
@@ -871,6 +877,12 @@ const generateFiles = Effect.fn("generateFiles")(function* () {
 });
 
 generateFiles().pipe(
+  Effect.catchTag("CheckFailed", (failed) =>
+    Effect.sync(() => {
+      console.error(failed.detail);
+      process.exitCode = 1;
+    }),
+  ),
   Effect.scoped,
   Effect.provide(
     Layer.mergeAll(
