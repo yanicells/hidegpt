@@ -35,6 +35,22 @@ import * as S from './state'
  *   past that the turn ends here as interrupted and the document re-reads on
  *   its next open, since the provider's work may still be running (T3's
  *   `unresponsive` case).
+ *
+ * What an adapter's `interrupt(threadId, turnId)` owes this controller, for
+ * adapters leaving the legacy wrapper (ARCH-4b for Claude first):
+ *
+ * - Succeed once the provider took the stop, or quietly when that turn has
+ *   already ended (nothing left to stop). The wrapper does both today; a
+ *   native adapter keeps it, along with waiting for the turn's start first.
+ * - Fail with a typed error when the provider refuses. Never die for it: a
+ *   defect skips the refusal handling and reaches the banner as a bug.
+ * - End the turn with `turn.ended` for that turn id. A terminal within
+ *   `REFUSED_STOP_GRACE` of a refusal cancels the refusal's banner.
+ * - Keep no stop timer of its own (ARCH-4b deletes Claude's
+ *   `INTERRUPT_SECONDS`). `STOP_SETTLE` here is the only one, and it runs from
+ *   the click even if `interrupt` never returns.
+ * - After a settled stop the runtime is `stale`, so the next open re-reads
+ *   the thread: that read must show the provider's real state.
  */
 
 /** How long a stop waits for the provider to end the turn. */
