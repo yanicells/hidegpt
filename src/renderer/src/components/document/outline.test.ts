@@ -4,7 +4,15 @@ import { outlineEntries, sectionHeadings } from './outline'
 
 describe('document outline', () => {
   it('reads answer sections, skipping code fences and stripping markup', () => {
-    const text = ['# **Light** reactions', '```md', '## not a heading', '```', 'Body', '### The [Calvin](x) cycle #', '#### too deep'].join('\n')
+    const text = [
+      '# **Light** reactions',
+      '```md',
+      '## not a heading',
+      '```',
+      'Body',
+      '### The [Calvin](x) cycle #',
+      '#### too deep',
+    ].join('\n')
     expect(sectionHeadings(text)).toEqual(['Light reactions', 'The Calvin cycle'])
   })
 

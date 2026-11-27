@@ -6,13 +6,20 @@ import * as Effect from 'effect/Effect'
 import * as Option from 'effect/Option'
 import * as Stream from 'effect/Stream'
 
-import type { Block, SnapshotPatch } from '../shared/contracts'
+import type { Block, SnapshotDiff } from '../shared/contracts'
 import type { ProviderSessionManager } from './ProviderSessionManager'
 
 type Point = { x: number; y: number }
 
 /** The window size the shots are taken at, whatever the display's work area. */
 export const SCREENSHOT_SIZE = { width: 1280, height: 840 } as const
+
+/** How long the walk waits on the page for one step; past it the step fails and the run quits. */
+const PAGE_TIMEOUT = '15 seconds'
+
+/** A plain 24 px blue square, pasted into the composer by the walk. */
+const PASTED_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAIAAABvFaqvAAAAH0lEQVR42mNwav1CFcQwatCoQaMGjRo0atCoQQNvEAD/F+TuO4//gwAAAABJRU5ErkJggg=='
 
 /**
  * `HIDEGPT_SCREENSHOT=<dir>` (with `HIDEGPT_FAKE=1`): walks Home and its
@@ -23,18 +30,35 @@ export const SCREENSHOT_SIZE = { width: 1280, height: 840 } as const
  * pagination keeps text out of page gaps on a long document. A smoke test of
  * the real app.
  */
-export const captureScreenshots = (win: BrowserWindow, manager: ProviderSessionManager['Service'], dir: string) =>
+export const captureScreenshots = (
+  win: BrowserWindow,
+  manager: ProviderSessionManager['Service'],
+  /** Sends a screenshot-only patch through the publisher, so it gets a real `seq`. */
+  stage: (diff: SnapshotDiff) => void,
+  dir: string,
+) =>
   Effect.gen(function* () {
     mkdirSync(dir, { recursive: true })
+    // A page that never answers (a hung or gone renderer) must fail the step, not hang the run.
+    const answered = <A>(what: string, ask: () => Promise<A>) =>
+      Effect.promise(ask).pipe(
+        Effect.timeoutOrElse({
+          duration: PAGE_TIMEOUT,
+          orElse: () => Effect.die(new Error(`The page did not answer in time: ${what}`)),
+        }),
+      )
     const js = <A = unknown>(script: string) =>
-      Effect.promise(() => win.webContents.executeJavaScript(script) as Promise<A>)
+      answered(
+        script.replace(/\s+/g, ' ').trim().slice(0, 80),
+        () => win.webContents.executeJavaScript(script) as Promise<A>,
+      )
     const pause = (ms = 150) => Effect.sleep(`${ms} millis`)
     const shot = (name: string) =>
       Effect.gen(function* () {
         yield* pause()
         win.webContents.invalidate()
         yield* js('new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))')
-        const image = yield* Effect.promise(() => win.capturePage())
+        const image = yield* answered(`capturing ${name}`, () => win.capturePage())
         writeFileSync(join(dir, `${name}.png`), image.toPNG())
       })
     const waitUntil = (condition: string, what: string) =>
@@ -81,7 +105,10 @@ export const captureScreenshots = (win: BrowserWindow, manager: ProviderSessionM
         yield* pause(300)
       })
 
-    yield* manager.snapshots.pipe(Stream.filter((snapshot) => snapshot.status !== 'connecting'), Stream.runHead)
+    yield* manager.snapshots.pipe(
+      Stream.filter((snapshot) => snapshot.status !== 'connecting'),
+      Stream.runHead,
+    )
     // An occluded window stops painting and capturePage returns stale frames.
     win.webContents.setBackgroundThrottling(false)
     win.setAlwaysOnTop(true)
@@ -128,6 +155,22 @@ export const captureScreenshots = (win: BrowserWindow, manager: ProviderSessionM
     )
     yield* shot('new-document-ready')
 
+    // A pasted picture goes through main's image IPC (and its sender check), then loads back
+    // through docs://, which serves only pasted images.
+    yield* js(`(() => {
+      const bytes = Uint8Array.from(atob(${JSON.stringify(PASTED_PNG)}), (char) => char.charCodeAt(0))
+      const data = new DataTransfer()
+      data.items.add(new File([bytes], 'square.png', { type: 'image/png' }))
+      document.querySelector('[data-testid="composer"]').dispatchEvent(
+        new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }),
+      )
+    })()`)
+    yield* waitUntil(
+      `document.querySelector('[data-testid="composer-images"] img')?.naturalWidth > 0`,
+      'The pasted image saving and loading',
+    )
+    yield* shot('composer-image')
+
     yield* Option.match(Option.fromNullishOr(before.threads[0]), {
       onNone: () => manager.dispatch({ op: 'newDocument' }),
       onSome: (doc) => manager.dispatch({ op: 'openThread', threadId: doc.id }),
@@ -168,10 +211,10 @@ export const captureScreenshots = (win: BrowserWindow, manager: ProviderSessionM
     // patches on top of the real blocks, and the real blocks come back after.
     const real = (yield* manager.snapshot).blocks.length
     const showBlocks = (blocks: Block[], streaming: boolean) =>
-      win.webContents.send('snapshot', {
+      stage({
         fields: { streaming },
         blocks: { length: real + blocks.length, set: blocks.map((block, index) => [real + index, block] as const) },
-      } satisfies SnapshotPatch)
+      })
     const question: Block = { kind: 'user', id: 'shot-question', text: 'How would we check the worked examples?' }
     const reply: Block = {
       kind: 'agent',
@@ -203,7 +246,7 @@ export const captureScreenshots = (win: BrowserWindow, manager: ProviderSessionM
     yield* pause(400)
     yield* scrollToQuestion()
     yield* shot('document-suggestion')
-    win.webContents.send('snapshot', { fields: { streaming: false }, blocks: { length: real } } satisfies SnapshotPatch)
+    stage({ fields: { streaming: false }, blocks: { length: real } })
     yield* pause(300)
     yield* js(`(() => {
       document.querySelector('[data-testid="document"]').scrollTop = 0

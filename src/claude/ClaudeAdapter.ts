@@ -13,24 +13,36 @@ import type {
   SDKControlInitializeResponse,
   SDKMessage,
   SDKUserMessage,
+  SpawnOptions as ClaudeSpawnOptions,
 } from '@anthropic-ai/claude-agent-sdk'
 import * as Cause from 'effect/Cause'
 import * as Deferred from 'effect/Deferred'
 import * as Duration from 'effect/Duration'
 import * as Effect from 'effect/Effect'
 import type * as Exit from 'effect/Exit'
+import * as FiberSet from 'effect/FiberSet'
 import * as Queue from 'effect/Queue'
 import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
 
+import { logDefects, reportDefect } from '../provider/DefectReport'
 import {
   BinaryMissingError,
+  DEFECT_MESSAGE,
   NotLoggedInError,
   ProviderRequestError,
   ProviderTimeoutError,
   type ProviderError,
 } from '../provider/errors'
-import type { AdapterEvent, OpenedThread, ProviderAdapter, ProviderSession, TurnInput, TurnSettings } from '../provider/ProviderAdapter'
+import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
+import type {
+  AdapterEvent,
+  OpenedThread,
+  ProviderAdapter,
+  ProviderSession,
+  TurnInput,
+  TurnSettings,
+} from '../provider/ProviderAdapter'
 import { CAPABILITIES, type Block, type DocSummary } from '../shared/model'
 import {
   askedQuestions,
@@ -49,6 +61,7 @@ import {
   type AskedQuestion,
   type StreamState,
 } from './mapping'
+import { packagedClaudeExecutable } from './executable'
 
 /**
  * The Claude Agent SDK as a HideGPT provider. The SDK runs Anthropic's
@@ -67,7 +80,10 @@ import {
  */
 
 /** The SDK functions the adapter uses; tests and demo mode pass an in-process fake. */
-export type ClaudeSdk = Pick<typeof ClaudeAgentSdk, 'query' | 'listSessions' | 'getSessionMessages' | 'getSessionInfo' | 'renameSession'>
+export type ClaudeSdk = Pick<
+  typeof ClaudeAgentSdk,
+  'query' | 'listSessions' | 'getSessionMessages' | 'getSessionInfo' | 'renameSession'
+>
 
 const provider = 'claude' as const
 const DEFAULT_DEADLINE = 30
@@ -77,7 +93,8 @@ export const INTERRUPT_SECONDS = 10
 const PAGE = 60
 const MAX_DOCS = 500
 const SIGN_IN = 'Claude signs in outside Docs. Run `claude` in a terminal and log in, then use Tools → Refresh.'
-const EFFORTS: ReadonlySet<string> = new Set<EffortLevel>(['low', 'medium', 'high', 'xhigh', 'max'])
+const EFFORTS: ReadonlyArray<EffortLevel> = ['low', 'medium', 'high', 'xhigh', 'max']
+const effortOf = (value: string | null): EffortLevel | null => EFFORTS.find((effort) => effort === value) ?? null
 const IMAGE_TYPES: Record<string, 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -104,6 +121,7 @@ const request = <A>(operation: string, run: () => Promise<A>, seconds = DEFAULT_
 const rejected = (operation: string, detail: string) => new ProviderRequestError({ provider, operation, detail })
 
 /** A prompt that never yields, so a probe starts Claude Code without sending anything to the model. */
+// oxlint-disable-next-line require-yield -- it must never yield
 async function* silentPrompt(signal: AbortSignal): AsyncGenerator<SDKUserMessage> {
   await new Promise<void>((resolve) => {
     if (signal.aborted) resolve()
@@ -132,7 +150,7 @@ type Live = {
   readonly prompts: Queue.Queue<SDKUserMessage, Cause.Done>
   readonly state: StreamState
   model: string | null
-  effort: string | null
+  effort: EffortLevel | null
   turn: boolean
   /** Counts sends, so a stop timer only settles the turn it was started for. */
   turns: number
@@ -159,8 +177,15 @@ type PendingApproval = {
 
 const loadRealSdk = (): Promise<ClaudeSdk> => import('@anthropic-ai/claude-agent-sdk')
 
-/** `loadSdk` defaults to a lazy import, so the SDK loads only when the Claude library connects. */
-export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderAdapter {
+/**
+ * `loadSdk` defaults to a lazy import, so the SDK loads only when the Claude library connects.
+ * With a `supervisor`, every Claude Code process is spawned through it (own process group,
+ * orphan ledger, stopped with the session); without one (tests, demo) the SDK spawns its own.
+ */
+export function make(
+  loadSdk: () => Promise<ClaudeSdk> = loadRealSdk,
+  supervisor?: ProcessSupervisor['Service'],
+): ProviderAdapter {
   return {
     id: provider,
     capabilities: CAPABILITIES.claude,
@@ -169,11 +194,27 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
         try: loadSdk,
         catch: () => new BinaryMissingError({ provider, command: '@anthropic-ai/claude-agent-sdk' }),
       })
+      // Set only in a packaged app, where the binary sits outside app.asar.
+      const executable = packagedClaudeExecutable()
+      const binary = executable ? { pathToClaudeCodeExecutable: executable } : {}
       const events = yield* Queue.unbounded<AdapterEvent>()
       yield* Effect.addFinalizer(() => Queue.shutdown(events))
       const emit = (event: AdapterEvent) => Queue.offer(events, event).pipe(Effect.asVoid)
       const scope = yield* Scope.Scope
-      const fork = <A, E>(effect: Effect.Effect<A, E>) => Effect.asVoid(Effect.forkIn(Effect.ignore(effect), scope))
+      const fork = <A, E>(effect: Effect.Effect<A, E>) =>
+        Effect.asVoid(Effect.forkIn(logDefects(Effect.ignore(effect)), scope))
+      // SDK callbacks run in the session scope with its services (its logger and log
+      // annotations), so closing the library interrupts them.
+      const runPromise = yield* FiberSet.makeRuntimePromise()
+      const spawn = supervisor ? yield* supervisor.callbackSpawner : null
+      /**
+       * Starts Claude Code under the supervisor. The SDK's env is passed through untouched;
+       * only its stderr is read, for the last line of a failed start.
+       */
+      const spawnOptions = (onStderr: (text: string) => void) =>
+        spawn
+          ? { spawnClaudeCodeProcess: (options: ClaudeSpawnOptions) => spawn({ ...options, onStderr }) }
+          : { stderr: onStderr }
 
       const threads = new Map<string, ThreadInfo>()
       const lives = new Map<string, Live>()
@@ -209,6 +250,7 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             const query = sdk.query({
               prompt: silentPrompt(abort.signal),
               options: {
+                ...binary,
                 cwd,
                 abortController: abort,
                 // As in T3 Code's capabilities probe: no tools, hooks or MCP servers start.
@@ -216,7 +258,7 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
                 mcpServers: {},
                 strictMcpConfig: true,
                 settings: { disableAllHooks: true },
-                stderr: () => {},
+                ...spawnOptions(() => {}),
               },
             })
             return { abort, query }
@@ -244,7 +286,9 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             yield* Effect.forkIn(
               probe(cwd).pipe(
                 Effect.exit,
-                Effect.flatMap((exit) => Effect.sync(() => probes.delete(cwd)).pipe(Effect.andThen(Deferred.done(created, exit)))),
+                Effect.flatMap((exit) =>
+                  Effect.sync(() => probes.delete(cwd)).pipe(Effect.andThen(Deferred.done(created, exit))),
+                ),
               ),
               scope,
             )
@@ -261,18 +305,27 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
        * Adapted from T3 Code (apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts) at commit 8a14762c.
        * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
        */
-      const askPermission = (threadId: string, tool: string, input: Record<string, unknown>, options: Parameters<CanUseTool>[2]) => {
+      const askPermission = (
+        threadId: string,
+        tool: string,
+        input: Record<string, unknown>,
+        options: Parameters<CanUseTool>[2],
+      ) => {
         const id = permissionBlockId(options.toolUseID)
         return Effect.gen(function* () {
           const questions = tool === 'AskUserQuestion' ? askedQuestions(input) : null
           const decision = yield* Deferred.make<PermissionResult>()
           approvals.set(id, { threadId, input, questions, decision })
-          const block = questions ? questionBlock(id, questions) : permissionBlock(id, tool, input, options.title)
+          const block = questions ? questionBlock(id, questions) : permissionBlock(id, tool, input, options.displayName)
           yield* emit({ type: 'block', threadId, block })
           // Claude Code withdraws the request when the turn stops.
           const withdrawn = Effect.callback<PermissionResult>((resume) => {
             const abort = () =>
-              resume(emit({ type: 'resolved', threadId, blockId: id, resolved: 'skipped' }).pipe(Effect.as(deny('Cancelled.'))))
+              resume(
+                emit({ type: 'resolved', threadId, blockId: id, resolved: 'skipped' }).pipe(
+                  Effect.as(deny('Cancelled.')),
+                ),
+              )
             if (options.signal.aborted) abort()
             else options.signal.addEventListener('abort', abort, { once: true })
             return Effect.sync(() => options.signal.removeEventListener('abort', abort))
@@ -325,16 +378,25 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
           const title = info.pendingTitle
           if (!title) return
           info.pendingTitle = null
-          yield* Effect.ignore(request('renameSession', () => sdk.renameSession(live.threadId, title, dirOption(live.threadId))))
+          yield* Effect.ignore(
+            request('renameSession', () => sdk.renameSession(live.threadId, title, dirOption(live.threadId))),
+          )
         })
 
       const onMessage = (live: Live, message: SDKMessage) =>
         Effect.gen(function* () {
           if (message.type === 'assistant') infoOf(live.threadId).saved = true
           for (const emission of readMessage(live.state, message)) {
-            if (emission.type === 'block') yield* emit({ type: 'block', threadId: live.threadId, block: emission.block })
+            if (emission.type === 'block')
+              yield* emit({ type: 'block', threadId: live.threadId, block: emission.block })
             else if (emission.type === 'text') {
-              yield* emit({ type: 'text', threadId: live.threadId, blockId: emission.blockId, delta: emission.delta, create: { kind: 'agent' } })
+              yield* emit({
+                type: 'text',
+                threadId: live.threadId,
+                blockId: emission.blockId,
+                delta: emission.delta,
+                create: { kind: 'agent' },
+              })
             } else {
               yield* afterTurn(live)
               if (!live.turn) continue
@@ -351,7 +413,12 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
         Stream.fromAsyncIterable(live.query, (cause) => cause).pipe(
           Stream.runForEach((message) => onMessage(live, message)),
           Effect.exit,
-          Effect.flatMap((exit) => settle(live, stoppedMessage(live, exit))),
+          // A die is a Docs bug reading a frame: report it, and keep its raw text off the page.
+          Effect.flatMap((exit) =>
+            exit._tag === 'Failure' && Cause.hasDies(exit.cause)
+              ? Effect.flatMap(reportDefect(exit.cause), () => settle(live, DEFECT_MESSAGE))
+              : settle(live, stoppedMessage(live, exit)),
+          ),
         )
 
       const startLive = (threadId: string, settings: TurnSettings) =>
@@ -367,7 +434,7 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             if (existing) info.saved = true
           }
           const prompts = yield* Queue.unbounded<SDKUserMessage, Cause.Done>()
-          const effort = settings.effort && EFFORTS.has(settings.effort) ? (settings.effort as EffortLevel) : null
+          const effort = effortOf(settings.effort)
           const live: Live = {
             threadId,
             prompts,
@@ -382,15 +449,25 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             query: sdk.query({
               prompt: Stream.toAsyncIterable(Stream.fromQueue(prompts)),
               options: {
+                ...binary,
                 cwd: existsSync(info.cwd) ? info.cwd : homedir(),
                 ...(info.saved ? { resume: threadId } : { sessionId: threadId }),
                 ...(settings.model ? { model: settings.model } : {}),
                 ...(effort ? { effort } : {}),
                 includePartialMessages: true,
-                canUseTool: (tool, input, options) => Effect.runPromise(askPermission(threadId, tool, input, options)),
-                stderr: (data) => {
+                canUseTool: (tool, input, options) =>
+                  runPromise(
+                    askPermission(threadId, tool, input, options).pipe(
+                      // A Docs bug building the request: report it and refuse the tool, so the turn goes on.
+                      Effect.catchCauseIf(
+                        (cause) => !Cause.hasInterruptsOnly(cause),
+                        (cause) => Effect.as(reportDefect(cause), deny(DEFECT_MESSAGE)),
+                      ),
+                    ),
+                  ),
+                ...spawnOptions((data) => {
                   live.stderr = lastLine(data) ?? live.stderr
-                },
+                }),
               },
             }),
           }
@@ -407,7 +484,7 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             yield* request('setModel', () => live.query.setModel(model), 10)
             live.model = model
           }
-          const effort = settings.effort && EFFORTS.has(settings.effort) ? (settings.effort as EffortLevel) : null
+          const effort = effortOf(settings.effort)
           if (effort && effort !== live.effort) {
             yield* request('applyFlagSettings', () => live.query.applyFlagSettings({ effortLevel: effort }), 10)
             live.effort = effort
@@ -488,7 +565,10 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             if (hint?.cwd) infoOf(threadId).cwd = hint.cwd
             const known = threads.get(threadId)
             const [blocks, info] = yield* Effect.all(
-              [readHistory(threadId), request('getSessionInfo', () => sdk.getSessionInfo(threadId, dirOption(threadId)))],
+              [
+                readHistory(threadId),
+                request('getSessionInfo', () => sdk.getSessionInfo(threadId, dirOption(threadId))),
+              ],
               { concurrency: 'unbounded' },
             )
             // A document created here has no transcript until its first message.
@@ -516,7 +596,13 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             const title = options.title?.trim() || null
             threads.set(threadId, { cwd, saved: false, pendingTitle: title })
             history.set(threadId, [])
-            return { threadId, title: title ?? 'Untitled document', blocks: [], olderCursor: null, cwd } satisfies OpenedThread
+            return {
+              threadId,
+              title: title ?? 'Untitled document',
+              blocks: [],
+              olderCursor: null,
+              cwd,
+            } satisfies OpenedThread
           }),
 
         loadOlder: (threadId, cursor) =>
@@ -533,13 +619,18 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
           Effect.gen(function* () {
             const content = yield* userContent(input)
             const running = lives.get(threadId)
-            if (running?.turn) return yield* Effect.fail(rejected('send', 'Claude is still answering. Wait for it, or stop it first.'))
+            if (running?.turn)
+              return yield* Effect.fail(rejected('send', 'Claude is still answering. Wait for it, or stop it first.'))
             const live = running && !running.settled ? running : yield* startLive(threadId, settings)
             if (live === running) yield* applySettings(live, settings)
             live.turn = true
             live.turns += 1
             live.stopping = false
-            const queued = yield* Queue.offer(live.prompts, { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null })
+            const queued = yield* Queue.offer(live.prompts, {
+              type: 'user',
+              message: { role: 'user', content },
+              parent_tool_use_id: null,
+            })
             if (!queued) {
               live.turn = false
               return yield* Effect.fail(rejected('send', 'Claude Code stopped. Send your message again to continue.'))
@@ -561,7 +652,11 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
             const turn = live.turns
             yield* fork(
               Effect.sleep(Duration.seconds(INTERRUPT_SECONDS)).pipe(
-                Effect.andThen(Effect.suspend(() => (live.turns === turn && live.turn && live.stopping ? settle(live, undefined) : Effect.void))),
+                Effect.andThen(
+                  Effect.suspend(() =>
+                    live.turns === turn && live.turn && live.stopping ? settle(live, undefined) : Effect.void,
+                  ),
+                ),
               ),
             )
             yield* request('interrupt', () => live.query.interrupt(), INTERRUPT_SECONDS).pipe(
@@ -573,7 +668,8 @@ export function make(loadSdk: () => Promise<ClaudeSdk> = loadRealSdk): ProviderA
         respond: (_threadId, approvalId, reply) =>
           Effect.gen(function* () {
             const pending = approvals.get(approvalId)
-            if (!pending) return yield* Effect.fail(rejected('respond', 'This request is no longer waiting for an answer.'))
+            if (!pending)
+              return yield* Effect.fail(rejected('respond', 'This request is no longer waiting for an answer.'))
             const result: PermissionResult = pending.questions
               ? reply.accept
                 ? questionAnswers(pending.input, pending.questions, reply.answers)

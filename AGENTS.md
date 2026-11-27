@@ -54,7 +54,9 @@ that maps its own wire types into the shared model in a pure `mapping.ts`.
   are out of scope (no documented API). The protocol schemas under
   `src/vendor/effect-codex-app-server/_generated/` come from `pnpm protocol`
   (the installed CLI's `codex app-server generate-ts`) — never hand-edit them,
-  never invent protocol methods.
+  never invent protocol methods. `pnpm protocol --check` fails when they no
+  longer match the installed CLI. Wire-to-model mapping (items, approvals,
+  catalog) lives in `src/codex/mapping.ts`.
 - **OpenCode** (`src/opencode/OpenCodeAdapter.ts`): spawns `opencode serve` on
   127.0.0.1 with a random server password and talks to it with the official
   `@opencode-ai/sdk` client (REST + the global SSE stream). It uses the user's
@@ -104,10 +106,19 @@ plain React.
 - Every provider call has a deadline (`Effect.timeoutOrElse` →
   `ProviderTimeoutError`); retries and reconnects are `Schedule`s.
 - Failures are the tagged errors in `src/provider/errors.ts`; their
-  `message` is the Docs-style sentence the banner shows.
-- Commands are decoded with their schema at the IPC boundary.
+  `message` is the Docs-style sentence the banner shows. A defect never
+  shows its raw text: it goes through `describeFailure` or `reportDefect`
+  (`src/provider/DefectReport.ts`), which log it.
+- Diagnostics go through `Effect.log*` (written to `userData/logs`), not
+  `console`. Never log prompt or answer text, titles, sign-in links,
+  credentials, or a provider's error text; log `errorLogFields` instead
+  (`docs/architecture.md` §1).
+- Every IPC channel is a row in the `Ipc*` tables in `src/shared/contracts.ts`;
+  main decodes its payload at the boundary and the preload's types derive from it.
 - Tests use `@effect/vitest` and `TestClock`, against fakes that replace only
-  the process boundary (`FakeCodex`, `FakeOpenCode`, `FakeClaude`).
+  the process boundary (`FakeCodex`, `FakeOpenCode`, `FakeClaude`), plus replay
+  fixtures recorded from the real CLIs (docs/replay-fixtures.md). Never set
+  `HIDEGPT_RECORD_TURNS=1`: only the owner records turns.
 - Don't mix styles: new main/provider code is Effect, not promise chains.
 
 ## Project structure
@@ -183,14 +194,27 @@ code on sight; don't comment it out, don't leave TODO shims.
 pnpm install
 pnpm dev          # Electron app with Vite HMR
 pnpm test         # vitest: session/protocol + renderer UI tests
-pnpm typecheck    # tsc --noEmit
+pnpm typecheck    # effect-tsgo: tsc + Effect diagnostics (unrun Effects, bare yield)
+pnpm lint         # oxlint (T3 Code's rules + floating promises)
+pnpm knip         # unused files, exports, dependencies
+pnpm fmt          # oxfmt; pnpm fmt:check verifies it
+pnpm check        # typecheck + lint + fmt:check + knip + test + build, as CI runs it
 pnpm protocol     # regenerate the vendored Codex schemas from the installed CLI
+pnpm protocol --check  # fail if the committed schemas drift from the installed CLI
+pnpm record:codex library   # re-record a no-prompt replay fixture (also record:claude)
 pnpm screenshot   # PNGs of home + document with a fake session
+pnpm dist         # package dist/Docs-*.dmg; HIDEGPT_PERSONAL=1 adds Claude, in dist/personal/
 ```
 
 `HIDEGPT_FAKE=1` runs every library's real adapter against its in-process
 fake (`src/main/demo.ts`, fictional documents only) — use it for UI work,
 screenshots and the bench.
+
+`HIDEGPT_PERSONAL` is a build-time flag (`__HIDEGPT_PERSONAL__`, read only
+through `PERSONAL_BUILD` in `src/shared/labels.ts`). Runs from source set it;
+`pnpm dist` clears it unless `HIDEGPT_PERSONAL=1`, which drops Claude from
+`PROVIDERS` and from the bundle. Gate any new Claude import on it the same way
+`ProviderRegistry.ts` does, or the shared build check (`scripts/shared-build-guard.ts`) fails.
 
 ## Working agreements
 
@@ -200,4 +224,5 @@ screenshots and the bench.
 - No ChatGPT.com scraping, no protocol guessing. If a method isn't in the
   generated schemas (Codex), the served OpenAPI / SDK types (OpenCode), or
   `sdk.d.ts` (Claude), it doesn't exist.
-- After changes: `pnpm test && pnpm typecheck`, plus `pnpm screenshot` for UI changes.
+- After changes: `pnpm check`, plus `pnpm screenshot` for UI changes. Suppress a
+  lint rule only with a reason: `// oxlint-disable-next-line <rule> -- <why>`.

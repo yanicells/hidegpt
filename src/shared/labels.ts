@@ -34,17 +34,6 @@ function sameDay(date: Date, now: Date): boolean {
   )
 }
 
-/** Docs shows a time for today, month + day this year, and a full date otherwise. */
-export function formatOpened(unixSeconds: number | null | undefined, now = new Date()): string {
-  if (!unixSeconds) return ''
-  const date = new Date(unixSeconds * 1000)
-  if (sameDay(date, now)) return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  if (date.getFullYear() === now.getFullYear()) {
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  }
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
 /** List view shows a time for today and a full date otherwise, like Docs. */
 export function formatListDate(unixSeconds: number | null | undefined, now = new Date()): string {
   if (!unixSeconds) return ''
@@ -72,8 +61,20 @@ export function previewLines(text: string, limit = 12): string {
   return trimmed.split(/\n+/).slice(0, limit).join('\n')
 }
 
-/** Every library the app can open, in switcher order. */
-export const PROVIDERS: ReadonlyArray<ProviderId> = ['codex', 'opencode', 'claude']
+/**
+ * Whether this build may carry the Claude library. Set at build time from
+ * `HIDEGPT_PERSONAL` (see electron.vite.config.ts): runs from source keep it,
+ * a shared `pnpm dist` build leaves it out unless `HIDEGPT_PERSONAL=1`.
+ */
+export const PERSONAL_BUILD: boolean = __HIDEGPT_PERSONAL__
+
+/** The libraries a build can open, in switcher order. Claude only in a personal build. */
+export function providersFor(personal: boolean): ReadonlyArray<ProviderId> {
+  return personal ? ['codex', 'opencode', 'claude'] : ['codex', 'opencode']
+}
+
+/** Every library this build can open, in switcher order. */
+export const PROVIDERS: ReadonlyArray<ProviderId> = providersFor(PERSONAL_BUILD)
 
 /**
  * Each library as one of the person's Google accounts, the way Chrome names

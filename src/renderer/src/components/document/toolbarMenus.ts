@@ -48,10 +48,33 @@ export function effortFonts(efforts: ReadonlyArray<string>): { effort: string; f
 
 /** Docs' default font list; names without an effort behind them are costume rows. */
 const DOCS_FONTS = [
-  'Amatic SC', 'Arial', 'Calibri', 'Cambria', 'Caveat', 'Comfortaa', 'Comic Sans MS', 'Courier New',
-  'EB Garamond', 'Georgia', 'Impact', 'Lexend', 'Lobster', 'Lora', 'Merriweather', 'Montserrat',
-  'Nunito', 'Open Sans', 'Oswald', 'Pacifico', 'Playfair Display', 'Roboto', 'Roboto Mono', 'Spectral',
-  'Times New Roman', 'Trebuchet MS', 'Verdana',
+  'Amatic SC',
+  'Arial',
+  'Calibri',
+  'Cambria',
+  'Caveat',
+  'Comfortaa',
+  'Comic Sans MS',
+  'Courier New',
+  'EB Garamond',
+  'Georgia',
+  'Impact',
+  'Lexend',
+  'Lobster',
+  'Lora',
+  'Merriweather',
+  'Montserrat',
+  'Nunito',
+  'Open Sans',
+  'Oswald',
+  'Pacifico',
+  'Playfair Display',
+  'Roboto',
+  'Roboto Mono',
+  'Spectral',
+  'Times New Roman',
+  'Trebuchet MS',
+  'Verdana',
 ]
 
 /** Bundled lookalikes for Docs fonts that can't ship under their own name (see fonts.ts). */

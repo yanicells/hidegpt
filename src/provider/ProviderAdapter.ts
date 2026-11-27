@@ -58,6 +58,7 @@ export interface ProviderSession {
   /** Drops server-side resources for an idle, off-screen thread. Never fails. */
   readonly releaseThread: (threadId: string) => Effect.Effect<void>
 
+  // Optional: present exactly when the matching `Capabilities` flag is on (checked by `capabilities.test.ts`).
   readonly createProject?: (name: string, cwd: string) => Effect.Effect<void, ProviderError>
   /** Returns the URL to finish signing in. */
   readonly login?: Effect.Effect<string, ProviderError>
@@ -140,9 +141,19 @@ export type ThreadEvent =
       readonly delta: string
       readonly create?: TextTarget
     }
-  | { readonly type: 'resolved'; readonly threadId: string; readonly blockId: string; readonly resolved: 'accepted' | 'skipped' }
+  | {
+      readonly type: 'resolved'
+      readonly threadId: string
+      readonly blockId: string
+      readonly resolved: 'accepted' | 'skipped'
+    }
   /** Replace the thread's blocks (after a reconnect); open approvals are kept. */
-  | { readonly type: 'reset'; readonly threadId: string; readonly blocks: ReadonlyArray<Block>; readonly streaming?: boolean }
+  | {
+      readonly type: 'reset'
+      readonly threadId: string
+      readonly blocks: ReadonlyArray<Block>
+      readonly streaming?: boolean
+    }
   | { readonly type: 'title'; readonly threadId: string; readonly title: string }
   /** The thread is gone (deleted, archived) and cannot be used. */
   | { readonly type: 'closed'; readonly threadId: string }
@@ -152,6 +163,8 @@ export type AdapterEvent =
   | { readonly type: 'invalidate'; readonly part: CatalogPart }
   /** Non-blocking banner text (warnings, config problems). */
   | { readonly type: 'notice'; readonly message: string }
+  /** Takes down a `notice` that no longer applies, if the banner still shows it. */
+  | { readonly type: 'clearNotice'; readonly message: string }
   | { readonly type: 'loginUrl'; readonly url: string | null }
 
 export const isThreadEvent = (event: AdapterEvent): event is ThreadEvent => 'threadId' in event

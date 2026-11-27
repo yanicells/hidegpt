@@ -74,13 +74,7 @@ function MenuItem({ className, ...props }: Styled<MenuPrimitive.Item.Props>) {
 }
 
 function MenuCheckboxItem({ className, ...props }: Styled<MenuPrimitive.CheckboxItem.Props>) {
-  return (
-    <MenuPrimitive.CheckboxItem
-      className={cn('menu-item', className)}
-      data-slot="menu-checkbox-item"
-      {...props}
-    />
-  )
+  return <MenuPrimitive.CheckboxItem className={cn('menu-item', className)} data-slot="menu-checkbox-item" {...props} />
 }
 
 function MenuSeparator({ className, ...props }: Styled<MenuPrimitive.Separator.Props>) {
@@ -95,7 +89,11 @@ function MenuSub(props: MenuPrimitive.SubmenuRoot.Props) {
   return <MenuPrimitive.SubmenuRoot {...props} />
 }
 
-function MenuSubTrigger({ className, children, ...props }: Styled<MenuPrimitive.SubmenuTrigger.Props> & { children?: ReactNode }) {
+function MenuSubTrigger({
+  className,
+  children,
+  ...props
+}: Styled<MenuPrimitive.SubmenuTrigger.Props> & { children?: ReactNode }) {
   return (
     <MenuPrimitive.SubmenuTrigger className={cn('menu-item', className)} data-slot="menu-sub-trigger" {...props}>
       {children}

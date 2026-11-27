@@ -49,7 +49,11 @@ function remember(key: string, element: ReactElement) {
  * change again.
  */
 export function createMarkdownRenderer({ remarkPlugins, components, urlTransform }: MarkdownRendererOptions) {
-  const processor = unified().use(remarkParse).use(remarkPlugins).use(remarkRehype, { allowDangerousHtml: true }).freeze()
+  const processor = unified()
+    .use(remarkParse)
+    .use(remarkPlugins)
+    .use(remarkRehype, { allowDangerousHtml: true })
+    .freeze()
   const keyPrefix = `${nextRendererId++}\u0000`
 
   // Raw HTML becomes literal text, and URL attributes pass the transform, as react-markdown does.

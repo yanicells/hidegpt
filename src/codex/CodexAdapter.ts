@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto'
-
+import * as Cause from 'effect/Cause'
+import * as Clock from 'effect/Clock'
 import * as Context from 'effect/Context'
 import * as Deferred from 'effect/Deferred'
 import * as Duration from 'effect/Duration'
@@ -11,15 +11,18 @@ import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
 
 import { CAPABILITIES } from '../shared/model'
-import type { AccountSummary, ApprovalReply, DocSummary, ModelOption, ProjectSummary, Skill, ToolServer } from '../shared/model'
+import type { ApprovalReply, DocSummary, Skill } from '../shared/model'
 import {
   type BinaryMissingError,
   ProcessExitedError,
+  ProviderDefectError,
   ProviderRequestError,
   type ProviderError,
   ProviderTimeoutError,
 } from '../provider/errors'
+import { reportDefect } from '../provider/DefectReport'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
+import { randomUuidV4 } from '../provider/randomUuid'
 import type {
   AdapterEvent,
   Catalog,
@@ -31,14 +34,36 @@ import type {
 import * as CodexClient from '../vendor/effect-codex-app-server/client.ts'
 import * as CodexError from '../vendor/effect-codex-app-server/errors.ts'
 import type * as CodexRpc from '../vendor/effect-codex-app-server/rpc.ts'
-import { APPROVAL_METHODS, APPROVALS, type ApprovalMethod } from './approvals'
-import { blocksFromTurns, itemToBlock } from './items'
+import {
+  APPROVAL_METHODS,
+  APPROVALS,
+  type ApprovalMethod,
+  type ApprovalSpec,
+  blocksFromTurns,
+  docsFailure,
+  docsSafe,
+  formatCodexError,
+  itemToBlock,
+  type McpServer,
+  type Project,
+  type RateLimits,
+  retryNotice,
+  type ThreadItem,
+  toAccount,
+  toDoc,
+  toModelOption,
+  toProject,
+  toReasoningEffort,
+  toTool,
+  usageLimitResetAt,
+} from './mapping'
 
 /**
  * Codex `app-server` (JSON-RPC over stdio) as a `ProviderAdapter`. One process
  * serves every thread. The typed client is vendored from T3 Code
  * (`effect-codex-app-server`); this module maps it onto HideGPT's events and
  * blocks, the way T3's `CodexAdapterV2` maps it onto orchestration events.
+ * The wire-to-model mapping itself lives in `./mapping`.
  */
 
 export type Client = CodexClient.CodexAppServerClient['Service']
@@ -47,12 +72,7 @@ type Params<M extends Method> = CodexRpc.ClientRequestParamsByMethod[M]
 type Result<M extends Method> = CodexRpc.ClientRequestResponsesByMethod[M]
 type Notification<M extends CodexRpc.ServerNotificationMethod> = CodexRpc.ServerNotificationParamsByMethod[M]
 
-type Thread = Result<'thread/list'>['data'][number]
-type Model = Result<'model/list'>['data'][number]
-type Project = Result<'project/list'>['data'][number]
 type Mode = Result<'collaborationMode/list'>['data'][number]
-type McpServer = Result<'mcpServerStatus/list'>['data'][number]
-type Account = Result<'account/read'>['account']
 type UserInput = Params<'turn/start'>['input'][number]
 
 /** Opens a connected client in the caller's scope: the real process, or a fake peer in tests and demo mode. */
@@ -72,13 +92,6 @@ const INTERACTIVE_SOURCES: Params<'thread/list'>['sourceKinds'] = ['cli', 'vscod
 const PAGE = 30
 const DOC_PAGE = 50
 const MAX_DOC_PAGES = 20
-
-export function formatCodexError(message: string): string {
-  if (/active writer|thread-store conflict/i.test(message)) {
-    return 'This document is open in ChatGPT or another window. Close it there, then open it here.'
-  }
-  return message
-}
 
 const signalOf = (error: unknown): string | null =>
   /signal: '([A-Z0-9]+)'/.exec(error instanceof Error ? error.message : String(error))?.[1] ?? null
@@ -102,7 +115,11 @@ function requestError(method: string, error: CodexError.CodexAppServerError): Pr
     return new ProviderRequestError({ provider: 'codex', operation: method, detail: formatCodexError(error.message) })
   }
   if (error._tag === 'CodexAppServerProtocolParseError') {
-    return new ProviderRequestError({ provider: 'codex', operation: method, detail: `Codex sent an unexpected reply to ${method}.` })
+    return new ProviderRequestError({
+      provider: 'codex',
+      operation: method,
+      detail: 'Docs got an unexpected reply. Try again.',
+    })
   }
   return exitError(error)
 }
@@ -133,14 +150,11 @@ export function make(connect: Connect): ProviderAdapter {
     capabilities: CAPABILITIES.codex,
     openSession: Effect.gen(function* () {
       const client = yield* connect
+      const services = yield* Effect.context<never>()
       const rpc = call(client)
       const events = yield* Queue.unbounded<AdapterEvent>()
       yield* Effect.addFinalizer(() => Queue.shutdown(events))
       const emit = (event: AdapterEvent) => Queue.offer(events, event).pipe(Effect.asVoid)
-      // Off-path calls (elicitation counters, token refresh) must never fail a handler.
-      const scope = yield* Scope.Scope
-      const background = <A>(effect: Effect.Effect<A, ProviderError>) =>
-        Effect.asVoid(Effect.forkIn(Effect.ignore(effect), scope))
 
       /** Threads this connection resumed or started (server-side subscriptions). */
       const loaded = new Set<string>()
@@ -149,25 +163,66 @@ export function make(connect: Connect): ProviderAdapter {
       const approvals = new Map<string, PendingApproval>()
       let modes: ReadonlyArray<Mode> = []
 
-      yield* registerNotifications(client, emit, { loaded, activeTurns })
+      // The vendored dispatch handles a handler's failure but not its die: a notification
+      // reader would end silently, and a request would never be answered, leaving the turn
+      // hanging. A die is a Docs bug, so it is reported and ends the session here; the
+      // manager restarts it with a plain banner.
+      const defect = yield* Deferred.make<never, ProviderError>()
+      const endOnDefect = (cause: Cause.Cause<unknown>) =>
+        reportDefect(cause).pipe(
+          Effect.flatMap((reportId) => Deferred.fail(defect, new ProviderDefectError({ provider: 'codex', reportId }))),
+          Effect.asVoid,
+        )
+      const lineage = makeLineage()
+      yield* registerNotifications(client, emit, { loaded, activeTurns, lineage, endOnDefect })
 
-      yield* client.handleServerRequest('currentTime/read', () =>
-        Effect.succeed({ currentTimeAt: Math.floor(Date.now() / 1000) }),
+      /**
+       * `client.handleServerRequest`, with a die reported and the session ended. The error
+       * reply is only for the types: the connection closes, and the restarted Codex starts over.
+       *
+       * Why restart rather than answer `internalError` and carry on: a die is a Docs bug partway
+       * through a handler, so Docs' side may be half-updated (an approval block on the page with
+       * no pending entry behind it, an elicitation counter raised but never lowered). A restart
+       * reloads the document from Codex's own transcript and shows the banner; carrying on would
+       * leave the page out of step with Codex and say nothing.
+       */
+      const handle = <M extends CodexRpc.ServerRequestMethod>(
+        method: M,
+        handler: (
+          params: CodexRpc.ServerRequestParamsByMethod[M],
+        ) => Effect.Effect<CodexRpc.ServerRequestResponsesByMethod[M], CodexError.CodexAppServerError>,
+      ) =>
+        client.handleServerRequest(method, (params) =>
+          Effect.suspend(() => handler(params)).pipe(
+            Effect.catchCauseIf(Cause.hasDies, (cause) =>
+              endOnDefect(cause).pipe(
+                Effect.andThen(
+                  Effect.fail(
+                    CodexError.CodexAppServerRequestError.internalError('Docs could not handle this request.'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        )
+
+      yield* handle('currentTime/read', () =>
+        Effect.map(Clock.currentTimeMillis, (millis) => ({ currentTimeAt: Math.floor(millis / 1000) })),
       )
-      yield* client.handleServerRequest('item/tool/call', () =>
+      yield* handle('item/tool/call', () =>
         Effect.succeed({
           contentItems: [{ type: 'inputText' as const, text: 'This Docs window does not host that tool.' }],
           success: false,
         }),
       )
-      yield* client.handleServerRequest('attestation/generate', () =>
+      yield* handle('attestation/generate', () =>
         Effect.fail(CodexError.CodexAppServerRequestError.internalError('attestation is not enabled')),
       )
       // Codex only asks for tokens a client supplied itself; Docs signs in through Codex's own
       // ChatGPT login, which Codex refreshes, so this should never come. If it does, sign in again.
-      yield* client.handleServerRequest('account/chatgptAuthTokens/refresh', () =>
+      yield* handle('account/chatgptAuthTokens/refresh', () =>
         Effect.gen(function* () {
-          yield* emit({ type: 'notice', message: 'Sign in with ChatGPT to refresh this session.' })
+          yield* emit({ type: 'notice', message: 'Sign in again to refresh this session.' })
           yield* emit({ type: 'invalidate', part: 'account' })
           return yield* Effect.fail(
             CodexError.CodexAppServerRequestError.internalError('Codex-managed ChatGPT auth has no refreshable tokens'),
@@ -177,38 +232,36 @@ export function make(connect: Connect): ProviderAdapter {
 
       // An approval holds its request open on a Deferred until the person answers. Codex
       // settles it itself (`serverRequest/resolved`) when the turn ends; the vendored
-      // protocol then interrupts this fiber, and the block shows as skipped.
+      // protocol then interrupts this fiber, and the block shows as skipped. A subagent's
+      // request shows in the document that started it, since only that one is on screen.
       const awaitApproval =
         <M extends ApprovalMethod>(method: M) =>
         (params: CodexRpc.ServerRequestParamsByMethod[M]) =>
           Effect.gen(function* () {
-            const spec = APPROVALS[method]
-            const threadId = spec.threadId(params)
-            const blockId = `approval-${randomUUID()}`
+            const spec: ApprovalSpec<M> = APPROVALS[method]
+            const immediate = spec.answerAtOnce?.(params)
+            if (immediate) return immediate
+            const threadId = lineage.rootOf(spec.threadId(params))
+            const blockId = `approval-${yield* randomUuidV4}`
             const answer = yield* Deferred.make<ApprovalReply>()
             approvals.set(blockId, { threadId, answer })
             yield* emit({ type: 'block', threadId, block: spec.block(blockId, params) })
-            const elicitation = method === 'mcpServer/elicitation/request'
-            if (elicitation) {
-              yield* background(rpc('thread/increment_elicitation', { threadId }))
-              const request = params as CodexRpc.ServerRequestParamsByMethod['mcpServer/elicitation/request']
-              if (request.mode === 'url') yield* emit({ type: 'loginUrl', url: request.url })
-            }
             const reply = yield* Deferred.await(answer).pipe(
               Effect.onInterrupt(() => emit({ type: 'resolved', threadId, blockId, resolved: 'skipped' })),
               Effect.ensuring(Effect.sync(() => approvals.delete(blockId))),
             )
-            if (elicitation) yield* background(rpc('thread/decrement_elicitation', { threadId }))
             return spec.response(params, reply)
           })
-      const handleApproval = <M extends ApprovalMethod>(method: M) => client.handleServerRequest(method, awaitApproval(method))
+      const handleApproval = <M extends ApprovalMethod>(method: M) => handle(method, awaitApproval(method))
       yield* Effect.forEach(APPROVAL_METHODS, handleApproval, { discard: true })
 
       yield* rpc('initialize', {
         clientInfo: { name: 'hidegpt', title: 'Docs', version: '0.1.0' },
         capabilities: { experimentalApi: true },
       })
-      yield* client.notify('initialized', undefined).pipe(Effect.mapError((error) => requestError('initialized', error)))
+      yield* client
+        .notify('initialized', undefined)
+        .pipe(Effect.mapError((error) => requestError('initialized', error)))
 
       const listProjects = Effect.gen(function* () {
         const projects: Project[] = []
@@ -237,12 +290,16 @@ export function make(connect: Connect): ProviderAdapter {
           }
         }
         // Null inherits the thread's tier; a tier id applies to this turn only.
-        return { model: settings.model, effort: settings.effort, serviceTierForTurn: settings.serviceTier }
+        return {
+          model: settings.model,
+          effort: toReasoningEffort(settings.effort),
+          serviceTierForTurn: settings.serviceTier,
+        }
       }
 
       const session: ProviderSession = {
         events: Stream.fromQueue(events),
-        awaitExit: client.awaitTermination.pipe(Effect.mapError(exitError)),
+        awaitExit: client.awaitTermination.pipe(Effect.mapError(exitError), Effect.raceFirst(Deferred.await(defect))),
 
         loadCatalog: Effect.gen(function* () {
           const [account, models, projects, modeList, tools] = yield* Effect.all(
@@ -265,7 +322,10 @@ export function make(connect: Connect): ProviderAdapter {
             models: (visible.length ? visible : models.data).map(toModelOption),
             modes: modes.map((mode) => ({ id: mode.name, label: mode.name })),
             defaultMode: modes[0]?.name ?? null,
-            projects: Option.getOrElse(Option.map(projects, (list) => list.map(toProject)), () => []),
+            projects: Option.getOrElse(
+              Option.map(projects, (list) => list.map(toProject)),
+              () => [],
+            ),
             tools: tools.data.map(toTool),
           } satisfies Catalog
         }),
@@ -280,12 +340,18 @@ export function make(connect: Connect): ProviderAdapter {
               searchTerm: search.trim() || null,
             }).pipe(
               Effect.map((listed) => {
-                const next = listed.nextCursor && page + 1 < MAX_DOC_PAGES ? Option.some({ cursor: listed.nextCursor, page: page + 1 }) : Option.none()
+                const next =
+                  listed.nextCursor && page + 1 < MAX_DOC_PAGES
+                    ? Option.some({ cursor: listed.nextCursor, page: page + 1 })
+                    : Option.none()
                 return [[listed.data.map(toDoc)], next] as const
               }),
             ),
           ).pipe(
-            Stream.scan((): ReadonlyArray<DocSummary> => [], (all, page: ReadonlyArray<DocSummary>) => [...all, ...page]),
+            Stream.scan(
+              (): ReadonlyArray<DocSummary> => [],
+              (all, page: ReadonlyArray<DocSummary>) => [...all, ...page],
+            ),
             Stream.drop(1),
           ),
 
@@ -371,7 +437,8 @@ export function make(connect: Connect): ProviderAdapter {
             })),
           ),
 
-        messageId: () => `local-${randomUUID()}`,
+        // Sync by contract, so it runs on the session's services (a seeded `Random` in tests).
+        messageId: () => `local-${Effect.runSyncWith(services)(randomUuidV4)}`,
 
         send: (threadId, input, settings) =>
           Effect.gen(function* () {
@@ -385,23 +452,31 @@ export function make(connect: Connect): ProviderAdapter {
               ...input.images.map((path) => ({ type: 'localImage' as const, path })),
               ...(input.skill ? [{ type: 'skill' as const, name: input.skill.name, path: input.skill.path }] : []),
             ]
-            // `collaborationMode` is accepted by the vendored client's turn/start codec but not in the generated type.
             const started = yield* rpc('turn/start', {
               threadId,
               input: items,
               clientUserMessageId: input.clientId,
               ...turnOverrides(settings),
-            } as Params<'turn/start'>)
+            })
             activeTurns.set(threadId, started.turn.id)
           }),
 
+        // Stop ends the document's turn and every subagent turn under it, as T3's `interruptTurn`
+        // stops the whole lineage; a subagent left running would hold the document's turn open.
         interrupt: (threadId) =>
           Effect.suspend(() => {
-            const turnId = activeTurns.get(threadId)
-            return turnId
-              ? Effect.asVoid(rpc('turn/interrupt', { threadId, turnId }))
+            const targets = [...activeTurns].filter(([thread]) => lineage.rootOf(thread) === threadId)
+            return targets.length
+              ? Effect.forEach(targets, ([thread, turnId]) => rpc('turn/interrupt', { threadId: thread, turnId }), {
+                  concurrency: 'unbounded',
+                  discard: true,
+                })
               : Effect.fail(
-                  new ProviderRequestError({ provider: 'codex', operation: 'turn/interrupt', detail: 'Nothing is running in this document.' }),
+                  new ProviderRequestError({
+                    provider: 'codex',
+                    operation: 'turn/interrupt',
+                    detail: 'Nothing is running in this document.',
+                  }),
                 )
           }),
 
@@ -428,7 +503,10 @@ export function make(connect: Connect): ProviderAdapter {
           ),
 
         createProject: (name, cwd) =>
-          Effect.asVoid(rpc('project/create', { name, roots: [{ path: cwd }], idempotencyKey: randomUUID() })),
+          randomUuidV4.pipe(
+            Effect.flatMap((idempotencyKey) => rpc('project/create', { name, roots: [{ path: cwd }], idempotencyKey })),
+            Effect.asVoid,
+          ),
 
         login: rpc('account/login/start', { type: 'chatgpt', appBrand: 'chatgpt' }).pipe(
           Effect.flatMap((result) =>
@@ -454,27 +532,125 @@ export function make(connect: Connect): ProviderAdapter {
   }
 }
 
+type Lineage = ReturnType<typeof makeLineage>
+
+// Adapted from T3 Code (https://github.com/pingdotgg/t3code),
+// apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts (child-to-parent links from
+// `thread/started`, requests routed to the root, interrupting descendant turns) at commit
+// 5c6f2f12. Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+
+/**
+ * Which thread started which. Subagents run in threads of their own; their requests and
+ * Stop belong to the document that spawned them, and their own text stays off the page.
+ */
+export function makeLineage() {
+  const parents = new Map<string, string>()
+  return {
+    adopt: (child: string, parent: string) => {
+      if (child !== parent) parents.set(child, parent)
+    },
+    isChild: (threadId: string) => parents.has(threadId),
+    rootOf: (threadId: string) => {
+      const seen = new Set<string>()
+      let current = threadId
+      for (
+        let parent = parents.get(current);
+        parent !== undefined && !seen.has(parent);
+        parent = parents.get(current)
+      ) {
+        seen.add(current)
+        current = parent
+      }
+      return current
+    },
+  }
+}
+
+type SessionSource = Notification<'thread/started'>['thread']['source']
+
+/** The parent a subagent thread names in its source, as the generated schema spells it. */
+function spawnedBy(source: SessionSource): string | null {
+  if (typeof source !== 'object' || !('subAgent' in source)) return null
+  const agent = source.subAgent
+  return typeof agent === 'object' && 'thread_spawn' in agent ? agent.thread_spawn.parent_thread_id : null
+}
+
 /** Codex notifications as adapter events. Every thread event names its thread; the manager routes it. */
 function registerNotifications(
   client: Client,
   emit: (event: AdapterEvent) => Effect.Effect<void>,
-  { loaded, activeTurns }: { readonly loaded: Set<string>; readonly activeTurns: Map<string, string> },
+  {
+    loaded,
+    activeTurns,
+    lineage,
+    endOnDefect,
+  }: {
+    readonly loaded: Set<string>
+    readonly activeTurns: Map<string, string>
+    readonly lineage: Lineage
+    readonly endOnDefect: (cause: Cause.Cause<unknown>) => Effect.Effect<void>
+  },
 ) {
+  // A die here would end the vendored reader silently and leave the page waiting.
   const on = <M extends CodexRpc.ServerNotificationMethod>(
     method: M,
     toEvents: (params: Notification<M>) => ReadonlyArray<AdapterEvent>,
   ) =>
     client.handleServerNotification(method, (params) =>
-      Effect.suspend(() => Effect.forEach(toEvents(params), emit, { discard: true })),
+      Effect.suspend(() => Effect.forEach(toEvents(params), emit, { discard: true })).pipe(
+        Effect.catchCauseIf(
+          (cause) => !Cause.hasInterruptsOnly(cause),
+          (cause) => endOnDefect(cause),
+        ),
+      ),
     )
+  /** Like `on`, for thread events: a subagent's own events never reach the page. */
+  const onThread = <M extends CodexRpc.ServerNotificationMethod>(
+    method: M,
+    toEvents: (params: Notification<M> & { readonly threadId: string }) => ReadonlyArray<AdapterEvent>,
+  ) =>
+    on(method, (params) =>
+      'threadId' in params && typeof params.threadId === 'string' && !lineage.isChild(params.threadId)
+        ? toEvents({ ...params, threadId: params.threadId })
+        : [],
+    )
+
+  /** A failure Codex reported before its `turn/completed`, which ends the turn with it. */
+  const failures = new Map<string, string>()
+  /** The "Reconnecting…" banner per thread, cleared once Codex is answering again. */
+  const retrying = new Map<string, string>()
+  let rateLimits: RateLimits | null = null
+
+  const recovered = (threadId: string): ReadonlyArray<AdapterEvent> => {
+    const message = retrying.get(threadId)
+    retrying.delete(threadId)
+    return message ? [{ type: 'clearNotice', message }] : []
+  }
+  const blockEvents = (p: { readonly threadId: string; readonly item: ThreadItem }): ReadonlyArray<AdapterEvent> => {
+    if (p.item.type === 'collabAgentToolCall' && p.item.tool === 'spawnAgent') {
+      for (const child of p.item.receiverThreadIds) lineage.adopt(child, p.item.senderThreadId)
+    }
+    if (lineage.isChild(p.threadId)) return []
+    const block = itemToBlock(p.item)
+    // An agent message starts empty and grows by deltas; only its completed text replaces them.
+    if (!block || (block.kind === 'agent' && !block.text)) return []
+    return [
+      { type: 'block', threadId: p.threadId, block, replaces: p.item.type === 'userMessage' ? p.item.clientId : null },
+    ]
+  }
+  const warning = (text: string | null | undefined): ReadonlyArray<AdapterEvent> => {
+    const message = docsSafe(text)
+    return message ? [{ type: 'notice', message }] : []
+  }
 
   const docsChanged = { type: 'invalidate', part: 'docs' } as const
   return Effect.all(
     [
-      on('item/agentMessage/delta', (p) => [
+      onThread('item/agentMessage/delta', (p) => [
+        ...recovered(p.threadId),
         { type: 'text', threadId: p.threadId, blockId: p.itemId, delta: p.delta, create: { kind: 'agent' } },
       ]),
-      on('item/commandExecution/outputDelta', (p) => [
+      onThread('item/commandExecution/outputDelta', (p) => [
         {
           type: 'text',
           threadId: p.threadId,
@@ -483,43 +659,60 @@ function registerNotifications(
           create: { kind: 'callout', title: 'Running a command' },
         },
       ]),
-      on('turn/diff/updated', (p) => [
-        { type: 'block', threadId: p.threadId, block: { kind: 'callout', id: `diff-${p.turnId}`, title: 'Changes', body: p.diff } },
+      onThread('turn/diff/updated', (p) => [
+        {
+          type: 'block',
+          threadId: p.threadId,
+          block: { kind: 'callout', id: `diff-${p.turnId}`, title: 'Changes', body: p.diff },
+        },
       ]),
-      on('item/started', (p) => {
-        const block = itemToBlock(p.item)
-        // An agent message starts empty and grows by deltas; only its completed text replaces them.
-        if (!block || (block.kind === 'agent' && !block.text)) return []
-        return [{ type: 'block', threadId: p.threadId, block, replaces: p.item.type === 'userMessage' ? p.item.clientId : null }]
-      }),
-      on('item/completed', (p) => {
-        const block = itemToBlock(p.item)
-        if (!block) return []
-        return [{ type: 'block', threadId: p.threadId, block, replaces: p.item.type === 'userMessage' ? p.item.clientId : null }]
-      }),
+      on('item/started', blockEvents),
+      on('item/completed', blockEvents),
       on('turn/started', (p) => {
         activeTurns.set(p.threadId, p.turn.id)
-        return [{ type: 'turnStarted', threadId: p.threadId }]
+        return lineage.isChild(p.threadId) ? [] : [{ type: 'turnStarted', threadId: p.threadId }]
       }),
       on('turn/completed', (p) => {
         if (activeTurns.get(p.threadId) === p.turn.id) activeTurns.delete(p.threadId)
-        return [
-          {
-            type: 'turnEnded',
-            threadId: p.threadId,
-            ...(p.turn.status === 'failed' && p.turn.error ? { error: p.turn.error.message } : {}),
-          },
-        ]
+        const reported = failures.get(p.threadId)
+        failures.delete(p.threadId)
+        if (lineage.isChild(p.threadId)) return []
+        const error =
+          reported ??
+          (p.turn.status === 'failed' && p.turn.error
+            ? docsFailure(p.turn.error, usageLimitResetAt(rateLimits))
+            : undefined)
+        return [...recovered(p.threadId), { type: 'turnEnded', threadId: p.threadId, ...(error ? { error } : {}) }]
       }),
-      on('error', (p) =>
-        p.willRetry
-          ? [{ type: 'notice', message: p.error.message }]
-          : [{ type: 'turnEnded', threadId: p.threadId, error: p.error.message }],
+      // A retry shows a banner until Codex answers again; a final error waits for `turn/completed`,
+      // so a turn ends exactly once (T3 records it as the turn's failure the same way).
+      onThread('error', (p) => {
+        if (!p.willRetry) {
+          failures.set(p.threadId, docsFailure(p.error, usageLimitResetAt(rateLimits)))
+          return recovered(p.threadId)
+        }
+        const message = retryNotice(p.error.message)
+        retrying.set(p.threadId, message)
+        return [{ type: 'notice', message }]
+      }),
+      on('account/rateLimits/updated', (p) => {
+        const update = p.rateLimits
+        if (update.limitId && update.limitId !== 'codex') return []
+        // Updates are partial: an omitted window keeps what Codex said before.
+        rateLimits = {
+          ...rateLimits,
+          ...update,
+          primary: update.primary !== undefined ? update.primary : (rateLimits?.primary ?? null),
+          secondary: update.secondary !== undefined ? update.secondary : (rateLimits?.secondary ?? null),
+        }
+        return []
+      }),
+      on('warning', (p) => warning(p.message)),
+      on('guardianWarning', (p) => warning(p.message)),
+      on('configWarning', (p) => warning(p.summary)),
+      onThread('thread/name/updated', (p) =>
+        p.threadName ? [{ type: 'title', threadId: p.threadId, title: p.threadName }] : [],
       ),
-      on('warning', (p) => (p.message ? [{ type: 'notice', message: p.message }] : [])),
-      on('guardianWarning', (p) => (p.message ? [{ type: 'notice', message: p.message }] : [])),
-      on('configWarning', (p) => (p.summary ? [{ type: 'notice', message: p.summary }] : [])),
-      on('thread/name/updated', (p) => (p.threadName ? [{ type: 'title', threadId: p.threadId, title: p.threadName }] : [])),
       // The server unloaded the thread; the next send resumes it.
       on('thread/closed', (p) => {
         loaded.delete(p.threadId)
@@ -533,60 +726,40 @@ function registerNotifications(
         loaded.delete(p.threadId)
         return [{ type: 'closed', threadId: p.threadId }, docsChanged]
       }),
-      on('thread/started', () => [docsChanged]),
+      on('thread/started', (p) => {
+        const parent = spawnedBy(p.thread.source)
+        if (parent) lineage.adopt(p.thread.id, parent)
+        return parent ? [] : [docsChanged]
+      }),
       on('thread/unarchived', () => [docsChanged]),
-      on('account/updated', () => [{ type: 'loginUrl', url: null }, { type: 'invalidate', part: 'account' }]),
-      on('account/login/completed', () => [{ type: 'loginUrl', url: null }, { type: 'invalidate', part: 'account' }]),
+      on('account/updated', () => [
+        { type: 'loginUrl', url: null },
+        { type: 'invalidate', part: 'account' },
+      ]),
+      on('account/login/completed', () => [
+        { type: 'loginUrl', url: null },
+        { type: 'invalidate', part: 'account' },
+      ]),
       on('skills/changed', () => [{ type: 'invalidate', part: 'skills' }]),
       on('project/changed', () => [{ type: 'invalidate', part: 'projects' }]),
-      on('mcpServer/oauthLogin/completed', () => [{ type: 'loginUrl', url: null }, { type: 'invalidate', part: 'tools' }]),
+      on('mcpServer/oauthLogin/completed', () => [
+        { type: 'loginUrl', url: null },
+        { type: 'invalidate', part: 'tools' },
+      ]),
     ],
     { discard: true },
   )
 }
 
-export function toDoc(thread: Thread): DocSummary {
-  return {
-    id: thread.id,
-    name: thread.name ?? null,
-    preview: thread.preview,
-    updatedAt: thread.recencyAt ?? thread.updatedAt,
-    cwd: thread.cwd,
-    projectId: thread.projectId ?? null,
-  }
-}
-
-export function toModelOption(model: Model): ModelOption {
-  return {
-    id: model.model,
-    label: model.displayName,
-    efforts: model.supportedReasoningEfforts.map((item) => item.reasoningEffort),
-    defaultEffort: model.defaultReasoningEffort ?? null,
-    serviceTiers: (model.serviceTiers ?? []).map((tier) => ({ id: tier.id, name: tier.name })),
-    isDefault: model.isDefault,
-  }
-}
-
-export function toProject(project: Project): ProjectSummary {
-  return { id: project.id, name: project.name, roots: project.roots.map((root) => ({ path: root.path })) }
-}
-
-export function toTool(server: McpServer): ToolServer {
-  return {
-    name: server.name,
-    needsConnect:
-      server.authStatus === 'notLoggedIn' ||
-      server.runtimeStatus === 'authenticationRequired' ||
-      server.runtimeStatus === 'failed',
-  }
-}
-
-export function toAccount(account: Account): AccountSummary | null {
-  if (!account) return null
-  if (account.type === 'chatgpt') return { kind: 'chatgpt', label: account.email ?? 'ChatGPT' }
-  if (account.type === 'apiKey') return { kind: 'apiKey', label: 'API key' }
-  return { kind: 'other', label: 'Account' }
-}
+/**
+ * Options for the vendored client. It can log every JSON-RPC frame at Debug,
+ * and main's log file keeps Debug lines, but frames hold prompts and answers.
+ * Never turn these on.
+ */
+export const CLIENT_OPTIONS = {
+  logIncoming: false,
+  logOutgoing: false,
+} as const satisfies CodexClient.CodexAppServerClientOptions
 
 /** The real backend: `codex app-server`, spawned under the process supervisor. */
 export const spawnAppServer = (supervisor: ProcessSupervisor['Service']): Connect =>
@@ -596,6 +769,6 @@ export const spawnAppServer = (supervisor: ProcessSupervisor['Service']): Connec
       command: globalThis.process.env.CODEX_BIN || 'codex',
       args: ['app-server'],
     })
-    const context = yield* Layer.build(CodexClient.layerChildProcess(process.handle))
+    const context = yield* Layer.build(CodexClient.layerChildProcess(process.handle, CLIENT_OPTIONS))
     return Context.get(context, CodexClient.CodexAppServerClient)
   })

@@ -1,0 +1,419 @@
+// Adapted from T3 Code (https://github.com/pingdotgg/t3code), apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.testkit.ts
+// (recordClaudeAgentSdkReplayTranscript and its replay query) at commit 5c6f2f12.
+// Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+import { homedir } from 'node:os'
+
+import type { CanUseTool, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+
+import { REPLAY_HOME, type ReplayEntry, type ReplayTranscript, TurnRefusedError } from '../provider/replayFixture'
+import type { ClaudeSdk } from './ClaudeAdapter'
+
+/**
+ * Claude replay: the Agent SDK runs in-process, so a recording is the SDK calls
+ * the adapter made and what each returned, plus every message a `query()`
+ * streamed and every prompt Docs fed it. `recordingSdk` writes those entries
+ * around the real SDK (scripts/record-claude-replay.ts); `replaySdk` plays them
+ * back to the real adapter and fails on any call the recording did not make.
+ *
+ * Frames: outbound `{ call, query?, args? }` (a call), `{ query, prompt }` (a
+ * prompt Docs fed a query), `{ query, permissionResult }` (Docs' answer to a
+ * permission request); inbound `{ call, query?, result }` or
+ * `{ call, query?, error }` (its answer), `{ query, message }` (a streamed
+ * message), `{ query, permission }` (Claude Code asking `canUseTool`).
+ */
+
+type CallFrame = { readonly call: string; readonly query?: number; readonly args?: ReadonlyArray<unknown> }
+/** The `canUseTool` arguments a recording keeps; the signal is the replay's own. */
+type PermissionRequest = {
+  readonly tool: string
+  readonly input: Record<string, unknown>
+  readonly toolUseID: string
+  readonly suggestions?: Parameters<CanUseTool>[2]['suggestions']
+  readonly title?: string
+}
+type InboundFrame =
+  | { readonly call: string; readonly query?: number; readonly result?: unknown; readonly error?: string }
+  | { readonly query: number; readonly message: SDKMessage }
+  | { readonly query: number; readonly permission: PermissionRequest }
+
+type ApplyFlagSettings = Query['applyFlagSettings']
+
+/** The JSON a frame records: functions, abort controllers and undefined drop out. */
+const json = (value: unknown): unknown =>
+  value === undefined
+    ? undefined
+    : JSON.parse(
+        JSON.stringify(value, (key, entry: unknown) =>
+          typeof entry === 'function' || key === 'abortController' ? undefined : entry,
+        ),
+      )
+
+const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
+
+/** Wraps the real SDK so every call, answer, prompt and message lands in `entries`. */
+export function recordingSdk(sdk: ClaudeSdk, entries: ReplayEntry[], allowTurns: boolean): ClaudeSdk {
+  let queries = 0
+  const outbound = (label: string, frame: unknown) =>
+    entries.push({ type: 'expect_outbound', label, frame: json(frame) })
+  const inbound = (label: string, frame: unknown) => entries.push({ type: 'emit_inbound', label, frame: json(frame) })
+  const record = async <A>(label: string, frame: CallFrame, run: () => Promise<A>): Promise<A> => {
+    outbound(label, frame)
+    const { args: _args, ...answer } = frame
+    try {
+      const result = await run()
+      inbound(label, { ...answer, result })
+      return result
+    } catch (error) {
+      inbound(label, { ...answer, error: errorText(error) })
+      throw error
+    }
+  }
+
+  return {
+    listSessions: (options) =>
+      record('listSessions', { call: 'listSessions', args: [options] }, () => sdk.listSessions(options)),
+    getSessionMessages: (id, options) =>
+      record('getSessionMessages', { call: 'getSessionMessages', args: [id, options] }, () =>
+        sdk.getSessionMessages(id, options),
+      ),
+    getSessionInfo: (id, options) =>
+      record('getSessionInfo', { call: 'getSessionInfo', args: [id, options] }, () => sdk.getSessionInfo(id, options)),
+    renameSession: (id, title, options) =>
+      record('renameSession', { call: 'renameSession', args: [id, title, options] }, () =>
+        sdk.renameSession(id, title, options),
+      ),
+    query: ({ prompt, options }) => {
+      const query = ++queries
+      outbound('query', { call: 'query', query, args: [options] })
+      if (typeof prompt === 'string' && !allowTurns) throw new TurnRefusedError('send a prompt to Claude')
+      // Adapted from T3's recorded canUseTool: the request goes in as Claude Code asked it,
+      // and Docs' answer goes out once the person has decided.
+      const canUseTool = options?.canUseTool
+      const recordedCanUseTool: CanUseTool | undefined =
+        canUseTool &&
+        (async (tool, input, asked) => {
+          const permission: PermissionRequest = {
+            tool,
+            input,
+            toolUseID: asked.toolUseID,
+            ...(asked.suggestions === undefined ? {} : { suggestions: asked.suggestions }),
+            ...(asked.title === undefined ? {} : { title: asked.title }),
+          }
+          inbound('permission', { query, permission })
+          const permissionResult = await canUseTool(tool, input, asked)
+          outbound('permissionResult', { query, permissionResult })
+          return permissionResult
+        })
+      // The guard sits between Docs and Claude Code: a refused prompt is never passed on.
+      // It closes the query instead, and the query's messages end with the refusal.
+      let refused: TurnRefusedError | null = null
+      let real: Query | undefined
+      const guarded =
+        typeof prompt === 'string'
+          ? prompt
+          : (async function* () {
+              for await (const message of prompt) {
+                if (!allowTurns) {
+                  refused = new TurnRefusedError('send a prompt to Claude')
+                  real?.close()
+                  return
+                }
+                outbound('prompt', { query, prompt: message })
+                yield message
+              }
+            })()
+      const started = sdk.query({
+        prompt: guarded,
+        ...(options
+          ? { options: { ...options, ...(recordedCanUseTool ? { canUseTool: recordedCanUseTool } : {}) } }
+          : {}),
+      })
+      real = started
+      const messages = (async function* () {
+        for await (const message of started) {
+          inbound('message', { query, message })
+          yield message
+        }
+        if (refused) throw refused
+      })()
+      const call = <A>(name: string, args: ReadonlyArray<unknown>, run: () => Promise<A>) =>
+        record(`query.${name}`, { call: name, query, args }, run)
+      const methods = {
+        initializationResult: () => call('initializationResult', [], () => started.initializationResult()),
+        supportedCommands: () => call('supportedCommands', [], () => started.supportedCommands()),
+        setModel: (model?: string) => call('setModel', [model], () => started.setModel(model)),
+        applyFlagSettings: (settings: Parameters<ApplyFlagSettings>[0]) =>
+          call('applyFlagSettings', [settings], () => started.applyFlagSettings(settings)),
+        interrupt: () => call('interrupt', [], () => started.interrupt()),
+        close: () => {
+          outbound('query.close', { call: 'close', query })
+          started.close()
+        },
+      }
+      // Only the methods the adapter uses, as FakeClaude does.
+      return Object.assign(messages, methods) as unknown as Query
+    },
+  }
+}
+
+// ---- replay -------------------------------------------------------------------------
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/**
+ * Recorded UUIDs and the ones the replayed adapter used instead. The adapter
+ * mints a new document's id with `randomUUID`, so the first time Docs sends a
+ * recorded UUID that Claude never gave it, that UUID binds to what Docs sent.
+ * A UUID Claude gave Docs (in any earlier answer) must come back unchanged, a
+ * bound one must stay the same, and two recorded UUIDs never bind to one id.
+ */
+type Bindings = {
+  readonly ids: Map<string, string>
+  readonly taken: Set<string>
+  /** UUIDs in the answers delivered so far. */
+  readonly known: Set<string>
+}
+
+const UUID_ANYWHERE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
+
+function bindUuid(expected: string, actual: string, bindings: Bindings): boolean {
+  const bound = bindings.ids.get(expected)
+  if (bound !== undefined) return bound === actual
+  if (bindings.known.has(expected)) return expected === actual
+  if (bindings.taken.has(actual)) return false
+  bindings.ids.set(expected, actual)
+  bindings.taken.add(actual)
+  return true
+}
+
+/** Compares a recorded outbound frame with what the adapter sent. */
+function same(expected: unknown, actual: unknown, bindings: Bindings): boolean {
+  if (typeof expected === 'string' && typeof actual === 'string' && UUID.test(expected) && UUID.test(actual)) {
+    return bindUuid(expected, actual, bindings)
+  }
+  if (Array.isArray(expected)) {
+    return (
+      Array.isArray(actual) &&
+      expected.length === actual.length &&
+      expected.every((entry, i) => same(entry, actual[i], bindings))
+    )
+  }
+  if (isRecord(expected) && isRecord(actual)) {
+    const keys = new Set([...Object.keys(expected), ...Object.keys(actual)])
+    return [...keys].every((key) => same(expected[key], actual[key], bindings))
+  }
+  return expected === actual
+}
+
+/** Replaces this machine's folders with the placeholders the recorder wrote, as T3's `sanitizedReplayCwd` does. */
+function toPlaceholders(value: unknown, paths: ReadonlyArray<readonly [string, string]>): unknown {
+  if (typeof value === 'string')
+    return paths.reduce((text, [path, placeholder]) => text.replaceAll(path, placeholder), value)
+  if (Array.isArray(value)) return value.map((entry) => toPlaceholders(entry, paths))
+  if (!isRecord(value)) return value
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, toPlaceholders(entry, paths)]))
+}
+
+/** Rewrites recorded UUIDs in an answer to the ones the adapter used. */
+function rebind(value: unknown, ids: ReadonlyMap<string, string>): unknown {
+  if (typeof value === 'string') {
+    let text = value
+    for (const [recorded, actual] of ids) text = text.replaceAll(recorded, actual)
+    return text
+  }
+  if (Array.isArray(value)) return value.map((entry) => rebind(entry, ids))
+  if (!isRecord(value)) return value
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, rebind(entry, ids)]))
+}
+
+/** A query's message stream: recorded messages are pushed in, the adapter pulls them out. */
+class Inbox implements AsyncIterableIterator<SDKMessage> {
+  private readonly items: SDKMessage[] = []
+  private readonly waiters: Array<(result: IteratorResult<SDKMessage>) => void> = []
+  private ended = false
+
+  push(message: SDKMessage) {
+    const waiter = this.waiters.shift()
+    if (waiter) waiter({ value: message, done: false })
+    else this.items.push(message)
+  }
+
+  end() {
+    this.ended = true
+    for (const waiter of this.waiters.splice(0)) waiter({ value: undefined, done: true })
+  }
+
+  next(): Promise<IteratorResult<SDKMessage>> {
+    const item = this.items.shift()
+    if (item) return Promise.resolve({ value: item, done: false })
+    if (this.ended) return Promise.resolve({ value: undefined, done: true })
+    return new Promise((resolve) => this.waiters.push(resolve))
+  }
+
+  return(): Promise<IteratorResult<SDKMessage>> {
+    this.end()
+    return Promise.resolve({ value: undefined, done: true })
+  }
+
+  [Symbol.asyncIterator]() {
+    return this
+  }
+}
+
+export type ClaudeReplay = {
+  readonly sdk: ClaudeSdk
+  /** The first mismatch, if any, and how many recorded entries were never reached. */
+  readonly finished: () => { readonly failure: string | null; readonly unused: number }
+}
+
+/**
+ * An SDK that answers from a recording, in order. Folders in what Docs sends
+ * are compared as placeholders: the home folder as `REPLAY_HOME`, and each of
+ * `paths` (a test's workspace, say) as the placeholder the recorder used for it.
+ */
+export function replaySdk(
+  transcript: ReplayTranscript,
+  paths: ReadonlyArray<readonly [path: string, placeholder: string]> = [],
+): ClaudeReplay {
+  const entries = transcript.entries
+  const local = [...paths, [homedir(), REPLAY_HOME] as const]
+    .filter(([path]) => path.length > 1)
+    .sort(([a], [b]) => b.length - a.length)
+  const bindings: Bindings = { ids: new Map(), taken: new Set(), known: new Set() }
+  const pending = new Map<string, Array<{ resolve: (value: unknown) => void; reject: (error: Error) => void }>>()
+  const inboxes = new Map<number, Inbox>()
+  /** Each query's `canUseTool` and the signal that withdraws its requests when the query closes. */
+  const permissions = new Map<number, { readonly ask: CanUseTool | undefined; readonly abort: AbortController }>()
+  let cursor = 0
+  let queries = 0
+  let failure: string | null = null
+
+  const keyOf = (frame: { call: string; query?: number }) => `${frame.query ?? ''}:${frame.call}`
+
+  const fail = (message: string) => {
+    failure ??= message
+    for (const waiters of pending.values()) for (const waiter of waiters.splice(0)) waiter.reject(new Error(failure))
+    for (const inbox of inboxes.values()) inbox.end()
+  }
+
+  /** Delivers recorded answers and messages up to the next thing Docs must send. */
+  const pump = () => {
+    // `fail` (called from the frames this loop delivers) sets `failure`.
+    // oxlint-disable-next-line no-unmodified-loop-condition
+    while (!failure && cursor < entries.length) {
+      const entry = entries[cursor]!
+      if (entry.type === 'expect_outbound') return
+      cursor += 1
+      if (entry.type === 'runtime_exit') {
+        for (const inbox of inboxes.values()) inbox.end()
+        continue
+      }
+      for (const [uuid] of JSON.stringify(entry.frame).matchAll(UUID_ANYWHERE)) {
+        if (!bindings.ids.has(uuid)) bindings.known.add(uuid)
+      }
+      const frame = rebind(entry.frame, bindings.ids) as InboundFrame
+      if ('message' in frame) {
+        inboxes.get(frame.query)?.push(frame.message)
+        continue
+      }
+      if ('permission' in frame) {
+        askPermission(frame.query, frame.permission)
+        continue
+      }
+      const waiter = pending.get(keyOf(frame))?.shift()
+      if (!waiter) return fail(`Recorded answer to ${keyOf(frame)} at entry ${cursor - 1} has no call waiting for it.`)
+      if (frame.error !== undefined) waiter.reject(new Error(frame.error))
+      else waiter.resolve(frame.result)
+    }
+  }
+
+  /**
+   * Asks Docs' own `canUseTool` what Claude Code asked in the recording. Its
+   * answer must match the recorded one, so a wrong decision fails the replay.
+   */
+  const askPermission = (query: number, permission: PermissionRequest) => {
+    const saved = permissions.get(query)
+    if (!saved?.ask)
+      return fail(
+        `Recorded a permission request for ${permission.toolUseID}, but Docs gave query ${query} no canUseTool.`,
+      )
+    const { tool, input, ...asked } = permission
+    saved
+      .ask(tool, input, { ...asked, signal: saved.abort.signal, requestId: permission.toolUseID })
+      .then((permissionResult) => {
+        if (expect({ query, permissionResult })) pump()
+      })
+      .catch((error: unknown) => fail(`canUseTool failed for ${permission.toolUseID}: ${errorText(error)}`))
+  }
+
+  /** Matches what Docs sent against the next recorded outbound frame. */
+  const expect = (sent: unknown): boolean => {
+    pump()
+    if (failure) return false
+    const entry = entries[cursor]
+    const actual = toPlaceholders(json(sent), local)
+    if (entry?.type !== 'expect_outbound') {
+      fail(
+        `Docs sent ${JSON.stringify(actual)} at entry ${cursor}, but the recording has ${entry ? entry.type : 'ended'}.`,
+      )
+      return false
+    }
+    if (!same(entry.frame, actual, bindings)) {
+      fail(`Entry ${cursor} expected ${JSON.stringify(entry.frame)}, but Docs sent ${JSON.stringify(actual)}.`)
+      return false
+    }
+    cursor += 1
+    return true
+  }
+
+  const call = <A>(frame: CallFrame): Promise<A> =>
+    new Promise<A>((resolve, reject) => {
+      if (!expect(frame)) return reject(new Error(failure ?? 'Replay failed.'))
+      const waiters = pending.get(keyOf(frame)) ?? []
+      waiters.push({ resolve: (value) => resolve(value as A), reject })
+      pending.set(keyOf(frame), waiters)
+      pump()
+    })
+
+  const sdk: ClaudeSdk = {
+    listSessions: (options) => call({ call: 'listSessions', args: [options] }),
+    getSessionMessages: (id, options) => call({ call: 'getSessionMessages', args: [id, options] }),
+    getSessionInfo: (id, options) => call({ call: 'getSessionInfo', args: [id, options] }),
+    renameSession: (id, title, options) => call({ call: 'renameSession', args: [id, title, options] }),
+    query: ({ prompt, options }) => {
+      const query = ++queries
+      const inbox = new Inbox()
+      inboxes.set(query, inbox)
+      const abort = new AbortController()
+      permissions.set(query, { ask: options?.canUseTool, abort })
+      if (expect({ call: 'query', query, args: [options] })) pump()
+      else inbox.end()
+      if (typeof prompt !== 'string') {
+        ;(async () => {
+          for await (const message of prompt as AsyncIterable<SDKUserMessage>) {
+            if (!expect({ query, prompt: message })) return
+            pump()
+          }
+        })().catch((error: unknown) => fail(`Docs' prompt stream for query ${query} failed: ${errorText(error)}`))
+      }
+      const ask = <A>(name: string, args: ReadonlyArray<unknown> = []) => call<A>({ call: name, query, args })
+      const methods = {
+        initializationResult: () => ask('initializationResult'),
+        supportedCommands: () => ask('supportedCommands'),
+        setModel: (model?: string) => ask<void>('setModel', [model]),
+        applyFlagSettings: (settings: Parameters<ApplyFlagSettings>[0]) => ask<void>('applyFlagSettings', [settings]),
+        interrupt: () => ask('interrupt'),
+        close: () => {
+          if (expect({ call: 'close', query })) pump()
+          abort.abort()
+          inbox.end()
+        },
+      }
+      return Object.assign(inbox, methods) as unknown as Query
+    },
+  }
+
+  return { sdk, finished: () => ({ failure, unused: entries.length - cursor }) }
+}

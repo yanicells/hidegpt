@@ -11,6 +11,7 @@ import type {
   SDKUserMessage,
   SessionMessage,
   SlashCommand,
+  SpawnedProcess,
 } from '@anthropic-ai/claude-agent-sdk'
 
 import type { ClaudeSdk } from './ClaudeAdapter'
@@ -35,6 +36,15 @@ export type FakeClaudeOptions = {
   readonly hangInit?: boolean
   /** `interrupt()` never answers. */
   readonly hangInterrupt?: boolean
+  /**
+   * A harmless command that stands in for the Claude Code CLI: when Docs passes
+   * `spawnClaudeCodeProcess`, each query starts it through that hook, as the SDK does.
+   */
+  readonly process?: {
+    readonly command: string
+    readonly args: ReadonlyArray<string>
+    readonly env?: Record<string, string | undefined>
+  }
 }
 
 /** One `query()` call: what Docs started it with and what it sent. */
@@ -42,13 +52,20 @@ export type FakeQuery = {
   readonly options: Options
   readonly prompts: SDKUserMessage[]
   readonly calls: string[]
+  /** What `spawnClaudeCodeProcess` returned (a Node child, so it has a pid), when the fake started one. */
+  readonly child: (SpawnedProcess & { readonly pid?: number }) | null
   closed: boolean
   /** Writes a frame as Claude Code would. */
   readonly push: (message: SDKMessage) => void
   /** Claude Code exits: the frame stream ends, with or without an error. */
   readonly exit: (error?: Error) => void
   /** Calls the `canUseTool` callback Docs passed, as Claude Code does before a tool runs. */
-  readonly askTool: (tool: string, input: Record<string, unknown>, toolUseID: string) => { result: ReturnType<CanUseTool>; abort: () => void }
+  readonly askTool: (
+    tool: string,
+    input: Record<string, unknown>,
+    toolUseID: string,
+    prompt?: { title?: string; displayName?: string; description?: string; decisionReason?: string },
+  ) => { result: ReturnType<CanUseTool>; abort: () => void }
 }
 
 export type FakeClaude = {
@@ -60,7 +77,13 @@ export type FakeClaude = {
 }
 
 export const FAKE_MODELS: ReadonlyArray<ModelInfo> = [
-  { value: 'default', displayName: 'Default', description: 'Recommended', supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high'] },
+  {
+    value: 'default',
+    displayName: 'Default',
+    description: 'Recommended',
+    supportsEffort: true,
+    supportedEffortLevels: ['low', 'medium', 'high'],
+  },
   { value: 'haiku', displayName: 'Haiku', description: 'Fast', supportsEffort: false },
 ]
 
@@ -89,7 +112,8 @@ class Frames implements AsyncIterableIterator<SDKMessage> {
   next(): Promise<IteratorResult<SDKMessage>> {
     const queued = this.queue.shift()
     if (queued) return Promise.resolve({ value: queued, done: false })
-    if (this.ended) return this.ended.error ? Promise.reject(this.ended.error) : Promise.resolve({ value: undefined, done: true })
+    if (this.ended)
+      return this.ended.error ? Promise.reject(this.ended.error) : Promise.resolve({ value: undefined, done: true })
     return new Promise((resolve, reject) => this.waiting.push({ resolve, reject }))
   }
 
@@ -108,7 +132,14 @@ export function stubSession(sessionId: string, title: string, cwd: string, lastM
 }
 
 export function transcriptUser(sessionId: string, uuid: string, text: string): SessionMessage {
-  return { type: 'user', uuid, session_id: sessionId, parent_tool_use_id: null, parent_agent_id: null, message: { role: 'user', content: text } }
+  return {
+    type: 'user',
+    uuid,
+    session_id: sessionId,
+    parent_tool_use_id: null,
+    parent_agent_id: null,
+    message: { role: 'user', content: text },
+  }
 }
 
 export function transcriptAgent(sessionId: string, uuid: string, text: string): SessionMessage {
@@ -129,10 +160,25 @@ export const streamEvent = (event: Record<string, unknown>) =>
   frame({ type: 'stream_event', event, parent_tool_use_id: null, uuid: randomUUID(), session_id: '' })
 
 export const assistantFrame = (id: string, content: ReadonlyArray<Record<string, unknown>>) =>
-  frame({ type: 'assistant', message: { id, role: 'assistant', content }, parent_tool_use_id: null, uuid: randomUUID(), session_id: '' })
+  frame({
+    type: 'assistant',
+    message: { id, role: 'assistant', content },
+    parent_tool_use_id: null,
+    uuid: randomUUID(),
+    session_id: '',
+  })
 
 export const resultFrame = (fields: Record<string, unknown> = {}) =>
-  frame({ type: 'result', subtype: 'success', is_error: false, result: '', errors: [], uuid: randomUUID(), session_id: '', ...fields })
+  frame({
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    result: '',
+    errors: [],
+    uuid: randomUUID(),
+    session_id: '',
+    ...fields,
+  })
 
 const textOf = (message: SDKUserMessage) => {
   const content = message.message.content
@@ -163,21 +209,38 @@ export function makeFakeClaude(options: FakeClaudeOptions = {}): FakeClaude {
     const sessionId = queryOptions.resume ?? queryOptions.sessionId ?? randomUUID()
     const cwd = queryOptions.cwd ?? '/'
     let answering: { timer: ReturnType<typeof setTimeout> | null; stop: () => void } | null = null
+    // Like the SDK's forwarded signal: it aborts once the query closes.
+    const forwarded = new AbortController()
+    const spawn = queryOptions.spawnClaudeCodeProcess
+    const child =
+      options.process && spawn
+        ? spawn({
+            command: options.process.command,
+            args: [...options.process.args],
+            cwd,
+            env: options.process.env ?? { ...process.env },
+            signal: forwarded.signal,
+          })
+        : null
     const fake: FakeQuery = {
       options: queryOptions,
       prompts: [],
       calls: [],
+      child,
       closed: false,
       push: (message) => frames.push(message),
       exit: (error) => {
         answering?.stop()
         frames.end(error)
       },
-      askTool: (tool, input, toolUseID) => {
+      askTool: (tool, input, toolUseID, prompt) => {
         const abort = new AbortController()
         const canUseTool = queryOptions.canUseTool
         if (!canUseTool) throw new Error('Docs passed no canUseTool')
-        return { result: canUseTool(tool, input, { signal: abort.signal, toolUseID, requestId: toolUseID }), abort: () => abort.abort() }
+        return {
+          result: canUseTool(tool, input, { ...prompt, signal: abort.signal, toolUseID, requestId: toolUseID }),
+          abort: () => abort.abort(),
+        }
       },
     }
     queries.push(fake)
@@ -200,7 +263,9 @@ export function makeFakeClaude(options: FakeClaudeOptions = {}): FakeClaude {
       const step = (index: number) => {
         if (stopped) return
         if (index < words.length) {
-          frames.push(streamEvent({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: words[index] } }))
+          frames.push(
+            streamEvent({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: words[index] } }),
+          )
           const delay = options.deltaDelayMs ?? 0
           if (delay > 0 && answering) answering.timer = setTimeout(() => step(index + 1), delay)
           else step(index + 1)
@@ -260,7 +325,14 @@ export function makeFakeClaude(options: FakeClaudeOptions = {}): FakeClaude {
         if (options.hangInterrupt) return new Promise<never>(() => {})
         if (answering) {
           answering.stop()
-          frames.push(resultFrame({ subtype: 'error_during_execution', is_error: true, errors: ['Request was aborted.'], terminal_reason: 'aborted_streaming' }))
+          frames.push(
+            resultFrame({
+              subtype: 'error_during_execution',
+              is_error: true,
+              errors: ['Request was aborted.'],
+              terminal_reason: 'aborted_streaming',
+            }),
+          )
         }
         return Promise.resolve(undefined)
       },
@@ -268,8 +340,15 @@ export function makeFakeClaude(options: FakeClaudeOptions = {}): FakeClaude {
         fake.closed = true
         answering?.stop()
         frames.end()
+        forwarded.abort()
       },
     }
+    // The SDK listens for "error" (a failed spawn, or the abort on close) and so does the fake.
+    child?.on('error', () => {})
+    // The frame stream ends when the CLI exits, as the SDK's transport does.
+    child?.once('exit', (code) =>
+      frames.end(fake.closed ? undefined : new Error(`Claude Code process exited with code ${code}`)),
+    )
     queryOptions.abortController?.signal.addEventListener('abort', () => methods.close(), { once: true })
     return Object.assign(frames, methods) as unknown as Query
   }

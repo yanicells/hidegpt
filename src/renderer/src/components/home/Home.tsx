@@ -47,9 +47,7 @@ export function Home({
         (!query || `${thread.name ?? ''} ${thread.preview}`.toLowerCase().includes(query)),
     )
     .sort((a, b) =>
-      sort === 'name'
-        ? (a.name || a.preview).localeCompare(b.name || b.preview)
-        : b.updatedAt - a.updatedAt,
+      sort === 'name' ? (a.name || a.preview).localeCompare(b.name || b.preview) : b.updatedAt - a.updatedAt,
     )
   const sections =
     view === 'list' && sort === 'recent' ? groupByRecency(threads) : [{ key: 'docs', title: '', threads }]
@@ -123,7 +121,12 @@ export function Home({
                 </button>
               </Tip>
               <Tip label="Open file picker">
-                <button className="icon-btn" aria-label="Open file picker" data-testid="open-picker" onClick={() => setPicker(true)}>
+                <button
+                  className="icon-btn"
+                  aria-label="Open file picker"
+                  data-testid="open-picker"
+                  onClick={() => setPicker(true)}
+                >
                   <MIcon name="folder" size={24} />
                 </button>
               </Tip>

@@ -9,6 +9,7 @@ import * as Effect from 'effect/Effect'
 import * as Option from 'effect/Option'
 import * as Queue from 'effect/Queue'
 import * as Schedule from 'effect/Schedule'
+import * as Schema from 'effect/Schema'
 import * as Scope from 'effect/Scope'
 import * as Stream from 'effect/Stream'
 
@@ -17,13 +18,21 @@ import type { ApprovalBlock, DocSummary, Skill } from '../shared/model'
 import {
   NotLoggedInError,
   ProcessExitedError,
+  ProviderDefectError,
   ProviderRequestError,
   type ProviderError,
   ProviderTimeoutError,
-  userMessage,
 } from '../provider/errors'
+import { logDefects, reportDefect } from '../provider/DefectReport'
 import type { ProcessSupervisor } from '../provider/ProcessSupervisor'
-import type { AdapterEvent, Catalog, OpenedThread, ProviderAdapter, ProviderSession, ThreadEvent } from '../provider/ProviderAdapter'
+import type {
+  AdapterEvent,
+  Catalog,
+  OpenedThread,
+  ProviderAdapter,
+  ProviderSession,
+  ThreadEvent,
+} from '../provider/ProviderAdapter'
 import {
   blocksFromMessages,
   defaultMode,
@@ -76,12 +85,41 @@ export const WATCHDOG = Duration.seconds(30)
 /** Quick re-subscribes before giving up and restarting the server. Resets once events flow again. */
 const RESUBSCRIBE = Schedule.exponential('250 millis').pipe(Schedule.upTo({ times: 5 }))
 const SERVER_READY = 20
+/** How far up a subagent's parents `resolveRoot` asks the server. */
+const ROUTE_HOPS = 5
+/**
+ * Each parent lookup's deadline. Lookups run inside the event loop so a request stays in order
+ * with the events around it; a stuck one therefore stalls every document's events, by design,
+ * for up to 5 s per level. T3 Code sets no deadline at all.
+ */
+const LOOKUP_SECONDS = 5
+/** Retries for a request whose document is still unknown: 200 ms doubling to 2 s, about 5 s in all. */
+const ROUTE_RETRIES = 5
+/** Stop's walk over subagent sessions: its deadline and how many requests run at once. */
+const ABORT_DESCENDANTS_SECONDS = 15
+const ABORT_CONCURRENCY = 8
 const NO_MODELS =
   'OpenCode has no model providers set up. Run `opencode auth login` in a terminal, then use Tools → Refresh.'
 
 type Client = OpencodeClient
 /** `throwOnError` makes every SDK result `{ data, response }` and every failure a rejection. */
 const opts = (signal: AbortSignal) => ({ signal, throwOnError: true as const })
+
+/** The `cause` the SDK's `throwOnError` attaches to an error response; `status` is absent on other errors. */
+const ResponseFailure = Schema.Struct({
+  status: Schema.UndefinedOr(Schema.Number),
+  body: Schema.optionalKey(Schema.Unknown),
+})
+/** OpenCode's error body: a named error with `data.message`, or a plain `message`. */
+const ErrorBody = Schema.Union([
+  Schema.Struct({ data: Schema.Struct({ message: Schema.String }) }),
+  Schema.Struct({ message: Schema.String }),
+])
+/** A Node network error, as the `cause` of fetch's own `TypeError`. */
+const NetworkFailure = Schema.Struct({ code: Schema.String })
+const decodeResponseFailure = Schema.decodeUnknownOption(ResponseFailure)
+const decodeErrorBody = Schema.decodeUnknownOption(ErrorBody)
+const decodeNetworkFailure = Schema.decodeUnknownOption(NetworkFailure)
 
 /**
  * A readable sentence for an SDK rejection. With `throwOnError` the SDK wraps
@@ -90,18 +128,22 @@ const opts = (signal: AbortSignal) => ({ signal, throwOnError: true as const })
  */
 export function errorDetail(cause: unknown): string {
   if (!(cause instanceof Error)) return 'OpenCode did not accept that request.'
-  const wrapped = cause.cause as { body?: unknown; status?: unknown; code?: unknown } | undefined
-  if (wrapped && typeof wrapped === 'object' && 'status' in wrapped) {
+  const response = Option.getOrUndefined(decodeResponseFailure(cause.cause))
+  if (response) {
     // A 404 names an internal id ("Session not found: ses_…"); say it plainly instead.
-    if (wrapped.status === 404) return 'OpenCode could not find that document.'
-    const body = wrapped.body as { data?: { message?: unknown }; message?: unknown } | null | undefined
-    const text = body?.data?.message ?? body?.message
-    if (typeof text === 'string' && text.trim()) return text.trim()
-    return 'OpenCode did not accept that request.'
+    if (response.status === 404) return 'OpenCode could not find that document.'
+    const body = Option.getOrUndefined(decodeErrorBody(response.body))
+    const text = body ? ('data' in body ? body.data.message : body.message).trim() : ''
+    return text || 'OpenCode did not accept that request.'
   }
-  if (cause.message === 'fetch failed' || wrapped?.code === 'ECONNREFUSED') return 'OpenCode is not responding.'
+  const network = Option.getOrUndefined(decodeNetworkFailure(cause.cause))
+  if (cause.message === 'fetch failed' || network?.code === 'ECONNREFUSED') return 'OpenCode is not responding.'
   return cause.message || 'OpenCode could not do that.'
 }
+
+/** Whether an SDK rejection is the server's 404 (the session is gone). */
+const isNotFound = (cause: unknown) =>
+  cause instanceof Error && Option.getOrUndefined(decodeResponseFailure(cause.cause))?.status === 404
 
 /** One SDK request with its deadline; failures become HideGPT's tagged errors. */
 const request = <A>(operation: string, run: (signal: AbortSignal) => Promise<A>, seconds = DEFAULT_DEADLINE) =>
@@ -181,6 +223,8 @@ export function make(connect: Connect): ProviderAdapter {
       const titles = new Map<string, string>()
       /** Subagent session → the session that started it, so its questions reach the open document. */
       const parents = new Map<string, string>()
+      /** Sessions the server says have no parent: documents, open or not. */
+      const roots = new Set<string>()
       /** Documents this connection opened (resynced after a re-subscribe). */
       const opened = new Set<string>()
       const live = new Map<string, Live>()
@@ -188,17 +232,149 @@ export function make(connect: Connect): ProviderAdapter {
       // used here to start each turn once. OpenCode repeats busy and retry during a turn.
       const busy = new Set<string>()
       const approvals = new Map<string, PendingApproval>()
+      /** Requests whose document is still being looked up in the background; none is on screen yet. */
+      const routing = new Set<string>()
       /** Requests Docs answered itself; their `replied` event is not news. */
       const answered = new Set<string>()
       const skillBodies = new Map<string, { location: string; content: string }>()
       const messageId = makeMessageIds()
 
       const dir = (sessionId: string) => directories.get(sessionId)
-      const rootOf = (sessionId: string) => {
+      /** Follows the parents already known, stopping at an open document. */
+      const climb = (sessionId: string) => {
         let id = sessionId
-        for (let depth = 0; depth < 8 && parents.has(id); depth += 1) id = parents.get(id) ?? id
+        for (let depth = 0; depth < 8 && !opened.has(id) && parents.has(id); depth += 1) id = parents.get(id) ?? id
         return id
       }
+
+      /**
+       * The document a session belongs to: itself, or the document whose subagent started it.
+       * Answers from memory when it can; otherwise asks the server for each parent, up to
+       * five hops, and remembers every hop. `undefined` when a lookup fails or the chain runs out.
+       * `directory` is where the event came from, for a session Docs has not seen yet.
+       * Adapted from T3 Code (packages/provider-opencode/src/server/adapter.ts, resolveSessionOwner) at commit 5c6f2f12.
+       * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+       */
+      const resolveRoot = (sessionId: string, directory?: string): Effect.Effect<string | undefined> =>
+        Effect.gen(function* () {
+          const known = (id: string) => opened.has(id) || roots.has(id)
+          let cursor = climb(sessionId)
+          for (let hop = 0; hop < ROUTE_HOPS && !known(cursor); hop += 1) {
+            const id = cursor
+            const found = yield* request(
+              'session.get',
+              (signal) => client.session.get({ sessionID: id, directory: dir(id) ?? directory }, opts(signal)),
+              LOOKUP_SECONDS,
+            ).pipe(Effect.option)
+            if (Option.isNone(found)) return undefined
+            const info = found.value.data
+            directories.set(id, info.directory)
+            if (!info.parentID) roots.add(id)
+            else {
+              parents.set(id, info.parentID)
+              cursor = climb(info.parentID)
+            }
+          }
+          return known(cursor) ? cursor : undefined
+        })
+
+      /**
+       * Shows a permission or question on its document. The lookup runs before the block is
+       * emitted, so it stays in order with the events around it. A subagent's session can be
+       * unknown for a moment after its first request: retry with backoff in the background, and in
+       * the end give up, as T3 does (the document still shows it when it next opens, from
+       * `pendingFor`). A request settled meanwhile is not shown.
+       * Adapted from T3 Code (packages/provider-opencode/src/server/adapter.ts, routeRuntimeRequest) at commit 5c6f2f12.
+       * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+       */
+      const routeRequest = (sessionId: string, directory: string, block: ApprovalBlock): Effect.Effect<void> => {
+        const show = (threadId: string) =>
+          approvals.has(block.id) ? emit({ type: 'block', threadId, block }) : Effect.void
+        const retry = Effect.gen(function* () {
+          for (let attempt = 0; attempt < ROUTE_RETRIES; attempt += 1) {
+            yield* Effect.sleep(Duration.millis(Math.min(200 * 2 ** attempt, 2_000)))
+            if (!approvals.has(block.id)) return
+            const root = yield* resolveRoot(sessionId, directory)
+            if (root) {
+              // Shown from here on, so a later answer resolves it.
+              routing.delete(block.id)
+              return yield* show(root)
+            }
+          }
+        }).pipe(Effect.ensuring(Effect.sync(() => routing.delete(block.id))))
+        return resolveRoot(sessionId, directory).pipe(
+          Effect.flatMap((root) => {
+            if (root) return show(root)
+            routing.add(block.id)
+            return retry.pipe(logDefects, Effect.forkIn(scope), Effect.asVoid)
+          }),
+        )
+      }
+
+      /**
+       * Stops every subagent session under `rootId`, breadth first. A session already gone (404)
+       * is skipped; the first other failure is returned after the walk, within 15 s.
+       * Adapted from T3 Code (packages/provider-opencode/src/server/adapter.ts, abortDescendants) at commit 5c6f2f12.
+       * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
+       */
+      const abortDescendants = (rootId: string): Effect.Effect<void, ProviderError> =>
+        Effect.gen(function* () {
+          const visited = new Set([rootId])
+          let failure: ProviderError | undefined
+          /** Runs a request; a 404 answers `null` and any other failure is kept, so the walk goes on. */
+          const attempt = <A>(operation: string, run: (signal: AbortSignal) => Promise<A>) =>
+            request(operation, (signal) =>
+              run(signal).catch((cause: unknown) => {
+                if (isNotFound(cause)) return null
+                throw cause
+              }),
+            ).pipe(
+              Effect.catch((error) => {
+                failure ??= error
+                return Effect.succeed(null)
+              }),
+            )
+          const childrenOf = (sessionId: string) =>
+            attempt('session.children', (signal) =>
+              client.session.children({ sessionID: sessionId, directory: dir(sessionId) }, opts(signal)),
+            ).pipe(
+              Effect.map((result) =>
+                (result?.data ?? []).filter((child) => {
+                  if (visited.has(child.id)) return false
+                  visited.add(child.id)
+                  directories.set(child.id, child.directory)
+                  parents.set(child.id, sessionId)
+                  return true
+                }),
+              ),
+            )
+          let frontier = yield* childrenOf(rootId)
+          while (frontier.length > 0) {
+            const next = yield* Effect.forEach(
+              frontier,
+              (child) =>
+                attempt('session.abort', (signal) =>
+                  client.session.abort({ sessionID: child.id, directory: dir(child.id) }, opts(signal)),
+                ).pipe(Effect.andThen(childrenOf(child.id))),
+              { concurrency: ABORT_CONCURRENCY },
+            )
+            frontier = next.flat()
+          }
+          if (failure) return yield* Effect.fail(failure)
+        }).pipe(
+          Effect.timeoutOrElse({
+            duration: Duration.seconds(ABORT_DESCENDANTS_SECONDS),
+            orElse: () =>
+              Effect.fail(
+                new ProviderTimeoutError({
+                  provider,
+                  operation: 'session.abort',
+                  seconds: ABORT_DESCENDANTS_SECONDS,
+                }),
+              ),
+          }),
+        )
+
       const liveOf = (sessionId: string): Live => {
         let state = live.get(sessionId)
         if (!state) {
@@ -232,7 +408,7 @@ export function make(connect: Connect): ProviderAdapter {
           60,
         ).pipe(
           Effect.map((result) => ({
-            messages: result.data as ReadonlyArray<MessageWithParts>,
+            messages: result.data,
             cursor: result.response.headers.get('x-next-cursor') || null,
           })),
         )
@@ -258,20 +434,28 @@ export function make(connect: Connect): ProviderAdapter {
           ],
           { concurrency: 'unbounded' },
         ).pipe(
-          Effect.map(([permissions, questions]) => {
-            const mine = (id: string) => rootOf(id) === sessionId
-            const blocks: ApprovalBlock[] = []
-            for (const item of permissions.data) {
-              if (!mine(item.sessionID)) continue
-              register('permission', item.id, item.sessionID)
-              blocks.push(permissionBlock(item))
-            }
-            for (const item of questions.data) {
-              if (!mine(item.sessionID)) continue
-              register('question', item.id, item.sessionID, item.questions.length)
-              blocks.push(questionBlock(item))
-            }
-            return blocks
+          Effect.flatMap(([permissions, questions]) => {
+            // A subagent's request names the subagent's session: find the document it belongs to.
+            const mine = (id: string) =>
+              id === sessionId
+                ? Effect.succeed(true)
+                : resolveRoot(id, dir(sessionId)).pipe(Effect.map((root) => root === sessionId))
+            const take = <T extends { readonly sessionID: string }>(items: ReadonlyArray<T>) =>
+              Effect.filter(items, (item) => mine(item.sessionID), { concurrency: 4 })
+            return Effect.all([take(permissions.data), take(questions.data)]).pipe(
+              Effect.map(([ownPermissions, ownQuestions]) => {
+                const blocks: ApprovalBlock[] = []
+                for (const item of ownPermissions) {
+                  register('permission', item.id, item.sessionID)
+                  blocks.push(permissionBlock(item))
+                }
+                for (const item of ownQuestions) {
+                  register('question', item.id, item.sessionID, item.questions.length)
+                  blocks.push(questionBlock(item))
+                }
+                return blocks
+              }),
+            )
           }),
           // A document still opens when the pending lists are unavailable.
           Effect.orElseSucceed((): ReadonlyArray<ApprovalBlock> => []),
@@ -282,7 +466,9 @@ export function make(connect: Connect): ProviderAdapter {
         Effect.forEach(
           [...opened],
           (threadId) =>
-            Effect.all([messagesPage(threadId), isBusy(threadId), pendingFor(threadId)], { concurrency: 'unbounded' }).pipe(
+            Effect.all([messagesPage(threadId), isBusy(threadId), pendingFor(threadId)], {
+              concurrency: 'unbounded',
+            }).pipe(
               Effect.flatMap(([page, streaming, pending]) => {
                 live.delete(threadId)
                 seed(threadId, page.messages)
@@ -329,7 +515,12 @@ export function make(connect: Connect): ProviderAdapter {
         return text ? [{ type: 'block', threadId, block: { kind: 'agent', id: part.messageID, text } }] : []
       }
 
-      const onDelta = (sessionId: string, messageID: string, partID: string, delta: string): ReadonlyArray<AdapterEvent> => {
+      const onDelta = (
+        sessionId: string,
+        messageID: string,
+        partID: string,
+        delta: string,
+      ): ReadonlyArray<AdapterEvent> => {
         // Only an announced, visible text part streams; reasoning deltas share `field: 'text'` and never show.
         const texts = live.get(sessionId)?.texts.get(messageID)
         const previous = texts?.get(partID)
@@ -338,9 +529,16 @@ export function make(connect: Connect): ProviderAdapter {
         const last = [...texts.keys()].pop() === partID
         // The tail grows in place when this part already shows, or when it is the only text so far.
         const appends = last && (previous !== '' || [...texts].every(([id, text]) => id === partID || !text))
-        if (appends) return [{ type: 'text', threadId: sessionId, blockId: messageID, delta, create: { kind: 'agent' } }]
+        if (appends)
+          return [{ type: 'text', threadId: sessionId, blockId: messageID, delta, create: { kind: 'agent' } }]
         // A new paragraph (or an earlier part growing) changes more than the tail: send the whole block.
-        return [{ type: 'block', threadId: sessionId, block: { kind: 'agent', id: messageID, text: joinAgentText(texts.values()) } }]
+        return [
+          {
+            type: 'block',
+            threadId: sessionId,
+            block: { kind: 'agent', id: messageID, text: joinAgentText(texts.values()) },
+          },
+        ]
       }
 
       const onUserMessage = (sessionId: string, id: string) => {
@@ -352,12 +550,15 @@ export function make(connect: Connect): ProviderAdapter {
         state.pendingEcho = null
       }
 
-      const onReplied = (requestID: string, resolved: 'accepted' | 'skipped'): ReadonlyArray<AdapterEvent> => {
+      const onReplied = (requestID: string, resolved: 'accepted' | 'skipped'): Effect.Effect<void> => {
         const blockId = permissionBlockId(requestID)
         const pending = approvals.get(blockId)
         approvals.delete(blockId)
-        if (answered.delete(requestID) || !pending) return []
-        return [{ type: 'resolved', threadId: rootOf(pending.sessionId), blockId, resolved }]
+        // A request still being routed was never shown: nothing to resolve, and no lookup needed.
+        if (answered.delete(requestID) || !pending || routing.has(blockId)) return Effect.void
+        return resolveRoot(pending.sessionId).pipe(
+          Effect.flatMap((root) => emit({ type: 'resolved', threadId: root ?? pending.sessionId, blockId, resolved })),
+        )
       }
 
       let subscribed = false
@@ -366,11 +567,12 @@ export function make(connect: Connect): ProviderAdapter {
         const event = envelope.payload
         switch (event.type) {
           case 'server.connected':
-            if (subscribed) return resync.pipe(Effect.forkIn(scope), Effect.asVoid)
+            if (subscribed) return logDefects(resync).pipe(Effect.forkIn(scope), Effect.asVoid)
             subscribed = true
             return Deferred.succeed(connected, undefined).pipe(Effect.asVoid)
           case 'message.updated':
-            if (event.properties.info.role === 'user') onUserMessage(event.properties.sessionID, event.properties.info.id)
+            if (event.properties.info.role === 'user')
+              onUserMessage(event.properties.sessionID, event.properties.info.id)
             else liveOf(event.properties.sessionID).roles.set(event.properties.info.id, 'assistant')
             return Effect.void
           case 'message.part.updated':
@@ -398,19 +600,19 @@ export function make(connect: Connect): ProviderAdapter {
           case 'permission.asked': {
             const request = event.properties
             register('permission', request.id, request.sessionID)
-            return emit({ type: 'block', threadId: rootOf(request.sessionID), block: permissionBlock(request) })
+            return routeRequest(request.sessionID, envelope.directory, permissionBlock(request))
           }
           case 'question.asked': {
             const request = event.properties
             register('question', request.id, request.sessionID, request.questions.length)
-            return emit({ type: 'block', threadId: rootOf(request.sessionID), block: questionBlock(request) })
+            return routeRequest(request.sessionID, envelope.directory, questionBlock(request))
           }
           case 'permission.replied':
-            return emitAll(onReplied(event.properties.requestID, event.properties.reply === 'reject' ? 'skipped' : 'accepted'))
+            return onReplied(event.properties.requestID, event.properties.reply === 'reject' ? 'skipped' : 'accepted')
           case 'question.replied':
-            return emitAll(onReplied(event.properties.requestID, 'accepted'))
+            return onReplied(event.properties.requestID, 'accepted')
           case 'question.rejected':
-            return emitAll(onReplied(event.properties.requestID, 'skipped'))
+            return onReplied(event.properties.requestID, 'skipped')
           case 'session.created':
           case 'session.updated': {
             const info = event.properties.info
@@ -419,6 +621,7 @@ export function make(connect: Connect): ProviderAdapter {
               parents.set(info.id, info.parentID)
               return Effect.void
             }
+            roots.add(info.id)
             if (event.type === 'session.created') return emit({ type: 'invalidate', part: 'docs' })
             if (!info.title || titles.get(info.id) === info.title) return Effect.void
             titles.set(info.id, info.title)
@@ -427,6 +630,7 @@ export function make(connect: Connect): ProviderAdapter {
           case 'session.deleted':
             opened.delete(event.properties.info.id)
             busy.delete(event.properties.info.id)
+            parents.delete(event.properties.info.id)
             return emitAll([
               { type: 'closed', threadId: event.properties.info.id },
               { type: 'invalidate', part: 'docs' },
@@ -454,23 +658,27 @@ export function make(connect: Connect): ProviderAdapter {
         }),
       ).pipe(
         Stream.concat(Stream.fail(streamLost('OpenCode closed its update stream'))),
-        Stream.timeoutOrElse({ duration: WATCHDOG, orElse: () => Stream.fail(streamLost('OpenCode stopped sending updates')) }),
+        Stream.timeoutOrElse({
+          duration: WATCHDOG,
+          orElse: () => Stream.fail(streamLost('OpenCode stopped sending updates')),
+        }),
         Stream.retry(RESUBSCRIBE),
       )
       const streamEnded = yield* Deferred.make<never, ProviderError>()
       yield* subscription.pipe(
         Stream.runForEach(toEvents),
         // Any end but shutdown, a defect included, ends the session so the manager restarts it.
-        Effect.catchCause((cause) =>
-          Cause.hasInterrupts(cause)
-            ? Effect.interrupt
-            : Deferred.fail(
-                streamEnded,
-                Cause.findErrorOption(cause).pipe(
-                  Option.getOrElse(() => streamLost(`OpenCode updates failed: ${userMessage(Cause.squash(cause))}`)),
-                ),
-              ),
-        ),
+        Effect.catchCause((cause) => {
+          const dies = Cause.hasDies(cause)
+          if (Cause.hasInterrupts(cause) && !dies) return Effect.interrupt
+          const error = Cause.findErrorOption(cause)
+          if (Option.isSome(error) && !dies) return Deferred.fail(streamEnded, error.value)
+          // A defect (say, in toEvents), even beside a failure, is logged under a report id;
+          // the banner gets a plain sentence.
+          return reportDefect(cause).pipe(
+            Effect.flatMap((reportId) => Deferred.fail(streamEnded, new ProviderDefectError({ provider, reportId }))),
+          )
+        }),
         Effect.forkIn(scope),
       )
       yield* Deferred.await(connected).pipe(
@@ -512,12 +720,20 @@ export function make(connect: Connect): ProviderAdapter {
           Stream.paginate({ cursor: undefined as number | undefined, page: 0 }, ({ cursor, page }) =>
             request('experimental.session.list', (signal) =>
               client.experimental.session.list(
-                { roots: true, limit: DOC_PAGE, ...(search.trim() ? { search: search.trim() } : {}), ...(cursor ? { cursor } : {}) },
+                {
+                  roots: true,
+                  limit: DOC_PAGE,
+                  ...(search.trim() ? { search: search.trim() } : {}),
+                  ...(cursor ? { cursor } : {}),
+                },
                 opts(signal),
               ),
             ).pipe(
               Effect.map((result) => {
-                for (const item of result.data) directories.set(item.id, item.directory)
+                for (const item of result.data) {
+                  directories.set(item.id, item.directory)
+                  roots.add(item.id)
+                }
                 const nextCursor = Number(result.response.headers.get('x-next-cursor'))
                 const next =
                   nextCursor && result.data.length === DOC_PAGE && page + 1 < MAX_DOC_PAGES
@@ -527,18 +743,25 @@ export function make(connect: Connect): ProviderAdapter {
               }),
             ),
           ).pipe(
-            Stream.scan((): ReadonlyArray<DocSummary> => [], (all, page: ReadonlyArray<DocSummary>) => [...all, ...page]),
+            Stream.scan(
+              (): ReadonlyArray<DocSummary> => [],
+              (all, page: ReadonlyArray<DocSummary>) => [...all, ...page],
+            ),
             Stream.drop(1),
           ),
 
         listSkills: (cwd) =>
-          request('app.skills', (signal) => client.app.skills({ ...(cwd ? { directory: cwd } : {}) }, opts(signal))).pipe(
+          request('app.skills', (signal) => client.app.skills(cwd ? { directory: cwd } : {}, opts(signal))).pipe(
             Effect.map((result) => {
               const skills = new Map<string, Skill>()
               for (const skill of result.data) {
                 skillBodies.set(skill.name, { location: skill.location, content: skill.content })
                 if (!skills.has(skill.name)) {
-                  skills.set(skill.name, { name: skill.name, description: skill.description ?? '', path: skill.location })
+                  skills.set(skill.name, {
+                    name: skill.name,
+                    description: skill.description ?? '',
+                    path: skill.location,
+                  })
                 }
               }
               return [...skills.values()].sort((a, b) => a.name.localeCompare(b.name))
@@ -552,6 +775,7 @@ export function make(connect: Connect): ProviderAdapter {
               client.session.get({ sessionID: threadId, directory: dir(threadId) }, opts(signal)),
             )
             directories.set(threadId, info.data.directory)
+            if (!info.data.parentID) roots.add(threadId)
             if (info.data.title) titles.set(threadId, info.data.title)
             const [page, streaming, pending] = yield* Effect.all(
               [messagesPage(threadId), isBusy(threadId), pendingFor(threadId)],
@@ -622,7 +846,13 @@ export function make(connect: Connect): ProviderAdapter {
               try: () => [
                 ...(input.text ? [{ type: 'text' as const, text: input.text }] : []),
                 ...(skill && input.skill
-                  ? [skillPart({ name: input.skill.name, location: skill.location, content: skill.content || readFileSync(skill.location, 'utf8') })]
+                  ? [
+                      skillPart({
+                        name: input.skill.name,
+                        location: skill.location,
+                        content: skill.content || readFileSync(skill.location, 'utf8'),
+                      }),
+                    ]
                   : []),
                 ...input.images.map(imagePart),
               ],
@@ -656,16 +886,18 @@ export function make(connect: Connect): ProviderAdapter {
             )
           }),
 
+        // Aborting a session leaves its subagents running, so they are stopped after it.
         interrupt: (threadId) =>
-          Effect.asVoid(
-            request('session.abort', (signal) => client.session.abort({ sessionID: threadId, directory: dir(threadId) }, opts(signal))),
-          ),
+          request('session.abort', (signal) =>
+            client.session.abort({ sessionID: threadId, directory: dir(threadId) }, opts(signal)),
+          ).pipe(Effect.andThen(abortDescendants(threadId))),
 
         respond: (_threadId, approvalId, reply) =>
           Effect.gen(function* () {
             const pending = approvals.get(approvalId)
-            if (!pending) return yield* Effect.fail(rejected('respond', 'This request is no longer waiting for an answer.'))
-            const directory = dir(pending.sessionId) ?? dir(rootOf(pending.sessionId))
+            if (!pending)
+              return yield* Effect.fail(rejected('respond', 'This request is no longer waiting for an answer.'))
+            const directory = dir(pending.sessionId) ?? dir(climb(pending.sessionId))
             const requestID = pending.requestId
             answered.add(requestID)
             const answers = Array.from({ length: pending.questions }, (_, index) => {
@@ -675,11 +907,18 @@ export function make(connect: Connect): ProviderAdapter {
             const taken = yield* (
               pending.kind === 'permission'
                 ? request('permission.reply', (signal) =>
-                    client.permission.reply({ requestID, directory, reply: reply.accept ? 'once' : 'reject' }, opts(signal)),
+                    client.permission.reply(
+                      { requestID, directory, reply: reply.accept ? 'once' : 'reject' },
+                      opts(signal),
+                    ),
                   )
                 : reply.accept
-                  ? request('question.reply', (signal) => client.question.reply({ requestID, directory, answers }, opts(signal)))
-                  : request('question.reject', (signal) => client.question.reject({ requestID, directory }, opts(signal)))
+                  ? request('question.reply', (signal) =>
+                      client.question.reply({ requestID, directory, answers }, opts(signal)),
+                    )
+                  : request('question.reject', (signal) =>
+                      client.question.reject({ requestID, directory }, opts(signal)),
+                    )
             ).pipe(Effect.tapError(() => Effect.sync(() => answered.delete(requestID))))
             // The server answers `false` when the request already settled or never existed.
             if (taken.data !== true) {
@@ -692,7 +931,10 @@ export function make(connect: Connect): ProviderAdapter {
         rename: (threadId, name) =>
           request('session.update', (signal) =>
             client.session.update({ sessionID: threadId, directory: dir(threadId), title: name }, opts(signal)),
-          ).pipe(Effect.tap(() => Effect.sync(() => titles.set(threadId, name))), Effect.asVoid),
+          ).pipe(
+            Effect.tap(() => Effect.sync(() => titles.set(threadId, name))),
+            Effect.asVoid,
+          ),
 
         releaseThread: (threadId) =>
           Effect.sync(() => {
@@ -702,7 +944,9 @@ export function make(connect: Connect): ProviderAdapter {
 
         createProject: (name, cwd) =>
           Effect.gen(function* () {
-            const current = yield* request('project.current', (signal) => client.project.current({ directory: cwd }, opts(signal)))
+            const current = yield* request('project.current', (signal) =>
+              client.project.current({ directory: cwd }, opts(signal)),
+            )
             if (current.data.id === 'global') {
               return yield* Effect.fail(
                 rejected(
@@ -768,6 +1012,8 @@ export const spawnServer = (supervisor: ProcessSupervisor['Service']): Connect =
         }),
       ),
       Effect.ignore,
+      // A defect here is logged; the wait below then ends with the serve timeout.
+      logDefects,
       Effect.forkScoped,
     )
     const url = yield* Deferred.await(ready).pipe(

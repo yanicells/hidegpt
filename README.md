@@ -24,13 +24,30 @@ pnpm install
 pnpm dev
 ```
 
-| Script | What it does |
-|---|---|
-| `pnpm dev` | Electron app with Vite HMR |
-| `pnpm test` | Provider adapter, session manager, and renderer UI tests |
-| `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm protocol` | Regenerate the Codex app-server schemas from the installed CLI |
-| `pnpm screenshot` | Home grid/list, folder picker, open menus, a streaming reply and a suggestion, and desktop/narrow editor PNGs using fictional content |
+`pnpm install` also points Git at `.githooks/`, so each commit formats and lints
+the staged files. It does this by setting `core.hooksPath`, which replaces any hooks path
+you had set, in the Git config that every worktree of this repository shares.
+
+In VS Code, install the recommended extensions (oxc and TypeScript Native Preview) to see
+the Effect diagnostics as you type and format on save: `.vscode/settings.json` points the
+TypeScript 7 language server at `.vscode/tsdk/tsgo`, which runs `effect-tsgo`'s binary from
+`node_modules`. The `typescript` (5.x) devDependency now serves editors without that
+extension only; no script runs `tsc`.
+
+| Script                         | What it does                                                                                                                          |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`                     | Electron app with Vite HMR                                                                                                            |
+| `pnpm test`                    | Provider adapter, session manager, and renderer UI tests                                                                              |
+| `pnpm typecheck`               | TypeScript plus Effect diagnostics (`effect-tsgo`), e.g. an Effect that is built but never run                                        |
+| `pnpm typecheck:effect-strict` | T3 Code's full Effect rule set; not yet clean, so not gating                                                                          |
+| `pnpm lint`                    | oxlint with T3 Code's rules, plus floating promises                                                                                   |
+| `pnpm knip`                    | Unused files, exports, and dependencies                                                                                               |
+| `pnpm check`                   | Typecheck, lint, format check, knip, tests, and build: what CI runs                                                                   |
+| `pnpm fmt`                     | Format with oxfmt; `pnpm fmt:check` verifies it in CI                                                                                 |
+| `pnpm protocol`                | Regenerate the Codex app-server schemas from the installed CLI                                                                        |
+| `pnpm protocol --check`        | Fail if the committed schemas no longer match the installed CLI                                                                       |
+| `pnpm screenshot`              | Home grid/list, folder picker, open menus, a streaming reply and a suggestion, and desktop/narrow editor PNGs using fictional content |
+| `pnpm dist`                    | Package a macOS `.dmg` into `dist/` (see [Packaging](#packaging))                                                                     |
 
 **Blank document** or a template creates an "Untitled document" right away, like Docs;
 rename it from the title field. Projects are folders. The folder icon (**Open file
@@ -61,6 +78,55 @@ for you there. Streaming text crosses to the window as deltas in 32 ms frames.
 A provider that crashes restarts with backoff and the document on screen reloads; every
 request has a deadline, so nothing stays on "Working…". See
 [docs/architecture.md](docs/architecture.md) for how this is built.
+
+## Packaging
+
+`pnpm dist` builds the app and packages it as **Docs** (`Docs-<version>-<arch>.dmg`
+in `dist/`), with a plain document icon and the bundle id
+`app.docs.desktop`. It needs Node 22.18 or later. Before packaging it checks
+that the preload loads in Electron's sandbox (`scripts/verify-preload-bundle.ts`).
+
+**Shared builds leave Claude out.** Anthropic doesn't allow offering Claude
+sign-in or limits to other people through a third-party app, so by default
+`pnpm dist` compiles the Claude library out (`PROVIDERS` and the provider
+registry drop it) and ships no `node_modules` at all. After packaging it opens
+the shipped `app.asar` and fails if it holds any `node_modules`, anything from
+`@anthropic-ai`, or Claude code inlined into a chunk
+(`scripts/shared-build-guard.ts`); a failed build leaves no `.dmg` behind. That
+build is the one to give friends. For your own copy:
+
+```bash
+HIDEGPT_PERSONAL=1 pnpm dist   # dist/personal/Docs-<version>-<arch>-personal.dmg, with Claude
+```
+
+A personal build goes to its own folder with `-personal` in its name, so it
+can't be mistaken for the shared one. It ships only the Claude SDK, with its
+binary copied out of the archive to `Contents/Resources/Docs Helper`, so it can
+be spawned and no file on disk outside `app.asar` carries a vendor name.
+
+Running from source (`pnpm dev`, `pnpm start`, `pnpm screenshot`, tests) always
+includes Claude.
+
+An app opened from Finder doesn't get your terminal's PATH, so at launch the
+packaged app asks your login shell for it (`$SHELL -ilc`, then your account's
+shell, then `/bin/zsh`, within 4 seconds in all). That way `codex` and `opencode`
+installed under nvm, Volta, fnm, npm globals or `~/.opencode/bin` are found.
+The window opens meanwhile; only provider starts wait for the answer. Homebrew,
+`~/.bun/bin` and `~/.local/bin` stay as the fallback.
+
+**Signing and notarizing are off unless their variables are set.** With none, the
+app is ad-hoc signed: it opens on your own Mac, and on another Mac only after
+**Open Anyway** in System Settings → Privacy & Security (or
+`xattr -dr com.apple.quarantine Docs.app`).
+
+| Variables                                                                                                                                                                  | Effect                                                                                 |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `CSC_LINK` (a `.p12`) + `CSC_KEY_PASSWORD`, or `CSC_NAME` (a keychain identity)                                                                                            | Sign with a Developer ID, with the hardened runtime and `build/entitlements.mac.plist` |
+| `APPLE_API_KEY` + `APPLE_API_KEY_ID` + `APPLE_API_ISSUER`, or `APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID`, or `APPLE_KEYCHAIN` + `APPLE_KEYCHAIN_PROFILE` | Also notarize (only for a signed build)                                                |
+
+Empty or blank variables count as unset. Without a certificate variable, every
+signing and notary variable is dropped before electron-builder runs, and the
+keychain is never searched for a certificate.
 
 ## Provider compatibility
 
@@ -97,5 +163,8 @@ T3 Code, and the provider adapters, session manager, process supervision, and
 replay tests follow its patterns, as do smaller pieces of the OpenCode and Claude
 adapters (each marked in place). In the window, the cached Markdown renderer and
 streaming block splitter come from T3 Code's web app, and the store's selectors
-follow its thread-detail state. T3 Code is MIT licensed, Copyright (c) 2026
+follow its thread-detail state. The tooling follows T3 Code too: the oxlint rules,
+Effect diagnostics, knip config, CI workflow, pre-commit checks, and VS Code setup are adapted
+from its setup.
+T3 Code is MIT licensed, Copyright (c) 2026
 T3 Tools Inc.; the full notice is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

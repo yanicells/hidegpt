@@ -3,24 +3,49 @@ import { useEffect, useRef, useSyncExternalStore } from 'react'
 import type { Command, CommandResult, MenuAction } from '../../shared/api'
 import { errorMessage } from '../../shared/labels'
 import { emptySnapshot, type Block, type Snapshot } from '../../shared/model'
-import { applySnapshotPatch } from '../../shared/snapshot-patch'
+import { applyPatchOnce, type SequencedSnapshot } from '../../shared/snapshot-patch'
 
-// Read the preload's assembled copy right away, so the first paint is the real
-// library rather than an empty one.
-let snapshot: Snapshot = window.hidegpt?.getSnapshot() ?? emptySnapshot()
+let current: SequencedSnapshot = { snapshot: emptySnapshot(), seq: 0 }
 const listeners = new Set<() => void>()
 let detach: (() => void) | null = null
 
-// One IPC listener applies each patch once, however many components subscribe.
+function publish(next: SequencedSnapshot): void {
+  current = next
+  // A copy: a listener that subscribes another component must not run it this round.
+  for (const listener of Array.from(listeners)) listener()
+}
+
+/**
+ * Takes the snapshot from the preload and applies every later patch here,
+ * however many components subscribe. A reconnect (StrictMode remounting the
+ * root, a test's fresh bridge) reads main again, which may already include
+ * patches still on their way; `applyPatchOnce` skips those by `seq`, so no
+ * streamed text lands twice.
+ *
+ * Electron delivers one webContents' IPC messages in the order main sent
+ * them, so patches arrive with `seq` counting up by one. A jump means one was
+ * lost; reading main again heals it, because main sent that patch before the
+ * one that showed the jump, so the read already includes both.
+ */
+function connect(): void {
+  if (detach || !window.hidegpt) return
+  const bridge = window.hidegpt
+  current = bridge.getSnapshot()
+  detach = bridge.onSnapshot((patch) => {
+    if (patch.seq > current.seq + 1) {
+      publish(bridge.getSnapshot())
+      return
+    }
+    const next = applyPatchOnce(current, patch)
+    if (next !== current) publish(next)
+  })
+}
+
+// At load, so the first paint is the real library and nothing is missed before React subscribes.
+connect()
+
 function subscribe(onChange: () => void): () => void {
-  if (listeners.size === 0 && window.hidegpt) {
-    // Catch up on anything that arrived before the first subscriber.
-    snapshot = window.hidegpt.getSnapshot()
-    detach = window.hidegpt.onSnapshot((patch) => {
-      snapshot = applySnapshotPatch(snapshot, patch)
-      for (const listener of [...listeners]) listener()
-    })
-  }
+  connect()
   listeners.add(onChange)
   return () => {
     listeners.delete(onChange)
@@ -30,11 +55,6 @@ function subscribe(onChange: () => void): () => void {
   }
 }
 
-/** The latest snapshot, for event handlers that must not hold a stale render's copy. */
-export function currentSnapshot(): Snapshot {
-  return snapshot
-}
-
 /**
  * Subscribes to part of the snapshot. The component re-renders only when the
  * selection changes by `isEqual`, so a streamed delta repaints the document
@@ -42,10 +62,14 @@ export function currentSnapshot(): Snapshot {
  * (packages/client-runtime/src/state/threadDetail.ts) at commit 8a14762c.
  * Copyright (c) 2026 T3 Tools Inc. MIT License; see THIRD_PARTY_NOTICES.md.
  */
-export function useSnapshotSelector<T>(select: (snapshot: Snapshot) => T, isEqual: (a: T, b: T) => boolean = Object.is): T {
+export function useSnapshotSelector<T>(
+  select: (snapshot: Snapshot) => T,
+  isEqual: (a: T, b: T) => boolean = Object.is,
+): T {
   const last = useRef<{ source: Snapshot; value: T } | null>(null)
   const getSelection = () => {
     const previous = last.current
+    const snapshot = current.snapshot
     if (previous?.source === snapshot) return previous.value
     const next = select(snapshot)
     const value = previous && isEqual(previous.value, next) ? previous.value : next
@@ -55,8 +79,8 @@ export function useSnapshotSelector<T>(select: (snapshot: Snapshot) => T, isEqua
   return useSyncExternalStore(subscribe, getSelection, getSelection)
 }
 
-const whole = (current: Snapshot) => current
-const blocksOf = (current: Snapshot) => current.blocks
+const whole = (snap: Snapshot) => snap
+const blocksOf = (snap: Snapshot) => snap.blocks
 
 /** Everything on the snapshot apart from the open document's blocks. */
 function sameApartFromBlocks(a: Snapshot, b: Snapshot): boolean {
@@ -68,8 +92,7 @@ function sameApartFromBlocks(a: Snapshot, b: Snapshot): boolean {
 
 /**
  * The snapshot for the page shell. It skips changes that only touch the open
- * document's blocks, so its `blocks` can be behind: read them with `useBlocks`,
- * or `currentSnapshot()` in a handler.
+ * document's blocks, so its `blocks` can be behind: read them with `useBlocks`.
  */
 export function useShellSnapshot(): Snapshot {
   return useSnapshotSelector(whole, sameApartFromBlocks)
@@ -112,6 +135,11 @@ export function useCommandError(): string | null {
 
 export function clearCommandError(): void {
   setCommandError(null)
+}
+
+/** Puts a failed window request that is not a command (a pasted image) on the same banner. */
+export function showRequestError(message: string): void {
+  setCommandError(message)
 }
 
 /**

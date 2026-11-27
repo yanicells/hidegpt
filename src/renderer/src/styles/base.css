@@ -244,3 +244,20 @@ label,
     transition: none !important;
   }
 }
+
+/* The whole window couldn't render: a plain Docs-style notice with a reload. */
+.page-error {
+  @apply flex h-full flex-col items-center justify-center gap-3 text-center;
+}
+.page-error h1 {
+  @apply m-0;
+  font-size: 22px;
+  font-weight: 400;
+}
+.page-error p {
+  @apply m-0;
+  color: var(--text-2);
+}
+.page-error .outlined-button {
+  padding: 0 24px;
+}

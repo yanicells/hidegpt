@@ -50,8 +50,9 @@ function mount(partial: Partial<Snapshot> = {}, fail: (command: Command) => stri
     ...partial,
   }
 
+  let seq = 0
   const api: HideGptApi = {
-    getSnapshot: () => snapshot,
+    getSnapshot: () => ({ snapshot, seq }),
     onSnapshot: (handler) => {
       listeners.add(handler)
       return () => listeners.delete(handler)
@@ -79,7 +80,7 @@ function mount(partial: Partial<Snapshot> = {}, fail: (command: Command) => stri
         const resolved = command.accept ? 'accepted' : 'skipped'
         snapshot = {
           ...snapshot,
-          blocks: snapshot.blocks.map((block) => 
+          blocks: snapshot.blocks.map((block) =>
             block.kind === 'approval' && block.id === command.blockId ? { ...block, resolved } : block,
           ),
         }
@@ -87,11 +88,16 @@ function mount(partial: Partial<Snapshot> = {}, fail: (command: Command) => stri
       if (command.op === 'goHome') {
         snapshot = { ...snapshot, route: { kind: 'home' }, title: 'Docs' }
       }
-      for (const listener of listeners) listener({ fields: snapshot })
+      seq += 1
+      for (const listener of listeners) listener({ fields: snapshot, seq })
       return { ok: true }
     },
     pickDirectory: async () => '/tmp/project',
-    saveImage: async (_bytes, mime) => `/tmp/pasted.${mime.split('/')[1]}`,
+    // GIFs stand in for a picture main could not store.
+    saveImage: async ({ mime }) =>
+      mime === 'image/gif'
+        ? { ok: false, error: 'Docs could not save that image. Check your disk space.' }
+        : { ok: true, path: `/tmp/pasted.${mime.split('/')[1]}` },
     platform: 'darwin',
   }
   window.hidegpt = api
@@ -486,6 +492,19 @@ describe('project navigation and creation', () => {
     expect(calls.find((call) => call.op === 'newDocument')).toStrictEqual({ op: 'newDocument', projectId: null })
   })
 
+  it('files a document made from inside a folder document in that folder', async () => {
+    const user = userEvent.setup()
+    const inFolder = { ...stubThread('thr_c', 'Week 3 notes', 'Week 3'), cwd: '/tmp/course/week3' }
+    const { calls } = mount({
+      projects: [projectFixture],
+      threads: [inFolder],
+      route: { kind: 'doc', threadId: 'thr_c' },
+      title: 'Week 3',
+    })
+    await user.click(screen.getByLabelText('Add tab'))
+    expect(calls).toContainEqual({ op: 'newDocument', projectId: 'course', cwd: '/tmp/course' })
+  })
+
   it('searches folders in the file picker', async () => {
     const user = userEvent.setup()
     mount({ projects: [projectFixture] })
@@ -605,6 +624,18 @@ describe('composer attachments', () => {
     expect(calls.at(-1)).toEqual({ op: 'send', text: '', images: ['/tmp/pasted.png'] })
   })
 
+  it('attaches the pictures that saved and puts the first failure on the banner', async () => {
+    mount({ route: { kind: 'doc', threadId: 'thr_1' }, title: 'Photosynthesis' })
+    const composer = screen.getByTestId('composer')
+    const png = new File([new Uint8Array([1])], 'a.png', { type: 'image/png' })
+    const gif = new File([new Uint8Array([2])], 'b.gif', { type: 'image/gif' })
+    fireEvent.paste(composer, { clipboardData: { files: [png, gif] } })
+    expect(await screen.findByTestId('error-banner')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }))
+    expect(screen.getByText('Docs could not save that image. Check your disk space.')).toBeInTheDocument()
+    expect(screen.getByTestId('composer-images').querySelectorAll('img')).toHaveLength(1)
+  })
+
   it('shows images and skills on sent questions', () => {
     mount({
       route: { kind: 'doc', threadId: 'thr_1' },
@@ -665,12 +696,18 @@ describe('failures and replies', () => {
     await user.click(screen.getByRole('radio', { name: 'Large' }))
     expect(calls).toEqual([])
     await user.click(screen.getByTestId('accept-ap1'))
-    expect(calls).toEqual([{ op: 'resolveApproval', blockId: 'ap1', accept: true, answers: { name: 'Yani', size: 'Large' } }])
+    expect(calls).toEqual([
+      { op: 'resolveApproval', blockId: 'ap1', accept: true, answers: { name: 'Yani', size: 'Large' } },
+    ])
   })
 
   it('offers sign-in only to libraries that sign in inside Docs', async () => {
     const user = userEvent.setup()
-    mount({ provider: 'claude', capabilities: CAPABILITIES.claude, account: { kind: 'local', label: 'yan@school.edu' } })
+    mount({
+      provider: 'claude',
+      capabilities: CAPABILITIES.claude,
+      account: { kind: 'local', label: 'yan@school.edu' },
+    })
     await user.click(screen.getByTestId('menu-account'))
     expect(screen.queryByTestId('action-login')).toBeNull()
     expect(screen.queryByTestId('action-logout')).toBeNull()

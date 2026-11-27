@@ -15,6 +15,7 @@ export function LoadingDocument({ snap }: { snap: Snapshot }) {
       </div>
       <div className="paper opening-paper" aria-hidden="true">
         {[65, 100, 92, 100, 84, 48, 100, 96, 72].map((width, i) => (
+          // oxlint-disable-next-line react/no-array-index-key -- a fixed skeleton; widths repeat
           <div key={i} className="sk-text" style={{ width: `${width}%` }} />
         ))}
       </div>

@@ -51,11 +51,19 @@ describe('splitMarkdownBlocks', () => {
   })
 
   it('splits only between closed blocks', () => {
-    expect(splitMarkdownBlocks('a\n\n```\nb\n\nc\n```\n\n- d\n\n- e\n\nf')).toEqual(['a\n\n', '```\nb\n\nc\n```\n\n- d\n\n- e\n\n', 'f'])
+    expect(splitMarkdownBlocks('a\n\n```\nb\n\nc\n```\n\n- d\n\n- e\n\nf')).toEqual([
+      'a\n\n',
+      '```\nb\n\nc\n```\n\n- d\n\n- e\n\n',
+      'f',
+    ])
   })
 
   it('splits around code that only looks like document-wide syntax', () => {
-    expect(splitMarkdownBlocks('a\n\n```\n<div>\n\n[^x]\n```\n\nb')).toEqual(['a\n\n', '```\n<div>\n\n[^x]\n```\n\n', 'b'])
+    expect(splitMarkdownBlocks('a\n\n```\n<div>\n\n[^x]\n```\n\nb')).toEqual([
+      'a\n\n',
+      '```\n<div>\n\n[^x]\n```\n\n',
+      'b',
+    ])
   })
 
   it.each([
@@ -65,10 +73,7 @@ describe('splitMarkdownBlocks', () => {
     'a\r\n\r\nb',
     '```\n<div>\n```\n\na[^x]\n\n[^x]: note',
     '- a\n\n  ```\n  x\nb[^x]\n\n[^x]: note',
-  ])(
-    'keeps text with document-wide syntax whole: %j',
-    (text) => {
-      expect(splitMarkdownBlocks(text)).toBeNull()
-    },
-  )
+  ])('keeps text with document-wide syntax whole: %j', (text) => {
+    expect(splitMarkdownBlocks(text)).toBeNull()
+  })
 })

@@ -12,7 +12,11 @@ const isEditable = (target: EventTarget | null) =>
 
 /** Whether moving up from `target` scrolls the page, not a box inside it (a long callout, the tabs list). */
 function movesPageUp(target: EventTarget | null, root: HTMLElement): boolean {
-  for (let element = target instanceof Element ? target : null; element && element !== root; element = element.parentElement) {
+  for (
+    let element = target instanceof Element ? target : null;
+    element && element !== root;
+    element = element.parentElement
+  ) {
     if (element.scrollTop > 0 && /auto|scroll/.test(getComputedStyle(element).overflowY)) return false
   }
   return root.scrollTop > 0
@@ -92,7 +96,14 @@ export function useFollowBottom({
     const root = scrollRef.current
     const content = contentRef.current
     const end = endRef.current
-    if (!root || !content || !end || typeof ResizeObserver === 'undefined' || typeof IntersectionObserver === 'undefined') return
+    if (
+      !root ||
+      !content ||
+      !end ||
+      typeof ResizeObserver === 'undefined' ||
+      typeof IntersectionObserver === 'undefined'
+    )
+      return
     // Layout is fresh inside the callback, so reading scrollHeight costs nothing extra.
     const grew = new ResizeObserver(() => {
       if (follow.current) root.scrollTop = root.scrollHeight
@@ -129,7 +140,11 @@ export function useFollowBottom({
     // anything that does scroll is caught by `scrolled`.
     const key = (event: KeyboardEvent) => {
       const target = event.target
-      if (!(target instanceof Node) || (!root.contains(target) && target !== document.body && target !== document.documentElement)) return
+      if (
+        !(target instanceof Node) ||
+        (!root.contains(target) && target !== document.body && target !== document.documentElement)
+      )
+        return
       if (event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return
       const up = UP_KEYS.has(event.key) || (event.key === ' ' && event.shiftKey)
       if (up && !isEditable(event.target) && movesPageUp(event.target, root)) leave()

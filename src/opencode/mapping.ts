@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { basename, dirname, extname } from 'node:path'
 
+import * as Option from 'effect/Option'
+import * as Schema from 'effect/Schema'
+
 import type {
   Agent,
   FilePartInput,
@@ -15,7 +18,16 @@ import type {
   ToolPart,
 } from '@opencode-ai/sdk/v2/client'
 
-import type { ApprovalBlock, Block, CalloutBlock, DocSummary, ModelOption, ModeOption, ProjectSummary, UserBlock } from '../shared/model'
+import type {
+  ApprovalBlock,
+  Block,
+  CalloutBlock,
+  DocSummary,
+  ModelOption,
+  ModeOption,
+  ProjectSummary,
+  UserBlock,
+} from '../shared/model'
 
 /**
  * Pure mapping from OpenCode's SDK types to HideGPT's domain model: messages
@@ -34,7 +46,10 @@ export function splitModelKey(id: string): { providerID: string; modelID: string
   return { providerID: id.slice(0, slash), modelID: id.slice(slash + 1) }
 }
 
-export function toModels(providers: ReadonlyArray<Provider>, defaults: Readonly<Record<string, string>>): ModelOption[] {
+export function toModels(
+  providers: ReadonlyArray<Provider>,
+  defaults: Readonly<Record<string, string>>,
+): ModelOption[] {
   const models: ModelOption[] = []
   for (const provider of providers) {
     for (const [id, model] of Object.entries(provider.models)) {
@@ -214,8 +229,21 @@ const IMAGE_TYPES: Record<string, string> = {
 /** Inlines a saved image as a data URL so the server needs no file access. */
 export function imagePart(path: string): FilePartInput {
   const mime = IMAGE_TYPES[extname(path).toLowerCase()] ?? 'image/png'
-  return { type: 'file', mime, filename: basename(path), url: `data:${mime};base64,${readFileSync(path).toString('base64')}` }
+  return {
+    type: 'file',
+    mime,
+    filename: basename(path),
+    url: `data:${mime};base64,${readFileSync(path).toString('base64')}`,
+  }
 }
+
+/** The fields of an OpenCode session error's `data` that the sentence uses. */
+const ProviderErrorData = Schema.Struct({
+  message: Schema.optionalKey(Schema.String),
+  statusCode: Schema.optionalKey(Schema.Number),
+  responseBody: Schema.optionalKey(Schema.String),
+})
+const decodeProviderErrorData = Schema.decodeUnknownOption(ProviderErrorData)
 
 /**
  * The model provider's error as one sentence (OpenCode stores `<none>` when it
@@ -225,12 +253,15 @@ export function imagePart(path: string): FilePartInput {
  */
 export function readableProviderError(error: { name: string; data?: unknown } | undefined): string {
   if (!error) return 'The assistant ran into an error.'
-  const data = (error.data ?? {}) as { message?: unknown; statusCode?: unknown; responseBody?: unknown }
-  const message = typeof data.message === 'string' ? data.message.trim() : ''
+  const data = Option.getOrElse(decodeProviderErrorData(error.data), (): typeof ProviderErrorData.Type => ({}))
+  const message = data.message?.trim() ?? ''
   if (message && message.toLowerCase() !== '<none>') return message
-  const status = typeof data.statusCode === 'number' ? data.statusCode : undefined
-  const body = typeof data.responseBody === 'string' ? data.responseBody : undefined
-  const title = body?.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.replace(/\s+/g, ' ').trim()
+  const status = data.statusCode
+  const body = data.responseBody
+  const title = body
+    ?.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]
+    ?.replace(/\s+/g, ' ')
+    .trim()
   if (title) return status !== undefined ? `${title} (HTTP ${status}).` : title
   if (status !== undefined) return `The model provider failed the request (HTTP ${status}).`
   return message ? 'The model provider failed the request and did not include an error message.' : error.name

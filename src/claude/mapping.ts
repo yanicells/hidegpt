@@ -8,6 +8,8 @@ import type {
   SessionMessage,
   SlashCommand,
 } from '@anthropic-ai/claude-agent-sdk'
+import * as Option from 'effect/Option'
+import * as Schema from 'effect/Schema'
 
 import type { ApprovalBlock, Block, CalloutBlock, DocSummary, ModelOption, Skill, UserBlock } from '../shared/model'
 
@@ -18,18 +20,64 @@ import type { ApprovalBlock, Block, CalloutBlock, DocSummary, ModelOption, Skill
  * never reach the page.
  */
 
-/** Loose Messages API content block; transcripts and stream frames share it. */
+/**
+ * The fields Docs reads from a Messages API content block; transcripts and stream
+ * frames share it. Fields are decoded one by one, as the old loose reads were: a
+ * field of an unexpected type is left out, and the block (and its siblings) still show.
+ */
 type ContentBlock = {
-  type: string
-  text?: string
-  id?: string
-  name?: string
-  input?: Record<string, unknown>
-  tool_use_id?: string
-  content?: unknown
-  source?: { type?: string; media_type?: string; data?: string }
+  readonly type: string
+  readonly text?: string | undefined
+  readonly id?: string | undefined
+  readonly name?: string | undefined
+  readonly input?: Readonly<Record<string, unknown>> | undefined
+  readonly tool_use_id?: string | undefined
+  readonly content?: unknown
+  readonly source?:
+    | {
+        readonly type?: string | undefined
+        readonly media_type?: string | undefined
+        readonly data?: string | undefined
+      }
+    | undefined
 }
-type ApiMessage = { id?: string; content?: string | ContentBlock[] }
+
+/** Each field is checked on its own: a wrong type drops that field, not the block. */
+const asString = (value: unknown) => (typeof value === 'string' ? value : undefined)
+const asRecord = (value: unknown): Readonly<Record<string, unknown>> | undefined =>
+  typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
+const asContent = (value: unknown): string | ReadonlyArray<unknown> | undefined =>
+  typeof value === 'string' || Array.isArray(value) ? value : undefined
+
+function decodeBlock(value: unknown): ContentBlock | undefined {
+  const part = asRecord(value)
+  const type = asString(part?.type)
+  if (!part || type === undefined) return undefined
+  const source = asRecord(part.source)
+  return {
+    type,
+    text: asString(part.text),
+    id: asString(part.id),
+    name: asString(part.name),
+    input: asRecord(part.input),
+    tool_use_id: asString(part.tool_use_id),
+    content: part.content,
+    source: source && {
+      type: asString(source.type),
+      media_type: asString(source.media_type),
+      data: asString(source.data),
+    },
+  }
+}
+
+/** A message's `id` and `content`, each read on its own. */
+const decodeMessage = (value: unknown) => {
+  const message = asRecord(value)
+  return { id: asString(message?.id), content: asContent(message?.content) }
+}
+
+/** Each block of `content` that has a type; one malformed block never hides the rest. */
+const blocksOf = (content: ReadonlyArray<unknown>): ContentBlock[] => content.flatMap((part) => decodeBlock(part) ?? [])
 
 const COMMAND = /<command-name>\/?([^<]+)<\/command-name>/
 const COMMAND_ARGS = /<command-args>([\s\S]*?)<\/command-args>/
@@ -88,9 +136,9 @@ export function isSignedIn(account: AccountInfo | undefined): boolean {
 }
 
 function partsOf(message: unknown): ContentBlock[] {
-  const content = (message as ApiMessage | null)?.content
+  const content = decodeMessage(message).content
   if (typeof content === 'string') return [{ type: 'text', text: content }]
-  return Array.isArray(content) ? content : []
+  return content ? blocksOf(content) : []
 }
 
 function toolTitle(name: string, done: boolean): string {
@@ -107,8 +155,8 @@ function toolBody(input: Record<string, unknown> | undefined): string {
 function resultText(content: unknown): string {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return ''
-  return content
-    .map((part: ContentBlock) => (part.type === 'text' ? (part.text ?? '') : ''))
+  return blocksOf(content)
+    .map((part) => (part.type === 'text' ? (part.text ?? '') : ''))
     .filter(Boolean)
     .join('\n')
 }
@@ -178,13 +226,17 @@ export function blocksFromSessionMessages(messages: ReadonlyArray<SessionMessage
       continue
     }
     if (message.type !== 'assistant') continue
-    const id = (message.message as ApiMessage).id ?? message.uuid
+    const id = decodeMessage(message.message).id ?? message.uuid
     for (const part of parts) {
       if (part.type === 'tool_use' && part.id) put(toolCallout(part))
       if (part.type === 'text' && part.text) {
         const at = index.get(id)
         const current = at === undefined ? undefined : blocks[at]
-        put(current?.kind === 'agent' ? { ...current, text: `${current.text}\n\n${part.text}` } : { kind: 'agent', id, text: part.text })
+        put(
+          current?.kind === 'agent'
+            ? { ...current, text: `${current.text}\n\n${part.text}` }
+            : { kind: 'agent', id, text: part.text },
+        )
       }
     }
   }
@@ -201,7 +253,12 @@ export type StreamState = {
   readonly callouts: Map<string, CalloutBlock>
 }
 
-export const emptyStreamState = (): StreamState => ({ messageId: null, streamed: new Set(), texts: new Map(), callouts: new Map() })
+export const emptyStreamState = (): StreamState => ({
+  messageId: null,
+  streamed: new Set(),
+  texts: new Map(),
+  callouts: new Map(),
+})
 
 /** What one SDK frame changes on the page; the adapter adds the thread id. */
 export type Emission =
@@ -249,7 +306,8 @@ export function readMessage(state: StreamState, message: SDKMessage): Emission[]
     case 'user': {
       const out: Emission[] = []
       for (const part of partsOf(message.message)) {
-        const callout = part.type === 'tool_result' && part.tool_use_id ? state.callouts.get(part.tool_use_id) : undefined
+        const callout =
+          part.type === 'tool_result' && part.tool_use_id ? state.callouts.get(part.tool_use_id) : undefined
         if (!callout) continue
         state.callouts.delete(callout.id)
         out.push({ type: 'block', block: finishedCallout(callout, part) })
@@ -285,48 +343,99 @@ const RESULT_ERRORS: Record<string, string> = {
  */
 export function resultError(message: SDKResultMessage): string | undefined {
   if (message.terminal_reason === 'aborted_tools' || message.terminal_reason === 'aborted_streaming') return undefined
-  if (message.subtype === 'success') return message.is_error ? message.result.trim() || 'Claude ran into an error.' : undefined
+  if (message.subtype === 'success')
+    return message.is_error ? message.result.trim() || 'Claude ran into an error.' : undefined
   const text = message.errors.join('\n').trim()
   if (/interrupt|cancel/i.test(text)) return undefined
   return text || RESULT_ERRORS[message.subtype] || 'Claude stopped before finishing.'
 }
 
-const PREVIEW_KEYS = ['command', 'file_path', 'path', 'url', 'pattern', 'description'] as const
+// The input field that best shows what a tool will touch, first match wins. A Task's
+// short `description` comes before its `prompt`, which is the whole subagent brief.
+const PREVIEW_KEYS = [
+  'command',
+  'file_path',
+  'notebook_path',
+  'path',
+  'url',
+  'query',
+  'pattern',
+  'description',
+  'prompt',
+] as const
+/** A card shows a glimpse of the input, not all of it. */
+const PREVIEW_MAX = 200
 
 export const permissionBlockId = (toolUseId: string) => `approval-${toolUseId}`
 
-/** A tool Claude wants to run; `title` is the SDK's own prompt sentence when it sends one. */
-export function permissionBlock(id: string, tool: string, input: Record<string, unknown>, title: string | undefined): ApprovalBlock {
+const MENTIONS_VENDOR = /claude|anthropic/i
+
+/**
+ * A short name for the tool, never the SDK's own sentences: its `title` and
+ * `description` speak as the assistant ("Claude wants to search the web"),
+ * which the page must never show. MCP tools drop their `mcp__server__` prefix,
+ * since a server key such as `claude_ai_Notion` names the vendor too. Null when
+ * even the final name mentions the vendor (`mcp__x__claude_search`).
+ */
+export function toolLabel(tool: string, displayName: string | undefined): string | null {
+  if (displayName && !MENTIONS_VENDOR.test(displayName)) return displayName
+  const mcp = /^mcp__.+?__(.+)$/.exec(tool)
+  const label = mcp ? mcp[1]!.replace(/_/g, ' ') : tool
+  return MENTIONS_VENDOR.test(label) ? null : label
+}
+
+const clip = (text: string) => (text.length > PREVIEW_MAX ? `${text.slice(0, PREVIEW_MAX - 1).trimEnd()}…` : text)
+
+/** A tool Claude wants to run, as a suggestion card asking to allow it. */
+export function permissionBlock(
+  id: string,
+  tool: string,
+  input: Record<string, unknown>,
+  displayName: string | undefined,
+): ApprovalBlock {
   const preview = PREVIEW_KEYS.map((key) => input[key]).find((value): value is string => typeof value === 'string')
+  const label = toolLabel(tool, displayName)
   return {
     kind: 'approval',
     id,
     suggestion: 'add',
-    title: title || `Allow ${tool}?`,
-    body: preview ?? '',
+    title: label ? `Allow ${label}?` : 'Allow this tool?',
+    body: preview ? clip(preview) : '',
     fields: [],
     questions: [],
     resolved: null,
   }
 }
 
-export type AskedQuestion = { readonly question: string; readonly header: string; readonly options: ReadonlyArray<{ readonly label: string }> }
+export type AskedQuestion = {
+  readonly question: string
+  readonly header: string
+  readonly options: ReadonlyArray<{ readonly label: string }>
+}
+
+const AskedItem = Schema.Struct({
+  question: Schema.String,
+  header: Schema.optionalKey(Schema.Unknown),
+  options: Schema.optionalKey(Schema.Unknown),
+})
+const decodeAskedItem = Schema.decodeUnknownOption(AskedItem)
+const decodeOption = Schema.decodeUnknownOption(Schema.Struct({ label: Schema.String }))
 
 /** The questions of an `AskUserQuestion` call, or null when its input is not that shape. */
 export function askedQuestions(input: Record<string, unknown>): AskedQuestion[] | null {
   const questions = input.questions
   if (!Array.isArray(questions)) return null
-  return questions.flatMap((item: unknown) => {
-    const value = item as { question?: unknown; header?: unknown; options?: unknown }
-    if (typeof value.question !== 'string') return []
-    const options = Array.isArray(value.options)
-      ? value.options.flatMap((option: unknown) => {
-          const label = (option as { label?: unknown }).label
-          return typeof label === 'string' ? [{ label }] : []
-        })
-      : []
-    return [{ question: value.question, header: typeof value.header === 'string' ? value.header : '', options }]
-  })
+  return questions.flatMap((item: unknown) =>
+    Option.toArray(decodeAskedItem(item)).map((value) => ({
+      question: value.question,
+      header: typeof value.header === 'string' ? value.header : '',
+      options: Array.isArray(value.options)
+        ? value.options.flatMap((option: unknown) =>
+            Option.toArray(decodeOption(option)).map(({ label }) => ({ label })),
+          )
+        : [],
+    })),
+  )
 }
 
 export const questionId = (index: number) => `q${index}`

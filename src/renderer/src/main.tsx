@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 
 import './fonts'
 import { App } from './app'
+import { PageFallback, RenderErrorBoundary, reportRenderError } from './components/layout/RenderErrorBoundary'
 import { loadMarkdown } from './components/ui/loadMarkdown'
 import { TooltipProvider } from './components/ui/tooltip'
 import './styles/index.css'
@@ -10,11 +11,13 @@ import './styles/index.css'
 const root = document.getElementById('root')
 if (!root) throw new Error('missing #root')
 
-createRoot(root).render(
+createRoot(root, { onCaughtError: reportRenderError }).render(
   <StrictMode>
-    <TooltipProvider>
-      <App />
-    </TooltipProvider>
+    <RenderErrorBoundary fallback={<PageFallback />}>
+      <TooltipProvider>
+        <App />
+      </TooltipProvider>
+    </RenderErrorBoundary>
   </StrictMode>,
 )
 
