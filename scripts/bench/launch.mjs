@@ -52,7 +52,7 @@ function startUsageReader() {
 
 /**
  * Launches `<repo>` (already built) against the fake Codex server.
- * `options`: workDir, userData, logFile, docs, turns, show, react, ipcBytes, throttle, profileStartup.
+ * `options`: workDir, userData, logFile, docs, turns, show, react, ipcBytes, layoutCounts, throttle, profileStartup.
  */
 export async function launch(repo, options) {
   const workDir = options.workDir
@@ -137,6 +137,7 @@ export async function launch(repo, options) {
     BENCH_SHOW: options.show ? '1' : '0',
     BENCH_REACT: options.react ? '1' : '0',
     BENCH_IPC_BYTES: options.ipcBytes ? '1' : '0',
+    BENCH_LAYOUT_COUNTS: options.layoutCounts ? '1' : '0',
     BENCH_PROFILE_STARTUP: options.profileStartup ? '1' : '0',
   }
   // The bench drives the real provider path; the in-process demo and screenshot modes must stay off.
@@ -197,6 +198,34 @@ export async function launch(repo, options) {
   const usage = startUsageReader()
   const { pids } = await main('stats')
 
+  /**
+   * Traces Blink's style passes until the returned function is called, which resolves to
+   * the elements they restyled: the sum of `elementCount` over `UpdateLayoutTree` events.
+   * Exact, unlike `recalc_ms`, so a rule that restyles the whole document shows whatever
+   * the machine's load.
+   */
+  async function traceRestyles() {
+    let restyled = 0
+    const stopCollecting = page.on('Tracing.dataCollected', ({ value }) => {
+      for (const event of value) {
+        if (event.name === 'UpdateLayoutTree' && event.pid === pids.renderer) restyled += event.args?.elementCount ?? 0
+      }
+    })
+    const complete = new Promise((resolve) => {
+      const stopWaiting = page.on('Tracing.tracingComplete', () => (stopWaiting(), resolve()))
+    })
+    await page.send('Tracing.start', {
+      traceConfig: { includedCategories: ['devtools.timeline'] },
+      transferMode: 'ReportEvents',
+    })
+    return async () => {
+      await page.send('Tracing.end')
+      await within(complete, 60000, 'waiting for the style trace')
+      stopCollecting()
+      return restyled
+    }
+  }
+
   async function counters() {
     const [stats, perf, used] = await Promise.all([
       main('stats'),
@@ -209,16 +238,22 @@ export async function launch(repo, options) {
   /**
    * Runs `step` and records what it cost under `prefix`: instructions retired and CPU
    * time per process, Blink layout and style counts, IPC to the window, main-thread
-   * event-loop delay, and (with `frames`) frame intervals and long tasks.
+   * event-loop delay, and (with `frames`) frame intervals and long tasks. A counts run also
+   * records box reads, and with `restyles` the elements restyled, which needs a trace: it
+   * is asked for only where it is budgeted, so the trace's cost stays out of other phases.
    */
-  async function measure(metrics, prefix, step, { frames = false, react = options.react } = {}) {
+  async function measure(metrics, prefix, step, { frames = false, react = options.react, restyles = false } = {}) {
     await main('resetLag')
     if (frames) await bench('recordStart()')
     if (react) await bench('reactStart()')
+    if (options.layoutCounts) await bench('boxReadsStart()')
+    const stopTrace = options.layoutCounts && restyles ? await traceRestyles() : null
     const before = await counters()
     const result = await step()
     const after = await counters()
     const set = (name, value) => (metrics[`${prefix}.${name}`] = value)
+    if (stopTrace) set('restyled', await stopTrace())
+    if (options.layoutCounts) set('box_reads', await bench('boxReads()'))
     for (const [short, pid] of [
       ['r', pids.renderer],
       ['m', pids.main],
@@ -259,6 +294,10 @@ export async function launch(repo, options) {
       if (counted) {
         set('commits', counted.commits)
         set('renders', counted.renders)
+        // The components the median commit rendered. `renders` moves between runs when a few
+        // heavy commits (the library resent after a turn) land in the phase or not; the median
+        // does not, and one more component rendered per commit moves it by one.
+        set('renders_per_commit_p50', counted.p50)
         metrics[`${prefix}.render_top`] = counted.top
       }
     }

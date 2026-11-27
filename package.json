@@ -15,6 +15,7 @@
     "fidelity:check": "uv run --quiet scripts/fidelity/check.py",
     "fidelity:diff": "uv run --quiet scripts/fidelity/diff.py",
     "bench": "node scripts/bench/run.mjs --build",
+    "bench:check": "node scripts/bench/run.mjs check --build --wait",
     "bench:compare": "node scripts/bench/run.mjs compare",
     "bench:profile": "node scripts/bench/run.mjs profile --build",
     "test": "vitest run",

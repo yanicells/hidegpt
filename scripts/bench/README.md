@@ -10,6 +10,7 @@ on any branch that still talks to `codex app-server`.
 pnpm bench                       # build, 3 timed runs + 1 counts run, table on stdout
 pnpm bench --runs 5 --label mine # more runs, results under bench-results/mine.json
 pnpm bench:compare bench-results/before.json bench-results/after.json
+pnpm bench:check                 # one counts run against budgets.json; exits 1 over budget
 pnpm bench:profile --phase stream300,type_idle300   # where the CPU time went, by source file
 ```
 
@@ -52,7 +53,7 @@ table says how much noise to expect:
 
 | Tier     | Metrics                                                                                                                                                             | Under load                                                    |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `count`  | `layouts`, `recalcs` (Blink layout and style passes), `ipc_sends`, `ipc_kb`, `commits`, `renders` (React), `dom_nodes`, bundle sizes                                | exact, apart from the passes of `open` and `reopen`           |
+| `count`  | `layouts`, `recalcs` (Blink layout and style passes), `restyled`, `box_reads`, `ipc_sends`, `ipc_kb`, `commits`, `renders` (React), `dom_nodes`, bundle sizes       | exact, apart from the passes of `open` and `reopen`           |
 | `instr`  | `r_ginstr`, `m_ginstr`, `g_ginstr`: billions of CPU instructions retired by the renderer, main and GPU processes                                                    | within 2% for streaming and scrolling; more elsewhere (below) |
 | `cpu`    | `*_cpu_ms` (process CPU time), `layout_ms`, `recalc_ms`, `script_ms`, `task_ms` (renderer main thread, thread time)                                                 | 10-30% at moderate load, about 2x at load 25                  |
 | `memory` | `r_heap_mb` (JS heap after GC), `*_footprint_mb` (what Activity Monitor shows)                                                                                      | stable, footprint varies a little                             |
@@ -108,9 +109,14 @@ Latency definitions:
 - `end_lag_ms`: the server sending its last character to that character on screen.
 - `lag_*_ms`: how late the main process's event loop ran its timers.
 
-`commits`, `renders` and `ipc_kb` come from the separate counts run, because counting
-them costs CPU: a React DevTools-style hook walks each commit, and each IPC message is
-serialized once more to size it. The timed runs carry no such instrumentation.
+`commits`, `renders`, `renders_per_commit`, `ipc_kb`, `box_reads` and `restyled` come from
+the separate counts run, because counting them costs CPU: a React DevTools-style hook walks
+each commit, each IPC message is serialized once more to size it, every box the page reads
+from layout (`getBoundingClientRect` and `getClientRects`, on elements and ranges) is
+counted in its own world (`box_reads`), and, in the typing phases only, Blink's style
+passes are traced to sum the elements they restyled in the renderer (`elementCount` over
+`UpdateLayoutTree` events, `restyled`). The timed runs carry no such instrumentation. The counts run also records `session.ipc_kb`,
+every byte sent to the window over the session, which is exact where a phase's share is not.
 
 `compare` lists every headline metric found in either result (`--all` for every metric).
 It marks a change `real` only when the two ranges (min to max over the runs) do not
@@ -123,6 +129,19 @@ window) get a warning above the table.
 `cold.fcp_ms` is not a headline: a window that is never shown can report its first paint
 after the first card painted. Such a run records `cold.fcp_late_ms` (how much later) in
 its place.
+
+## Budgets
+
+`pnpm bench:check` builds, then runs a first launch and one counts run (`--runs 0`, about
+3 minutes) and compares the counts with `budgets.json`: each budgeted count must stay
+within 10% of the range it was last measured in. It prints a table and exits 1 when a count
+is over budget, stale (under its range: the budget needs tightening) or missing. Only
+`count`-tier metrics are budgeted, so it passes or fails the same on a busy machine.
+`--update` rewrites `budgets.json` instead, from three counts runs; `--from <result.json>`
+(repeatable) checks, or updates from, results already on disk; `--static` checks only the
+bundle sizes of an existing build, launching nothing (CI runs it). `--wait` (on in the
+script) queues behind a bench that holds the lock instead of stopping. What to run when, and
+how to re-baseline, is in [docs/performance.md](../../docs/performance.md).
 
 ## Busy machine or quiet machine
 
@@ -160,7 +179,7 @@ Read it next to that phase's `recalc_ms` and `layout_ms`.
 - The app gets empty folders for `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and the `XDG_*`
   homes, so nothing it runs in-process can read real provider config or history.
 - One bench at a time: a second one stops at once while the first holds
-  `$TMPDIR/hidegpt-bench.lock` (`lock.mjs`). A lock left by a bench that died is taken
+  `$TMPDIR/hidegpt-bench.lock` (`lock.mjs`), or with `--wait` waits its turn. A lock left by a bench that died is taken
   over, by a rename only one taker can win.
 - Every DevTools and main-process request has a deadline, and a launch plus session that
   runs past `--timeout` seconds (900 by default) is killed by pid and fails the run.
@@ -168,16 +187,17 @@ Read it next to that phase's `recalc_ms` and `layout_ms`.
 
 ## Files
 
-| File                        | Role                                                                       |
-| --------------------------- | -------------------------------------------------------------------------- |
-| `run.mjs`                   | command line, runs, results                                                |
-| `scenario.mjs`              | the session, phase by phase                                                |
-| `launch.mjs`                | starts the app, connects to it, `measure()`                                |
-| `hook.cjs`                  | in the main process: isolation, hidden window, IPC and event-loop counters |
-| `spawn-guard.cjs`           | in the main process: only the fake Codex server may start                  |
-| `lock.mjs`                  | one bench at a time                                                        |
-| `probe.cjs`                 | in the page: paint, frame, key and DOM timing; React commit counter        |
-| `fake-codex.mjs`            | the stand-in provider and its deterministic library                        |
-| `cdp.mjs`                   | DevTools protocol client                                                   |
-| `rusage.py`                 | per-process instructions, CPU time and footprint (macOS)                   |
-| `report.mjs`, `profile.mjs` | tables, comparison, profile summaries                                      |
+| File                          | Role                                                                       |
+| ----------------------------- | -------------------------------------------------------------------------- |
+| `run.mjs`                     | command line, runs, results                                                |
+| `scenario.mjs`                | the session, phase by phase                                                |
+| `launch.mjs`                  | starts the app, connects to it, `measure()`                                |
+| `hook.cjs`                    | in the main process: isolation, hidden window, IPC and event-loop counters |
+| `spawn-guard.cjs`             | in the main process: only the fake Codex server may start                  |
+| `lock.mjs`                    | one bench at a time                                                        |
+| `budgets.mjs`, `budgets.json` | `bench:check`: the count budgets and checking a run against them           |
+| `probe.cjs`                   | in the page: paint, frame, key and DOM timing; React commit counter        |
+| `fake-codex.mjs`              | the stand-in provider and its deterministic library                        |
+| `cdp.mjs`                     | DevTools protocol client                                                   |
+| `rusage.py`                   | per-process instructions, CPU time and footprint (macOS)                   |
+| `report.mjs`, `profile.mjs`   | tables, comparison, profile summaries                                      |

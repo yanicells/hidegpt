@@ -150,6 +150,10 @@ Adapted from T3 Code commits 8a14762c and 5c6f2f12; each item says which.
   - `scripts/bench/probe.cjs`: counting React commits and component renders
     through a stand-in DevTools hook (`installReactCounter`), from
     `apps/web/test/renderCounter.ts` at commit 5c6f2f12.
+  - `src/shared/snapshot-patch.budget.test.ts`: pinning the wire size of one
+    streamed patch in a test, from
+    `apps/server/src/orchestration-v2/ThreadTransportPerformance.test.ts` at
+    commit 5c6f2f12.
   - `src/renderer/src/components/ui/`: these Base UI wrappers, adapted from
     `apps/web/src/components/ui/` at commit 8a14762c (each keeps a header
     pointing to its source):

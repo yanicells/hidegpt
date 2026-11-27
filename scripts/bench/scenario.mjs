@@ -213,7 +213,7 @@ export async function scenario(app, { docs, around = (_phase, run) => run() }) {
   // ---- the long document: open (newest page), type, stream ----
   await click('open', '[data-testid="thread-doc-0"]', { selector: BLOCK })
   set('open.blocks', await bench(`count(${JSON.stringify(BLOCK)})`))
-  await phase('type_idle', () => typeKeys('type_idle', { count: 30 }), { frames: true })
+  await phase('type_idle', () => typeKeys('type_idle', { count: 30 }), { frames: true, restyles: true })
   await ask('stream30', { kind: 'prose' })
   await ask('code30', { kind: 'code' })
 
@@ -248,7 +248,7 @@ export async function scenario(app, { docs, around = (_phase, run) => run() }) {
   // ---- the same work with the whole document loaded ----
   await ask('stream300', { kind: 'prose' })
   await ask('type_stream300', { kind: 'prose', answers: 2 }, { typing: true })
-  await phase('type_idle300', () => typeKeys('type_idle300', { count: 30 }), { frames: true })
+  await phase('type_idle300', () => typeKeys('type_idle300', { count: 30 }), { frames: true, restyles: true })
   await clearComposer()
   await phase('scroll300', () => bench(call('scrollRun', { step: -600, frames: 150 })), { frames: true })
 
@@ -259,6 +259,11 @@ export async function scenario(app, { docs, around = (_phase, run) => run() }) {
   await click('reopen', '[data-testid="thread-doc-0"]', { selector: BLOCK })
   await bench(call('clickWatch', { click: HOME, selector: CARD, quietMs: 250 }))
   await memory('mem_end')
+  // Every byte sent to the window over the session (counts runs only). Exact per session even
+  // where a phase's share is not: the library's growing pages and its resend after a turn land
+  // in whichever phase is running when they arrive.
+  const { stats } = await app.counters()
+  if (stats.ipc.bytes) set('session.ipc_kb', stats.ipc.bytes / 1024)
 
   set('requests', { ...app.requests })
   return metrics

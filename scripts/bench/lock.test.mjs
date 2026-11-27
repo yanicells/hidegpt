@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { afterEach, expect, it } from 'vitest'
 
-import { releaseLock, takeLock } from './lock.mjs'
+import { releaseLock, takeLock, waitForLock } from './lock.mjs'
 
 let directory = null
 const lockIn = () => join((directory = mkdtempSync(join(tmpdir(), 'bench-lock-'))), 'bench.lock')
@@ -27,4 +27,16 @@ it("takes over a dead bench's lock and leaves nothing beside it", () => {
   takeLock(file)
   expect(readFileSync(file, 'utf8')).toBe(String(process.pid))
   expect(readdirSync(directory)).toEqual(['bench.lock'])
+})
+
+it('waits while a live bench holds the lock, then takes it', async () => {
+  const file = lockIn()
+  takeLock(file)
+  const waits = []
+  const taking = waitForLock(file, { pollMs: 10, onWait: (why) => waits.push(why) })
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  expect(waits).toEqual([expect.stringContaining('another bench is running')])
+  releaseLock(file)
+  await taking
+  expect(readFileSync(file, 'utf8')).toBe(String(process.pid))
 })

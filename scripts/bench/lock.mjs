@@ -13,6 +13,10 @@ const readPid = (file) => {
   }
 }
 
+/** The error `takeLock` throws while a live bench holds the lock. */
+const busy = (pid, file) =>
+  Object.assign(new Error(`another bench is running (pid ${pid}, ${file}); wait for it to finish`), { code: 'EBUSY' })
+
 const alive = (pid) => {
   try {
     return Number.isInteger(pid) && pid > 0 && process.kill(pid, 0)
@@ -42,7 +46,7 @@ export function takeLock(file) {
     if (create(file)) return
     const holder = readPid(file)
     if (holder === null) continue
-    if (alive(holder)) throw new Error(`another bench is running (pid ${holder}, ${file}); wait for it to finish`)
+    if (alive(holder)) throw busy(holder, file)
     const aside = `${file}.${process.pid}.stale`
     try {
       renameSync(file, aside)
@@ -57,11 +61,24 @@ export function takeLock(file) {
         linkSync(aside, file)
       } catch {}
       rmSync(aside, { force: true })
-      throw new Error(`another bench is running (pid ${moved}, ${file}); wait for it to finish`)
+      throw busy(moved, file)
     }
     rmSync(aside, { force: true })
   }
   throw new Error(`could not take the bench lock ${file}`)
+}
+
+/** Takes `file` like `takeLock`, but while another bench holds it, waits for it in turn. */
+export async function waitForLock(file, { pollMs = 5000, onWait = () => {} } = {}) {
+  for (let waited = false; ; waited = true) {
+    try {
+      return takeLock(file)
+    } catch (error) {
+      if (error.code !== 'EBUSY') throw error
+      if (!waited) onWait(error.message)
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs))
+  }
 }
 
 /** Removes `file` if this process holds it. */
