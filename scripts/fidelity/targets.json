@@ -1385,6 +1385,365 @@
       "tol": 1
     },
     {
+      "id": "menus.align.width",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-align",
+      "kind": "box",
+      "selector": ".align-menu",
+      "prop": "w",
+      "target": 122,
+      "tol": 1,
+      "note": "Measured on research/gdocs-ref/menu-align.png (2x, halved)."
+    },
+    {
+      "id": "menus.align.height",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-align",
+      "kind": "box",
+      "selector": ".align-menu",
+      "prop": "h",
+      "target": 40,
+      "tol": 1
+    },
+    {
+      "id": "menus.align.x",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-align",
+      "kind": "box",
+      "selector": ".align-menu",
+      "prop": "x",
+      "relativeTo": {
+        "selector": ".toolbar .fold-align",
+        "prop": "x"
+      },
+      "target": 0,
+      "tol": 1,
+      "note": "Docs hangs the menu from the tool's left edge (for lists, the glyph half, not the caret)."
+    },
+    {
+      "id": "menus.align.y",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-align",
+      "kind": "box",
+      "selector": ".align-menu",
+      "prop": "y",
+      "relativeTo": {
+        "selector": ".toolbar .fold-align",
+        "prop": "bottom"
+      },
+      "target": 0,
+      "tol": 1,
+      "note": "Flush under the tool."
+    },
+    {
+      "id": "menus.line-spacing.width",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-line-spacing",
+      "kind": "box",
+      "selector": ".spacing-menu",
+      "prop": "w",
+      "target": 262,
+      "tol": 1,
+      "note": "Measured on research/gdocs-ref/menu-line-spacing.png (2x, halved)."
+    },
+    {
+      "id": "menus.line-spacing.height",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-line-spacing",
+      "kind": "box",
+      "selector": ".spacing-menu",
+      "prop": "h",
+      "target": 417,
+      "tol": 1
+    },
+    {
+      "id": "menus.line-spacing.x",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-line-spacing",
+      "kind": "box",
+      "selector": ".spacing-menu",
+      "prop": "x",
+      "relativeTo": {
+        "selector": ".toolbar .fold-spacing",
+        "prop": "x"
+      },
+      "target": 0,
+      "tol": 1,
+      "note": "Docs hangs the menu from the tool's left edge (for lists, the glyph half, not the caret)."
+    },
+    {
+      "id": "menus.line-spacing.y",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-line-spacing",
+      "kind": "box",
+      "selector": ".spacing-menu",
+      "prop": "y",
+      "relativeTo": {
+        "selector": ".toolbar .fold-spacing",
+        "prop": "bottom"
+      },
+      "target": 0,
+      "tol": 1,
+      "note": "Flush under the tool."
+    },
+    {
+      "id": "menus.checklist.width",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-checklist",
+      "kind": "box",
+      "selector": ".checklist-menu",
+      "prop": "w",
+      "target": 194,
+      "tol": 1,
+      "note": "Measured on research/gdocs-ref/menu-checklist.png (2x, halved)."
+    },
+    {
+      "id": "menus.checklist.height",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-checklist",
+      "kind": "box",
+      "selector": ".checklist-menu",
+      "prop": "h",
+      "target": 82,
+      "tol": 1
+    },
+    {
+      "id": "menus.checklist.x",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-checklist",
+      "kind": "box",
+      "selector": ".checklist-menu",
+      "prop": "x",
+      "relativeTo": {
+        "selector": ".toolbar .fold-checklist",
+        "prop": "x"
+      },
+      "target": 0,
+      "tol": 1,
+      "note": "Docs hangs the menu from the tool's left edge (for lists, the glyph half, not the caret)."
+    },
+    {
+      "id": "menus.checklist.y",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-checklist",
+      "kind": "box",
+      "selector": ".checklist-menu",
+      "prop": "y",
+      "relativeTo": {
+        "selector": ".toolbar .fold-checklist",
+        "prop": "bottom"
+      },
+      "target": 0,
+      "tol": 1,
+      "note": "Flush under the tool."
+    },
+    {
+      "id": "menus.bullets.width",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-bullets",
+      "kind": "box",
+      "selector": ".bullets-menu",
+      "prop": "w",
+      "target": 256,
+      "tol": 1,
+      "note": "Measured on research/gdocs-ref/menu-bullets.png (2x, halved)."
+    },
+    {
+      "id": "menus.bullets.height",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-bullets",
+      "kind": "box",
+      "selector": ".bullets-menu",
+      "prop": "h",
+      "target": 252,
+      "tol": 1
+    },
+    {
+      "id": "menus.bullets.x",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-bullets",
+      "kind": "box",
+      "selector": ".bullets-menu",
+      "prop": "x",
+      "relativeTo": {
+        "selector": ".toolbar .fold-bullets",
+        "prop": "x"
+      },
+      "target": 0,
+      "tol": 1,
+      "note": "Docs hangs the menu from the tool's left edge (for lists, the glyph half, not the caret)."
+    },
+    {
+      "id": "menus.bullets.y",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-bullets",
+      "kind": "box",
+      "selector": ".bullets-menu",
+      "prop": "y",
+      "relativeTo": {
+        "selector": ".toolbar .fold-bullets",
+        "prop": "bottom"
+      },
+      "target": 0,
+      "tol": 1,
+      "note": "Flush under the tool."
+    },
+    {
+      "id": "menus.numbered.width",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-numbered",
+      "kind": "box",
+      "selector": ".numbered-menu",
+      "prop": "w",
+      "target": 256,
+      "tol": 1,
+      "note": "Measured on research/gdocs-ref/menu-numbered.png (2x, halved)."
+    },
+    {
+      "id": "menus.numbered.height",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-numbered",
+      "kind": "box",
+      "selector": ".numbered-menu",
+      "prop": "h",
+      "target": 208,
+      "tol": 1
+    },
+    {
+      "id": "menus.numbered.x",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-numbered",
+      "kind": "box",
+      "selector": ".numbered-menu",
+      "prop": "x",
+      "relativeTo": {
+        "selector": ".toolbar .fold-numbered",
+        "prop": "x"
+      },
+      "target": 0,
+      "tol": 1,
+      "note": "Docs hangs the menu from the tool's left edge (for lists, the glyph half, not the caret)."
+    },
+    {
+      "id": "menus.numbered.y",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-numbered",
+      "kind": "box",
+      "selector": ".numbered-menu",
+      "prop": "y",
+      "relativeTo": {
+        "selector": ".toolbar .fold-numbered",
+        "prop": "bottom"
+      },
+      "target": 0,
+      "tol": 1,
+      "note": "Flush under the tool."
+    },
+    {
+      "id": "menus.align.button-pitch",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-align",
+      "kind": "box",
+      "selector": ".align-menu :nth-child(2 of .align-option)",
+      "prop": "x",
+      "relativeTo": {
+        "selector": ".align-menu .align-option",
+        "prop": "x"
+      },
+      "target": 28,
+      "tol": 1
+    },
+    {
+      "id": "menus.bullets.cell-pitch-x",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-bullets",
+      "kind": "box",
+      "selector": ".bullets-menu :nth-child(2 of .preset)",
+      "prop": "x",
+      "relativeTo": {
+        "selector": ".bullets-menu .preset",
+        "prop": "x"
+      },
+      "target": 80,
+      "tol": 1
+    },
+    {
+      "id": "menus.bullets.cell-pitch-y",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-bullets",
+      "kind": "box",
+      "selector": ".bullets-menu :nth-child(4 of .preset)",
+      "prop": "y",
+      "relativeTo": {
+        "selector": ".bullets-menu .preset",
+        "prop": "y"
+      },
+      "target": 90,
+      "tol": 1
+    },
+    {
+      "id": "menus.line-spacing.row-pitch",
+      "section": "3.8",
+      "phase": "states",
+      "viewport": 1402,
+      "screen": "menu-line-spacing",
+      "kind": "box",
+      "selector": ".spacing-menu :nth-child(2 of .menu-item)",
+      "prop": "y",
+      "relativeTo": {
+        "selector": ".spacing-menu .menu-item",
+        "prop": "y"
+      },
+      "target": 32,
+      "tol": 1
+    },
+    {
       "id": "suggestion.off-paper.1402.100",
       "section": "3.9",
       "viewport": 1402,

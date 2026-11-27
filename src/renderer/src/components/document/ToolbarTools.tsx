@@ -4,6 +4,7 @@ import { cn } from '../ui/cn'
 import { MIcon, type MaterialIconName } from '../ui/MaterialIcon'
 import { Tip } from '../ui/tooltip'
 import { openImagePicker } from './Composer'
+import { AlignMenu, ListTool, SpacingMenu } from './ToolMenus'
 
 /** Text formatting Docs shows as pressed toggles. The state is visual only. */
 export type Mark = 'bold' | 'italic' | 'underline'
@@ -45,11 +46,11 @@ export const FoldingTools = memo(function FoldingTools({
       <Decor name="add_comment" label="Add comment (⌘⌥M)" className="tb-lg fold-comment" />
       <ToolButton name="image" label="Insert image" onClick={openImagePicker} className="tb-lg tb-menu fold-image" />
       <span className="divider fold-image" aria-hidden="true" />
-      <Decor name="format_align_left" label="Align & indent" caret className="tb-menu fold-align" />
-      <Decor name="format_line_spacing" label="Line & paragraph spacing" className="tb-menu fold-spacing" />
-      <Decor name="checklist" label="Checklist (⌘⇧9)" caret className="tb-split fold-checklist" />
-      <Decor name="format_list_bulleted" label="Bulleted list (⌘⇧8)" caret className="tb-split fold-bullets" />
-      <Decor name="format_list_numbered" label="Numbered list (⌘⇧7)" caret className="tb-split fold-numbered" />
+      <AlignMenu />
+      <SpacingMenu />
+      <ListTool kind="checklist" />
+      <ListTool kind="bullets" />
+      <ListTool kind="numbered" />
       <Decor name="format_indent_decrease" label="Decrease indent (⌘[)" className="fold-outdent" />
       <Decor name="format_indent_increase" label="Increase indent (⌘])" className="fold-indent" />
       <Decor name="format_clear" label="Clear formatting (⌘\\)" className="fold-clear" />
@@ -87,19 +88,16 @@ export function Decor({
   name,
   label,
   className,
-  caret,
 }: {
   name: MaterialIconName
   /** Docs' tooltip for the tool. */
   label: string
   className?: string
-  caret?: boolean
 }) {
   return (
     <Tip label={label}>
-      <span className={cn('toolbar-icon', caret && 'with-caret', className)} aria-hidden="true">
+      <span className={cn('toolbar-icon', className)} aria-hidden="true">
         <MIcon name={name} />
-        {caret ? <MIcon name="arrow_drop_down" className="tb-caret" /> : null}
       </span>
     </Tip>
   )

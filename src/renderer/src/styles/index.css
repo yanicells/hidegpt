@@ -11,6 +11,7 @@
 @import './templates.css' layer(components);
 @import './header.css' layer(components);
 @import './toolbar.css' layer(components);
+@import './tool-menus.css' layer(components);
 @import './rail.css' layer(components);
 @import './print.css' layer(components);
 @import './workspace.css' layer(components);
