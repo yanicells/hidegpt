@@ -21,7 +21,7 @@ or adapted file carries a header naming its source.
     usage-limit reset time (`codexErrorInfoCode`, `codexUsageLimitError` in
     `apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts`;
     `apps/server/src/provider/codexUsageLimits.ts`), MCP elicitation app names
-    replies, including the one-time choice picked on Allow
+    and replies, including the one-time choice picked on Allow
     (`apps/server/src/provider/CodexMcpElicitation.ts`), and
     MCP tool titles (`apps/server/src/provider/CodexToolPresentation.ts`), from
     commit 5c6f2f12.
